@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alimentați soldul — Lex</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="/ro/"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="/ro/account/" class="btn btn-ghost">Înapoi la cont</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+    <h1>Alimentați soldul</h1>
+
+    <form id="checkout-form" class="acct-form" novalidate>
+      <label for="co-amount">Suma, USD</label>
+      <input id="co-amount" type="number" min="1" max="1000" step="1" value="10" inputmode="decimal" required>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-terms">
+        <span>Am citit și accept Termenii și Politica de returnare. <a href="/ro/terms/" target="_blank" rel="noopener">↗</a></span>
+      </label>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-now">
+        <span>Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.</span>
+      </label>
+
+      <p id="co-error" class="acct-error" hidden></p>
+      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Comandă cu obligație de plată</button>
+    </form>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="/ro/"><span class="dot"></span>Lex</a>
+    <div class="foot-links"><a href="/ro/contact/">Contacte</a>
+      <a href="/ro/privacy/">Confidențialitate</a>
+      <a href="/ro/terms/">Termeni</a>
+      <a href="/ro/refunds/">Returnări</a></div>
+    <div class="foot-copy">Lex — engleză pe videoclipurile pe care oricum le vezi. © 2026</div>
+  </div>
+</footer>
+
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Introduceți o sumă între 1 și 1000 USD.", "err_agree": "Bifați ambele căsuțe.", "err_auth": "Autentificați-vă mai întâi.", "no_provider": "Plata cu cardul nu este încă activată. Comanda a fost salvată și nu s-a debitat nimic."};</script>
+<script src="/assets/config.js"></script>
+<script src="/assets/checkout.js"></script>
+</body>
+</html>

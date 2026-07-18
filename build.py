@@ -273,7 +273,7 @@ def account_page(lang):
         <div class="bl">{a['balance']}</div>
         <div class="balance-amt" id="acct-balance">—</div>
         <div class="bctas">
-          <button class="btn btn-topup" type="button" disabled>{a['topup']}</button>
+          <a class="btn btn-topup" href="{HREF[lang]}checkout/">{a['topup']}</a>
         </div>
         <p class="acct-soon">{a['topup_soon']}</p>
       </div>
@@ -296,6 +296,119 @@ def account_page(lang):
 <script>window.LEX_ACCOUNT_TEXT = {runtime};</script>
 <script src="/assets/config.js"></script>
 <script src="/assets/auth.js"></script>
+</body>
+</html>
+"""
+
+
+CHECKOUT = {
+    "en": {
+        "title": "Top up your balance", "amount": "Amount, USD",
+        "agree_terms": "I have read and accept the Terms and the Refund Policy.",
+        # Civil Code art. 1065(1)(m): the withdrawal right is only lost if the
+        # customer expressly consents to immediate performance AND acknowledges
+        # losing it. Separate box, never pre-ticked (art. 1065(2)).
+        "agree_now": "I ask you to start immediately and understand that I lose the 14-day right of withdrawal for the part of the balance I actually use.",
+        # art. 1017(4): the order button must carry an unambiguous label.
+        "pay": "Order with obligation to pay",
+        "back": "Back to your account",
+        "err_amount": "Enter an amount between $1 and $1000.",
+        "err_agree": "Please tick both boxes.",
+        "err_auth": "Please sign in first.",
+        "no_provider": "Card payment is not connected yet. Your order was saved and nothing was charged.",
+    },
+    "ro": {
+        "title": "Alimentați soldul", "amount": "Suma, USD",
+        "agree_terms": "Am citit și accept Termenii și Politica de returnare.",
+        "agree_now": "Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.",
+        "pay": "Comandă cu obligație de plată",
+        "back": "Înapoi la cont",
+        "err_amount": "Introduceți o sumă între 1 și 1000 USD.",
+        "err_agree": "Bifați ambele căsuțe.",
+        "err_auth": "Autentificați-vă mai întâi.",
+        "no_provider": "Plata cu cardul nu este încă activată. Comanda a fost salvată și nu s-a debitat nimic.",
+    },
+    "ru": {
+        "title": "Пополнение баланса", "amount": "Сумма, USD",
+        "agree_terms": "Я прочитал и принимаю Условия и Правила возврата.",
+        "agree_now": "Прошу начать оказание услуги сразу и понимаю, что теряю право на отказ в течение 14 дней в части баланса, которую фактически израсходую.",
+        "pay": "Заказ с обязательством оплаты",
+        "back": "Вернуться в аккаунт",
+        "err_amount": "Введите сумму от 1 до 1000 USD.",
+        "err_agree": "Отметьте оба пункта.",
+        "err_auth": "Сначала войдите в аккаунт.",
+        "no_provider": "Оплата картой пока не подключена. Заказ сохранён, деньги не списаны.",
+    },
+}
+
+
+def checkout_page(lang):
+    k = {key: e(v) for key, v in CHECKOUT[lang].items()}
+    c = {key: e(v) for key, v in COPY[lang].items()}
+    nav = LEGAL_NAV[lang]
+    runtime = json.dumps({
+        key: CHECKOUT[lang][key]
+        for key in ("err_amount", "err_agree", "err_auth", "no_provider")
+    }, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{k['title']} — Lex</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['back']}</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+    <h1>{k['title']}</h1>
+
+    <form id="checkout-form" class="acct-form" novalidate>
+      <label for="co-amount">{k['amount']}</label>
+      <input id="co-amount" type="number" min="1" max="1000" step="1" value="10" inputmode="decimal" required>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-terms">
+        <span>{k['agree_terms']} <a href="{legal_href(lang, 'terms')}" target="_blank" rel="noopener">↗</a></span>
+      </label>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-now">
+        <span>{k['agree_now']}</span>
+      </label>
+
+      <p id="co-error" class="acct-error" hidden></p>
+      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">{k['pay']}</button>
+    </form>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="foot-links">{foot_links(lang)}</div>
+    <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+</footer>
+
+<script>window.LEX_CHECKOUT_TEXT = {runtime};</script>
+<script src="/assets/config.js"></script>
+<script src="/assets/checkout.js"></script>
 </body>
 </html>
 """
@@ -600,6 +713,11 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
         (d / "index.html").write_text(account_page(lang), encoding="utf-8")
         print(f"wrote {HREF[lang]}account/index.html")
+
+        co = ROOT / (f"{HREF[lang].strip('/')}/checkout" if lang != "en" else "checkout")
+        co.mkdir(parents=True, exist_ok=True)
+        (co / "index.html").write_text(checkout_page(lang), encoding="utf-8")
+        print(f"wrote {HREF[lang]}checkout/index.html")
 
     if missing:
         # Not fatal: the footer of every language links to these, so a missing

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Top up your balance — Lex</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="/"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="/account/" class="btn btn-ghost">Back to your account</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+    <h1>Top up your balance</h1>
+
+    <form id="checkout-form" class="acct-form" novalidate>
+      <label for="co-amount">Amount, USD</label>
+      <input id="co-amount" type="number" min="1" max="1000" step="1" value="10" inputmode="decimal" required>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-terms">
+        <span>I have read and accept the Terms and the Refund Policy. <a href="/terms/" target="_blank" rel="noopener">↗</a></span>
+      </label>
+
+      <label class="co-check">
+        <input type="checkbox" id="co-now">
+        <span>I ask you to start immediately and understand that I lose the 14-day right of withdrawal for the part of the balance I actually use.</span>
+      </label>
+
+      <p id="co-error" class="acct-error" hidden></p>
+      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Order with obligation to pay</button>
+    </form>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="/"><span class="dot"></span>Lex</a>
+    <div class="foot-links"><a href="/contact/">Contact</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="/terms/">Terms</a>
+      <a href="/refunds/">Refunds</a></div>
+    <div class="foot-copy">Lex — English on the videos you already watch. © 2026</div>
+  </div>
+</footer>
+
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $1 and $1000.", "err_agree": "Please tick both boxes.", "err_auth": "Please sign in first.", "no_provider": "Card payment is not connected yet. Your order was saved and nothing was charged."};</script>
+<script src="/assets/config.js"></script>
+<script src="/assets/checkout.js"></script>
+</body>
+</html>
