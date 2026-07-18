@@ -246,6 +246,38 @@ footer{padding:44px 0;border-top:1px solid var(--line)}
 .foot-links a:hover{color:var(--ink)}
 .foot-copy{font-size:13px;color:var(--muted);font-family:"JetBrains Mono",monospace}
 
+/* ---------- legal documents ---------- */
+/* Long prose, read rarely but read carefully when it is read — so: a narrow
+ * measure, generous leading, and headings that let you skim to the clause you
+ * came for. */
+.doc{padding:56px 0 90px}
+.doc-wrap{max-width:74ch}
+.doc h1{font-size:clamp(30px,4.2vw,42px);margin-bottom:28px}
+.doc h2{font-size:clamp(21px,2.6vw,26px);margin:44px 0 14px;padding-top:14px;border-top:1px solid var(--line)}
+.doc h2:first-of-type{border-top:none;padding-top:0}
+.doc h3{font-size:18px;margin:28px 0 10px}
+.doc h4{font-size:16px;margin:22px 0 8px}
+.doc p{margin:0 0 16px}
+.doc ul,.doc ol{margin:0 0 18px 22px;display:flex;flex-direction:column;gap:8px}
+.doc li{padding-left:4px}
+.doc hr{border:none;border-top:1px solid var(--line);margin:36px 0}
+.doc strong{font-weight:600}
+.doc code{
+  font-family:"JetBrains Mono",monospace;font-size:.88em;
+  background:var(--paper-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;
+}
+.doc a{color:var(--brand-ink);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.doc a:hover{background:var(--hl);text-decoration:none;border-radius:3px}
+
+/* Wide tables scroll inside their own box rather than pushing the page sideways. */
+.table-scroll{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:var(--r)}
+.doc table{border-collapse:collapse;width:100%;font-size:15px}
+.doc th,.doc td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+.doc thead th{background:var(--paper-2);font-weight:600;white-space:nowrap}
+.doc tbody tr:last-child td{border-bottom:none}
+
+header .brand{text-decoration:none}
+
 /* ---------- product mockups ---------- */
 /* Drawn, not photographed. Real screenshots would carry a frame of somebody
  * else's YouTube video onto a commercial page; these show Lex's own interface

@@ -15,8 +15,35 @@ import html
 import json
 import pathlib
 
+import md
+
 ROOT = pathlib.Path(__file__).parent
 COPY = json.loads((ROOT / "copy.json").read_text(encoding="utf-8"))
+
+# Legal pages. Sources are markdown under legal/ (English) and legal/<lang>/ for
+# translations; each becomes its own directory so the URL has no .html in it.
+LEGAL = [
+    ("terms", "terms"),
+    ("privacy", "privacy"),
+    ("refunds", "refunds"),
+    ("contact", "contact"),
+]
+LEGAL_TITLES = {
+    "en": {"terms": "Terms and Conditions", "privacy": "Privacy Policy",
+           "refunds": "Refund Policy", "contact": "Contact and company details"},
+    "ro": {"terms": "Termeni și Condiții", "privacy": "Politica de confidențialitate",
+           "refunds": "Politica de returnare", "contact": "Contacte și date de identificare"},
+    "ru": {"terms": "Условия использования", "privacy": "Политика конфиденциальности",
+           "refunds": "Условия возврата", "contact": "Контакты и реквизиты"},
+}
+LEGAL_NAV = {
+    "en": {"terms": "Terms", "privacy": "Privacy", "refunds": "Refunds",
+           "contact": "Contact", "home": "Home"},
+    "ro": {"terms": "Termeni", "privacy": "Confidențialitate", "refunds": "Returnări",
+           "contact": "Contacte", "home": "Acasă"},
+    "ru": {"terms": "Условия", "privacy": "Конфиденциальность", "refunds": "Возвраты",
+           "contact": "Контакты", "home": "На главную"},
+}
 
 STORE_URL = "https://chromewebstore.google.com/detail/lex/bfdbiphpcnjbofngcnjjdbnolcgaaidl"
 
@@ -130,6 +157,80 @@ def alternates():
     ]
     rows.append('<link rel="alternate" hreflang="x-default" href="https://lex-me.club/">')
     return "\n".join(rows)
+
+
+def legal_href(lang, key):
+    return f"{HREF[lang]}{key}/"
+
+
+def foot_links(lang):
+    nav = LEGAL_NAV[lang]
+    parts = [
+        f'<a href="{legal_href(lang, k)}">{nav[k]}</a>'
+        for k in ("contact", "privacy", "terms", "refunds")
+    ]
+    return "\n      ".join(parts)
+
+
+def legal_page(lang, key):
+    """Render one legal document. Same shell as the landing, prose in the middle."""
+    src = ROOT / "legal" / ("" if lang == "en" else lang) / f"{key}.md"
+    if not src.exists():
+        return None
+
+    title = LEGAL_TITLES[lang][key]
+    nav = LEGAL_NAV[lang]
+    body = md.render(src.read_text(encoding="utf-8"))
+    c = {k: e(v) for k, v in COPY[lang].items()}
+
+    alts = "\n".join(
+        f'<link rel="alternate" hreflang="{l}" href="https://lex-me.club{legal_href(l, key)}">'
+        for l in LANGS
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{e(title)} — Lex</title>
+<meta name="robots" content="index, follow">
+{alts}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="{HREF[lang]}" class="btn btn-ghost">{nav['home']}</a>
+      <a href="{STORE_URL}" class="btn btn-primary" target="_blank" rel="noopener">{c['nav_install']}</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap doc-wrap">
+    <h1>{e(title)}</h1>
+    {body}
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="foot-links">{foot_links(lang)}</div>
+    <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+</footer>
+
+</body>
+</html>
+"""
 
 
 def page(lang):
@@ -314,11 +415,7 @@ def page(lang):
 <footer>
   <div class="wrap foot">
     <div class="brand"><span class="dot"></span>Lex</div>
-    <div class="foot-links">
-      <a href="#">{c['foot_support']}</a>
-      <a href="#">{c['foot_privacy']}</a>
-      <a href="#">{c['foot_terms']}</a>
-    </div>
+    <div class="foot-links">{foot_links(lang)}</div>
     <div class="foot-copy">{c['foot_copy']}</div>
   </div>
 </footer>
@@ -343,6 +440,23 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(page(lang), encoding="utf-8")
         print(f"wrote {OUT[lang]} ({len(COPY[lang])} slots)")
+
+    missing = []
+    for lang in LANGS:
+        for key, _ in LEGAL:
+            rendered = legal_page(lang, key)
+            if rendered is None:
+                missing.append(f"{lang}/{key}")
+                continue
+            d = ROOT / (legal_href(lang, key).strip("/"))
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "index.html").write_text(rendered, encoding="utf-8")
+            print(f"wrote {legal_href(lang, key)}index.html")
+
+    if missing:
+        # Not fatal: the footer of every language links to these, so a missing
+        # translation is a dead link and must be visible, not silent.
+        print(f"\nMISSING legal sources (footer links will 404): {', '.join(missing)}")
 
 
 if __name__ == "__main__":
