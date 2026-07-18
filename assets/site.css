@@ -278,6 +278,30 @@ footer{padding:44px 0;border-top:1px solid var(--line)}
 
 header .brand{text-decoration:none}
 
+/* ---------- account ---------- */
+.acct-wrap{max-width:520px}
+.acct-loading{color:var(--muted);padding:40px 0}
+.acct-lead{color:var(--muted);margin:0 0 24px}
+.acct-form{display:flex;flex-direction:column;gap:6px;margin-bottom:20px}
+.acct-form label{font-size:14px;font-weight:600;margin-top:12px}
+.acct-form input{
+  font:inherit;font-size:16px;padding:12px 14px;border:1.5px solid var(--line);
+  border-radius:12px;background:#fff;color:var(--ink);
+}
+.acct-form input:focus{outline:none;border-color:var(--brand)}
+.acct-form button{margin-top:18px;justify-content:center}
+.acct-error{color:#c02626;font-size:14px;margin:10px 0 0}
+.acct-note{color:var(--muted);font-size:14.5px;margin-top:20px}
+.acct-note a{color:var(--brand-ink);text-decoration:underline}
+.acct-card{margin:0 0 36px}
+.acct-card .balance-amt{font-size:44px}
+.acct-card .balance-amt.is-zero{color:#ff8a8a}
+.acct-soon{color:var(--video-muted);font-size:13px;margin:14px 0 0}
+#ledger td:last-child,#ledger th:last-child{text-align:right;white-space:nowrap}
+#ledger td.neg{color:var(--muted)}
+#ledger td.pos{color:#1a7f37;font-weight:600}
+.ledger-empty{color:var(--muted)}
+
 /* ---------- product mockups ---------- */
 /* Drawn, not photographed. Real screenshots would carry a frame of somebody
  * else's YouTube video onto a commercial page; these show Lex's own interface

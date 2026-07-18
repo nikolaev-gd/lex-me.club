@@ -159,6 +159,148 @@ def alternates():
     return "\n".join(rows)
 
 
+# Account page. Short UI labels only — no legal prose — so they live here rather
+# than in copy.json, which is the landing page's text.
+ACCOUNT = {
+    "en": {
+        "title": "Your account", "signin": "Sign in", "signin_lead":
+        "Sign in with the same account you use in the extension.",
+        "email": "Email", "password": "Password", "submit": "Sign in",
+        "bad": "Wrong email or password.",
+        "no_account": "No account yet? Install the extension and create one there.",
+        "install": "Get Lex for Chrome",
+        "balance": "Balance", "topup": "Top up", "topup_soon":
+        "Card payment is not connected yet. It is being set up.",
+        "signout": "Sign out", "history": "History",
+        "date": "Date", "what": "What", "amount": "Amount",
+        "row_topup": "Top-up", "row_lesson": "Lessons", "empty": "Nothing yet.",
+        "loading": "Loading…",
+    },
+    "ro": {
+        "title": "Contul dumneavoastră", "signin": "Autentificare", "signin_lead":
+        "Autentificați-vă cu același cont pe care îl folosiți în extensie.",
+        "email": "E-mail", "password": "Parola", "submit": "Intră",
+        "bad": "E-mail sau parolă greșită.",
+        "no_account": "Nu aveți încă un cont? Instalați extensia și creați-l acolo.",
+        "install": "Instalați Lex pentru Chrome",
+        "balance": "Sold", "topup": "Alimentează", "topup_soon":
+        "Plata cu cardul nu este încă activată. Este în curs de configurare.",
+        "signout": "Ieșire", "history": "Istoric",
+        "date": "Data", "what": "Operațiune", "amount": "Sumă",
+        "row_topup": "Alimentare", "row_lesson": "Lecții", "empty": "Încă nimic.",
+        "loading": "Se încarcă…",
+    },
+    "ru": {
+        "title": "Ваш аккаунт", "signin": "Вход", "signin_lead":
+        "Войдите тем же аккаунтом, которым пользуетесь в расширении.",
+        "email": "Почта", "password": "Пароль", "submit": "Войти",
+        "bad": "Неверная почта или пароль.",
+        "no_account": "Ещё нет аккаунта? Установите расширение и создайте его там.",
+        "install": "Установить Lex для Chrome",
+        "balance": "Баланс", "topup": "Пополнить", "topup_soon":
+        "Оплата картой пока не подключена, идёт настройка.",
+        "signout": "Выйти", "history": "История",
+        "date": "Дата", "what": "Операция", "amount": "Сумма",
+        "row_topup": "Пополнение", "row_lesson": "Занятия", "empty": "Пока пусто.",
+        "loading": "Загрузка…",
+    },
+}
+
+
+def account_page(lang):
+    a = {k: e(v) for k, v in ACCOUNT[lang].items()}
+    c = {k: e(v) for k, v in COPY[lang].items()}
+    nav = LEGAL_NAV[lang]
+
+    # Only the strings auth.js needs at runtime, as JSON.
+    runtime = json.dumps({
+        "badLogin": ACCOUNT[lang]["bad"], "date": ACCOUNT[lang]["date"],
+        "what": ACCOUNT[lang]["what"], "amount": ACCOUNT[lang]["amount"],
+        "topup": ACCOUNT[lang]["row_topup"], "lesson": ACCOUNT[lang]["row_lesson"],
+        "empty": ACCOUNT[lang]["empty"],
+    }, ensure_ascii=False)
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{a['title']} — Lex</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="{HREF[lang]}" class="btn btn-ghost">{nav['home']}</a>
+      <button id="signout" class="btn btn-ghost" type="button">{a['signout']}</button>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+
+    <div id="view-loading" class="acct-loading">{a['loading']}</div>
+
+    <section id="view-signin" hidden>
+      <h1>{a['signin']}</h1>
+      <p class="acct-lead">{a['signin_lead']}</p>
+      <form id="signin-form" class="acct-form" novalidate>
+        <label for="signin-email">{a['email']}</label>
+        <input id="signin-email" type="email" autocomplete="email" required>
+        <label for="signin-password">{a['password']}</label>
+        <input id="signin-password" type="password" autocomplete="current-password" required>
+        <p id="signin-error" class="acct-error" hidden></p>
+        <button id="signin-submit" class="btn btn-primary btn-lg" type="submit">{a['submit']}</button>
+      </form>
+      <p class="acct-note">{a['no_account']}
+        <a href="{STORE_URL}" target="_blank" rel="noopener">{a['install']}</a>
+      </p>
+    </section>
+
+    <section id="view-account" hidden>
+      <h1>{a['title']}</h1>
+      <p class="acct-lead" id="acct-email"></p>
+
+      <div class="balance-card acct-card">
+        <div class="bl">{a['balance']}</div>
+        <div class="balance-amt" id="acct-balance">—</div>
+        <div class="bctas">
+          <button class="btn btn-topup" type="button" disabled>{a['topup']}</button>
+        </div>
+        <p class="acct-soon">{a['topup_soon']}</p>
+      </div>
+
+      <h2>{a['history']}</h2>
+      <div id="ledger"></div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="foot-links">{foot_links(lang)}</div>
+    <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+</footer>
+
+<script>window.LEX_ACCOUNT_TEXT = {runtime};</script>
+<script src="/assets/config.js"></script>
+<script src="/assets/auth.js"></script>
+</body>
+</html>
+"""
+
+
 def legal_href(lang, key):
     return f"{HREF[lang]}{key}/"
 
@@ -452,6 +594,12 @@ def main():
             d.mkdir(parents=True, exist_ok=True)
             (d / "index.html").write_text(rendered, encoding="utf-8")
             print(f"wrote {legal_href(lang, key)}index.html")
+
+    for lang in LANGS:
+        d = ROOT / (f"{HREF[lang].strip('/')}/account" if lang != "en" else "account")
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "index.html").write_text(account_page(lang), encoding="utf-8")
+        print(f"wrote {HREF[lang]}account/index.html")
 
     if missing:
         # Not fatal: the footer of every language links to these, so a missing
