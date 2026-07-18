@@ -83,8 +83,18 @@ def sub_line_html():
 
 
 def lang_switch(current):
+    """Two options at most: this page's language and English. Never three.
+
+    On /ro/ and /ru/ the pair is fixed, so it is rendered here. On the English
+    page there is nothing to offer a genuinely English-speaking visitor, so an
+    empty slot is left and lang.js fills it only for someone whose browser is
+    Russian or Romanian (or who switched to English by hand).
+    """
+    if current == "en":
+        return '<span data-lang-slot></span>'
+
     out = ['<nav class="lang-switch" aria-label="Language">']
-    for lang in LANGS:
+    for lang in (current, "en"):
         active = " is-active" if lang == current else ""
         aria = ' aria-current="true"' if lang == current else ""
         out.append(
