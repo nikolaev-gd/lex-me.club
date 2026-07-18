@@ -246,6 +246,46 @@ footer{padding:44px 0;border-top:1px solid var(--line)}
 .foot-links a:hover{color:var(--ink)}
 .foot-copy{font-size:13px;color:var(--muted);font-family:"JetBrains Mono",monospace}
 
+/* ---------- product mockups ---------- */
+/* Drawn, not photographed. Real screenshots would carry a frame of somebody
+ * else's YouTube video onto a commercial page; these show Lex's own interface
+ * and nothing else. Swap for real captures once there is a video we own. */
+.mock{
+  aspect-ratio:4/3;background:var(--video);border-bottom:1px solid var(--line);
+  padding:18px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
+  font-size:13px;line-height:1.45;
+}
+.mock-label{
+  font-family:"JetBrains Mono",monospace;font-size:9.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--video-muted);
+}
+.mock-line{color:var(--video-muted);opacity:.72}
+.mock-line.on{color:var(--video-text);opacity:1;font-weight:500}
+.mock-line.on .mark{background:var(--hl);color:var(--ink);border-radius:3px;padding:0 3px}
+
+.mock-bubble{
+  align-self:flex-end;max-width:78%;background:var(--brand);color:#fff;
+  padding:8px 11px;border-radius:12px 12px 4px 12px;font-weight:500;
+}
+.mock-answer{
+  background:var(--video-2);color:var(--video-text);border:1px solid var(--video-line);
+  padding:10px 12px;border-radius:12px 12px 12px 4px;
+}
+.mock-answer .mark{background:var(--hl);color:var(--ink);border-radius:3px;padding:0 3px;font-weight:600}
+
+.mock-spacer{flex:1}
+.mock-voice{
+  display:flex;align-items:center;gap:10px;background:var(--video-2);
+  border:1px solid var(--video-line);border-radius:999px;padding:9px 14px;
+}
+.mock-wave{display:flex;align-items:center;gap:3px;flex:1;height:22px}
+.mock-wave i{flex:1;background:var(--hl);border-radius:2px;opacity:.85;display:block}
+.mock-dot{width:8px;height:8px;border-radius:50%;background:#34c759;flex:none}
+.mock-live{
+  font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--video-muted);
+  letter-spacing:.06em;flex:none;
+}
+
 /* ---------- language switcher ---------- */
 /* Plain links, no scripting and no country guessing: English is what everyone
  * gets, and anyone who wants another language clicks for it. */

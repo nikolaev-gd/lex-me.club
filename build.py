@@ -28,6 +28,40 @@ SUB_LINE = [
     ("breathing", 0), ("down", 0), ("her", 0), ("neck", 0),
 ]
 
+# Drawn mockups of Lex's own interface, in place of real screenshots. A real
+# capture would put a frame of somebody else's YouTube video on a commercial
+# page — every video in the test set is a copyrighted clip, most of them
+# political. These are pure CSS, carry no third-party content, and get replaced
+# with real captures once Gennady supplies a video we are free to show.
+# Sample sentences below are invented for the mockup, not taken from any video.
+WAVE = "".join(
+    f'<i style="height:{h}%"></i>' for h in
+    [28, 52, 88, 44, 70, 96, 36, 60, 82, 30, 48, 74, 92, 40, 26, 56, 78, 34]
+)
+
+MOCKS = {
+    "en": [
+        f"""<div class="mock-label">Subtitles by Lex</div>
+        <div class="mock-line">And that is roughly where the whole idea came from.</div>
+        <div class="mock-line on">She kept <span class="mark">putting it off</span> until the deadline was breathing down her neck.</div>
+        <div class="mock-line">By then there was no clean way out of it.</div>
+        <div class="mock-line">So we did the only thing that was left.</div>""",
+
+        f"""<div class="mock-label">Lex</div>
+        <div class="mock-bubble">What does “breathing down her neck” mean here?</div>
+        <div class="mock-answer">It is pressure that is close and constant — the deadline is not far off any more, it is right behind her. Same shape as <span class="mark">running out of time</span>, but it puts a person or a date at your shoulder.</div>""",
+
+        f"""<div class="mock-label">Voice</div>
+        <div class="mock-answer">Try saying it back to me — when did you last put something off?</div>
+        <div class="mock-spacer"></div>
+        <div class="mock-voice"><span class="mock-dot"></span><span class="mock-wave">{WAVE}</span><span class="mock-live">LIVE</span></div>""",
+    ],
+}
+# Romanian and Russian reuse the same drawn interface: the subtitles and the
+# teacher's reply are English because that is what is being learned.
+MOCKS["ro"] = MOCKS["en"]
+MOCKS["ru"] = MOCKS["en"]
+
 LANGS = ["en", "ro", "ru"]
 OUT = {"en": "index.html", "ro": "ro/index.html", "ru": "ru/index.html"}
 HREF = {"en": "/", "ro": "/ro/", "ru": "/ru/"}
@@ -173,15 +207,15 @@ def page(lang):
     <h2 class="sec-title">{c['shots_title']}</h2>
     <div class="shots">
       <div class="shot">
-        <div class="shot-img"><div class="ph-ico"></div><span class="ph-tx">screenshot 1</span></div>
+        <div class="mock">{MOCKS[lang][0]}</div>
         <div class="cap"><h3>{c['shot1_h']}</h3><p>{c['shot1_p']}</p></div>
       </div>
       <div class="shot">
-        <div class="shot-img"><div class="ph-ico"></div><span class="ph-tx">screenshot 2</span></div>
+        <div class="mock">{MOCKS[lang][1]}</div>
         <div class="cap"><h3>{c['shot2_h']}</h3><p>{c['shot2_p']}</p></div>
       </div>
       <div class="shot">
-        <div class="shot-img"><div class="ph-ico"></div><span class="ph-tx">screenshot 3</span></div>
+        <div class="mock">{MOCKS[lang][2]}</div>
         <div class="cap"><h3>{c['shot3_h']}</h3><p>{c['shot3_p']}</p></div>
       </div>
     </div>
