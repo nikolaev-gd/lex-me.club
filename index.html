@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+(function(){try{
+  if(localStorage.getItem('lexLangPick'))return;
+  var l=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||''];
+  for(var i=0;i<l.length;i++){var t=String(l[i]||'').toLowerCase();
+    if(t==='ru'||t.indexOf('ru-')===0){location.replace('/ru/');return;}
+    if(t==='ro'||t.indexOf('ro-')===0||t==='mo'||t.indexOf('mo-')===0){location.replace('/ro/');return;}
+    if(t==='en'||t.indexOf('en-')===0)return;
+  }
+}catch(e){}})();
+</script>
 <title>Lex — an English teacher inside your YouTube</title>
 <meta name="description" content="Lex is a Chrome extension that turns any YouTube video you already want to watch into an English lesson: its own readable subtitles, plus a teacher who has the video in context — by text or voice.">
 <link rel="alternate" hreflang="en" href="https://lex-me.club/">

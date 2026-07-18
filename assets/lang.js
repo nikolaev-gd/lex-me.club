@@ -54,16 +54,10 @@
   var current = (document.documentElement.getAttribute('lang') || 'en').slice(0, 2);
   if (!PATH[current]) current = 'en';
 
-  /* ---- redirect ------------------------------------------------------- */
-  /* Only from the English page, only when the visitor has never picked by
-     hand. /ro/ and /ru/ are deliberate destinations and are left alone. */
-  if (current === 'en' && !pick()) {
-    var want = browserLang();
-    if (want !== 'en') {
-      location.replace(PATH[want]);
-      return;
-    }
-  }
+  /* The redirect itself is NOT here — it is inlined in <head> by build.py so
+     it runs before the browser paints. Doing it from this file meant the
+     English page rendered first and visibly flipped to /ru/. This file only
+     builds the switcher, which needs the DOM anyway. */
 
   /* ---- switcher -------------------------------------------------------- */
   /* Exactly two options, or none. On /ro/ and /ru/ the pair is already in the

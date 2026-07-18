@@ -62,6 +62,24 @@ MOCKS = {
 MOCKS["ro"] = MOCKS["en"]
 MOCKS["ru"] = MOCKS["en"]
 
+# Redirect decision, inlined in <head> and synchronous, so it runs BEFORE the
+# browser paints anything. With the script at the end of <body> a Russian
+# visitor saw the whole English page render and only then get thrown to /ru/ —
+# visible, slow and silly. Blocking here costs a fraction of a millisecond (no
+# network, no parsing) and the wrong language is never painted at all.
+# Only the English page carries it: /ro/ and /ru/ are deliberate destinations.
+REDIRECT_HEAD = """<script>
+(function(){try{
+  if(localStorage.getItem('lexLangPick'))return;
+  var l=(navigator.languages&&navigator.languages.length)?navigator.languages:[navigator.language||''];
+  for(var i=0;i<l.length;i++){var t=String(l[i]||'').toLowerCase();
+    if(t==='ru'||t.indexOf('ru-')===0){location.replace('/ru/');return;}
+    if(t==='ro'||t.indexOf('ro-')===0||t==='mo'||t.indexOf('mo-')===0){location.replace('/ro/');return;}
+    if(t==='en'||t.indexOf('en-')===0)return;
+  }
+}catch(e){}})();
+</script>"""
+
 LANGS = ["en", "ro", "ru"]
 OUT = {"en": "index.html", "ro": "ro/index.html", "ru": "ru/index.html"}
 HREF = {"en": "/", "ro": "/ro/", "ru": "/ru/"}
@@ -121,6 +139,7 @@ def page(lang):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{REDIRECT_HEAD if lang == 'en' else ''}
 <title>{c['page_title']}</title>
 <meta name="description" content="{c['meta_description']}">
 {alternates()}
