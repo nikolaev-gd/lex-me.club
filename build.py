@@ -511,7 +511,7 @@ def page(lang):
     <div class="brand"><span class="dot"></span>Lex</div>
     <div class="nav-actions">
       {lang_switch(lang)}
-      <a href="#login" class="btn btn-ghost">{c['nav_login']}</a>
+      <a href="{HREF[lang]}account/" class="btn btn-ghost">{c['nav_login']}</a>
       <a href="{STORE_URL}" class="btn btn-primary" target="_blank" rel="noopener">{c['nav_install']}</a>
     </div>
   </div>
@@ -649,20 +649,20 @@ def page(lang):
       <div class="balance-amt"><span class="cur">$</span><span id="bal">10.00</span></div>
       <div class="balance-sub">{c['balance_sub']}</div>
       <div class="bctas">
-        <a href="#topup" class="btn btn-topup">{c['balance_cta_topup']}</a>
-        <a href="#login" class="btn btn-ghost" style="color:var(--video-text);border-color:var(--video-line)">{c['balance_cta_login']}</a>
+        <a href="{HREF[lang]}checkout/" class="btn btn-topup">{c['balance_cta_topup']}</a>
+        <a href="{HREF[lang]}account/" class="btn btn-ghost" style="color:var(--video-text);border-color:var(--video-line)">{c['balance_cta_login']}</a>
       </div>
     </div>
   </div>
 </section>
 
-<section class="final" id="login">
+<section class="final">
   <div class="wrap">
     <h2>{c['final_h2_plain']}<span class="hl">{c['final_h2_highlight']}</span></h2>
     <p class="fsub">{c['final_sub']}</p>
     <div class="final-cta">
       <a href="{STORE_URL}" class="btn btn-onink btn-lg" target="_blank" rel="noopener">{c['final_cta_primary']}</a>
-      <a href="#login" class="btn btn-onink-ghost btn-lg">{c['final_cta_ghost']}</a>
+      <a href="{HREF[lang]}account/" class="btn btn-onink-ghost btn-lg">{c['final_cta_ghost']}</a>
     </div>
   </div>
 </section>
