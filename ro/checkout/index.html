@@ -27,7 +27,7 @@
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Suma, USD</label>
-      <input id="co-amount" type="number" min="1" max="1000" step="1" value="10" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
 
       <label class="co-check">
         <input type="checkbox" id="co-terms">
@@ -40,6 +40,18 @@
       </label>
 
       <p id="co-error" class="acct-error" hidden></p>
+      <div id="co-signin" class="co-signin" hidden>
+        <h2>Autentificați-vă pentru a continua</h2>
+        <p class="co-signin-note">Același cont Lex ca în extensie.</p>
+        <form id="co-signin-form" novalidate>
+          <label for="co-signin-email">Email</label>
+          <input id="co-signin-email" type="email" autocomplete="email" required>
+          <label for="co-signin-password">Parolă</label>
+          <input id="co-signin-password" type="password" autocomplete="current-password" required>
+          <p id="co-signin-error" class="acct-error" hidden></p>
+          <button id="co-signin-submit" class="btn btn-ghost" type="submit">Autentificare</button>
+        </form>
+      </div>
       <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Comandă cu obligație de plată</button>
     </form>
   </div>
@@ -56,8 +68,9 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Introduceți o sumă între 1 și 1000 USD.", "err_agree": "Bifați ambele căsuțe.", "err_auth": "Autentificați-vă mai întâi.", "no_provider": "Plata cu cardul nu este încă activată. Comanda a fost salvată și nu s-a debitat nimic."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Introduceți o sumă între 10 și 200 USD.", "err_agree": "Bifați ambele căsuțe.", "err_auth": "Autentificați-vă mai întâi.", "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.", "err_badlogin": "Email sau parolă greșită."};</script>
 <script src="/assets/config.js"></script>
+<script src="/assets/auth.js"></script>
 <script src="/assets/checkout.js"></script>
 </body>
 </html>

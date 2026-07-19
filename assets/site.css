@@ -380,3 +380,19 @@ header .brand{text-decoration:none}
 .co-check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14.5px;font-weight:400;line-height:1.45;cursor:pointer}
 .co-check input{width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--brand)}
 .co-check a{color:var(--brand-ink);text-decoration:none}
+
+/* Inline sign-in on the checkout page. Hidden until an order actually needs it:
+   someone arriving from the extension already carries a session and never sees
+   this, while a logged-out visitor from the landing gets it at the moment they
+   press "order" instead of being sent away to find a login page. */
+.co-signin{margin-top:22px;padding:18px;border:1.5px solid var(--line);border-radius:var(--r);background:var(--paper-2)}
+.co-signin h2{font-size:17px;margin:0 0 4px}
+.co-signin-note{font-size:14px;color:var(--muted);margin:0 0 6px}
+.co-signin form{display:flex;flex-direction:column;gap:6px}
+.co-signin label{font-size:14px;font-weight:600;margin-top:10px}
+.co-signin input{
+  font:inherit;font-size:16px;padding:12px 14px;border:1.5px solid var(--line);
+  border-radius:12px;background:#fff;color:var(--ink);
+}
+.co-signin input:focus{outline:none;border-color:var(--brand)}
+.co-signin button{margin-top:14px;justify-content:center}

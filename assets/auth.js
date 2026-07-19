@@ -216,6 +216,14 @@
     }
   }
 
+  // Exposed so the checkout page can reuse the session handling rather than
+  // re-implementing it. It needs the refreshing version in particular: reading
+  // localStorage directly hands an expired token to the server and the customer
+  // sees "please sign in" while looking at a page that says they are signed in.
+  window.LexAuth = { session: session, signIn: signIn, signOut: signOut };
+
+  // The account view only exists on the account page. Everything below is a
+  // no-op elsewhere, so the same file can be loaded on both.
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () { wire(); boot(); });
   } else {
