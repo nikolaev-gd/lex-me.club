@@ -312,10 +312,16 @@ CHECKOUT = {
         # art. 1017(4): the order button must carry an unambiguous label.
         "pay": "Order with obligation to pay",
         "back": "Back to your account",
-        "err_amount": "Enter an amount between $1 and $1000.",
+        "err_amount": "Enter an amount between $10 and $200.",
         "err_agree": "Please tick both boxes.",
         "err_auth": "Please sign in first.",
-        "no_provider": "Card payment is not connected yet. Your order was saved and nothing was charged.",
+        "no_provider": "Could not start the payment. Nothing was charged — please try again.",
+        "err_badlogin": "Wrong email or password.",
+        "signin_title": "Sign in to continue",
+        "signin_note": "Use the same Lex account as in the extension.",
+        "signin_email": "Email",
+        "signin_password": "Password",
+        "signin_btn": "Sign in",
     },
     "ro": {
         "title": "Alimentați soldul", "amount": "Suma, USD",
@@ -323,10 +329,16 @@ CHECKOUT = {
         "agree_now": "Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.",
         "pay": "Comandă cu obligație de plată",
         "back": "Înapoi la cont",
-        "err_amount": "Introduceți o sumă între 1 și 1000 USD.",
+        "err_amount": "Introduceți o sumă între 10 și 200 USD.",
         "err_agree": "Bifați ambele căsuțe.",
         "err_auth": "Autentificați-vă mai întâi.",
-        "no_provider": "Plata cu cardul nu este încă activată. Comanda a fost salvată și nu s-a debitat nimic.",
+        "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.",
+        "err_badlogin": "Email sau parolă greșită.",
+        "signin_title": "Autentificați-vă pentru a continua",
+        "signin_note": "Același cont Lex ca în extensie.",
+        "signin_email": "Email",
+        "signin_password": "Parolă",
+        "signin_btn": "Autentificare",
     },
     "ru": {
         "title": "Пополнение баланса", "amount": "Сумма, USD",
@@ -334,10 +346,16 @@ CHECKOUT = {
         "agree_now": "Прошу начать оказание услуги сразу и понимаю, что теряю право на отказ в течение 14 дней в части баланса, которую фактически израсходую.",
         "pay": "Заказ с обязательством оплаты",
         "back": "Вернуться в аккаунт",
-        "err_amount": "Введите сумму от 1 до 1000 USD.",
+        "err_amount": "Введите сумму от 10 до 200 USD.",
         "err_agree": "Отметьте оба пункта.",
         "err_auth": "Сначала войдите в аккаунт.",
-        "no_provider": "Оплата картой пока не подключена. Заказ сохранён, деньги не списаны.",
+        "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.",
+        "err_badlogin": "Неверная почта или пароль.",
+        "signin_title": "Войдите, чтобы продолжить",
+        "signin_note": "Тот же аккаунт Lex, что и в расширении.",
+        "signin_email": "Почта",
+        "signin_password": "Пароль",
+        "signin_btn": "Войти",
     },
 }
 
@@ -348,7 +366,7 @@ def checkout_page(lang):
     nav = LEGAL_NAV[lang]
     runtime = json.dumps({
         key: CHECKOUT[lang][key]
-        for key in ("err_amount", "err_agree", "err_auth", "no_provider")
+        for key in ("err_amount", "err_agree", "err_auth", "no_provider", "err_badlogin")
     }, ensure_ascii=False)
 
     return f"""<!DOCTYPE html>
@@ -380,7 +398,7 @@ def checkout_page(lang):
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">{k['amount']}</label>
-      <input id="co-amount" type="number" min="1" max="1000" step="1" value="10" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
 
       <label class="co-check">
         <input type="checkbox" id="co-terms">
@@ -395,6 +413,24 @@ def checkout_page(lang):
       <p id="co-error" class="acct-error" hidden></p>
       <button id="co-submit" class="btn btn-primary btn-lg" type="submit">{k['pay']}</button>
     </form>
+
+    <!-- SIBLING of #checkout-form, never nested inside it. HTML forbids nested
+         forms: the parser drops the inner <form> start tag and lets its </form>
+         close the OUTER form instead. That put #co-submit outside #checkout-form,
+         so the submit handler bound in checkout.js never fired and the button was
+         dead with no console error. Keep these two forms as siblings. -->
+    <div id="co-signin" class="co-signin" hidden>
+      <h2>{k['signin_title']}</h2>
+      <p class="co-signin-note">{k['signin_note']}</p>
+      <form id="co-signin-form" novalidate>
+        <label for="co-signin-email">{k['signin_email']}</label>
+        <input id="co-signin-email" type="email" autocomplete="email" required>
+        <label for="co-signin-password">{k['signin_password']}</label>
+        <input id="co-signin-password" type="password" autocomplete="current-password" required>
+        <p id="co-signin-error" class="acct-error" hidden></p>
+        <button id="co-signin-submit" class="btn btn-ghost" type="submit">{k['signin_btn']}</button>
+      </form>
+    </div>
   </div>
 </main>
 
@@ -408,6 +444,9 @@ def checkout_page(lang):
 
 <script>window.LEX_CHECKOUT_TEXT = {runtime};</script>
 <script src="/assets/config.js"></script>
+<!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
+     refresh and for the inline sign-in, and degrades silently without it. -->
+<script src="/assets/auth.js"></script>
 <script src="/assets/checkout.js"></script>
 </body>
 </html>

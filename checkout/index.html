@@ -40,20 +40,26 @@
       </label>
 
       <p id="co-error" class="acct-error" hidden></p>
-      <div id="co-signin" class="co-signin" hidden>
-        <h2>Sign in to continue</h2>
-        <p class="co-signin-note">Use the same Lex account as in the extension.</p>
-        <form id="co-signin-form" novalidate>
-          <label for="co-signin-email">Email</label>
-          <input id="co-signin-email" type="email" autocomplete="email" required>
-          <label for="co-signin-password">Password</label>
-          <input id="co-signin-password" type="password" autocomplete="current-password" required>
-          <p id="co-signin-error" class="acct-error" hidden></p>
-          <button id="co-signin-submit" class="btn btn-ghost" type="submit">Sign in</button>
-        </form>
-      </div>
       <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Order with obligation to pay</button>
     </form>
+
+    <!-- SIBLING of #checkout-form, never nested inside it. HTML forbids nested
+         forms: the parser drops the inner <form> start tag and lets its </form>
+         close the OUTER form instead. That put #co-submit outside #checkout-form,
+         so the submit handler bound in checkout.js never fired and the button was
+         dead with no console error. Keep these two forms as siblings. -->
+    <div id="co-signin" class="co-signin" hidden>
+      <h2>Sign in to continue</h2>
+      <p class="co-signin-note">Use the same Lex account as in the extension.</p>
+      <form id="co-signin-form" novalidate>
+        <label for="co-signin-email">Email</label>
+        <input id="co-signin-email" type="email" autocomplete="email" required>
+        <label for="co-signin-password">Password</label>
+        <input id="co-signin-password" type="password" autocomplete="current-password" required>
+        <p id="co-signin-error" class="acct-error" hidden></p>
+        <button id="co-signin-submit" class="btn btn-ghost" type="submit">Sign in</button>
+      </form>
+    </div>
   </div>
 </main>
 
@@ -70,6 +76,8 @@
 
 <script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $10 and $200.", "err_agree": "Please tick both boxes.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password."};</script>
 <script src="/assets/config.js"></script>
+<!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
+     refresh and for the inline sign-in, and degrades silently without it. -->
 <script src="/assets/auth.js"></script>
 <script src="/assets/checkout.js"></script>
 </body>

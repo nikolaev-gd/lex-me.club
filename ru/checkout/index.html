@@ -40,20 +40,26 @@
       </label>
 
       <p id="co-error" class="acct-error" hidden></p>
-      <div id="co-signin" class="co-signin" hidden>
-        <h2>Войдите, чтобы продолжить</h2>
-        <p class="co-signin-note">Тот же аккаунт Lex, что и в расширении.</p>
-        <form id="co-signin-form" novalidate>
-          <label for="co-signin-email">Почта</label>
-          <input id="co-signin-email" type="email" autocomplete="email" required>
-          <label for="co-signin-password">Пароль</label>
-          <input id="co-signin-password" type="password" autocomplete="current-password" required>
-          <p id="co-signin-error" class="acct-error" hidden></p>
-          <button id="co-signin-submit" class="btn btn-ghost" type="submit">Войти</button>
-        </form>
-      </div>
       <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Заказ с обязательством оплаты</button>
     </form>
+
+    <!-- SIBLING of #checkout-form, never nested inside it. HTML forbids nested
+         forms: the parser drops the inner <form> start tag and lets its </form>
+         close the OUTER form instead. That put #co-submit outside #checkout-form,
+         so the submit handler bound in checkout.js never fired and the button was
+         dead with no console error. Keep these two forms as siblings. -->
+    <div id="co-signin" class="co-signin" hidden>
+      <h2>Войдите, чтобы продолжить</h2>
+      <p class="co-signin-note">Тот же аккаунт Lex, что и в расширении.</p>
+      <form id="co-signin-form" novalidate>
+        <label for="co-signin-email">Почта</label>
+        <input id="co-signin-email" type="email" autocomplete="email" required>
+        <label for="co-signin-password">Пароль</label>
+        <input id="co-signin-password" type="password" autocomplete="current-password" required>
+        <p id="co-signin-error" class="acct-error" hidden></p>
+        <button id="co-signin-submit" class="btn btn-ghost" type="submit">Войти</button>
+      </form>
+    </div>
   </div>
 </main>
 
@@ -70,6 +76,8 @@
 
 <script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Введите сумму от 10 до 200 USD.", "err_agree": "Отметьте оба пункта.", "err_auth": "Сначала войдите в аккаунт.", "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.", "err_badlogin": "Неверная почта или пароль."};</script>
 <script src="/assets/config.js"></script>
+<!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
+     refresh and for the inline sign-in, and degrades silently without it. -->
 <script src="/assets/auth.js"></script>
 <script src="/assets/checkout.js"></script>
 </body>
