@@ -107,6 +107,14 @@ REDIRECT_HEAD = """<script>
 }catch(e){}})();
 </script>"""
 
+# The tab icon, on every page. Same mark the extension ships in the Chrome Web
+# Store (icons/icon*-gold.png in the extension repo): favicon.ico carries the
+# real 16/32/48 art rather than one resized image, so the tab stays crisp at
+# every size. Paths are absolute — /ru/, /ro/ and the legal pages are nested.
+ICONS_HEAD = """<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/assets/icon-128.png" type="image/png" sizes="128x128">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">"""
+
 LANGS = ["en", "ro", "ru"]
 OUT = {"en": "index.html", "ro": "ro/index.html", "ru": "ru/index.html"}
 HREF = {"en": "/", "ro": "/ro/", "ru": "/ru/"}
@@ -227,6 +235,7 @@ def account_page(lang):
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{a['title']} — Lex</title>
 <meta name="robots" content="noindex">
+{ICONS_HEAD}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -376,6 +385,7 @@ def checkout_page(lang):
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{k['title']} — Lex</title>
 <meta name="robots" content="noindex">
+{ICONS_HEAD}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -490,6 +500,7 @@ def legal_page(lang, key):
 <title>{e(title)} — Lex</title>
 <meta name="robots" content="index, follow">
 {alts}
+{ICONS_HEAD}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -538,6 +549,7 @@ def page(lang):
 <title>{c['page_title']}</title>
 <meta name="description" content="{c['meta_description']}">
 {alternates()}
+{ICONS_HEAD}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
