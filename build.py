@@ -489,16 +489,23 @@ def foot_links(lang):
     return "\n      ".join(parts)
 
 
-# maib requires the bank logo and the logos of the international payment systems
-# on the site, and recommends the footer:
+# The card schemes the checkout actually accepts. A logo here is a promise that
+# the card will work, which is why the list is short and why the acquirer's own
+# logo is not on it: payments go through Creem, and maib's bank logo would name
+# a bank that no longer takes the money. It came off when the till moved
+# (2026-08-06); the file stays in assets/pay/ because maib is still wired in the
+# code and one setting away.
+#
+# maib's own rules require its logo plus the scheme logos, in the footer:
 # https://docs.maibmerchants.md/main/en/integration/requirements
+# So if PAYMENT_PROVIDER ever goes back to maib, ("maib", "maib") goes back on
+# top of this list.
+#
 # The files in assets/pay/ are the official ones from the archive linked on that
 # page — do not swap them for images found elsewhere. assets/pay/amex.png is from
 # the same archive and is kept unused on purpose: add ("amex", "American Express")
-# below only if the merchant contract actually accepts American Express, because
-# a logo here is a promise that the card will work.
+# below only if the merchant contract actually accepts American Express.
 PAY_LOGOS = [
-    ("maib", "maib"),
     ("visa", "Visa"),
     ("mastercard", "Mastercard"),
 ]
