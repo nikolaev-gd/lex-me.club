@@ -21,6 +21,7 @@ assets/lang.js     sends a visitor to their language by BROWSER LANGUAGE
 assets/balance.js  the decorative balance tick on the pricing card
 assets/auth.js     Supabase session: sign-in, refresh, balance and ledger reads
 assets/checkout.js the top-up form — amount, consent, Polar checkout handoff
+assets/pay/       maib and card-scheme logos for the footer — see below
 CNAME              custom domain for GitHub Pages
 ```
 
@@ -77,6 +78,19 @@ load the CSS — use the server.
 No IP lookup and no country detection — a static host cannot do that, and the
 rule is deliberately about the language the person set in their own browser. A
 manual pick in the header switcher is remembered and always wins.
+
+## The logos in the footer are a bank requirement
+
+MAIB requires the maib logo and the logos of the international payment systems
+to be shown on the site, and recommends the footer:
+<https://docs.maibmerchants.md/main/en/integration/requirements>. The files in
+`assets/pay/` come from the official archive linked on that page — replacing
+them with images found elsewhere is what a review catches.
+
+`assets/pay/amex.png` ships from the same archive but is deliberately not
+displayed: the merchant contract has to actually accept American Express before
+its logo goes up, because a logo in the footer reads as a promise that the card
+will work. To show it, add it to `PAY_LOGOS` in `build.py` and rebuild.
 
 ## Romanian is not optional
 

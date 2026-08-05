@@ -300,6 +300,9 @@ def account_page(lang):
     <div class="foot-links">{foot_links(lang)}</div>
     <div class="foot-copy">{c['foot_copy']}</div>
   </div>
+  <div class="wrap foot-pay">
+    {foot_pay()}
+  </div>
 </footer>
 
 <script>window.LEX_ACCOUNT_TEXT = {runtime};</script>
@@ -450,6 +453,9 @@ def checkout_page(lang):
     <div class="foot-links">{foot_links(lang)}</div>
     <div class="foot-copy">{c['foot_copy']}</div>
   </div>
+  <div class="wrap foot-pay">
+    {foot_pay()}
+  </div>
 </footer>
 
 <script>window.LEX_CHECKOUT_TEXT = {runtime};</script>
@@ -474,6 +480,41 @@ def foot_links(lang):
         for k in ("contact", "privacy", "terms", "refunds")
     ]
     return "\n      ".join(parts)
+
+
+# maib requires the bank logo and the logos of the international payment systems
+# on the site, and recommends the footer:
+# https://docs.maibmerchants.md/main/en/integration/requirements
+# The files in assets/pay/ are the official ones from the archive linked on that
+# page — do not swap them for images found elsewhere. assets/pay/amex.png is from
+# the same archive and is kept unused on purpose: add ("amex", "American Express")
+# below only if the merchant contract actually accepts American Express, because
+# a logo here is a promise that the card will work.
+PAY_LOGOS = [
+    ("maib", "maib"),
+    ("visa", "Visa"),
+    ("mastercard", "Mastercard"),
+]
+
+
+def foot_pay():
+    imgs = "\n    ".join(
+        f'<img src="/assets/pay/{f}.png" alt="{alt}" width="{w}" height="{h}" loading="lazy" decoding="async">'
+        for f, alt, w, h in (
+            (f, alt, *PAY_SIZE[f]) for f, alt in PAY_LOGOS
+        )
+    )
+    return imgs
+
+
+# intrinsic pixel size of each file, so the row reserves its space before the
+# images load and nothing jumps
+PAY_SIZE = {
+    "maib": (156, 44),
+    "visa": (80, 26),
+    "mastercard": (74, 46),
+    "amex": (119, 119),
+}
 
 
 def legal_page(lang, key):
@@ -530,6 +571,9 @@ def legal_page(lang, key):
     <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
     <div class="foot-links">{foot_links(lang)}</div>
     <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+  <div class="wrap foot-pay">
+    {foot_pay()}
   </div>
 </footer>
 
@@ -723,6 +767,9 @@ def page(lang):
     <div class="brand"><span class="dot"></span>Lex</div>
     <div class="foot-links">{foot_links(lang)}</div>
     <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+  <div class="wrap foot-pay">
+    {foot_pay()}
   </div>
 </footer>
 
