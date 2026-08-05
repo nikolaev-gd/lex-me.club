@@ -31,6 +31,7 @@
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Amount, USD</label>
       <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
+      <p id="co-charge" class="co-charge" hidden></p>
 
       <label class="co-check">
         <input type="checkbox" id="co-terms">
@@ -82,7 +83,7 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $10 and $200.", "err_agree": "Please tick both boxes.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $10 and $200.", "err_agree": "Please tick both boxes.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password.", "charge_note": "Your card will be charged {amount} {currency}."};</script>
 <script src="/assets/config.js"></script>
 <!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
      refresh and for the inline sign-in, and degrades silently without it. -->

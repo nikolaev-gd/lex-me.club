@@ -58,6 +58,49 @@
   var form = el('checkout-form');
   if (!form) return;
 
+  var LANG = (document.documentElement.getAttribute('lang') || 'en').slice(0, 2);
+
+  // ── what the card will actually be charged ────────────────────────────────
+  // The balance is in dollars; the acquirer may only be able to charge another
+  // currency (maib's profile takes MDL and refuses USD outright). Whenever the
+  // two differ the customer sees both figures here, before committing — finding
+  // out on the bank's page that the sum is not the one on ours is exactly the
+  // sort of thing the acceptance rules are about. The rate comes from the
+  // server so there is one source of truth for it.
+  var conversion = null;
+
+  function renderCharge() {
+    var line = el('co-charge');
+    if (!line) return;
+    if (!conversion || !conversion.convert) { line.hidden = true; return; }
+    var amount = Number(el('co-amount').value);
+    if (!Number.isFinite(amount) || amount <= 0) { line.hidden = true; return; }
+    var charged = (Math.round(amount * conversion.rate * 100) / 100).toFixed(2);
+    line.textContent = (T.charge_note || '')
+      .replace('{amount}', charged)
+      .replace('{currency}', conversion.currency);
+    line.hidden = false;
+  }
+
+  (async function loadRate() {
+    try {
+      var r = await fetch(CFG.supabaseUrl + '/functions/v1/payments-webhook/rate', {
+        method: 'POST',
+        headers: { apikey: CFG.supabaseKey, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      conversion = await r.json();
+    } catch (_) {
+      // No estimate is better than a wrong one: the line stays hidden and the
+      // bank's own page still shows the sum before any card details are typed.
+      conversion = null;
+    }
+    renderCharge();
+  })();
+
+  var amountInput = el('co-amount');
+  if (amountInput) amountInput.addEventListener('input', renderCharge);
+
   function showSignIn(on) {
     var box = el('co-signin');
     if (box) box.hidden = !on;
@@ -79,7 +122,9 @@
           Authorization: 'Bearer ' + session.access_token,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ amount: amount }),
+        // lang decides which language the bank's own page, the page they come
+        // back to, and the receipt are written in.
+        body: JSON.stringify({ amount: amount, lang: LANG }),
       });
       var j = await r.json().catch(function () { return null; });
 

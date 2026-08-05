@@ -316,6 +316,9 @@ def account_page(lang):
 CHECKOUT = {
     "en": {
         "title": "Top up your balance", "amount": "Amount, USD",
+        # Shown whenever the acquirer charges a currency other than the one the
+        # balance is kept in. {amount} and {currency} are filled in by checkout.js.
+        "charge_note": "Your card will be charged {amount} {currency}.",
         "agree_terms": "I have read and accept the Terms and the Refund Policy.",
         # Civil Code art. 1065(1)(m): the withdrawal right is only lost if the
         # customer expressly consents to immediate performance AND acknowledges
@@ -337,6 +340,7 @@ CHECKOUT = {
     },
     "ro": {
         "title": "Alimentați soldul", "amount": "Suma, USD",
+        "charge_note": "Cardul dumneavoastră va fi debitat cu {amount} {currency}.",
         "agree_terms": "Am citit și accept Termenii și Politica de returnare.",
         "agree_now": "Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.",
         "pay": "Comandă cu obligație de plată",
@@ -354,6 +358,7 @@ CHECKOUT = {
     },
     "ru": {
         "title": "Пополнение баланса", "amount": "Сумма, USD",
+        "charge_note": "С карты спишется {amount} {currency}.",
         "agree_terms": "Я прочитал и принимаю Условия и Правила возврата.",
         "agree_now": "Прошу начать оказание услуги сразу и понимаю, что теряю право на отказ в течение 14 дней в части баланса, которую фактически израсходую.",
         "pay": "Заказ с обязательством оплаты",
@@ -378,7 +383,8 @@ def checkout_page(lang):
     nav = LEGAL_NAV[lang]
     runtime = json.dumps({
         key: CHECKOUT[lang][key]
-        for key in ("err_amount", "err_agree", "err_auth", "no_provider", "err_badlogin")
+        for key in ("err_amount", "err_agree", "err_auth", "no_provider",
+                    "err_badlogin", "charge_note")
     }, ensure_ascii=False)
 
     return f"""<!DOCTYPE html>
@@ -412,6 +418,7 @@ def checkout_page(lang):
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">{k['amount']}</label>
       <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
+      <p id="co-charge" class="co-charge" hidden></p>
 
       <label class="co-check">
         <input type="checkbox" id="co-terms">
@@ -780,6 +787,164 @@ def page(lang):
 """
 
 
+# The page the customer lands on after paying. Required by the acquirer's
+# website rules: "post-payment confirmation page showing order details and
+# transaction date". Values are filled in by success.js from one server call —
+# see assets/success.js for why it polls before deciding anything.
+SUCCESS = {
+    "en": {
+        "title": "Payment received",
+        "lead": "Your top-up has been added to your Lex balance.",
+        "waiting": "Confirming your payment with the bank…",
+        "order": "Order number",
+        "merchant": "Merchant",
+        "description": "Description",
+        "charged": "Amount charged",
+        "credited": "Added to your balance",
+        "date": "Payment date",
+        "receipt": "A copy of this confirmation has been sent to your email.",
+        "to_account": "Go to your account",
+        "pending_h": "Waiting for the bank",
+        "pending_p": "Your payment has not been confirmed yet. This usually takes a few seconds. Keep this order number — nothing is lost, and support can find the payment by it:",
+        "signedout_h": "You are signed out",
+        "signedout_p": "Sign in to see this order. Your payment is not affected. Order number:",
+        "unknown_h": "No order to show",
+        "unknown_p": "This page needs an order number to look anything up.",
+        "signin": "Sign in",
+    },
+    "ro": {
+        "title": "Plată recepționată",
+        "lead": "Suma a fost adăugată la soldul dumneavoastră Lex.",
+        "waiting": "Confirmăm plata cu banca…",
+        "order": "Numărul comenzii",
+        "merchant": "Comerciant",
+        "description": "Descriere",
+        "charged": "Sumă încasată",
+        "credited": "Adăugat la sold",
+        "date": "Data plății",
+        "receipt": "O copie a acestei confirmări a fost trimisă pe email.",
+        "to_account": "Mergeți la cont",
+        "pending_h": "Așteptăm banca",
+        "pending_p": "Plata nu a fost încă confirmată. De obicei durează câteva secunde. Păstrați acest număr de comandă — nimic nu se pierde, iar suportul poate găsi plata după el:",
+        "signedout_h": "Nu sunteți autentificat",
+        "signedout_p": "Autentificați-vă pentru a vedea această comandă. Plata nu este afectată. Numărul comenzii:",
+        "unknown_h": "Nu există o comandă de afișat",
+        "unknown_p": "Această pagină are nevoie de un număr de comandă.",
+        "signin": "Autentificare",
+    },
+    "ru": {
+        "title": "Платёж получен",
+        "lead": "Сумма зачислена на ваш баланс в Lex.",
+        "waiting": "Подтверждаем платёж с банком…",
+        "order": "Номер заказа",
+        "merchant": "Продавец",
+        "description": "Описание",
+        "charged": "Списано",
+        "credited": "Зачислено на баланс",
+        "date": "Дата платежа",
+        "receipt": "Копия подтверждения отправлена вам на почту.",
+        "to_account": "Перейти в аккаунт",
+        "pending_h": "Ждём банк",
+        "pending_p": "Платёж пока не подтверждён. Обычно это занимает несколько секунд. Сохраните номер заказа — ничего не потеряно, по нему поддержка найдёт платёж:",
+        "signedout_h": "Вы не в аккаунте",
+        "signedout_p": "Войдите, чтобы увидеть этот заказ. На платёж это не влияет. Номер заказа:",
+        "unknown_h": "Нечего показать",
+        "unknown_p": "Странице нужен номер заказа, чтобы что-то найти.",
+        "signin": "Войти",
+    },
+}
+
+
+def success_page(lang):
+    k = {key: e(v) for key, v in SUCCESS[lang].items()}
+    c = {key: e(v) for key, v in COPY[lang].items()}
+
+    return f"""<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{k['title']} — Lex</title>
+<meta name="robots" content="noindex">
+{ICONS_HEAD}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['to_account']}</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+
+    <p id="su-waiting" class="su-waiting">{k['waiting']}</p>
+
+    <section id="su-paid" hidden>
+      <h1>{k['title']}</h1>
+      <p>{k['lead']}</p>
+      <dl class="su-receipt">
+        <dt>{k['order']}</dt><dd id="su-order"></dd>
+        <dt>{k['merchant']}</dt><dd id="su-merchant"></dd>
+        <dt>{k['description']}</dt><dd id="su-description"></dd>
+        <div id="su-charged-row" class="su-row"><dt>{k['charged']}</dt><dd id="su-charged"></dd></div>
+        <dt>{k['credited']}</dt><dd id="su-credited"></dd>
+        <dt>{k['date']}</dt><dd id="su-date"></dd>
+      </dl>
+      <p class="su-note">{k['receipt']}</p>
+      <a href="{HREF[lang]}account/" class="btn btn-primary btn-lg">{k['to_account']}</a>
+    </section>
+
+    <section id="su-pending" hidden>
+      <h1>{k['pending_h']}</h1>
+      <p>{k['pending_p']}</p>
+      <p class="su-order-code"><code id="su-order-fallback"></code></p>
+      <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['to_account']}</a>
+    </section>
+
+    <section id="su-signedout" hidden>
+      <h1>{k['signedout_h']}</h1>
+      <p>{k['signedout_p']}</p>
+      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
+      <a href="{HREF[lang]}account/" class="btn btn-primary">{k['signin']}</a>
+    </section>
+
+    <section id="su-unknown" hidden>
+      <h1>{k['unknown_h']}</h1>
+      <p>{k['unknown_p']}</p>
+      <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['to_account']}</a>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="{HREF[lang]}"><span class="dot"></span>Lex</a>
+    <div class="foot-links">{foot_links(lang)}</div>
+    <div class="foot-copy">{c['foot_copy']}</div>
+  </div>
+  <div class="wrap foot-pay">
+    {foot_pay()}
+  </div>
+</footer>
+
+<script src="/assets/config.js"></script>
+<script src="/assets/auth.js"></script>
+<script src="/assets/success.js"></script>
+</body>
+</html>
+"""
+
+
 def main():
     keys = set(COPY["en"])
     for lang in LANGS:
@@ -816,6 +981,11 @@ def main():
         co.mkdir(parents=True, exist_ok=True)
         (co / "index.html").write_text(checkout_page(lang), encoding="utf-8")
         print(f"wrote {HREF[lang]}checkout/index.html")
+
+        su = co / "success"
+        su.mkdir(parents=True, exist_ok=True)
+        (su / "index.html").write_text(success_page(lang), encoding="utf-8")
+        print(f"wrote {HREF[lang]}checkout/success/index.html")
 
     if missing:
         # Not fatal: the footer of every language links to these, so a missing

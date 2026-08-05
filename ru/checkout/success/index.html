@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Платёж получен — Lex</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/assets/icon-128.png" type="image/png" sizes="128x128">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="/ru/"><span class="dot"></span>Lex</a>
+    <div class="nav-actions">
+      <a href="/ru/account/" class="btn btn-ghost">Перейти в аккаунт</a>
+    </div>
+  </div>
+</header>
+
+<main class="doc">
+  <div class="wrap acct-wrap">
+
+    <p id="su-waiting" class="su-waiting">Подтверждаем платёж с банком…</p>
+
+    <section id="su-paid" hidden>
+      <h1>Платёж получен</h1>
+      <p>Сумма зачислена на ваш баланс в Lex.</p>
+      <dl class="su-receipt">
+        <dt>Номер заказа</dt><dd id="su-order"></dd>
+        <dt>Продавец</dt><dd id="su-merchant"></dd>
+        <dt>Описание</dt><dd id="su-description"></dd>
+        <div id="su-charged-row" class="su-row"><dt>Списано</dt><dd id="su-charged"></dd></div>
+        <dt>Зачислено на баланс</dt><dd id="su-credited"></dd>
+        <dt>Дата платежа</dt><dd id="su-date"></dd>
+      </dl>
+      <p class="su-note">Копия подтверждения отправлена вам на почту.</p>
+      <a href="/ru/account/" class="btn btn-primary btn-lg">Перейти в аккаунт</a>
+    </section>
+
+    <section id="su-pending" hidden>
+      <h1>Ждём банк</h1>
+      <p>Платёж пока не подтверждён. Обычно это занимает несколько секунд. Сохраните номер заказа — ничего не потеряно, по нему поддержка найдёт платёж:</p>
+      <p class="su-order-code"><code id="su-order-fallback"></code></p>
+      <a href="/ru/account/" class="btn btn-ghost">Перейти в аккаунт</a>
+    </section>
+
+    <section id="su-signedout" hidden>
+      <h1>Вы не в аккаунте</h1>
+      <p>Войдите, чтобы увидеть этот заказ. На платёж это не влияет. Номер заказа:</p>
+      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
+      <a href="/ru/account/" class="btn btn-primary">Войти</a>
+    </section>
+
+    <section id="su-unknown" hidden>
+      <h1>Нечего показать</h1>
+      <p>Странице нужен номер заказа, чтобы что-то найти.</p>
+      <a href="/ru/account/" class="btn btn-ghost">Перейти в аккаунт</a>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="brand" href="/ru/"><span class="dot"></span>Lex</a>
+    <div class="foot-links"><a href="/ru/contact/">Контакты</a>
+      <a href="/ru/privacy/">Конфиденциальность</a>
+      <a href="/ru/terms/">Условия</a>
+      <a href="/ru/refunds/">Возвраты</a></div>
+    <div class="foot-copy">Lex — английский на тех видео, которые ты и так смотришь. © 2026</div>
+  </div>
+  <div class="wrap foot-pay">
+    <img src="/assets/pay/maib.png" alt="maib" width="156" height="44" loading="lazy" decoding="async">
+    <img src="/assets/pay/visa.png" alt="Visa" width="80" height="26" loading="lazy" decoding="async">
+    <img src="/assets/pay/mastercard.png" alt="Mastercard" width="74" height="46" loading="lazy" decoding="async">
+  </div>
+</footer>
+
+<script src="/assets/config.js"></script>
+<script src="/assets/auth.js"></script>
+<script src="/assets/success.js"></script>
+</body>
+</html>
