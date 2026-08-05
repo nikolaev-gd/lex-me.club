@@ -68,6 +68,11 @@
       show('su-charged-row', false);
     }
     setText('su-date', humanDate(info.paid_at));
+    // Only promise an email when one was actually sent by us. maib requires a
+    // merchant confirmation and we send it; the current acquirer is a merchant
+    // of record that sends its own, so we add none — and a page that promises
+    // a letter nobody wrote is the kind of small lie a customer checks.
+    show('su-receipt-note', info.receipt_sent === true);
   }
 
   async function fetchStatus(session) {

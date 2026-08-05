@@ -899,7 +899,7 @@ def success_page(lang):
         <dt>{k['credited']}</dt><dd id="su-credited"></dd>
         <dt>{k['date']}</dt><dd id="su-date"></dd>
       </dl>
-      <p class="su-note">{k['receipt']}</p>
+      <p class="su-note" id="su-receipt-note" hidden>{k['receipt']}</p>
       <a href="{HREF[lang]}account/" class="btn btn-primary btn-lg">{k['to_account']}</a>
     </section>
 
