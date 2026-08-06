@@ -327,7 +327,7 @@ CHECKOUT = {
         # art. 1017(4): the order button must carry an unambiguous label.
         "pay": "Order with obligation to pay",
         "back": "Back to your account",
-        "err_amount": "Enter an amount between $1 and $200.",
+        "err_amount": "Enter an amount between $10 and $200.",
         "err_agree": "Please tick both boxes.",
         "err_auth": "Please sign in first.",
         "no_provider": "Could not start the payment. Nothing was charged — please try again.",
@@ -345,7 +345,7 @@ CHECKOUT = {
         "agree_now": "Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.",
         "pay": "Comandă cu obligație de plată",
         "back": "Înapoi la cont",
-        "err_amount": "Introduceți o sumă între 1 și 200 USD.",
+        "err_amount": "Introduceți o sumă între 10 și 200 USD.",
         "err_agree": "Bifați ambele căsuțe.",
         "err_auth": "Autentificați-vă mai întâi.",
         "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.",
@@ -363,7 +363,7 @@ CHECKOUT = {
         "agree_now": "Прошу начать оказание услуги сразу и понимаю, что теряю право на отказ в течение 14 дней в части баланса, которую фактически израсходую.",
         "pay": "Заказ с обязательством оплаты",
         "back": "Вернуться в аккаунт",
-        "err_amount": "Введите сумму от 1 до 200 USD.",
+        "err_amount": "Введите сумму от 10 до 200 USD.",
         "err_agree": "Отметьте оба пункта.",
         "err_auth": "Сначала войдите в аккаунт.",
         "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.",
@@ -417,7 +417,7 @@ def checkout_page(lang):
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">{k['amount']}</label>
-      <input id="co-amount" type="number" min="1" max="200" step="1" value="10" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
       <label class="co-check">

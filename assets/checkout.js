@@ -33,9 +33,7 @@
   var T = window.LEX_CHECKOUT_TEXT || {};
   var el = function (id) { return document.getElementById(id); };
 
-  // ВРЕМЕННО: 1 вместо 10 на время боевой проверки (2026-08-06).
-  // Вернуть 10 сразу после успешного платежа; на сервере тот же порог.
-  var MIN_USD = 1;
+  var MIN_USD = 10;
   var MAX_USD = 200;
 
   /** The signed-in session, refreshed if the token has expired. Falls back to a

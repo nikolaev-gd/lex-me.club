@@ -30,7 +30,7 @@
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Сумма, USD</label>
-      <input id="co-amount" type="number" min="1" max="200" step="1" value="10" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
       <label class="co-check">
@@ -82,7 +82,7 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Введите сумму от 1 до 200 USD.", "err_agree": "Отметьте оба пункта.", "err_auth": "Сначала войдите в аккаунт.", "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.", "err_badlogin": "Неверная почта или пароль.", "charge_note": "С карты спишется {amount} {currency}."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Введите сумму от 10 до 200 USD.", "err_agree": "Отметьте оба пункта.", "err_auth": "Сначала войдите в аккаунт.", "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.", "err_badlogin": "Неверная почта или пароль.", "charge_note": "С карты спишется {amount} {currency}."};</script>
 <script src="/assets/config.js"></script>
 <!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
      refresh and for the inline sign-in, and degrades silently without it. -->
