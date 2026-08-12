@@ -321,7 +321,7 @@ CHECKOUT = {
         "charge_note": "Your card will be charged {amount} {currency}.",
         "pay": "Pay",
         "back": "Back to your account",
-        "err_amount": "Enter an amount between $1 and $200.",
+        "err_amount": "Enter an amount between $10 and $200.",
         "err_auth": "Please sign in first.",
         "no_provider": "Could not start the payment. Nothing was charged — please try again.",
         "err_badlogin": "Wrong email or password.",
@@ -336,7 +336,7 @@ CHECKOUT = {
         "charge_note": "Cardul dumneavoastră va fi debitat cu {amount} {currency}.",
         "pay": "Plătiți",
         "back": "Înapoi la cont",
-        "err_amount": "Introduceți o sumă între 1 și 200 USD.",
+        "err_amount": "Introduceți o sumă între 10 și 200 USD.",
         "err_auth": "Autentificați-vă mai întâi.",
         "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.",
         "err_badlogin": "Email sau parolă greșită.",
@@ -351,7 +351,7 @@ CHECKOUT = {
         "charge_note": "С карты спишется {amount} {currency}.",
         "pay": "Оплатить",
         "back": "Вернуться в аккаунт",
-        "err_amount": "Введите сумму от 1 до 200 USD.",
+        "err_amount": "Введите сумму от 10 до 200 USD.",
         "err_auth": "Сначала войдите в аккаунт.",
         "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.",
         "err_badlogin": "Неверная почта или пароль.",
@@ -404,10 +404,7 @@ def checkout_page(lang):
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">{k['amount']}</label>
-      <!-- ВРЕМЕННО (2026-08-13): min и value = 1 вместо 10 на время боевой
-           проверки. Вернуть 10 сюда, в MIN_USD файла assets/checkout.js, в
-           тексты err_amount выше и в MIN_USD функции payments-webhook. -->
-      <input id="co-amount" type="number" min="1" max="200" step="1" value="1" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
       <p id="co-error" class="acct-error" hidden></p>

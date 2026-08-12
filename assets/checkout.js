@@ -25,12 +25,7 @@
   var T = window.LEX_CHECKOUT_TEXT || {};
   var el = function (id) { return document.getElementById(id); };
 
-  // ВРЕМЕННО: 1 вместо 10 на время боевой проверки (2026-08-13).
-  // Вернуть 10 сразу после неё; те же правки ждут в build.py (min/value поля и
-  // тексты err_amount), в topup-window.js расширения и в MIN_USD функции
-  // payments-webhook. Ниже доллара не опускается: Creem не принимает
-  // custom_price меньше 100 центов.
-  var MIN_USD = 1;
+  var MIN_USD = 10;
   var MAX_USD = 200;
 
   /** The signed-in session, refreshed if the token has expired. Falls back to a

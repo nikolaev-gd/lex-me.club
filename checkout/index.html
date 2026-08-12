@@ -30,10 +30,7 @@
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Amount, USD</label>
-      <!-- ВРЕМЕННО (2026-08-13): min и value = 1 вместо 10 на время боевой
-           проверки. Вернуть 10 сюда, в MIN_USD файла assets/checkout.js, в
-           тексты err_amount выше и в MIN_USD функции payments-webhook. -->
-      <input id="co-amount" type="number" min="1" max="200" step="1" value="1" inputmode="decimal" required>
+      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
       <p id="co-error" class="acct-error" hidden></p>
@@ -75,7 +72,7 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $1 and $200.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password.", "charge_note": "Your card will be charged {amount} {currency}."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $10 and $200.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password.", "charge_note": "Your card will be charged {amount} {currency}."};</script>
 <script src="/assets/config.js"></script>
 <!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
      refresh and for the inline sign-in, and degrades silently without it. -->
