@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Платёж получен — Lex</title>
+<title>Оплата прошла — Lex</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
 <link rel="icon" href="/assets/icon-128.png" type="image/png" sizes="128x128">
@@ -27,40 +27,13 @@
 <main class="doc">
   <div class="wrap acct-wrap">
 
-    <p id="su-waiting" class="su-waiting">Подтверждаем платёж с банком…</p>
-
-    <section id="su-paid" hidden>
-      <h1>Платёж получен</h1>
-      <p>Сумма зачислена на ваш баланс в Lex.</p>
-      <dl class="su-receipt">
-        <dt>Номер заказа</dt><dd id="su-order"></dd>
-        <dt>Продавец</dt><dd id="su-merchant"></dd>
-        <dt>Описание</dt><dd id="su-description"></dd>
-        <div id="su-charged-row" class="su-row"><dt>Списано</dt><dd id="su-charged"></dd></div>
-        <dt>Зачислено на баланс</dt><dd id="su-credited"></dd>
-        <dt>Дата платежа</dt><dd id="su-date"></dd>
+    <section>
+      <h1>Оплата прошла</h1>
+      <p>Баланс в Lex обновится сам, обычно за несколько секунд. Эту вкладку можно закрыть.</p>
+      <dl class="su-receipt" id="su-order-row" hidden>
+        <dt>Номер заказа</dt><dd><code id="su-order"></code></dd>
       </dl>
-      <p class="su-note" id="su-receipt-note" hidden>Копия подтверждения отправлена вам на почту.</p>
-      <a href="/ru/account/" class="btn btn-primary btn-lg">Перейти в аккаунт</a>
-    </section>
-
-    <section id="su-pending" hidden>
-      <h1>Ждём банк</h1>
-      <p>Платёж пока не подтверждён. Обычно это занимает несколько секунд. Сохраните номер заказа — ничего не потеряно, по нему поддержка найдёт платёж:</p>
-      <p class="su-order-code"><code id="su-order-fallback"></code></p>
-      <a href="/ru/account/" class="btn btn-ghost">Перейти в аккаунт</a>
-    </section>
-
-    <section id="su-signedout" hidden>
-      <h1>Вы не в аккаунте</h1>
-      <p>Войдите, чтобы увидеть этот заказ. На платёж это не влияет. Номер заказа:</p>
-      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
-      <a href="/ru/account/" class="btn btn-primary">Войти</a>
-    </section>
-
-    <section id="su-unknown" hidden>
-      <h1>Нечего показать</h1>
-      <p>Странице нужен номер заказа, чтобы что-то найти.</p>
+      <p class="su-note">Если за несколько минут баланс не изменился — напишите нам и назовите номер заказа.</p>
       <a href="/ru/account/" class="btn btn-ghost">Перейти в аккаунт</a>
     </section>
 
@@ -82,8 +55,17 @@
   </div>
 </footer>
 
-<script src="/assets/config.js"></script>
-<script src="/assets/auth.js"></script>
-<script src="/assets/success.js"></script>
+<script>
+/* The order number, straight out of the address bar. Deliberately the only
+   script on this page: no config.js, no auth.js, nothing that could read a
+   session. textContent, never innerHTML — the value comes from a URL a stranger
+   can craft. */
+(function () {
+  var v = new URLSearchParams(location.search).get('order');
+  if (!v) return;
+  document.getElementById('su-order').textContent = v.slice(0, 64);
+  document.getElementById('su-order-row').hidden = false;
+})();
+</script>
 </body>
 </html>

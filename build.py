@@ -794,70 +794,46 @@ def page(lang):
 """
 
 
-# The page the customer lands on after paying. Required by the acquirer's
-# website rules: "post-payment confirmation page showing order details and
-# transaction date". Values are filled in by success.js from one server call —
-# see assets/success.js for why it polls before deciding anything.
+# The page the customer lands on after paying — and NOTHING else.
+#
+# It used to know the customer: auth.js read the signed-in session out of
+# localStorage and success.js polled payments-webhook/status with it, so the
+# page could print the receipt and tell "paid" from "waiting for the bank".
+# That was the last thing keeping account tokens on the site, and on 2026-08-12
+# the payment path moved into the extension entirely (see the extension's
+# topup-window.js). No session, no token, no API call — the page is now static
+# HTML plus four lines that copy the order number out of the address bar.
+#
+# Who confirms the money now: the extension, by polling /status with its own
+# Bearer token, and the balance itself moves only on Creem's webhook. This page
+# never was proof of payment and no longer pretends to be one.
+#
+# What is lost, knowingly: the acquirer's website rules ask for a confirmation
+# page with order details and transaction date. Creem is merchant of record and
+# sends its own receipt, so that duty is theirs; the order number stays here
+# because support needs a handle. If maib is ever switched back on, that bank
+# wants the full receipt and this page has to grow it back.
 SUCCESS = {
     "en": {
         "title": "Payment received",
-        "lead": "Your top-up has been added to your Lex balance.",
-        "waiting": "Confirming your payment with the bank…",
+        "lead": "Your Lex balance updates by itself, usually within seconds. You can close this tab.",
         "order": "Order number",
-        "merchant": "Merchant",
-        "description": "Description",
-        "charged": "Amount charged",
-        "credited": "Added to your balance",
-        "date": "Payment date",
-        "receipt": "A copy of this confirmation has been sent to your email.",
+        "note": "If the balance has not changed after a few minutes, write to us and quote the order number.",
         "to_account": "Go to your account",
-        "pending_h": "Waiting for the bank",
-        "pending_p": "Your payment has not been confirmed yet. This usually takes a few seconds. Keep this order number — nothing is lost, and support can find the payment by it:",
-        "signedout_h": "You are signed out",
-        "signedout_p": "Sign in to see this order. Your payment is not affected. Order number:",
-        "unknown_h": "No order to show",
-        "unknown_p": "This page needs an order number to look anything up.",
-        "signin": "Sign in",
     },
     "ro": {
         "title": "Plată recepționată",
-        "lead": "Suma a fost adăugată la soldul dumneavoastră Lex.",
-        "waiting": "Confirmăm plata cu banca…",
+        "lead": "Soldul dumneavoastră Lex se actualizează automat, de obicei în câteva secunde. Puteți închide această filă.",
         "order": "Numărul comenzii",
-        "merchant": "Comerciant",
-        "description": "Descriere",
-        "charged": "Sumă încasată",
-        "credited": "Adăugat la sold",
-        "date": "Data plății",
-        "receipt": "O copie a acestei confirmări a fost trimisă pe email.",
+        "note": "Dacă soldul nu s-a modificat după câteva minute, scrieți-ne și indicați numărul comenzii.",
         "to_account": "Mergeți la cont",
-        "pending_h": "Așteptăm banca",
-        "pending_p": "Plata nu a fost încă confirmată. De obicei durează câteva secunde. Păstrați acest număr de comandă — nimic nu se pierde, iar suportul poate găsi plata după el:",
-        "signedout_h": "Nu sunteți autentificat",
-        "signedout_p": "Autentificați-vă pentru a vedea această comandă. Plata nu este afectată. Numărul comenzii:",
-        "unknown_h": "Nu există o comandă de afișat",
-        "unknown_p": "Această pagină are nevoie de un număr de comandă.",
-        "signin": "Autentificare",
     },
     "ru": {
-        "title": "Платёж получен",
-        "lead": "Сумма зачислена на ваш баланс в Lex.",
-        "waiting": "Подтверждаем платёж с банком…",
+        "title": "Оплата прошла",
+        "lead": "Баланс в Lex обновится сам, обычно за несколько секунд. Эту вкладку можно закрыть.",
         "order": "Номер заказа",
-        "merchant": "Продавец",
-        "description": "Описание",
-        "charged": "Списано",
-        "credited": "Зачислено на баланс",
-        "date": "Дата платежа",
-        "receipt": "Копия подтверждения отправлена вам на почту.",
+        "note": "Если за несколько минут баланс не изменился — напишите нам и назовите номер заказа.",
         "to_account": "Перейти в аккаунт",
-        "pending_h": "Ждём банк",
-        "pending_p": "Платёж пока не подтверждён. Обычно это занимает несколько секунд. Сохраните номер заказа — ничего не потеряно, по нему поддержка найдёт платёж:",
-        "signedout_h": "Вы не в аккаунте",
-        "signedout_p": "Войдите, чтобы увидеть этот заказ. На платёж это не влияет. Номер заказа:",
-        "unknown_h": "Нечего показать",
-        "unknown_p": "Странице нужен номер заказа, чтобы что-то найти.",
-        "signin": "Войти",
     },
 }
 
@@ -893,40 +869,13 @@ def success_page(lang):
 <main class="doc">
   <div class="wrap acct-wrap">
 
-    <p id="su-waiting" class="su-waiting">{k['waiting']}</p>
-
-    <section id="su-paid" hidden>
+    <section>
       <h1>{k['title']}</h1>
       <p>{k['lead']}</p>
-      <dl class="su-receipt">
-        <dt>{k['order']}</dt><dd id="su-order"></dd>
-        <dt>{k['merchant']}</dt><dd id="su-merchant"></dd>
-        <dt>{k['description']}</dt><dd id="su-description"></dd>
-        <div id="su-charged-row" class="su-row"><dt>{k['charged']}</dt><dd id="su-charged"></dd></div>
-        <dt>{k['credited']}</dt><dd id="su-credited"></dd>
-        <dt>{k['date']}</dt><dd id="su-date"></dd>
+      <dl class="su-receipt" id="su-order-row" hidden>
+        <dt>{k['order']}</dt><dd><code id="su-order"></code></dd>
       </dl>
-      <p class="su-note" id="su-receipt-note" hidden>{k['receipt']}</p>
-      <a href="{HREF[lang]}account/" class="btn btn-primary btn-lg">{k['to_account']}</a>
-    </section>
-
-    <section id="su-pending" hidden>
-      <h1>{k['pending_h']}</h1>
-      <p>{k['pending_p']}</p>
-      <p class="su-order-code"><code id="su-order-fallback"></code></p>
-      <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['to_account']}</a>
-    </section>
-
-    <section id="su-signedout" hidden>
-      <h1>{k['signedout_h']}</h1>
-      <p>{k['signedout_p']}</p>
-      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
-      <a href="{HREF[lang]}account/" class="btn btn-primary">{k['signin']}</a>
-    </section>
-
-    <section id="su-unknown" hidden>
-      <h1>{k['unknown_h']}</h1>
-      <p>{k['unknown_p']}</p>
+      <p class="su-note">{k['note']}</p>
       <a href="{HREF[lang]}account/" class="btn btn-ghost">{k['to_account']}</a>
     </section>
 
@@ -944,9 +893,18 @@ def success_page(lang):
   </div>
 </footer>
 
-<script src="/assets/config.js"></script>
-<script src="/assets/auth.js"></script>
-<script src="/assets/success.js"></script>
+<script>
+/* The order number, straight out of the address bar. Deliberately the only
+   script on this page: no config.js, no auth.js, nothing that could read a
+   session. textContent, never innerHTML — the value comes from a URL a stranger
+   can craft. */
+(function () {{
+  var v = new URLSearchParams(location.search).get('order');
+  if (!v) return;
+  document.getElementById('su-order').textContent = v.slice(0, 64);
+  document.getElementById('su-order-row').hidden = false;
+}})();
+</script>
 </body>
 </html>
 """

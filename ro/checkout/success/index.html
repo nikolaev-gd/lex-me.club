@@ -27,40 +27,13 @@
 <main class="doc">
   <div class="wrap acct-wrap">
 
-    <p id="su-waiting" class="su-waiting">Confirmăm plata cu banca…</p>
-
-    <section id="su-paid" hidden>
+    <section>
       <h1>Plată recepționată</h1>
-      <p>Suma a fost adăugată la soldul dumneavoastră Lex.</p>
-      <dl class="su-receipt">
-        <dt>Numărul comenzii</dt><dd id="su-order"></dd>
-        <dt>Comerciant</dt><dd id="su-merchant"></dd>
-        <dt>Descriere</dt><dd id="su-description"></dd>
-        <div id="su-charged-row" class="su-row"><dt>Sumă încasată</dt><dd id="su-charged"></dd></div>
-        <dt>Adăugat la sold</dt><dd id="su-credited"></dd>
-        <dt>Data plății</dt><dd id="su-date"></dd>
+      <p>Soldul dumneavoastră Lex se actualizează automat, de obicei în câteva secunde. Puteți închide această filă.</p>
+      <dl class="su-receipt" id="su-order-row" hidden>
+        <dt>Numărul comenzii</dt><dd><code id="su-order"></code></dd>
       </dl>
-      <p class="su-note" id="su-receipt-note" hidden>O copie a acestei confirmări a fost trimisă pe email.</p>
-      <a href="/ro/account/" class="btn btn-primary btn-lg">Mergeți la cont</a>
-    </section>
-
-    <section id="su-pending" hidden>
-      <h1>Așteptăm banca</h1>
-      <p>Plata nu a fost încă confirmată. De obicei durează câteva secunde. Păstrați acest număr de comandă — nimic nu se pierde, iar suportul poate găsi plata după el:</p>
-      <p class="su-order-code"><code id="su-order-fallback"></code></p>
-      <a href="/ro/account/" class="btn btn-ghost">Mergeți la cont</a>
-    </section>
-
-    <section id="su-signedout" hidden>
-      <h1>Nu sunteți autentificat</h1>
-      <p>Autentificați-vă pentru a vedea această comandă. Plata nu este afectată. Numărul comenzii:</p>
-      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
-      <a href="/ro/account/" class="btn btn-primary">Autentificare</a>
-    </section>
-
-    <section id="su-unknown" hidden>
-      <h1>Nu există o comandă de afișat</h1>
-      <p>Această pagină are nevoie de un număr de comandă.</p>
+      <p class="su-note">Dacă soldul nu s-a modificat după câteva minute, scrieți-ne și indicați numărul comenzii.</p>
       <a href="/ro/account/" class="btn btn-ghost">Mergeți la cont</a>
     </section>
 
@@ -82,8 +55,17 @@
   </div>
 </footer>
 
-<script src="/assets/config.js"></script>
-<script src="/assets/auth.js"></script>
-<script src="/assets/success.js"></script>
+<script>
+/* The order number, straight out of the address bar. Deliberately the only
+   script on this page: no config.js, no auth.js, nothing that could read a
+   session. textContent, never innerHTML — the value comes from a URL a stranger
+   can craft. */
+(function () {
+  var v = new URLSearchParams(location.search).get('order');
+  if (!v) return;
+  document.getElementById('su-order').textContent = v.slice(0, 64);
+  document.getElementById('su-order-row').hidden = false;
+})();
+</script>
 </body>
 </html>

@@ -27,40 +27,13 @@
 <main class="doc">
   <div class="wrap acct-wrap">
 
-    <p id="su-waiting" class="su-waiting">Confirming your payment with the bank…</p>
-
-    <section id="su-paid" hidden>
+    <section>
       <h1>Payment received</h1>
-      <p>Your top-up has been added to your Lex balance.</p>
-      <dl class="su-receipt">
-        <dt>Order number</dt><dd id="su-order"></dd>
-        <dt>Merchant</dt><dd id="su-merchant"></dd>
-        <dt>Description</dt><dd id="su-description"></dd>
-        <div id="su-charged-row" class="su-row"><dt>Amount charged</dt><dd id="su-charged"></dd></div>
-        <dt>Added to your balance</dt><dd id="su-credited"></dd>
-        <dt>Payment date</dt><dd id="su-date"></dd>
+      <p>Your Lex balance updates by itself, usually within seconds. You can close this tab.</p>
+      <dl class="su-receipt" id="su-order-row" hidden>
+        <dt>Order number</dt><dd><code id="su-order"></code></dd>
       </dl>
-      <p class="su-note" id="su-receipt-note" hidden>A copy of this confirmation has been sent to your email.</p>
-      <a href="/account/" class="btn btn-primary btn-lg">Go to your account</a>
-    </section>
-
-    <section id="su-pending" hidden>
-      <h1>Waiting for the bank</h1>
-      <p>Your payment has not been confirmed yet. This usually takes a few seconds. Keep this order number — nothing is lost, and support can find the payment by it:</p>
-      <p class="su-order-code"><code id="su-order-fallback"></code></p>
-      <a href="/account/" class="btn btn-ghost">Go to your account</a>
-    </section>
-
-    <section id="su-signedout" hidden>
-      <h1>You are signed out</h1>
-      <p>Sign in to see this order. Your payment is not affected. Order number:</p>
-      <p class="su-order-code"><code id="su-order-fallback-2"></code></p>
-      <a href="/account/" class="btn btn-primary">Sign in</a>
-    </section>
-
-    <section id="su-unknown" hidden>
-      <h1>No order to show</h1>
-      <p>This page needs an order number to look anything up.</p>
+      <p class="su-note">If the balance has not changed after a few minutes, write to us and quote the order number.</p>
       <a href="/account/" class="btn btn-ghost">Go to your account</a>
     </section>
 
@@ -82,8 +55,17 @@
   </div>
 </footer>
 
-<script src="/assets/config.js"></script>
-<script src="/assets/auth.js"></script>
-<script src="/assets/success.js"></script>
+<script>
+/* The order number, straight out of the address bar. Deliberately the only
+   script on this page: no config.js, no auth.js, nothing that could read a
+   session. textContent, never innerHTML — the value comes from a URL a stranger
+   can craft. */
+(function () {
+  var v = new URLSearchParams(location.search).get('order');
+  if (!v) return;
+  document.getElementById('su-order').textContent = v.slice(0, 64);
+  document.getElementById('su-order-row').hidden = false;
+})();
+</script>
 </body>
 </html>
