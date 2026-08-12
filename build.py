@@ -319,16 +319,9 @@ CHECKOUT = {
         # Shown whenever the acquirer charges a currency other than the one the
         # balance is kept in. {amount} and {currency} are filled in by checkout.js.
         "charge_note": "Your card will be charged {amount} {currency}.",
-        "agree_terms": "I have read and accept the Terms and the Refund Policy.",
-        # Civil Code art. 1065(1)(m): the withdrawal right is only lost if the
-        # customer expressly consents to immediate performance AND acknowledges
-        # losing it. Separate box, never pre-ticked (art. 1065(2)).
-        "agree_now": "I ask you to start immediately and understand that I lose the 14-day right of withdrawal for the part of the balance I actually use.",
-        # art. 1017(4): the order button must carry an unambiguous label.
-        "pay": "Order with obligation to pay",
+        "pay": "Pay",
         "back": "Back to your account",
-        "err_amount": "Enter an amount between $10 and $200.",
-        "err_agree": "Please tick both boxes.",
+        "err_amount": "Enter an amount between $1 and $200.",
         "err_auth": "Please sign in first.",
         "no_provider": "Could not start the payment. Nothing was charged — please try again.",
         "err_badlogin": "Wrong email or password.",
@@ -341,12 +334,9 @@ CHECKOUT = {
     "ro": {
         "title": "Alimentați soldul", "amount": "Suma, USD",
         "charge_note": "Cardul dumneavoastră va fi debitat cu {amount} {currency}.",
-        "agree_terms": "Am citit și accept Termenii și Politica de returnare.",
-        "agree_now": "Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.",
-        "pay": "Comandă cu obligație de plată",
+        "pay": "Plătiți",
         "back": "Înapoi la cont",
-        "err_amount": "Introduceți o sumă între 10 și 200 USD.",
-        "err_agree": "Bifați ambele căsuțe.",
+        "err_amount": "Introduceți o sumă între 1 și 200 USD.",
         "err_auth": "Autentificați-vă mai întâi.",
         "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.",
         "err_badlogin": "Email sau parolă greșită.",
@@ -359,12 +349,9 @@ CHECKOUT = {
     "ru": {
         "title": "Пополнение баланса", "amount": "Сумма, USD",
         "charge_note": "С карты спишется {amount} {currency}.",
-        "agree_terms": "Я прочитал и принимаю Условия и Правила возврата.",
-        "agree_now": "Прошу начать оказание услуги сразу и понимаю, что теряю право на отказ в течение 14 дней в части баланса, которую фактически израсходую.",
-        "pay": "Заказ с обязательством оплаты",
+        "pay": "Оплатить",
         "back": "Вернуться в аккаунт",
-        "err_amount": "Введите сумму от 10 до 200 USD.",
-        "err_agree": "Отметьте оба пункта.",
+        "err_amount": "Введите сумму от 1 до 200 USD.",
         "err_auth": "Сначала войдите в аккаунт.",
         "no_provider": "Не удалось начать оплату. Деньги не списаны — попробуйте ещё раз.",
         "err_badlogin": "Неверная почта или пароль.",
@@ -383,7 +370,7 @@ def checkout_page(lang):
     nav = LEGAL_NAV[lang]
     runtime = json.dumps({
         key: CHECKOUT[lang][key]
-        for key in ("err_amount", "err_agree", "err_auth", "no_provider",
+        for key in ("err_amount", "err_auth", "no_provider",
                     "err_badlogin", "charge_note")
     }, ensure_ascii=False)
 
@@ -417,18 +404,11 @@ def checkout_page(lang):
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">{k['amount']}</label>
-      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
+      <!-- ВРЕМЕННО (2026-08-13): min и value = 1 вместо 10 на время боевой
+           проверки. Вернуть 10 сюда, в MIN_USD файла assets/checkout.js, в
+           тексты err_amount выше и в MIN_USD функции payments-webhook. -->
+      <input id="co-amount" type="number" min="1" max="200" step="1" value="1" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
-
-      <label class="co-check">
-        <input type="checkbox" id="co-terms">
-        <span>{k['agree_terms']} <a href="{legal_href(lang, 'terms')}" target="_blank" rel="noopener">↗</a></span>
-      </label>
-
-      <label class="co-check">
-        <input type="checkbox" id="co-now">
-        <span>{k['agree_now']}</span>
-      </label>
 
       <p id="co-error" class="acct-error" hidden></p>
       <button id="co-submit" class="btn btn-primary btn-lg" type="submit">{k['pay']}</button>

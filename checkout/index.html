@@ -30,21 +30,14 @@
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Amount, USD</label>
-      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
+      <!-- ВРЕМЕННО (2026-08-13): min и value = 1 вместо 10 на время боевой
+           проверки. Вернуть 10 сюда, в MIN_USD файла assets/checkout.js, в
+           тексты err_amount выше и в MIN_USD функции payments-webhook. -->
+      <input id="co-amount" type="number" min="1" max="200" step="1" value="1" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
-      <label class="co-check">
-        <input type="checkbox" id="co-terms">
-        <span>I have read and accept the Terms and the Refund Policy. <a href="/terms/" target="_blank" rel="noopener">↗</a></span>
-      </label>
-
-      <label class="co-check">
-        <input type="checkbox" id="co-now">
-        <span>I ask you to start immediately and understand that I lose the 14-day right of withdrawal for the part of the balance I actually use.</span>
-      </label>
-
       <p id="co-error" class="acct-error" hidden></p>
-      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Order with obligation to pay</button>
+      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Pay</button>
     </form>
 
     <!-- SIBLING of #checkout-form, never nested inside it. HTML forbids nested
@@ -82,7 +75,7 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $10 and $200.", "err_agree": "Please tick both boxes.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password.", "charge_note": "Your card will be charged {amount} {currency}."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Enter an amount between $1 and $200.", "err_auth": "Please sign in first.", "no_provider": "Could not start the payment. Nothing was charged — please try again.", "err_badlogin": "Wrong email or password.", "charge_note": "Your card will be charged {amount} {currency}."};</script>
 <script src="/assets/config.js"></script>
 <!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
      refresh and for the inline sign-in, and degrades silently without it. -->

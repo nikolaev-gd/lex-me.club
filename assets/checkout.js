@@ -5,26 +5,18 @@
  * when the provider's webhook reaches payments-webhook, which is the only place
  * that calls lex_topup.
  *
- * Both checkboxes are required by Moldovan law, not by taste: accepting the
- * terms, and — separately, never pre-ticked (Civil Code art. 1065(2)) —
- * consenting to immediate performance, which is the only way the 14-day
- * withdrawal right is validly lost for a digital service (art. 1065(1)(m)).
- * The submit button carries the wording art. 1017(4) demands; without it the
- * order does not bind the customer at all.
+ * There used to be two consent checkboxes here and a special order-button
+ * label, required of a seller by Moldovan law. Removed 2026-08-13: the seller
+ * of record is Creem, and those duties are discharged on their checkout. What
+ * we owe Creem is this public site — product description, prices, terms,
+ * privacy policy, support email — and that is all still here.
  *
- * Two ways in, and they need different things:
- *
- *   From the extension — the service worker has already written the signed-in
- *   session into localStorage by the time the customer can press anything, so
- *   the sign-in block below never appears. That handoff happens after this page
- *   loads, which is why the session is read inside the submit handler and not
- *   at load: reading it at load would race the handoff and show a sign-in form
- *   to someone who is already signed in.
- *
- *   From the site — "Top up" on the landing comes straight here, and a logged
- *   out visitor used to hit "please sign in" with nowhere to do it. Now the
- *   sign-in block appears at the moment it is actually needed, and the order
- *   continues by itself once they are through.
+ * Who arrives here: someone who found the site on their own. The extension no
+ * longer sends anyone this way — it opens its own top-up window and goes
+ * straight to the checkout (2026-08-12). Nor does it hand this page a session
+ * any more, which is why the sign-in block below matters: it appears at the
+ * moment the order actually needs it, and the order continues by itself once
+ * they are through.
  */
 (function () {
   'use strict';
@@ -33,7 +25,12 @@
   var T = window.LEX_CHECKOUT_TEXT || {};
   var el = function (id) { return document.getElementById(id); };
 
-  var MIN_USD = 10;
+  // ВРЕМЕННО: 1 вместо 10 на время боевой проверки (2026-08-13).
+  // Вернуть 10 сразу после неё; те же правки ждут в build.py (min/value поля и
+  // тексты err_amount), в topup-window.js расширения и в MIN_USD функции
+  // payments-webhook. Ниже доллара не опускается: Creem не принимает
+  // custom_price меньше 100 центов.
+  var MIN_USD = 1;
   var MAX_USD = 200;
 
   /** The signed-in session, refreshed if the token has expired. Falls back to a
@@ -155,7 +152,6 @@
 
     var amount = readAmount();
     if (amount === null) return fail(T.err_amount);
-    if (!el('co-terms').checked || !el('co-now').checked) return fail(T.err_agree);
 
     var s = await currentSession();
     if (!s || !s.access_token) {

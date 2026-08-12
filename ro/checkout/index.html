@@ -30,21 +30,14 @@
 
     <form id="checkout-form" class="acct-form" novalidate>
       <label for="co-amount">Suma, USD</label>
-      <input id="co-amount" type="number" min="10" max="200" step="1" value="10" inputmode="decimal" required>
+      <!-- ВРЕМЕННО (2026-08-13): min и value = 1 вместо 10 на время боевой
+           проверки. Вернуть 10 сюда, в MIN_USD файла assets/checkout.js, в
+           тексты err_amount выше и в MIN_USD функции payments-webhook. -->
+      <input id="co-amount" type="number" min="1" max="200" step="1" value="1" inputmode="decimal" required>
       <p id="co-charge" class="co-charge" hidden></p>
 
-      <label class="co-check">
-        <input type="checkbox" id="co-terms">
-        <span>Am citit și accept Termenii și Politica de returnare. <a href="/ro/terms/" target="_blank" rel="noopener">↗</a></span>
-      </label>
-
-      <label class="co-check">
-        <input type="checkbox" id="co-now">
-        <span>Solicit începerea imediată a prestării și înțeleg că pierd dreptul de revocare de 14 zile pentru partea din sold pe care o utilizez efectiv.</span>
-      </label>
-
       <p id="co-error" class="acct-error" hidden></p>
-      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Comandă cu obligație de plată</button>
+      <button id="co-submit" class="btn btn-primary btn-lg" type="submit">Plătiți</button>
     </form>
 
     <!-- SIBLING of #checkout-form, never nested inside it. HTML forbids nested
@@ -82,7 +75,7 @@
   </div>
 </footer>
 
-<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Introduceți o sumă între 10 și 200 USD.", "err_agree": "Bifați ambele căsuțe.", "err_auth": "Autentificați-vă mai întâi.", "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.", "err_badlogin": "Email sau parolă greșită.", "charge_note": "Cardul dumneavoastră va fi debitat cu {amount} {currency}."};</script>
+<script>window.LEX_CHECKOUT_TEXT = {"err_amount": "Introduceți o sumă între 1 și 200 USD.", "err_auth": "Autentificați-vă mai întâi.", "no_provider": "Nu am putut începe plata. Nu s-a debitat nimic — încercați din nou.", "err_badlogin": "Email sau parolă greșită.", "charge_note": "Cardul dumneavoastră va fi debitat cu {amount} {currency}."};</script>
 <script src="/assets/config.js"></script>
 <!-- auth.js BEFORE checkout.js: checkout.js reads window.LexAuth for the session
      refresh and for the inline sign-in, and degrades silently without it. -->

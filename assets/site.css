@@ -415,11 +415,6 @@ header .brand{text-decoration:none}
   *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
 }
 
-/* checkout consent boxes — both required by law, neither pre-ticked */
-.co-check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14.5px;font-weight:400;line-height:1.45;cursor:pointer}
-.co-check input{width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--brand)}
-.co-check a{color:var(--brand-text);text-decoration:none}
-
 /* Inline sign-in on the checkout page. Hidden until an order actually needs it:
    someone arriving from the extension already carries a session and never sees
    this, while a logged-out visitor from the landing gets it at the moment they
