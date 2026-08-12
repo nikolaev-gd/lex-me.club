@@ -65,6 +65,39 @@ python3 -m http.server 4173
 Paths are root-relative, so opening the files directly with `file://` will not
 load the CSS — use the server.
 
+To see the dark theme, switch macOS between light and dark, or emulate it in
+DevTools: ⌘⇧P → "Show Rendering" → *Emulate CSS media feature
+prefers-color-scheme*.
+
+## Dark theme follows the system
+
+There is no switcher, deliberately: the browser already knows what the visitor
+wants, a static host cannot remember a choice without shipping JavaScript to
+every page, and one media query needs no markup at all — so the dark theme lives
+entirely in `assets/site.css` and no generated page had to be rebuilt for it.
+
+Every colour is a token in `:root`, and the block at the bottom of the file
+swaps the tokens. **A new rule with a raw hex in it is the one thing that breaks
+dark mode** — reach for a token, and add one if none fits.
+
+Two things are not inverted, and should not be: the yellow highlighter keeps
+dark text on it (`--ink-fixed`) because it is the brand mark rather than a
+colour of the theme, and the ink bands become an elevated dark slab instead of
+flipping to white mid-page.
+
+The card-scheme marks in the footer are dark ink on transparency — the Visa
+wordmark is `#1A1F71` — so in dark mode each one gets a small white chip. A CSS
+filter would have been shorter, but it recolours a scheme-supplied mark, which
+is exactly what a merchant review catches, and the marks have to stay visible:
+they tell a visitor which cards will actually go through, and maib's own rules
+require them if the bank is switched back on (see the footer section below).
+
+Contrast was checked by walking every text node on all 25 pages in both themes
+and comparing it against its effective background. That is what caught a live
+bug nobody had noticed: `.doc a` outweighs `.btn-primary` on specificity, so the
+"go to your account" button on the post-payment page was drawing `#3A2CE0` text
+on its own `#4B3BFF` background, underlined. Hence `.doc a:not(.btn)`.
+
 ## Language routing
 
 `assets/lang.js`, on the English root only, on a first visit:

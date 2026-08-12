@@ -1,17 +1,41 @@
 /* site.css — shared styles for all three language versions.
  * Lifted verbatim from Gennady's original landing draft; the only additions are
- * the language switcher at the bottom of this file. Keeping one stylesheet for
- * en/ro/ru means a visual fix lands on all three at once. */
+ * the language switcher and the dark palette at the bottom of this file.
+ * Keeping one stylesheet for en/ro/ru means a visual fix lands on all three at
+ * once.
+ *
+ * Colours are declared once as tokens in :root and never written inline in a
+ * rule — the dark palette at the bottom only swaps the tokens, so a new rule
+ * that reaches for a raw hex is the one thing that breaks dark mode. */
 
 :root{
+  color-scheme:light;
   --paper:#FAF9F6;
   --paper-2:#F1EFE9;
+  --surface:#fff;          /* cards, popover, inputs — the layer above --paper */
   --ink:#14151A;
+  --ink-soft:#3a3d45;      /* body copy that should sit just under --ink */
+  /* Dark paint that must NOT invert: text on the yellow highlighter and on the
+   * always-white button in the ink bands. Both keep a light background in dark
+   * mode, so their text stays dark in both themes. */
+  --ink-fixed:#14151A;
   --muted:#6B6E78;
+  --muted-2:#54575f;
   --line:#E5E2DA;
+  --header:rgba(250,249,246,.82);
   --brand:#4B3BFF;
-  --brand-ink:#3A2CE0;
+  --brand-ink:#3A2CE0;     /* the darker shade under a brand button */
+  --brand-text:#3A2CE0;    /* brand as text: kickers, links, accents */
+  --brand-tint:rgba(75,59,255,.08);
   --hl:#FFDE5C;
+  --band:#14151A;          /* the inverted statement / final bands */
+  --band-text:#FAF9F6;
+  --band-muted:#B7BAC4;
+  --danger:#c02626;
+  --ok:#1a7f37;
+  --hatch-a:#F4F2EC;       /* placeholder hatching in an empty screenshot slot */
+  --hatch-b:#EFEDE6;
+  --code-bg:#f4f6f8;
   --video:#15171E;
   --video-2:#1E212B;
   --video-line:#2C303C;
@@ -34,7 +58,7 @@ body{
   overflow-x:hidden;
 }
 a{color:inherit;text-decoration:none}
-::selection{background:var(--hl);color:var(--ink)}
+::selection{background:var(--hl);color:var(--ink-fixed)}
 
 .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
 
@@ -48,7 +72,7 @@ h1,h2,h3,.display{
 /* highlighter mark — the signature */
 .hl{
   background:linear-gradient(180deg,transparent 8%,var(--hl) 8%,var(--hl) 92%,transparent 92%);
-  color:var(--ink);
+  color:var(--ink-fixed);
   padding:0 .06em;
   border-radius:3px;
   box-decoration-break:clone;
@@ -75,7 +99,7 @@ h1,h2,h3,.display{
 /* ---------- header ---------- */
 header{
   position:sticky;top:0;z-index:50;
-  background:rgba(250,249,246,.82);
+  background:var(--header);
   backdrop-filter:saturate(140%) blur(10px);
   border-bottom:1px solid var(--line);
 }
@@ -90,12 +114,12 @@ header{
 .eyebrow{
   display:inline-flex;align-items:center;gap:8px;
   font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;
-  color:var(--brand-ink);background:rgba(75,59,255,.08);
+  color:var(--brand-text);background:var(--brand-tint);
   padding:6px 12px;border-radius:999px;margin-bottom:22px;
   text-transform:uppercase;letter-spacing:.04em;
 }
 .hero h1{font-size:clamp(38px,5.4vw,60px);margin-bottom:22px}
-.hero p.lead{font-size:19px;color:#3a3d45;max-width:38ch;margin-bottom:30px}
+.hero p.lead{font-size:19px;color:var(--ink-soft);max-width:38ch;margin-bottom:30px}
 .hero-cta{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
 .note{
   margin-top:16px;font-size:14px;color:var(--muted);
@@ -144,12 +168,12 @@ header{
 .sub-label{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--video-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
 .sub-line{color:var(--video-text);font-size:19px;line-height:1.5;font-weight:500}
 .sub-line .w{cursor:pointer;border-radius:4px;padding:0 1px;transition:background .15s}
-.sub-line .w.mark{background:var(--hl);color:var(--ink);padding:1px 3px;font-weight:600}
+.sub-line .w.mark{background:var(--hl);color:var(--ink-fixed);padding:1px 3px;font-weight:600}
 .sub-line .w.plain:hover{background:rgba(255,255,255,.1)}
 
 .popover{
   position:absolute;left:22px;bottom:64px;z-index:5;
-  background:#fff;color:var(--ink);border-radius:12px;
+  background:var(--surface);color:var(--ink);border-radius:12px;
   padding:12px 14px;min-width:210px;max-width:min(320px,calc(100% - 44px));
   box-shadow:0 16px 40px -8px rgba(0,0,0,.45);
   border:1px solid var(--line);
@@ -157,35 +181,35 @@ header{
 }
 .popover .pw{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:17px;display:flex;align-items:center;justify-content:space-between;gap:10px}
 .popover .pw .tag{font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--muted);background:var(--paper-2);padding:2px 6px;border-radius:5px;font-weight:600;white-space:nowrap}
-.popover .tr{color:var(--brand-ink);font-weight:600;font-size:15px;margin:3px 0 8px}
+.popover .tr{color:var(--brand-text);font-weight:600;font-size:15px;margin:3px 0 8px}
 .popover .ex{font-size:13px;color:var(--muted);line-height:1.4}
-.popover::after{content:"";position:absolute;left:26px;bottom:-7px;width:14px;height:14px;background:#fff;border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
+.popover::after{content:"";position:absolute;left:26px;bottom:-7px;width:14px;height:14px;background:var(--surface);border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:rotate(45deg)}
 @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
 
 /* ---------- statement band ---------- */
-.band{background:var(--ink);color:var(--paper);margin-top:56px;padding:70px 0}
+.band{background:var(--band);color:var(--band-text);margin-top:56px;padding:70px 0}
 .band h2{font-size:clamp(30px,4.4vw,46px);max-width:16ch}
-.band h2 .hl{color:var(--ink)}
-.band .sub{color:#B7BAC4;margin-top:18px;font-size:18px;max-width:52ch}
+.band h2 .hl{color:var(--ink-fixed)}
+.band .sub{color:var(--band-muted);margin-top:18px;font-size:18px;max-width:52ch}
 
 /* ---------- section base ---------- */
 section{padding:82px 0}
-.kicker{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--brand-ink);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px}
+.kicker{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--brand-text);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px}
 .sec-title{font-size:clamp(28px,3.8vw,40px);max-width:20ch}
 
 /* how it works */
 .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:48px}
-.step{border:1px solid var(--line);border-radius:var(--r);padding:26px;background:#fff;position:relative}
+.step{border:1px solid var(--line);border-radius:var(--r);padding:26px;background:var(--surface);position:relative}
 .step .num{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:600;color:var(--brand);border:1px solid var(--line);border-radius:8px;padding:3px 9px;display:inline-block;margin-bottom:16px}
 .step h3{font-size:21px;margin-bottom:8px}
 .step p{color:var(--muted);font-size:15.5px}
 
 /* screenshots */
 .shots{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin-top:44px}
-.shot{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff}
+.shot{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
 .shot-img{
   aspect-ratio:4/3;background:
-    repeating-linear-gradient(135deg,#F4F2EC 0 12px,#EFEDE6 12px 24px);
+    repeating-linear-gradient(135deg,var(--hatch-a) 0 12px,var(--hatch-b) 12px 24px);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
   color:var(--muted);border-bottom:1px solid var(--line);
 }
@@ -198,15 +222,15 @@ section{padding:82px 0}
 
 /* teacher compare */
 .teacher{background:var(--paper-2)}
-.compare{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:44px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:#fff}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-top:44px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--surface)}
 .col-head{padding:22px 26px;font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:19px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px}
 .col-lex{background:var(--brand);color:#fff}
 .col-lex .dot{width:9px;height:9px;border-radius:50%;background:var(--hl)}
-.col-tut{background:#fff;color:var(--ink)}
+.col-tut{background:var(--surface);color:var(--ink)}
 .crow{padding:18px 26px;border-bottom:1px solid var(--line);font-size:15.5px}
 .crow:last-child{border-bottom:none}
 .crow .rl{font-family:"JetBrains Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:5px}
-.col-tut .crow{color:#54575f}
+.col-tut .crow{color:var(--muted-2)}
 .caveat{margin-top:24px;font-size:15px;color:var(--muted);max-width:64ch;border-left:3px solid var(--hl);padding-left:16px}
 
 /* money */
@@ -225,15 +249,15 @@ section{padding:82px 0}
 .balance-amt .cur{color:var(--hl)}
 .balance-sub{color:var(--video-muted);font-size:13.5px;font-family:"JetBrains Mono",monospace}
 .bctas{margin-top:22px;display:flex;gap:10px}
-.btn-topup{background:var(--hl);color:var(--ink);border:none}
+.btn-topup{background:var(--hl);color:var(--ink-fixed);border:none}
 .btn-topup:hover{filter:brightness(.96)}
 
 /* final cta */
-.final{background:var(--ink);color:var(--paper);text-align:center}
+.final{background:var(--band);color:var(--band-text);text-align:center}
 .final h2{font-size:clamp(30px,4.6vw,50px);max-width:18ch;margin:0 auto}
-.final .fsub{color:#B7BAC4;margin:20px auto 32px;font-size:18px;max-width:46ch}
+.final .fsub{color:var(--band-muted);margin:20px auto 32px;font-size:18px;max-width:46ch}
 .final-cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-.btn-onink{background:#fff;color:var(--ink);border:none}
+.btn-onink{background:#fff;color:var(--ink-fixed);border:none}
 .btn-onink:hover{background:#eee}
 .btn-onink-ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.28)}
 .btn-onink-ghost:hover{border-color:#fff}
@@ -273,8 +297,15 @@ footer{padding:44px 0;border-top:1px solid var(--line)}
   font-family:"JetBrains Mono",monospace;font-size:.88em;
   background:var(--paper-2);border:1px solid var(--line);border-radius:5px;padding:1px 5px;
 }
-.doc a{color:var(--brand-ink);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
-.doc a:hover{background:var(--hl);text-decoration:none;border-radius:3px}
+/* :not(.btn) is load-bearing. `.doc a` outweighs `.btn-primary` / `.btn-topup`
+ * on specificity, so without it every button that happens to be a link inside a
+ * .doc page gets painted as body prose: the "top up" button came out violet-on-
+ * yellow and underlined, and the primary button on the post-payment page came
+ * out #3A2CE0 text on its own #4B3BFF background — all but invisible. That was
+ * live and unnoticed because both were dark-on-light and still legible-ish; the
+ * dark palette turned the same rule into 1.9:1 and the contrast audit caught it. */
+.doc a:not(.btn){color:var(--brand-text);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.doc a:not(.btn):hover{background:var(--hl);color:var(--ink-fixed);text-decoration:none;border-radius:3px}
 
 /* Wide tables scroll inside their own box rather than pushing the page sideways. */
 .table-scroll{overflow-x:auto;margin:0 0 22px;border:1px solid var(--line);border-radius:var(--r)}
@@ -293,20 +324,20 @@ header .brand{text-decoration:none}
 .acct-form label{font-size:14px;font-weight:600;margin-top:12px}
 .acct-form input{
   font:inherit;font-size:16px;padding:12px 14px;border:1.5px solid var(--line);
-  border-radius:12px;background:#fff;color:var(--ink);
+  border-radius:12px;background:var(--surface);color:var(--ink);
 }
 .acct-form input:focus{outline:none;border-color:var(--brand)}
 .acct-form button{margin-top:18px;justify-content:center}
-.acct-error{color:#c02626;font-size:14px;margin:10px 0 0}
+.acct-error{color:var(--danger);font-size:14px;margin:10px 0 0}
 .acct-note{color:var(--muted);font-size:14.5px;margin-top:20px}
-.acct-note a{color:var(--brand-ink);text-decoration:underline}
+.acct-note a{color:var(--brand-text);text-decoration:underline}
 .acct-card{margin:0 0 36px}
 .acct-card .balance-amt{font-size:44px}
 .acct-card .balance-amt.is-zero{color:#ff8a8a}
 .acct-soon{color:var(--video-muted);font-size:13px;margin:14px 0 0}
 #ledger td:last-child,#ledger th:last-child{text-align:right;white-space:nowrap}
 #ledger td.neg{color:var(--muted)}
-#ledger td.pos{color:#1a7f37;font-weight:600}
+#ledger td.pos{color:var(--ok);font-weight:600}
 .ledger-empty{color:var(--muted)}
 
 /* ---------- product mockups ---------- */
@@ -324,7 +355,7 @@ header .brand{text-decoration:none}
 }
 .mock-line{color:var(--video-muted);opacity:.72}
 .mock-line.on{color:var(--video-text);opacity:1;font-weight:500}
-.mock-line.on .mark{background:var(--hl);color:var(--ink);border-radius:3px;padding:0 3px}
+.mock-line.on .mark{background:var(--hl);color:var(--ink-fixed);border-radius:3px;padding:0 3px}
 
 .mock-bubble{
   align-self:flex-end;max-width:78%;background:var(--brand);color:#fff;
@@ -334,7 +365,7 @@ header .brand{text-decoration:none}
   background:var(--video-2);color:var(--video-text);border:1px solid var(--video-line);
   padding:10px 12px;border-radius:12px 12px 12px 4px;
 }
-.mock-answer .mark{background:var(--hl);color:var(--ink);border-radius:3px;padding:0 3px;font-weight:600}
+.mock-answer .mark{background:var(--hl);color:var(--ink-fixed);border-radius:3px;padding:0 3px;font-weight:600}
 
 .mock-spacer{flex:1}
 .mock-voice{
@@ -352,7 +383,7 @@ header .brand{text-decoration:none}
 /* ---------- language switcher ---------- */
 /* Plain links, no scripting and no country guessing: English is what everyone
  * gets, and anyone who wants another language clicks for it. */
-.lang-switch{display:flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:10px;padding:2px;background:#fff}
+.lang-switch{display:flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:10px;padding:2px;background:var(--surface)}
 .lang-opt{
   font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;
   color:var(--muted);padding:5px 8px;border-radius:7px;line-height:1;
@@ -387,7 +418,7 @@ header .brand{text-decoration:none}
 /* checkout consent boxes — both required by law, neither pre-ticked */
 .co-check{display:flex;gap:10px;align-items:flex-start;margin-top:16px;font-size:14.5px;font-weight:400;line-height:1.45;cursor:pointer}
 .co-check input{width:18px;height:18px;flex:none;margin-top:2px;accent-color:var(--brand)}
-.co-check a{color:var(--brand-ink);text-decoration:none}
+.co-check a{color:var(--brand-text);text-decoration:none}
 
 /* Inline sign-in on the checkout page. Hidden until an order actually needs it:
    someone arriving from the extension already carries a session and never sees
@@ -400,7 +431,7 @@ header .brand{text-decoration:none}
 .co-signin label{font-size:14px;font-weight:600;margin-top:10px}
 .co-signin input{
   font:inherit;font-size:16px;padding:12px 14px;border:1.5px solid var(--line);
-  border-radius:12px;background:#fff;color:var(--ink);
+  border-radius:12px;background:var(--surface);color:var(--ink);
 }
 .co-signin input:focus{outline:none;border-color:var(--brand)}
 .co-signin button{margin-top:14px;justify-content:center}
@@ -408,24 +439,98 @@ header .brand{text-decoration:none}
 /* Charge line on the checkout page: what the card is debited when the acquirer
    settles in a currency other than the one the balance is kept in. */
 .co-charge{
-  margin:6px 0 0;font-size:14px;color:var(--muted,#6b7b8a);
+  margin:6px 0 0;font-size:14px;color:var(--muted);
 }
 
 /* Post-payment confirmation page. */
-.su-waiting{margin:40px 0;font-size:16px;color:var(--muted,#6b7b8a)}
+.su-waiting{margin:40px 0;font-size:16px;color:var(--muted)}
 .su-receipt{
   display:grid;grid-template-columns:auto 1fr;gap:10px 20px;
   margin:24px 0;padding:20px;border:1.5px solid var(--line);border-radius:14px;
   font-size:15px;
 }
-.su-receipt dt{color:var(--muted,#6b7b8a)}
+.su-receipt dt{color:var(--muted)}
 .su-receipt dd{margin:0;font-weight:600;word-break:break-word}
 /* The optional row is a wrapper so it can be hidden as a unit; it has to keep
    feeding its dt/dd to the same two-column grid. */
 .su-row{display:contents}
-.su-note{font-size:14px;color:var(--muted,#6b7b8a);margin:0 0 20px}
+.su-note{font-size:14px;color:var(--muted);margin:0 0 20px}
 .su-order-code{margin:12px 0 20px}
 .su-order-code code{
   font-family:'JetBrains Mono',ui-monospace,monospace;font-size:14px;
-  background:#f4f6f8;border-radius:8px;padding:6px 10px;display:inline-block;
+  background:var(--code-bg);border-radius:8px;padding:6px 10px;display:inline-block;
+}
+
+/* ---------- dark palette ---------- */
+/* Follows the operating system only — there is no switcher, by design: a static
+ * site that guesses gets it wrong, and the browser already knows the answer.
+ *
+ * Not a mechanical inversion. Two things are deliberately NOT flipped:
+ *   - the highlighter stays the same yellow with dark text on it (--ink-fixed),
+ *     because it is the brand mark, not a colour of the theme;
+ *   - the video mock and the balance card were always dark, so in dark mode they
+ *     are lifted a step ABOVE the page instead of sitting below it — otherwise a
+ *     dark card on a dark page reads as a hole.
+ * The ink bands (.band, .final) stop being an inversion and become an elevated
+ * slab, which is the same emphasis without a white flash mid-page. */
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --paper:#0F1115;
+    --paper-2:#171A21;
+    --surface:#1A1E26;
+    --ink:#ECEEF3;
+    --ink-soft:#C6C9D2;
+    --muted:#959BA8;
+    --muted-2:#AAAFBA;
+    --line:#2A2F3A;
+    --header:rgba(15,17,21,.82);
+    --brand:#6C5CFF;
+    --brand-ink:#4A38E6;
+    --brand-text:#A79BFF;
+    --brand-tint:rgba(108,92,255,.16);
+    --band:#1E232C;
+    --band-text:#F2F3F7;
+    --band-muted:#A8AEBA;
+    --danger:#FF7A7A;
+    --ok:#4FD97F;
+    --hatch-a:#1B1F27;
+    --hatch-b:#171A21;
+    --code-bg:#1B1F27;
+    --video:#171A22;
+    --video-2:#1F232D;
+    --video-line:#2E333F;
+  }
+
+  /* A drop shadow tuned for a paper background disappears on a dark one; these
+   * two carry the page's only real elevation, so they get their own. */
+  .browser{box-shadow:0 30px 60px -20px rgba(0,0,0,.7),0 8px 20px -8px rgba(0,0,0,.5)}
+  .balance-card{box-shadow:0 24px 50px -18px rgba(0,0,0,.6)}
+
+  /* Mono text at 13px in the full brand violet is legible on paper and muddy on
+   * dark; the lighter accent is the same colour role, one step up. */
+  .step .num{color:var(--brand-text)}
+
+  /* The white button in the ink bands: on a dark band a plain white slab is too
+   * loud, and grey-on-white hover reads as disabled. */
+  .btn-onink{background:var(--band-text)}
+  .btn-onink:hover{background:#fff}
+
+  /* The card-scheme marks are dark ink on transparency — the Visa wordmark is
+   * #1A1F71 — so on a dark footer they all but vanish. They have to stay visible:
+   * they are the page's promise about which cards will actually go through, and if
+   * maib is switched back on, its merchant rules require them shown. A CSS filter
+   * would recolour a scheme-supplied mark, which is exactly what a merchant review
+   * catches, so instead each mark gets the white ground its file was drawn for.
+   * Pixels untouched, still quiet, still legible.
+   *
+   * The ground goes on each mark, not on the row: the row also carries .wrap, and
+   * shrinking that box to fit its content hands the centring job to `margin:0
+   * auto`, which drags the marks out of the footer's grid and into the middle of
+   * the page. The fade-in-on-hover is dropped here — a half-transparent white
+   * chip on a dark footer just reads as grey. */
+  .foot-pay img{
+    opacity:1;background:#fff;
+    padding:5px 8px;border-radius:7px;box-sizing:content-box;
+  }
 }
