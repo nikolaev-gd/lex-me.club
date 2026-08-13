@@ -28,9 +28,16 @@ LEGAL = [
     ("refunds", "refunds"),
     ("contact", "contact"),
 ]
+# Pages built from the same legal/ markdown and the same shell, but in English
+# only: no Romanian or Russian source exists for them, so they are kept out of
+# LEGAL (which is generated for all three languages and reports a missing
+# translation as a broken footer link). Nothing links to them from the header or
+# the footer yet — the URL is handed out by hand.
+LEGAL_EN_ONLY = ["pricing"]
 LEGAL_TITLES = {
     "en": {"terms": "Terms and Conditions", "privacy": "Privacy Policy",
-           "refunds": "Refund Policy", "contact": "Contact and company details"},
+           "refunds": "Refund Policy", "contact": "Contact and company details",
+           "pricing": "Pricing"},
     "ro": {"terms": "Termeni și Condiții", "privacy": "Politica de confidențialitate",
            "refunds": "Politica de returnare", "contact": "Contacte și date de identificare"},
     "ru": {"terms": "Условия использования", "privacy": "Политика конфиденциальности",
@@ -508,8 +515,13 @@ PAY_SIZE = {
 }
 
 
-def legal_page(lang, key):
-    """Render one legal document. Same shell as the landing, prose in the middle."""
+def legal_page(lang, key, alt_langs=None):
+    """Render one legal document. Same shell as the landing, prose in the middle.
+
+    alt_langs names the languages this document actually exists in; a page that
+    exists in one language gets no hreflang block at all, because pointing at a
+    translation that was never written is a link to a 404.
+    """
     src = ROOT / "legal" / ("" if lang == "en" else lang) / f"{key}.md"
     if not src.exists():
         return None
@@ -519,10 +531,11 @@ def legal_page(lang, key):
     body = md.render(src.read_text(encoding="utf-8"))
     c = {k: e(v) for k, v in COPY[lang].items()}
 
+    alt_langs = LANGS if alt_langs is None else alt_langs
     alts = "\n".join(
         f'<link rel="alternate" hreflang="{l}" href="https://lex-me.club{legal_href(l, key)}">'
-        for l in LANGS
-    )
+        for l in alt_langs
+    ) if len(alt_langs) > 1 else ""
 
     return f"""<!DOCTYPE html>
 <html lang="{lang}">
@@ -912,6 +925,15 @@ def main():
             d.mkdir(parents=True, exist_ok=True)
             (d / "index.html").write_text(rendered, encoding="utf-8")
             print(f"wrote {legal_href(lang, key)}index.html")
+
+    for key in LEGAL_EN_ONLY:
+        rendered = legal_page("en", key, alt_langs=["en"])
+        if rendered is None:
+            raise SystemExit(f"missing legal/{key}.md")
+        d = ROOT / (legal_href("en", key).strip("/"))
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "index.html").write_text(rendered, encoding="utf-8")
+        print(f"wrote {legal_href('en', key)}index.html")
 
     for lang in LANGS:
         d = ROOT / (f"{HREF[lang].strip('/')}/account" if lang != "en" else "account")
