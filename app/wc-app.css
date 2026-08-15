@@ -1,0 +1,924 @@
+/* webchat/wc-app.css — the whole look of the new chat.
+ *
+ * One stylesheet, no build step: the site this ships to is static GitHub Pages
+ * and the native shells load the same files off disk.
+ *
+ * Colour lives in custom properties on :root and is redefined once for dark.
+ * Nothing below names a raw colour outside those two blocks — that is what
+ * makes the dark theme a five-line change instead of a search-and-replace.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --bg:            #ffffff;
+  --bg-sunken:     #f7f7f8;
+  --bg-raised:     #ffffff;
+  --bg-hover:      rgba(0, 0, 0, .05);
+  --bg-active:     rgba(0, 0, 0, .09);
+  --bg-bubble:     #f0f0f1;
+
+  --fg:            #1d1d1f;
+  --fg-muted:      #6b6b70;
+  --fg-faint:      #9a9aa0;
+
+  --line:          rgba(0, 0, 0, .10);
+  --line-strong:   rgba(0, 0, 0, .18);
+
+  --accent:        #2a6df4;
+  --accent-fg:     #ffffff;
+  --danger:        #d93a3a;
+
+  --radius:        14px;
+  --radius-sm:     9px;
+  --sidebar-w:     264px;
+
+  --shadow-sm:     0 1px 2px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .05);
+  --shadow-lg:     0 10px 40px rgba(0, 0, 0, .16), 0 2px 8px rgba(0, 0, 0, .08);
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* Dark is written once and applied from two places, because the theme has
+ * THREE states, not two: an explicit choice stamps data-theme on the root, and
+ * "as in the system" stamps nothing and leaves prefers-color-scheme to decide.
+ * The media rule therefore has to step aside when the choice was light —
+ * without :not([data-theme="light"]) a person on a dark Mac could pick the
+ * light theme and watch nothing happen. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:          #202021;
+    --bg-sunken:   #171718;
+    --bg-raised:   #2a2a2c;
+    --bg-hover:    rgba(255, 255, 255, .07);
+    --bg-active:   rgba(255, 255, 255, .12);
+    --bg-bubble:   #303032;
+
+    --fg:          #ececee;
+    --fg-muted:    #a8a8ad;
+    --fg-faint:    #77777d;
+
+    --line:        rgba(255, 255, 255, .11);
+    --line-strong: rgba(255, 255, 255, .20);
+
+    --accent:      #5b8dfd;
+    --accent-fg:   #0e1220;
+    --danger:      #ff6b6b;
+
+    --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
+    --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:          #202021;
+  --bg-sunken:   #171718;
+  --bg-raised:   #2a2a2c;
+  --bg-hover:    rgba(255, 255, 255, .07);
+  --bg-active:   rgba(255, 255, 255, .12);
+  --bg-bubble:   #303032;
+
+  --fg:          #ececee;
+  --fg-muted:    #a8a8ad;
+  --fg-faint:    #77777d;
+
+  --line:        rgba(255, 255, 255, .11);
+  --line-strong: rgba(255, 255, 255, .20);
+
+  --accent:      #5b8dfd;
+  --accent-fg:   #0e1220;
+  --danger:      #ff6b6b;
+
+  --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  /* 100% of what, exactly? On a phone the answer changes as the browser's own
+   * bars slide away, and a percentage height keeps referring to the tallest
+   * version — so the composer sits below the fold until you scroll, which the
+   * page does not let you do. --wc-vh is the visual viewport, written by
+   * wc-app.js on every resize; the dvh fallback covers the first paint and any
+   * browser without visualViewport. */
+  height: var(--wc-vh, 100dvh);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  /* The page itself never scrolls — the thread does. Without this, the iOS
+     rubber band drags the whole chrome around. */
+  overscroll-behavior: none;
+}
+
+body { overflow: hidden; }
+
+svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+button { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.wc-btn {
+  display: block;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background .12s;
+}
+.wc-btn:hover { background: var(--bg-hover); }
+.wc-btn:active { background: var(--bg-active); }
+
+.wc-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.wc-btn-primary:hover { background: var(--accent); filter: brightness(1.07); }
+
+.wc-btn-ghost { border-color: var(--line); }
+
+.wc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.wc-icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.wc-icon-btn:active { background: var(--bg-active); }
+.wc-icon-btn[disabled] { opacity: .4; cursor: default; }
+
+/* ── Gate ────────────────────────────────────────────────────────────────── */
+
+.wc-gate {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-sunken);
+  z-index: 60;
+}
+.wc-gate[hidden] { display: none; }
+
+.wc-gate-card {
+  width: min(360px, 100%);
+  padding: 28px 24px 22px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.wc-gate-brand { font-size: 30px; font-weight: 650; letter-spacing: -.02em; }
+.wc-gate-sub { margin: 4px 0 22px; color: var(--fg-muted); font-size: 14px; }
+
+.wc-gate-card form { display: grid; gap: 9px; margin-bottom: 9px; }
+.wc-gate-card input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  /* 16px is not a taste call: below it, iOS Safari zooms the page on focus and
+     never zooms back out. */
+  font-size: 16px;
+}
+.wc-gate-card input::placeholder { color: var(--fg-faint); }
+
+.wc-gate-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 9px;
+  color: var(--fg-faint);
+  font-size: 12px;
+}
+.wc-gate-or::before, .wc-gate-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.wc-gate-status { min-height: 20px; margin-top: 12px; font-size: 13px; color: var(--fg-muted); }
+.wc-gate-status.is-error { color: var(--danger); }
+
+/* ── Shell ───────────────────────────────────────────────────────────────── */
+
+.wc-root { display: flex; height: 100%; }
+.wc-root[hidden] { display: none; }
+
+.wc-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .38);
+  z-index: 25;
+  border: 0;
+}
+.wc-scrim[hidden] { display: none; }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+
+.wc-sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--sidebar-w);
+  border-right: 1px solid var(--line);
+  background: var(--bg-sunken);
+  z-index: 30;
+}
+.wc-root.is-sidebar-collapsed .wc-sidebar { display: none; }
+
+.wc-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 6px;
+}
+
+.wc-new-chat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  cursor: pointer;
+  font-weight: 500;
+  text-align: left;
+  transition: background .12s;
+}
+.wc-new-chat:hover { background: var(--bg-hover); }
+.wc-new-chat svg { width: 17px; height: 17px; }
+
+.wc-convs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+}
+
+.wc-convs-group {
+  padding: 12px 8px 4px;
+  color: var(--fg-faint);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.wc-conv {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background .12s;
+}
+.wc-conv:hover { background: var(--bg-hover); }
+.wc-conv.is-active { background: var(--bg-active); }
+
+.wc-conv-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+}
+.wc-conv-title.is-untitled { color: var(--fg-muted); }
+
+/* Kept in the DOM rather than added on hover: an element that only exists
+   while the pointer is over it is unreachable by keyboard and by touch. It is
+   revealed by hover on a pointer device, and always visible otherwise —
+   see the coarse-pointer block at the end of this file. */
+.wc-conv-more {
+  width: 28px;
+  height: 28px;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.wc-conv:hover .wc-conv-more,
+.wc-conv.is-active .wc-conv-more,
+.wc-conv-more:focus-visible { opacity: 1; }
+.wc-conv-more svg { width: 16px; height: 16px; }
+
+.wc-conv-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+}
+
+.wc-convs-empty { padding: 18px 10px; color: var(--fg-faint); font-size: 13px; }
+
+.wc-sidebar-foot { padding: 8px 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--fg-faint); }
+
+/* ── Main ────────────────────────────────────────────────────────────────── */
+
+.wc-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.wc-topbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.wc-topbar-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 550;
+}
+
+.wc-topbar-right { display: flex; align-items: center; gap: 4px; }
+
+.wc-balance {
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  transition: background .12s;
+}
+.wc-balance:hover { background: var(--bg-hover); color: var(--fg); }
+.wc-balance.is-empty { color: var(--danger); border-color: var(--danger); }
+
+.wc-avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* ── Thread ──────────────────────────────────────────────────────────────── */
+
+.wc-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.wc-turns {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 22px 20px 8px;
+}
+
+.wc-thread-tail { height: 12px; }
+
+.wc-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  min-height: 60%;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+.wc-empty[hidden] { display: none; }
+.wc-empty-brand { font-size: 34px; font-weight: 650; letter-spacing: -.02em; color: var(--fg); }
+
+.wc-turn { margin-bottom: 20px; }
+.wc-turn-user { display: flex; justify-content: flex-end; }
+
+.wc-turn-user .wc-bubble {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 5px 18px;
+  background: var(--bg-bubble);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.wc-turn-assistant .wc-bubble { overflow-wrap: anywhere; }
+
+.wc-turn-assistant.is-streaming .wc-bubble::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  margin-left: 3px;
+  vertical-align: -2px;
+  background: var(--fg);
+  border-radius: 1px;
+  animation: wc-caret 1s steps(2) infinite;
+}
+@keyframes wc-caret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+
+.wc-turn-error .wc-bubble {
+  padding: 10px 13px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+/* Markdown inside an answer */
+.wc-bubble > :first-child { margin-top: 0; }
+.wc-bubble > :last-child { margin-bottom: 0; }
+.wc-bubble p { margin: 0 0 .75em; }
+.wc-bubble ul, .wc-bubble ol { margin: 0 0 .75em; padding-left: 1.4em; }
+.wc-bubble li { margin: .2em 0; }
+.wc-bubble h1, .wc-bubble h2, .wc-bubble h3 { margin: 1.1em 0 .5em; font-size: 1.06em; font-weight: 650; }
+.wc-bubble code {
+  padding: .12em .38em;
+  border-radius: 5px;
+  background: var(--bg-bubble);
+  font-family: var(--font-mono);
+  font-size: .89em;
+}
+.wc-bubble pre {
+  margin: 0 0 .75em;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-bubble);
+  /* Wide code must scroll inside its own box; the page never scrolls sideways. */
+  overflow-x: auto;
+}
+.wc-bubble pre code { padding: 0; background: none; font-size: .87em; }
+.wc-bubble blockquote {
+  margin: 0 0 .75em;
+  padding-left: 12px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--fg-muted);
+}
+.wc-bubble a { color: var(--accent); }
+.wc-bubble table { border-collapse: collapse; margin-bottom: .75em; }
+.wc-bubble th, .wc-bubble td { padding: 5px 10px; border: 1px solid var(--line); }
+
+.wc-turn-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
+.wc-turn-images img { max-width: 220px; max-height: 220px; border-radius: 12px; border: 1px solid var(--line); }
+
+.wc-turn-foot {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.wc-turn:hover .wc-turn-foot, .wc-turn-foot:focus-within { opacity: 1; }
+.wc-turn-foot .wc-icon-btn { width: 28px; height: 28px; }
+.wc-turn-foot svg { width: 15px; height: 15px; }
+
+/* ── Composer ────────────────────────────────────────────────────────────── */
+
+.wc-composer-wrap {
+  position: relative;
+  flex: none;
+  padding: 0 20px 14px;
+  background: var(--bg);
+}
+
+.wc-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 6px 6px 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-sm);
+}
+.wc-composer:focus-within { border-color: var(--line-strong); box-shadow: var(--shadow-sm), 0 0 0 3px rgba(42, 109, 244, .12); }
+.wc-composer.is-dropping { border-color: var(--accent); background: var(--bg-hover); }
+
+#wc-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 220px;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  /* Same 16px rule as the gate: anything smaller and iOS zooms on focus. */
+  font-size: 16px;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+}
+#wc-input:focus { outline: none; }
+#wc-input::placeholder { color: var(--fg-faint); }
+
+.wc-composer-btn { width: 34px; height: 34px; margin-bottom: 1px; }
+
+.wc-send {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 1px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+  transition: opacity .12s, background .12s;
+}
+.wc-send[disabled] { opacity: .32; cursor: default; }
+.wc-send.is-stop { background: var(--fg); color: var(--bg); }
+
+.wc-composer-note {
+  max-width: 760px;
+  margin: 6px auto 0;
+  color: var(--fg-faint);
+  font-size: 11.5px;
+  text-align: center;
+  min-height: 16px;
+}
+
+.wc-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 760px;
+  margin: 0 auto 8px;
+}
+.wc-attachments[hidden] { display: none; }
+
+.wc-chip {
+  position: relative;
+  width: 62px;
+  height: 62px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-bubble) center/cover no-repeat;
+  overflow: hidden;
+}
+.wc-chip.is-busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, .35) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'><path d='M12 3a9 9 0 1 0 9 9'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/></path></svg>") center/20px no-repeat;
+}
+.wc-chip-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .62);
+  color: #fff;
+  cursor: pointer;
+}
+.wc-chip-x svg { width: 12px; height: 12px; stroke-width: 2.6; }
+
+.wc-jump {
+  position: absolute;
+  top: -44px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  z-index: 5;
+}
+.wc-jump[hidden] { display: none; }
+
+/* ── Overlays: sheet, menu, modal, toast ─────────────────────────────────── */
+
+.wc-sheet {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .38);
+  z-index: 50;
+}
+.wc-sheet[hidden] { display: none; }
+
+.wc-sheet-card {
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 100%);
+  max-height: min(660px, 88vh);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.wc-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 14px 12px 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.wc-sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+.wc-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 18px; }
+
+.wc-field { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.wc-field:last-child { border-bottom: 0; }
+.wc-field-row { display: flex; align-items: center; gap: 12px; }
+.wc-field-label { flex: 1; min-width: 0; }
+.wc-field-label b { display: block; font-weight: 550; }
+.wc-field-label span { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 12.5px; }
+.wc-field select, .wc-field input[type="text"] {
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  max-width: 62%;
+}
+.wc-field input[type="range"] { width: 160px; accent-color: var(--accent); }
+.wc-field-value { min-width: 46px; color: var(--fg-muted); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+
+.wc-menu {
+  position: fixed;
+  min-width: 200px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+  z-index: 55;
+}
+.wc-menu[hidden] { display: none; }
+.wc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  text-align: left;
+}
+.wc-menu-item:hover { background: var(--bg-hover); }
+.wc-menu-item svg { width: 16px; height: 16px; color: var(--fg-muted); }
+.wc-menu-item.is-danger { color: var(--danger); }
+.wc-menu-item.is-danger svg { color: var(--danger); }
+.wc-menu-head { padding: 8px 10px 6px; color: var(--fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.wc-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+.wc-modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, .38);
+  z-index: 58;
+}
+.wc-modal[hidden] { display: none; }
+.wc-modal-card {
+  width: min(400px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+}
+.wc-modal-card h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.wc-modal-card p { margin: 0 0 14px; color: var(--fg-muted); font-size: 14px; }
+.wc-modal-card input {
+  width: 100%;
+  margin-bottom: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 16px;
+}
+.wc-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.wc-modal-actions .wc-btn { width: auto; padding: 8px 16px; }
+
+.wc-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  max-width: min(440px, calc(100% - 32px));
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 13.5px;
+  box-shadow: var(--shadow-lg);
+  z-index: 70;
+}
+.wc-toast[hidden] { display: none; }
+.wc-toast.is-error { background: var(--danger); color: #fff; }
+
+/* ── Voice ───────────────────────────────────────────────────────────────── */
+
+.wc-voice {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .5);
+  z-index: 56;
+}
+.wc-voice[hidden] { display: none; }
+
+/* ── The way back to the sidebar ──────────────────────────────────────────
+ *
+ * The topbar's hamburger is the ONLY control that reopens a collapsed sidebar,
+ * so the rule for showing it is "whenever the sidebar is not on screen" — not
+ * "on a phone". It was width-only, and that made a one-way door: collapse the
+ * list on a desktop and there was no way back to it, on any screen size,
+ * because the button that reopens it was display:none. The scenario found it;
+ * a person would have found it by losing their conversations.
+ */
+.wc-only-narrow { display: none; }
+.wc-root.is-narrow .wc-only-narrow,
+.wc-root.is-sidebar-collapsed .wc-only-narrow { display: inline-flex; }
+
+/* ── Touch, as opposed to narrow ──────────────────────────────────────────
+ *
+ * These two are NOT the same question and must not share a media query. A
+ * narrow window on a laptop still has a mouse; an iPad in landscape is wide and
+ * has no hover at all. Everything below keys off the POINTER, so a control that
+ * only appears on hover — which is unreachable by touch and by keyboard — is
+ * simply always visible where hovering does not exist.
+ *
+ * Three controls were hover-revealed: the per-conversation menu, the copy
+ * button under an answer, and (through it) the whole turn footer.
+ */
+@media (hover: none), (pointer: coarse) {
+  .wc-conv-more { opacity: 1; }
+  .wc-turn-foot { opacity: 1; }
+
+  /* 44px is the smallest target a finger hits reliably; the desktop sizes are
+   * built for a cursor, which is precise. */
+  .wc-icon-btn { width: 44px; height: 44px; }
+  .wc-composer-btn, .wc-send { width: 40px; height: 40px; }
+  .wc-conv { padding-top: 11px; padding-bottom: 11px; }
+  /* 40 and not 36: a 36px target inside a list you scroll with the same thumb
+     is the one people miss. Measured by dev-tools/webchat-phone-check.mjs,
+     which refuses anything under 40. */
+  .wc-conv-more { width: 40px; height: 40px; }
+  .wc-menu-item { padding: 12px 12px; }
+  .wc-balance { min-height: 40px; padding: 8px 14px; }
+  .wc-avatar { width: 40px; height: 40px; font-size: 15px; }
+  .wc-chip-x { width: 24px; height: 24px; }
+  .wc-chip-x svg { width: 14px; height: 14px; }
+}
+
+/* ── Narrow screen ────────────────────────────────────────────────────────
+ *
+ * The sidebar stops being a column and becomes a drawer over the thread. It is
+ * the same element with the same markup — a second, phone-only list would be a
+ * second thing to keep in step.
+ */
+@media (max-width: 720px) {
+  .wc-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(84vw, 320px);
+    transform: translateX(0);
+    transition: transform .18s ease;
+    box-shadow: var(--shadow-lg);
+    /* The drawer runs under the notch and the home indicator, so its own
+     * padding has to keep the content out of them. */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* display:none would drop it out of the layout and kill the slide. */
+  .wc-root.is-sidebar-collapsed .wc-sidebar {
+    display: flex;
+    transform: translateX(-101%);
+  }
+
+  .wc-topbar {
+    padding-top: calc(9px + env(safe-area-inset-top));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  .wc-turns { padding: 16px 14px 8px; }
+  .wc-turn-user .wc-bubble { max-width: 88%; }
+  .wc-turn-images img { max-width: 60vw; }
+
+  .wc-composer-wrap {
+    padding: 0 12px calc(10px + env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+
+  /* A full-height sheet is the phone idiom, and a centred card with 24px of
+   * scrim around it wastes a third of a small screen. */
+  .wc-sheet { padding: 0; align-items: flex-end; }
+  .wc-sheet-card {
+    width: 100%;
+    max-height: 88%;
+    border-radius: 18px 18px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .wc-modal { padding: 16px; }
+  .wc-menu { min-width: 220px; }
+  .wc-toast { bottom: calc(26px + env(safe-area-inset-bottom)); }
+  .wc-gate { padding: 16px; }
+}
+
+/* The keyboard is open: the thread gets out of the way of the composer rather
+ * than the composer sliding under the keyboard. */
+.wc-root.is-keyboard .wc-thread { scroll-padding-bottom: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .wc-sidebar { transition: none; }
+  .wc-turn-assistant.is-streaming .wc-bubble::after { animation: none; }
+}
