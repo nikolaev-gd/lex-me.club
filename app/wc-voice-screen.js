@@ -48,6 +48,10 @@
     ready: 'Слушаю. Говорите.',
   };
   const STAGE_ORDER = ['mic', 'connecting', 'negotiating', 'ready'];
+  const HELD_TEXT = 'Секунду — слушаю учителя…';
+  // Придержан ли микрофон прямо сейчас. Экран должен знать это сам: подпись
+  // «говорите» и состояние «не слышу» не должны спорить друг с другом.
+  let held = false;
 
   function stopMeters() {
     cancelAnimationFrame(raf);
@@ -154,6 +158,7 @@
     close() {
       stopMeters();
       open = false;
+      held = false;
       if (host) { host.hidden = true; host.replaceChildren(); }
       document.getElementById('wc-root').classList.remove('is-voice');
       nodes = {};
@@ -165,6 +170,10 @@
     // единственное честное различие между «идёт соединение» и «говорите».
     stage(name) {
       if (!nodes.status) return;
+      // «Слушаю. Говорите.» нельзя показывать, пока микрофон придержан защитой
+      // первой реплики: приглашать говорить туда, где тебя не слышат, — хуже,
+      // чем молчать. Пока держим — так и пишем.
+      if (name === 'ready' && held) { nodes.status.textContent = HELD_TEXT; return; }
       nodes.status.textContent = STAGE_TEXT[name] || STAGE_TEXT.mic;
       const idx = STAGE_ORDER.indexOf(name);
       if (nodes.orb) {
@@ -193,8 +202,16 @@
     // Микрофон придержан на первую реплику — это надо СКАЗАТЬ. Молча
     // придержанный микрофон неотличим от сломанного.
     micHeld(on) {
-      if (nodes.mic) nodes.mic.classList.toggle('is-held', !!on);
-      WcVoiceScreen.hint(on ? 'Микрофон включится, как только учитель договорит' : '');
+      held = !!on;
+      if (nodes.mic) nodes.mic.classList.toggle('is-held', held);
+      WcVoiceScreen.hint(held ? 'Микрофон включится, как только учитель договорит' : '');
+      // Отпустили — теперь приглашение говорить стало правдой, и шар перестаёт
+      // ждать. Оба перехода делаются здесь, а не в stage(): в этот момент
+      // stage('ready') уже давно прошёл и второй раз не придёт.
+      if (!held && nodes.status && nodes.status.textContent === HELD_TEXT) {
+        nodes.status.textContent = STAGE_TEXT.ready;
+        if (nodes.orb) nodes.orb.classList.remove('is-waiting');
+      }
     },
 
     muted(on) {
