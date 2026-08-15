@@ -337,20 +337,45 @@
   //   · the teacher finished speaking (output_audio_buffer.stopped), or
   //   · nobody started speaking within GREETING_WAIT_MS — a session where the
   //     teacher waits for the reader must not sit deaf forever.
+  //
+  // ⚠️ ЗАХВАТ И ОТСЧЁТ — РАЗНЫЕ МОМЕНТЫ, и в первой версии этой защиты они были
+  // одним. Дорожка глушится сразу, как только микрофон получен, — это верно и
+  // так и осталось. А вот ОТСЧЁТ «учитель не здоровается» стартовал там же, то
+  // есть ДО обмена SDP. Обмен идёт секунды (несколько кругов по сети — свойство
+  // протокола, записано в шаге 2), таймер истекал прямо посреди него, защита
+  // снималась ещё до того, как сессия вообще возникала, и микрофон встречал
+  // приветствие открытым — ровно то, от чего она заводилась.
+  //
+  // Поймано не глазами: в сквозном проходе на экране не появилось НИ «Учитель
+  // говорит…», НИ подписи про придержанный микрофон — то есть к моменту
+  // соединения захвата уже не было.
+  //
+  // Поэтому отсчёт стартует отдельно, `startGreetingWait()`, ровно перед
+  // `onConnected`.
   const GREETING_WAIT_MS = 1600;
   // AEC has converged by the time the tail of the greeting has played out, but
   // the speaker is still physically ringing for a moment after the last sample.
   const SETTLE_MS = 250;
   const firstTurn = { armed: false, heardAudio: false, timer: null };
 
+  // Заглушить дорожку. Зовётся сразу после getUserMedia: приветствие может
+  // начать приходить в тот же миг, что и ответ брокера, и глушить позже — поздно.
   function armFirstTurnGuard() {
     firstTurn.armed = true;
     firstTurn.heardAudio = false;
     if (micTrack) micTrack.enabled = false;
     if (hooks.onMicHeld) hooks.onMicHeld(true);
     clearTimeout(firstTurn.timer);
+  }
+
+  // Начать отсчёт «учитель молчит — значит ждёт нас». Только когда сессия уже
+  // есть: до этого молчание ничего не означает, кроме того, что мы ещё не
+  // соединились.
+  function startGreetingWait() {
+    if (!firstTurn.armed) return;
+    if (firstTurn.heardAudio) return;   // учитель уже заговорил — ждём его конца
+    clearTimeout(firstTurn.timer);
     firstTurn.timer = setTimeout(() => {
-      // Silence so far: the teacher is not greeting, it is waiting for us.
       if (!firstTurn.heardAudio) releaseFirstTurnGuard('no-greeting');
     }, GREETING_WAIT_MS);
   }
@@ -489,6 +514,9 @@
       }
 
       connecting = false;
+      // Отсчёт «учитель не здоровается» — только отсюда. См. длинный комментарий
+      // у startGreetingWait: запущенный раньше, он истекал посреди обмена SDP.
+      startGreetingWait();
       if (hooks.onConnected) hooks.onConnected({ callId, apiModel: r.json.apiModel });
       log('connected', callId, r.json.apiModel);
       return { callId };
