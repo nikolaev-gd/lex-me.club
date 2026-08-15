@@ -566,9 +566,58 @@
   // Top-up is the checkout page of the same site. The extension opens it with
   // chrome.tabs.create; on a page this is a plain window.open, which is also
   // the only form a native shell can intercept.
-  WcBus.on('WC_TOPUP', async () => {
-    global.open('https://lex-me.club/checkout/', '_blank', 'noopener');
-    return { ok: true };
+  // ── Пополнение ────────────────────────────────────────────────────────────
+  //
+  // ⚠️ НА САЙТ ЗА ДЕНЬГАМИ БОЛЬШЕ НЕ ХОДИМ. Раньше здесь был
+  // `window.open('https://lex-me.club/checkout/')`, и внутри приложения это
+  // приводило к тому, на что жаловался владелец: страница открывалась в Safari,
+  // а Safari — отдельная программа со своим хранилищем, и вход туда не
+  // доезжает. Человек, вошедший в чат, читал «Please sign in first».
+  //
+  // Расширение эту развилку прошло 2026-08-12 (коммит 6762a1b) и ушло от неё
+  // совсем: сумма выбирается на месте, сервер зовётся напрямую, и открывается
+  // касса ПРОВАЙДЕРА, а не наша страница. Здесь то же самое, и это заодно
+  // закрывает вопрос безопасности: передавать сессию некуда, потому что
+  // передавать её больше некому.
+  //
+  // Границы (10…200) — вежливость: настоящую проверку делает сервер и отвечает
+  // 400 и на 9.99, и на 250, что бы ни прислал клиент.
+  WcBus.on('WC_CREATE_PAYMENT', async (m) => {
+    const token = await A.validToken();
+    if (!token) return { ok: false, error: 'not_signed_in' };
+    const resp = await fetch(A.supabaseUrl() + '/functions/v1/payments-webhook/create', {
+      method: 'POST',
+      headers: {
+        apikey: A.anonKey(),
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ amount: Number(m.amount), lang: 'ru' }),
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok || !j.checkout_url) {
+      return { ok: false, error: (j && j.error) || ('HTTP ' + resp.status) };
+    }
+    return { ok: true, checkoutUrl: j.checkout_url, orderId: j.order_id || null };
+  });
+
+  // Единственный источник правды о зачислении — вебхук провайдера: /status
+  // отвечает paid только после того, как вебхук записал credited_at. Возврат
+  // человека на страницу «оплата прошла» подтверждением НЕ считается.
+  WcBus.on('WC_PAYMENT_STATUS', async (m) => {
+    const token = await A.validToken();
+    if (!token) return { ok: false, paid: false };
+    const resp = await fetch(A.supabaseUrl() + '/functions/v1/payments-webhook/status', {
+      method: 'POST',
+      headers: {
+        apikey: A.anonKey(),
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ order: m.orderId }),
+    });
+    const j = await resp.json().catch(() => ({}));
+    return { ok: resp.ok, paid: !!(resp.ok && j && j.paid) };
   });
 
   WcBus.on('WC_SIGN_OUT', async () => {

@@ -186,35 +186,38 @@
   // hears and says lands in the same thread as typing, through the same
   // bubbles — a spoken conversation is a conversation, not a separate mode
   // with its own transcript window.
-  function voicePanel(text, opts) {
-    const host = document.getElementById('wc-voice');
-    if (!text) { host.hidden = true; host.replaceChildren(); return; }
-    host.replaceChildren(WcUI.el('.wc-modal-card', {}, [
-      WcUI.el('h3', { text: 'Голосовой разговор' }),
-      WcUI.el('p', { id: 'wc-voice-status', text }),
-      WcUI.el('.wc-modal-actions', {}, [
-        WcUI.el('button.wc-btn.wc-btn-ghost', {
-          type: 'button', text: WcVoice.muted() ? 'Включить микрофон' : 'Выключить микрофон',
-          onclick: (e) => { WcVoice.mute(!WcVoice.muted()); e.target.textContent = WcVoice.muted() ? 'Включить микрофон' : 'Выключить микрофон'; },
-        }),
-        WcUI.el('button.wc-btn.wc-btn-primary', {
-          type: 'button', text: 'Завершить',
-          onclick: () => WcVoice.stop({ reason: 'manual' }),
-        }),
-      ]),
-    ]));
-    host.hidden = false;
-  }
-
-  function voiceStatus(text) {
-    const el = document.getElementById('wc-voice-status');
-    if (el) el.textContent = text;
+  function openVoiceScreen() {
+    WcVoiceScreen.open({
+      onToggleMute: () => { WcVoice.mute(!WcVoice.muted()); WcVoiceScreen.muted(WcVoice.muted()); },
+      onEnd: () => WcVoice.stop({ reason: 'manual' }),
+      // Свернуть — это НЕ положить трубку. Разговор продолжается, экран
+      // уходит, значок микрофона в поле ввода остаётся зажжённым и возвращает
+      // обратно. Так у эталонов, и так человек может свериться с перепиской,
+      // не обрывая учителя на полуслове.
+      onCollapse: () => WcVoiceScreen.close(),
+    });
+    WcVoiceScreen.muted(WcVoice.muted());
+    WcVoiceScreen.micHeld(WcVoice.micHeld());
   }
 
   async function toggleVoice() {
-    if (WcVoice.active || WcVoice.connecting) { await WcVoice.stop({ reason: 'manual' }); return; }
+    // ⚠️ ПОВТОРНОЕ НАЖАТИЕ НЕ КЛАДЁТ ТРУБКУ И НЕ НАЧИНАЕТ ВТОРОЙ РАЗГОВОР.
+    //
+    // Раньше здесь был stop(), и это давало ровно ту жалобу, что записана в
+    // задании: человек жмёт микрофон, подключение идёт долго и молча, он жмёт
+    // ещё раз — сессия рвётся; жмёт третий — и получает «голосовой разговор
+    // уже идёт в другом окне», потому что на сервере предыдущий вызов ещё не
+    // закрылся. Внутренняя защита от двух сессий вылезала человеку как ошибка,
+    // хотя он всего лишь нажал кнопку дважды.
+    //
+    // Теперь повторное нажатие просто возвращает на экран разговора — молча.
+    if (WcVoice.active || WcVoice.connecting) {
+      if (!WcVoiceScreen.isOpen()) openVoiceScreen();
+      return;
+    }
 
-    voicePanel('Подключаемся…');
+    openVoiceScreen();
+    WcVoiceScreen.stage('mic');
     WcComposer.setVoiceActive(true);
 
     // A spoken turn needs a conversation to belong to, exactly as a typed one
@@ -229,60 +232,85 @@
           WcSidebar.setActive(convId);
         }
       } catch (err) {
-        voicePanel(null);
+        WcVoiceScreen.close();
         WcComposer.setVoiceActive(false);
         toast('Не удалось начать разговор: ' + (err && err.message), { error: true });
         return;
       }
     }
 
-    // The exchange in flight, and whether it has been written down yet.
+    // What has been said so far, KEYED BY item_id and in the order the server
+    // opened the items — a Map keeps insertion order, which is what makes the
+    // saved transcript match what was on screen.
     //
     // WHY A FLUSH AND NOT JUST "SAVE ON response.done". Hanging up right after
     // the teacher finishes speaking is the NORMAL way to end a voice
-    // conversation, and response.done arrives after the last audio — so
-    // saving only there loses the final exchange every time somebody stops
-    // when they are done. Measured, not guessed: a session whose money the
-    // server had already billed ($0.0176 in balance_ledger) left zero turns in
-    // the conversation. The extension has a settle window for the same reason.
-    const live = { user: '', assistant: '', saved: true };
+    // conversation, and response.done arrives after the last audio — so saving
+    // only there loses the final exchange every time somebody stops when they
+    // are done. Measured, not guessed: a session whose money the server had
+    // already billed ($0.0176 in balance_ledger) left zero turns in the
+    // conversation. The extension has a settle window for the same reason.
+    const said = new Map();   // itemId → { role, text, saved }
+
+    function note(itemId, role, text) {
+      const prev = said.get(itemId);
+      said.set(itemId, { role, text, saved: prev ? prev.saved : false });
+    }
 
     async function flushExchange() {
       const turns = [];
-      if (live.user) turns.push({ role: 'user', text: live.user });
-      if (live.assistant) turns.push({ role: 'assistant', text: live.assistant });
-      live.user = '';
-      live.assistant = '';
-      if (!turns.length || live.saved) { live.saved = true; return; }
-      live.saved = true;
-      try { await WcBus.call('WC_APPEND_TURNS', { conversationId: convId, turns }); }
-      catch (err) { console.warn('[wc] не записал голосовой ход:', err && err.message); }
+      const flushed = [];
+      said.forEach((v, k) => {
+        if (v.saved || !v.text) return;
+        turns.push({ role: v.role, text: v.text });
+        flushed.push(k);
+      });
+      if (!turns.length) return;
+      // Marked BEFORE the await: a second flush racing this one (response.done
+      // and hang-up land within milliseconds of each other) would otherwise
+      // write the same turns twice.
+      flushed.forEach((k) => { said.get(k).saved = true; });
+      try {
+        await WcBus.call('WC_APPEND_TURNS', { conversationId: convId, turns });
+      } catch (err) {
+        console.warn('[wc] не записал голосовой ход:', err && err.message);
+        flushed.forEach((k) => { const v = said.get(k); if (v) v.saved = false; });
+      }
     }
 
     try {
       await WcVoice.start({
         conversationId: convId,
         hooks: {
-          onConnected: () => voiceStatus('Слушаю. Говорите.'),
-          onUserStart: () => { live.user = ''; live.saved = false; WcThread.beginVoiceUser(); },
-          onUserDelta: (t) => { live.user = t; WcThread.voiceUserText(t); },
-          onUserDone: (t) => { live.user = t; WcThread.voiceUserText(t); WcThread.endVoiceUser(); },
-          onUserFailed: () => { live.user = ''; WcThread.dropVoiceUser(); },
-          onAssistantDelta: (t) => { live.assistant = t; live.saved = false; WcThread.voiceAssistantText(t); },
-          onAssistantDone: async (t) => {
-            WcThread.endVoiceAssistant();
-            live.assistant = t || live.assistant;
-            await flushExchange();
+          onStage: (s) => WcVoiceScreen.stage(s),
+          onConnected: () => WcVoiceScreen.stage('ready'),
+          onRemoteStream: (s) => WcVoiceScreen.meterRemote(s),
+          onLocalStream: (s) => WcVoiceScreen.meterLocal(s),
+          onMicHeld: (held) => WcVoiceScreen.micHeld(held),
+          onTeacherSpeaking: (on) => {
+            WcVoiceScreen.speaking(on);
+            if (!on && !WcVoice.micHeld()) WcVoiceScreen.status('Слушаю. Говорите.');
           },
-          onError: (msg) => voiceStatus('Ошибка: ' + msg),
+
+          onUserStart: (id) => WcThread.beginVoiceUser(id),
+          onUserDelta: (id, t) => { note(id, 'user', t); WcThread.voiceUserText(id, t); WcVoiceScreen.line('user', t); },
+          onUserDone: (id, t) => { note(id, 'user', t); WcThread.voiceUserText(id, t); WcVoiceScreen.line('user', t); },
+          onUserFailed: (id) => { said.delete(id); WcThread.dropVoiceUser(id); },
+
+          onAssistantDelta: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
+          onAssistantDone: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
+
+          // response.done — весь ход завершён, можно записывать.
+          onTurnDone: () => flushExchange(),
+
+          onError: (msg) => WcVoiceScreen.status('Ошибка: ' + msg),
           onDisconnected: async ({ reason, turns }) => {
             // Whatever arrived and was not yet written down goes now, and the
             // caller waits for it. The account was charged for it either way.
             await flushExchange();
-            voicePanel(null);
+            WcVoiceScreen.close();
             WcComposer.setVoiceActive(false);
-            WcThread.endVoiceUser();
-            WcThread.endVoiceAssistant();
+            WcThread.endVoice();
             if (reason && reason !== 'manual') toast('Разговор завершён: ' + reason);
             // The debit is made by the server-side listener after the call
             // closes, so ask for the balance twice, like a text turn does.
@@ -293,10 +321,18 @@
         },
       });
     } catch (err) {
-      voicePanel(null);
+      WcVoiceScreen.close();
       WcComposer.setVoiceActive(false);
       toast(String((err && err.message) || err), { error: true });
     }
+  }
+
+  function openSettings() {
+    return WcSettings.open({
+      account: state.account,
+      onTopUp: () => WcTopup.open({ onPaid: refreshAccount }),
+      onSignOut: signOut,
+    });
   }
 
   // ── Narrow-screen bookkeeping ─────────────────────────────────────────────
@@ -322,17 +358,30 @@
       return;
     }
     let raf = 0;
+    // Последние применённые значения. Писать в стиль одно и то же — не
+    // «безобидно»: каждая запись в `transform` на <body> заставляет заново
+    // складывать всю страницу, а `visualViewport` во время инерционной
+    // прокрутки на iOS шлёт события пачками. Это и было главным источником
+    // дёрганья: не сама прокрутка, а перекладка страницы под ней.
+    let lastH = -1;
+    let lastOffset = -1;
     const apply = () => {
       raf = 0;
       const h = Math.round(vv.height);
-      document.documentElement.style.setProperty('--wc-vh', h + 'px');
-      // A keyboard is "open" when the visual viewport is meaningfully shorter
-      // than the window. 120px of slack keeps the browser's own collapsing
-      // toolbars from counting as one.
-      const keyboard = (global.innerHeight - h) > 120;
-      root.classList.toggle('is-keyboard', keyboard);
-      // Pin the shell to the visible rectangle rather than to the document.
-      document.body.style.transform = vv.offsetTop ? `translateY(${Math.round(vv.offsetTop)}px)` : '';
+      const offset = Math.round(vv.offsetTop);
+      if (h !== lastH) {
+        lastH = h;
+        document.documentElement.style.setProperty('--wc-vh', h + 'px');
+        // A keyboard is "open" when the visual viewport is meaningfully shorter
+        // than the window. 120px of slack keeps the browser's own collapsing
+        // toolbars from counting as one.
+        root.classList.toggle('is-keyboard', (global.innerHeight - h) > 120);
+      }
+      if (offset !== lastOffset) {
+        lastOffset = offset;
+        // Pin the shell to the visible rectangle rather than to the document.
+        document.body.style.transform = offset ? `translateY(${offset}px)` : '';
+      }
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
     vv.addEventListener('resize', schedule);
@@ -380,7 +429,15 @@
     el.classList.toggle('is-error', !!isError);
   }
 
+  // Скелет первой загрузки снимается ровно тогда, когда решено, ЧТО показать —
+  // форму входа или приложение. Раньше в этот промежуток был белый экран.
+  function hideBoot() {
+    const b = document.getElementById('wc-boot');
+    if (b) b.hidden = true;
+  }
+
   function showGate() {
+    hideBoot();
     document.getElementById('wc-gate').hidden = false;
     document.getElementById('wc-root').hidden = true;
   }
@@ -406,9 +463,30 @@
     });
     document.getElementById('wc-signup').addEventListener('click', () =>
       attempt('Создаём аккаунт…', (a, b) => WcAuth.signUp(a, b)));
-    document.getElementById('wc-google').addEventListener('click', () => {
+    // В браузере это уход по адресу и сюда управление уже не вернётся. В
+    // приложении открывается системный лист входа, и вернуться он обязан —
+    // в том числе когда человек нажал «Отмена».
+    document.getElementById('wc-google').addEventListener('click', async () => {
+      const btn = document.getElementById('wc-google');
+      btn.disabled = true;
       gateStatus('Переходим к Google…');
-      WcAuth.signInWithGoogle();
+      let r;
+      try {
+        r = await WcAuth.signInWithGoogle();
+      } catch (err) {
+        r = { ok: false, error: String((err && err.message) || err) };
+      }
+      btn.disabled = false;
+      if (!r || r.redirected) return;          // браузер уже уходит со страницы
+      if (r.ok) {
+        await WcAuth.fillUser();
+        await enterApp();
+        return;
+      }
+      // Отмена — не ошибка. Красное сообщение на «я передумал» — это ровно то,
+      // из-за чего люди решают, что приложение сломалось.
+      if (r.cancelled) { gateStatus(''); return; }
+      gateStatus('Вход через Google не прошёл: ' + (r.error || 'неизвестно'), true);
     });
   }
 
@@ -428,6 +506,7 @@
     }
 
     document.getElementById('wc-root').hidden = false;
+    hideBoot();
     await Promise.all([refreshAccount(), refreshConversations()]);
     WcComposer.focus();
   }
@@ -449,14 +528,10 @@
       onVoice: () => toggleVoice(),
       onAttach: () => WcAttach.pick(),
     });
+    // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
+    // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.
     WcHeader.init({
-      onTopUp: () => WcBus.call('WC_TOPUP').catch(() => {}),
-      onSettings: () => WcSettings.open({
-        account: state.account,
-        onTopUp: () => WcBus.call('WC_TOPUP').catch(() => {}),
-        onSignOut: signOut,
-      }),
-      onSignOut: signOut,
+      onSettings: openSettings,
     });
 
     watchWidth();

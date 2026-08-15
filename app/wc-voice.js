@@ -59,6 +59,11 @@
   let closed = true;
   let connecting = false;
   let hooks = {};
+  // Whether the READER muted themselves, kept apart from the first-turn guard
+  // holding the microphone. Two different reasons for one track being off, and
+  // conflating them means releasing the guard un-mutes somebody who did not
+  // ask to be un-muted.
+  let userMuted = false;
 
   // What the reader is told, in words, at each stage. A voice session that
   // fails silently is indistinguishable from one that is listening.
@@ -94,14 +99,25 @@
   //     coming up at all rather than slightly under-performing.
   //   · max_output_tokens is absent here on purpose: POST /v1/realtime/calls
   //     rejects it. It goes as a session.update once the session exists.
-  function buildSessionConfig(apiModel, voiceName) {
-    return {
+  //
+  // ⚠️ THE AUDIO BLOCK IS NOT WRITTEN HERE ANY MORE, and that was the bug.
+  // This function used to send `input: { transcription: {...} }` and nothing
+  // else — no `turn_detection` at all — so the session ran on OpenAI's
+  // defaults: threshold 0.5, 500 ms of silence. On a phone, where the speaker
+  // is centimetres from the microphone, that is enough for the teacher to hear
+  // itself, decide it has been interrupted, and stop mid-sentence. The
+  // extension has never had that problem because it builds the same block from
+  // the owner's tuned knobs (threshold 0.75, silence 1500 ms). Those values now
+  // come from WcVoiceConfig, which is that builder ported field for field and
+  // kept honest by dev-tools/check-voice-config-parity.mjs.
+  function buildSessionConfig(apiModel, voiceName, knobs) {
+    const built = global.WcVoiceConfig.buildAudioConfig(knobs);
+    const audio = built.audio;
+    audio.output = Object.assign({}, audio.output, { voice: voiceName });
+    const session = {
       type: 'realtime',
       model: apiModel,
-      audio: {
-        input: { transcription: { model: 'gpt-4o-mini-transcribe' } },
-        output: { voice: voiceName },
-      },
+      audio,
       truncation: {
         type: 'retention_ratio',
         retention_ratio: 0.8,
@@ -111,6 +127,8 @@
       // discarded by the broker, and sending it anyway only invites the
       // question of which one won.
     };
+    if (built.reasoning) session.reasoning = built.reasoning;
+    return session;
   }
 
   // ── Events over Supabase Realtime ────────────────────────────────────────
@@ -191,49 +209,163 @@
   }
 
   // ── What the reader sees while talking ───────────────────────────────────
-  const state = { userText: '', assistantText: '', turns: 0 };
+  //
+  // ⚠️ EVERY TRANSCRIPT IS KEYED BY item_id. This used to be two flat strings
+  // (`userText += delta`), and that is what produced BOTH of the transcript
+  // bugs the owner photographed:
+  //
+  //   · «Understa nd» — two utterances overlap (exactly what self-interruption
+  //     causes), their deltas arrive interleaved, and blind concatenation
+  //     welds fragments of two different items into one bubble mid-word;
+  //   · the reply appearing ABOVE the question — a second speech_started
+  //     appends a second question bubble below the answer, while the answer's
+  //     remaining deltas keep flowing into the bubble that is still above it.
+  //
+  // The extension has always keyed by item_id and refuses an event that
+  // carries none (voice/openai-realtime.js:682, :760, :770, :822, :846, :857).
+  // The server relays events VERBATIM (voice-watch/index.ts:1030), so item_id
+  // survives the trip and there is nothing to reconstruct.
+  const state = { items: new Map(), turns: 0 };
+
+  function textOf(itemId) {
+    const it = state.items.get(itemId);
+    return it ? it.text : '';
+  }
+  function appendTo(itemId, role, delta) {
+    let it = state.items.get(itemId);
+    if (!it) { it = { role, text: '' }; state.items.set(itemId, it); }
+    it.text += delta || '';
+    return it.text;
+  }
 
   function handleServerEvent(ev) {
+    // An event with no item_id cannot be attributed to a bubble. Dropping it
+    // is what the extension does, and it is safer than guessing "the current
+    // one" — guessing is precisely how two utterances end up in one bubble.
+    const id = ev.item_id;
+
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
-        // Pre-create the reader's own bubble HERE, not on the transcript.
-        // Whisper is slower than the server's voice-activity detector, so the
-        // answer starts streaming before the question is transcribed — and a
-        // bubble created on the transcript lands UNDER the reply it answers.
-        // This is the documented moment the detector has confirmed speech.
-        state.userText = '';
-        if (hooks.onUserStart) hooks.onUserStart();
+        // Open the reader's bubble HERE, not on the transcript. Whisper is
+        // slower than the server's voice-activity detector, so the answer
+        // starts streaming before the question is transcribed — a bubble
+        // created on the transcript lands UNDER the reply it answers. This is
+        // the documented moment the detector has confirmed speech.
+        if (!id) break;
+        state.items.set(id, { role: 'user', text: '' });
+        if (hooks.onUserStart) hooks.onUserStart(id);
         break;
+
       case 'conversation.item.input_audio_transcription.delta':
-        state.userText += ev.delta || '';
-        if (hooks.onUserDelta) hooks.onUserDelta(state.userText);
+        if (!id) break;
+        if (hooks.onUserDelta) hooks.onUserDelta(id, appendTo(id, 'user', ev.delta));
         break;
-      case 'conversation.item.input_audio_transcription.completed':
-        state.userText = ev.transcript || state.userText;
-        if (hooks.onUserDone) hooks.onUserDone(state.userText);
+
+      case 'conversation.item.input_audio_transcription.completed': {
+        if (!id) break;
+        // The final transcript REPLACES the deltas, never appends to them —
+        // appending is the duplication the extension recorded as v1.11.0 BUG 3.
+        const finalText = ev.transcript || textOf(id);
+        state.items.set(id, { role: 'user', text: finalText });
+        if (hooks.onUserDone) hooks.onUserDone(id, finalText);
         break;
+      }
+
       case 'conversation.item.input_audio_transcription.failed':
-        // Clean up the bubble that was opened in advance rather than leaving
-        // an empty one on screen.
-        if (hooks.onUserFailed) hooks.onUserFailed();
+        if (!id) break;
+        state.items.delete(id);
+        // Drop the bubble opened in advance rather than leaving an empty one:
+        // an empty bubble reads as "they said nothing".
+        if (hooks.onUserFailed) hooks.onUserFailed(id);
         break;
+
       case 'response.output_audio_transcript.delta':
-      case 'response.audio_transcript.delta':
-        state.assistantText += ev.delta || '';
-        if (hooks.onAssistantDelta) hooks.onAssistantDelta(state.assistantText);
+        if (!id) break;
+        if (hooks.onAssistantDelta) hooks.onAssistantDelta(id, appendTo(id, 'assistant', ev.delta));
         break;
+
+      case 'response.output_audio_transcript.done': {
+        if (!id) break;
+        const finalText = ev.transcript || textOf(id);
+        state.items.set(id, { role: 'assistant', text: finalText });
+        if (hooks.onAssistantDone) hooks.onAssistantDone(id, finalText);
+        break;
+      }
+
+      case 'response.output_audio_buffer.started':
+        // The teacher's voice actually started coming out of the speaker. This
+        // is the moment the first-turn microphone guard is waiting for.
+        firstTurn.heardAudio = true;
+        if (hooks.onTeacherSpeaking) hooks.onTeacherSpeaking(true);
+        break;
+
+      case 'output_audio_buffer.stopped':
+        if (hooks.onTeacherSpeaking) hooks.onTeacherSpeaking(false);
+        releaseFirstTurnGuard('teacher-finished');
+        break;
+
       case 'response.done':
         state.turns++;
-        if (hooks.onAssistantDone) hooks.onAssistantDone(state.assistantText);
-        state.assistantText = '';
+        if (hooks.onTurnDone) hooks.onTurnDone();
         break;
+
       case 'error':
         warn('realtime error:', ev.error && ev.error.message);
         if (hooks.onError) hooks.onError((ev.error && ev.error.message) || 'ошибка голосовой сессии');
         break;
+
       default:
         break;
     }
+  }
+
+  // ── The first-turn microphone guard ──────────────────────────────────────
+  //
+  // There is no API field for "this response may not be interrupted" — the
+  // OpenAI schema's create_response/interrupt_response pair is not it (setting
+  // both false stops the model answering at all, and interrupt_response:false
+  // is reported as not honoured anyway). The reliable fix is on our side: do
+  // not send microphone audio until the teacher's FIRST utterance is over.
+  //
+  // Two independent reasons, both measured by other people and both pointing
+  // the same way: acoustic echo cancellation needs one to two seconds to
+  // estimate the speaker-to-microphone delay before it suppresses anything,
+  // and the greeting is exactly what lands inside that window. That is why the
+  // symptom is «the first seconds» and not «the whole conversation».
+  //
+  // The guard releases on whichever comes first:
+  //   · the teacher finished speaking (output_audio_buffer.stopped), or
+  //   · nobody started speaking within GREETING_WAIT_MS — a session where the
+  //     teacher waits for the reader must not sit deaf forever.
+  const GREETING_WAIT_MS = 1600;
+  // AEC has converged by the time the tail of the greeting has played out, but
+  // the speaker is still physically ringing for a moment after the last sample.
+  const SETTLE_MS = 250;
+  const firstTurn = { armed: false, heardAudio: false, timer: null };
+
+  function armFirstTurnGuard() {
+    firstTurn.armed = true;
+    firstTurn.heardAudio = false;
+    if (micTrack) micTrack.enabled = false;
+    if (hooks.onMicHeld) hooks.onMicHeld(true);
+    clearTimeout(firstTurn.timer);
+    firstTurn.timer = setTimeout(() => {
+      // Silence so far: the teacher is not greeting, it is waiting for us.
+      if (!firstTurn.heardAudio) releaseFirstTurnGuard('no-greeting');
+    }, GREETING_WAIT_MS);
+  }
+
+  function releaseFirstTurnGuard(why) {
+    if (!firstTurn.armed) return;
+    clearTimeout(firstTurn.timer);
+    firstTurn.timer = setTimeout(() => {
+      firstTurn.armed = false;
+      // `userMuted` wins: releasing the guard must never switch the microphone
+      // back on for somebody who muted it themselves while the teacher talked.
+      if (micTrack && !userMuted) micTrack.enabled = true;
+      if (hooks.onMicHeld) hooks.onMicHeld(false);
+      log('first-turn guard released:', why);
+    }, SETTLE_MS);
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
@@ -241,9 +373,12 @@
     if (!closed || connecting) return;
     connecting = true;
     hooks = (opts && opts.hooks) || {};
-    state.userText = '';
-    state.assistantText = '';
+    state.items.clear();
     state.turns = 0;
+    userMuted = false;
+    // Said before any network work, because the wait that follows is the long
+    // one and an empty screen during it is the complaint being fixed.
+    if (hooks.onStage) hooks.onStage('mic');
 
     try {
       const voiceModelId = await WcStore.one('activeVoiceModelId_' + SCOPE, DEFAULT_VOICE_MODEL);
@@ -264,6 +399,12 @@
       });
       micTrack = localStream.getAudioTracks()[0];
       if (!micTrack) throw new Error('микрофон не дал дорожку');
+      // Held from the very first frame, before the track is even attached to
+      // the connection — the greeting can start arriving the moment the answer
+      // does, and arming after that is arming too late.
+      armFirstTurnGuard();
+      if (hooks.onLocalStream) hooks.onLocalStream(localStream);
+      if (hooks.onStage) hooks.onStage('connecting');
 
       audioEl = document.createElement('audio');
       audioEl.autoplay = true;
@@ -299,7 +440,7 @@
       const r = await post('/functions/v1/llm-proxy/voice-sdp-openai', {
         model: voiceModelId,
         sdp: offer.sdp,
-        session: buildSessionConfig(apiModel, voiceName),
+        session: buildSessionConfig(apiModel, voiceName, knobs),
         meta: {
           sessionId,
           videoId: (opts && opts.conversationId) || null,
@@ -336,6 +477,7 @@
 
       callId = r.json.callId;
       closed = false;
+      if (hooks.onStage) hooks.onStage('negotiating');
       await pc.setRemoteDescription({ type: 'answer', sdp: r.json.answerSdp });
 
       connectServerEvents(callId);
@@ -386,6 +528,10 @@
 
   async function teardown() {
     closed = true;
+    clearTimeout(firstTurn.timer);
+    firstTurn.timer = null;
+    firstTurn.armed = false;
+    firstTurn.heardAudio = false;
     // The events socket is closed LAST and deliberately not before the peer
     // connection: a reply still arriving at hangup should still be seen by the
     // listener that bills it. The listener is server-side and does not depend
@@ -426,37 +572,44 @@
 
     // Mic on/off without ending the session — the reader's way to think in
     // peace without hanging up.
-    mute(on) { if (micTrack) micTrack.enabled = !on; },
-    muted() { return !!(micTrack && !micTrack.enabled); },
+    //
+    // The reader's choice is remembered separately from the first-turn guard,
+    // and un-muting while the guard still holds the track does NOT open the
+    // microphone: it records the intent, and the guard opens it when the
+    // greeting is over. Otherwise a reader who taps the button during the
+    // greeting would defeat the very protection they cannot see.
+    mute(on) {
+      userMuted = !!on;
+      if (micTrack && !firstTurn.armed) micTrack.enabled = !userMuted;
+    },
+    // What the BUTTON should say — the reader's intent, not the track's state.
+    // While the guard holds the track the two disagree on purpose, and showing
+    // the track's state would render the button "unmuted → tap to mute" as
+    // "muted", flipping its label for a second at the start of every call.
+    muted() { return userMuted; },
+    // Whether the microphone is being held by the first-turn guard rather than
+    // by the reader. The screen says so in words; without it, a held mic is
+    // indistinguishable from a broken one.
+    micHeld() { return firstTurn.armed; },
 
     // Barge-in: stop the model talking over you.
     cancel() { return sendServerCmd([{ type: 'response.cancel' }]); },
 
-    async settingsFields() {
-      const { el } = WcUI;
-      const key = 'voiceNamesByProvider_' + SCOPE;
-      const stored = await WcStore.get([key]);
-      const map = stored[key] || {};
-      const VOICES = ['marin', 'cedar', 'alloy', 'echo', 'shimmer'];
-      const sel = el('select', {
-        // Written into the SAME cell the extension uses — a map keyed by
-        // provider, not a flat value: one account can prefer a different voice
-        // on each provider, and a flat value would overwrite the other's.
-        onchange: async (e) => {
-          await WcStore.set({ [key]: Object.assign({}, map, { openai: e.target.value }) });
-        },
-      }, VOICES.map((v) => el('option', { value: v, text: v, selected: v === (map.openai || 'marin') })));
-
-      return [el('.wc-field', {}, [
-        el('.wc-field-row', {}, [
-          el('.wc-field-label', {}, [
-            el('b', { text: 'Голос учителя' }),
-            el('span', { text: 'Каким голосом он говорит вслух' }),
-          ]),
-          sel,
-        ]),
-      ])];
-    },
+    // ⚠️ NO settingsFields() ANY MORE — «Голос учителя» is the owner's control,
+    // not the reader's, and this page was the only place it leaked out.
+    //
+    // Checked in the extension rather than assumed: the same select lives in
+    // `emitVoiceModels` (settings-popover.js:131-135), which appears only
+    // inside the `devMain`/`devWord` composites; those are wrapped by
+    // `emitDevOnly` into a `hidden` div (settings-popover.js:733-735) that
+    // exactly one line in the repo un-hides (chat-surface.js:9055-9056), and
+    // only when `lexDevModeUiEnabled` is set — which background.js:4213 sets
+    // solely when the signed-in address equals nikolaev.gd@gmail.com. An
+    // ordinary user has never seen it on any surface, and the label «Голос
+    // учителя» does not exist in the extension at all: this page invented it.
+    //
+    // The stored cell (`voiceNamesByProvider_<scope>`) is untouched and is
+    // still READ at session start, so whatever the owner publishes still wins.
   };
 
   global.WcVoice = WcVoice;

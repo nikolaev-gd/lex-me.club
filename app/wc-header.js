@@ -1,55 +1,52 @@
-// webchat/wc-header.js — the top bar: conversation title, balance, account.
+// webchat/wc-header.js — шапка и строка аккаунта внизу шторки.
 //
-// The balance is a button, not a label. It is the only place in the interface
-// where "I have run out" and "here is how to fix it" can be the same gesture,
-// and a person who has just been refused an answer should not have to go
-// hunting through a menu for the top-up page.
+// ── Что отсюда убрано и почему ──────────────────────────────────────────────
+//
+// Было три органа в шапке: пилюля с балансом, шестерёнка и кружок с первой
+// буквой почты. Вместе с листом настроек они давали дубли, которые владелец и
+// назвал в разборе: пополнение открывалось из ТРЁХ мест (пилюля, меню кружка,
+// кнопка в настройках), настройки из двух (шестерёнка и меню кружка), выход из
+// двух (меню кружка и настройки).
+//
+// Стало: один вход — строка аккаунта внизу шторки. Она показывает почту и
+// баланс и открывает лист настроек, внутри которого и пополнение, и выход.
+// Ровно так устроены ChatGPT, Claude и Gemini на телефоне: аккаунт внизу
+// шторки, новый чат наверху.
+//
+// В шапке остались ровно две вещи: название беседы и кнопка нового чата.
 (function (global) {
   'use strict';
 
-  const { el, menu, fmtMoney } = WcUI;
+  const { fmtMoney } = WcUI;
 
-  let elTitle, elBalance, elBalanceValue, elAvatar, elLetter;
+  let elTitle, elAvatar, elEmail, elBalance, elAccount;
   let hooks = {};
   let account = { signedIn: false };
 
   function paintAccount() {
-    const bal = account.balanceUsd;
-    elBalanceValue.textContent = account.signedIn ? fmtMoney(bal) : '—';
-    // Zero is not the same as unknown: a null balance means we could not read
-    // the row, and painting that red would cry wolf on a flaky network.
-    elBalance.classList.toggle('is-empty', Number.isFinite(Number(bal)) && Number(bal) <= 0);
-    elBalance.title = account.signedIn
-      ? 'Баланс ' + fmtMoney(bal) + ' — нажмите, чтобы пополнить'
-      : 'Не выполнен вход';
-
     const email = account.email || '';
-    elLetter.textContent = email ? email[0] : '?';
-    elAvatar.title = email || 'Аккаунт';
+    elEmail.textContent = email || 'Не выполнен вход';
+    elAvatar.textContent = email ? email[0] : '?';
+
+    const bal = account.balanceUsd;
+    elBalance.textContent = account.signedIn ? fmtMoney(bal) : '—';
+    // Ноль — это не то же самое, что «не смогли прочитать»: пустой баланс
+    // означает, что строка не прочиталась, и красить это тревожным цветом
+    // значит пугать из-за моргнувшей сети.
+    elBalance.classList.toggle('is-empty', Number.isFinite(Number(bal)) && Number(bal) <= 0);
+    elAccount.title = email ? (email + ' · баланс ' + fmtMoney(bal)) : 'Не выполнен вход';
   }
 
   const WcHeader = {
     init(h) {
       hooks = h;
       elTitle = document.getElementById('wc-topbar-title');
-      elBalance = document.getElementById('wc-balance');
-      elBalanceValue = document.getElementById('wc-balance-value');
-      elAvatar = document.getElementById('wc-account-open');
-      elLetter = document.getElementById('wc-avatar-letter');
+      elAccount = document.getElementById('wc-account');
+      elAvatar = document.getElementById('wc-account-avatar');
+      elEmail = document.getElementById('wc-account-email');
+      elBalance = document.getElementById('wc-account-balance');
 
-      elBalance.addEventListener('click', () => hooks.onTopUp());
-      document.getElementById('wc-settings-open').addEventListener('click', () => hooks.onSettings());
-
-      elAvatar.addEventListener('click', (e) => {
-        menu(e.currentTarget, [
-          { head: account.email || 'Не выполнен вход' },
-          { separator: true },
-          { label: 'Пополнить баланс', icon: 'wallet', onSelect: () => hooks.onTopUp() },
-          { label: 'Настройки', icon: 'dots', onSelect: () => hooks.onSettings() },
-          { separator: true },
-          { label: 'Выйти', icon: 'logout', danger: true, onSelect: () => hooks.onSignOut() },
-        ]);
-      });
+      elAccount.addEventListener('click', () => hooks.onSettings());
 
       paintAccount();
     },

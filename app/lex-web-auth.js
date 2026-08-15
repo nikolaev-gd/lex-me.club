@@ -107,15 +107,65 @@
     return signIn(email, password);
   }
 
-  // Google goes by ordinary redirect. The extension needs
+  // Схема возврата нативной оболочки. Должна совпадать с
+  // GoogleAuth.callbackScheme и с CFBundleURLSchemes в Info.plist, и стоять в
+  // списке разрешённых адресов возврата у Supabase.
+  const NATIVE_SCHEME = 'club.lexme.chat';
+  const authorizeUrl = (back) => URL_BASE + '/auth/v1/authorize?provider=google&redirect_to='
+    + encodeURIComponent(back);
+
+  // Есть ли под нами нативная оболочка, умеющая открыть системный лист входа.
+  function nativeAuthBridge() {
+    try {
+      const h = global.webkit && global.webkit.messageHandlers && global.webkit.messageHandlers.lexauth;
+      return h || null;
+    } catch (_) { return null; }
+  }
+
+  // Google goes by ordinary redirect IN A BROWSER. The extension needs
   // chrome.identity.launchWebAuthFlow and a chromiumapp.org redirect URL
   // because it has no page of its own to come back to; a web page does, so
   // this is just a navigation. The return URL has to be in the project's
   // redirect allow-list (Supabase Auth → URL Configuration) — see docs.
+  //
+  // ⚠️ ВНУТРИ ПРИЛОЖЕНИЯ ЭТОТ ПУТЬ НЕПРИГОДЕН, и не по мелочи.
+  //
+  // `location.href` там уводит ЕДИНСТВЕННЫЙ веб-вью на чужой сайт: своей шапки
+  // у приложения нет, жест «назад» выключен, и вернуться нечем — владелец
+  // выходил перезапуском. И даже почини мы тупик, вход бы не прошёл: Google
+  // намеренно отказывает OAuth во встроенных веб-вью (`disallowed_useragent`),
+  // потому что встроенное окно не показывает адресную строку и человек не
+  // может убедиться, что вводит пароль на google.com.
+  //
+  // Поэтому под оболочкой мы просим её открыть системный лист авторизации
+  // (`ASWebAuthenticationSession`): он показывает адрес, поэтому Google его
+  // принимает, и у него есть своя кнопка «Отмена» — тупик исчезает по
+  // построению, а не потому, что мы дорисовали крестик.
   function signInWithGoogle() {
-    const back = global.location.origin + global.location.pathname;
-    global.location.href = URL_BASE + '/auth/v1/authorize?provider=google&redirect_to='
-      + encodeURIComponent(back);
+    const bridge = nativeAuthBridge();
+    if (!bridge) {
+      global.location.href = authorizeUrl(global.location.origin + global.location.pathname);
+      return Promise.resolve({ redirected: true });
+    }
+    return new Promise((resolve) => {
+      global.__lexAuthResult = (res) => {
+        global.__lexAuthResult = null;
+        if (!res || !res.ok || !res.hash) {
+          // `error: null` при `ok: false` — это «человек нажал Отмена».
+          // Отменённый вход не ошибка, и краснеть на него нельзя.
+          resolve({ ok: false, cancelled: !(res && res.error), error: res && res.error });
+          return;
+        }
+        const s = adoptFragment(res.hash);
+        resolve({ ok: !!s, error: s ? null : 'в ответе не было токена' });
+      };
+      try {
+        bridge.postMessage({ action: 'google', url: authorizeUrl(NATIVE_SCHEME + '://auth') });
+      } catch (err) {
+        global.__lexAuthResult = null;
+        resolve({ ok: false, error: String((err && err.message) || err) });
+      }
+    });
   }
 
   // Supabase returns the tokens in the URL FRAGMENT on this flow. Consume them
@@ -124,7 +174,20 @@
   function adoptRedirectSession() {
     const hash = (global.location.hash || '').replace(/^#/, '');
     if (!hash) return null;
-    const p = new URLSearchParams(hash);
+    const s = adoptFragment(hash);
+    if (s) {
+      try { history.replaceState(null, '', global.location.pathname + global.location.search); } catch (_) {}
+    }
+    return s;
+  }
+
+  // Разбор фрагмента вынесен отдельно, потому что источников у него теперь ДВА:
+  // обычный возврат браузера (адресная строка) и возврат системного листа
+  // авторизации в приложении (строка приходит от оболочки). Логика одна, и
+  // держать её в двух местах значило бы однажды починить только одно.
+  function adoptFragment(hash) {
+    if (!hash) return null;
+    const p = new URLSearchParams(String(hash).replace(/^#/, ''));
     const access = p.get('access_token');
     if (!access) return null;
     const expAtSec = parseInt(p.get('expires_at') || '', 10);
@@ -137,7 +200,6 @@
       user: null,
     };
     write(s);
-    try { history.replaceState(null, '', global.location.pathname + global.location.search); } catch (_) {}
     return s;
   }
 
@@ -199,6 +261,8 @@
     signUp,
     signInWithGoogle,
     adoptRedirectSession,
+    adoptFragment,
+    nativeAuthBridge,
     fillUser,
     validToken,
     signOut,

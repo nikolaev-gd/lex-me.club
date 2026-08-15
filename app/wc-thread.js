@@ -18,9 +18,9 @@
   // than one variable because a stopped stream can still deliver a trailing
   // frame after the next one has started.
   const live = new Map();
-  // The two bubbles a live voice exchange writes into, held while it speaks.
-  let voiceUser = null;
-  let voiceAssistant = null;
+  // Every bubble a live voice conversation is writing into, keyed by the
+  // server's item_id. A Map and not two variables — see the Voice section.
+  const voiceBubbles = new Map();
 
   function nearBottom() {
     return elThread.scrollHeight - elThread.scrollTop - elThread.clientHeight < 60;
@@ -30,8 +30,21 @@
     elThread.scrollTo({ top: elThread.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   }
 
+  // Прилипание к низу — НЕ на каждый токен.
+  //
+  // Было: `scrollTo` прямо в обработчике каждого куска потока. Быстрая модель
+  // шлёт куски десятками в секунду, и каждый вызов — это принудительный расчёт
+  // раскладки плюс прокрутка, то есть ровно то, что на телефоне ощущается как
+  // дёрганье. Сводим к одному разу за кадр: чаще кадра экран всё равно не
+  // обновляется, а лишние расчёты между кадрами не видны никому, кроме
+  // расходуемой батареи.
+  let stickRaf = 0;
   function maybeStick() {
-    if (stickToBottom) scrollToBottom(false);
+    if (!stickToBottom || stickRaf) return;
+    stickRaf = requestAnimationFrame(() => {
+      stickRaf = 0;
+      if (stickToBottom) scrollToBottom(false);
+    });
   }
 
   function setEmpty(isEmpty) {
@@ -190,52 +203,86 @@
     },
 
     // ── Voice ────────────────────────────────────────────────────────────
-    // A spoken exchange writes into the same list as a typed one, through two
-    // bubbles that are opened early and filled as the words arrive.
+    // A spoken exchange writes into the same list as a typed one.
     //
-    // The reader's bubble is opened when the server's voice detector confirms
-    // SPEECH, not when the transcript arrives. Whisper is slower than the
-    // detector, so the model's reply starts streaming before the question is
-    // transcribed — and a bubble created on the transcript lands UNDER the
-    // answer to it. This ordering was a real bug in the extension.
-    beginVoiceUser() {
+    // ⚠️ ONE BUBBLE PER item_id, and that is the whole fix. This used to be two
+    // variables — one "current" user bubble and one "current" assistant bubble
+    // — which silently assumed the conversation is strictly alternating. It is
+    // not: the teacher hearing itself opens a second utterance while the first
+    // answer is still streaming, and with one variable per role the second
+    // question appended BELOW an answer whose remaining text kept flowing into
+    // the bubble above it. That is exactly the "reply above the question" the
+    // owner photographed.
+    //
+    // Keyed by item_id, a bubble is created once, at the first event that
+    // mentions its id, and is filled thereafter no matter what else arrives in
+    // between. Document order therefore follows the order the server actually
+    // opened the items, which is the order they were spoken.
+    //
+    // The reader's bubble is opened when the voice detector confirms SPEECH,
+    // not when the transcript arrives: transcription is slower than detection,
+    // so a bubble created on the transcript would land under the reply to it.
+    beginVoiceUser(itemId) {
+      if (!itemId || voiceBubbles.has(itemId)) return;
       setEmpty(false);
-      const bubble = el('.wc-bubble', { text: '…' });
+      const bubble = el('.wc-bubble.is-awaiting', { text: '' });
       const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, [bubble])]);
       elTurns.append(turn);
-      voiceUser = { turn, bubble };
+      voiceBubbles.set(itemId, { turn, bubble, role: 'user' });
       maybeStick();
     },
 
-    voiceUserText(text) {
-      if (!voiceUser) WcThread.beginVoiceUser();
-      voiceUser.bubble.textContent = text || '…';
+    voiceUserText(itemId, text) {
+      if (!itemId) return;
+      if (!voiceBubbles.has(itemId)) WcThread.beginVoiceUser(itemId);
+      const entry = voiceBubbles.get(itemId);
+      if (!entry) return;
+      entry.bubble.textContent = text || '';
+      // The dots are a placeholder for "heard you, still transcribing"; the
+      // moment there are words, it is no longer waiting.
+      entry.bubble.classList.toggle('is-awaiting', !text);
       maybeStick();
     },
 
     // A transcription that failed leaves nothing to show, and an empty bubble
     // reads as "they said nothing".
-    dropVoiceUser() {
-      if (!voiceUser) return;
-      voiceUser.turn.remove();
-      voiceUser = null;
+    dropVoiceUser(itemId) {
+      const entry = itemId && voiceBubbles.get(itemId);
+      if (!entry) return;
+      entry.turn.remove();
+      voiceBubbles.delete(itemId);
     },
 
-    endVoiceUser() { voiceUser = null; },
-
-    voiceAssistantText(text) {
-      if (!voiceAssistant) {
+    voiceAssistantText(itemId, text) {
+      if (!itemId) return;
+      let entry = voiceBubbles.get(itemId);
+      if (!entry) {
         setEmpty(false);
         const made = assistantTurn('');
         elTurns.append(made.turn);
-        voiceAssistant = made;
+        entry = { turn: made.turn, bubble: made.bubble, role: 'assistant' };
+        voiceBubbles.set(itemId, entry);
       }
-      voiceAssistant.turn.dataset.raw = text;
-      WcMarkdown.into(voiceAssistant.bubble, text);
+      entry.turn.dataset.raw = text;
+      // PLAIN TEXT, not Markdown — the same choice the extension makes on its
+      // live voice path (chat-surface.js:6584 appends to a text node; the
+      // Markdown pass exists only on the legacy lab surface). Speech has no
+      // Markdown in it, and running a half-arrived transcript through a parser
+      // makes stray asterisks and underscores flicker as formatting.
+      entry.bubble.textContent = text;
       maybeStick();
     },
 
-    endVoiceAssistant() { voiceAssistant = null; },
+    // Called once when the whole conversation ends, not per turn: a bubble has
+    // to stay addressable for as long as its item can still receive a late
+    // final transcript.
+    endVoice() {
+      voiceBubbles.forEach((entry) => {
+        // Anything still showing the waiting dots never got a transcript.
+        if (entry.role === 'user' && !entry.bubble.textContent) entry.turn.remove();
+      });
+      voiceBubbles.clear();
+    },
 
     // Used when the keyboard opens: the last thing said must stay in view.
     scrollToEnd() { scrollToBottom(false); stickToBottom = true; elJump.hidden = true; },
