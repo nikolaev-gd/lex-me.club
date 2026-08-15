@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover + the safe-area insets in the stylesheet are what keep
+     the composer clear of the iPhone home indicator once this page is inside a
+     WKWebView. maximum-scale is NOT set: pinch-zoom is an accessibility
+     feature, and the real fix for the iOS auto-zoom is a 16px input font. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Lex</title>
+<link rel="stylesheet" href="wc-app.css?v=1786822763">
+<script>window.WC_VERSION = "web-1786822763";</script>
+</head>
+<body>
+
+<!-- ── Gate ──────────────────────────────────────────────────────────────── -->
+<!-- A plain form on our own page. The extension wraps the same form in a
+     nested chrome-extension:// iframe because it renders over an arbitrary
+     site; here there is nobody to isolate the password from. -->
+<div class="wc-gate" id="wc-gate" hidden>
+  <div class="wc-gate-card">
+    <div class="wc-gate-brand">Lex</div>
+    <p class="wc-gate-sub">Учитель английского</p>
+    <form id="wc-gate-form" novalidate>
+      <input id="wc-email" type="email" autocomplete="email" placeholder="Почта" spellcheck="false">
+      <input id="wc-password" type="password" autocomplete="current-password" placeholder="Пароль">
+      <button type="submit" class="wc-btn wc-btn-primary" id="wc-signin">Войти</button>
+    </form>
+    <button class="wc-btn wc-btn-ghost" id="wc-signup">Создать аккаунт</button>
+    <div class="wc-gate-or"><span>или</span></div>
+    <button class="wc-btn wc-btn-ghost" id="wc-google">Войти через Google</button>
+    <div class="wc-gate-status" id="wc-gate-status" role="status" aria-live="polite"></div>
+  </div>
+</div>
+
+<!-- ── App ───────────────────────────────────────────────────────────────── -->
+<div class="wc-root" id="wc-root" hidden>
+
+  <!-- Scrim: on a narrow screen the sidebar slides over the thread and this
+       catches the tap that closes it. Inert on wide screens. -->
+  <div class="wc-scrim" id="wc-scrim" hidden></div>
+
+  <aside class="wc-sidebar" id="wc-sidebar" aria-label="Беседы">
+    <div class="wc-sidebar-head">
+      <button class="wc-icon-btn" id="wc-sidebar-close" title="Свернуть список" aria-label="Свернуть список">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <button class="wc-new-chat" id="wc-new-chat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Новый чат</span>
+      </button>
+    </div>
+    <div class="wc-convs" id="wc-convs" role="list"></div>
+    <div class="wc-sidebar-foot" id="wc-sidebar-foot"></div>
+  </aside>
+
+  <main class="wc-main">
+    <header class="wc-topbar">
+      <button class="wc-icon-btn wc-only-narrow" id="wc-sidebar-open" title="Беседы" aria-label="Беседы">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <div class="wc-topbar-title" id="wc-topbar-title">Новый чат</div>
+      <div class="wc-topbar-right">
+        <button class="wc-balance" id="wc-balance" title="Баланс">
+          <span id="wc-balance-value">—</span>
+        </button>
+        <button class="wc-icon-btn" id="wc-settings-open" title="Настройки" aria-label="Настройки">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+        </button>
+        <button class="wc-avatar" id="wc-account-open" title="Аккаунт" aria-label="Аккаунт">
+          <span id="wc-avatar-letter">?</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="wc-thread" id="wc-thread" tabindex="-1">
+      <div class="wc-empty" id="wc-empty">
+        <div class="wc-empty-brand">Lex</div>
+        <p>Спросите что угодно — или пришлите картинку.</p>
+      </div>
+      <div class="wc-turns" id="wc-turns"></div>
+      <div class="wc-thread-tail" id="wc-thread-tail"></div>
+    </div>
+
+    <div class="wc-composer-wrap">
+      <button class="wc-jump" id="wc-jump" hidden title="Вниз" aria-label="Вниз">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+      </button>
+      <div class="wc-attachments" id="wc-attachments" hidden></div>
+      <form class="wc-composer" id="wc-composer">
+        <button type="button" class="wc-icon-btn wc-composer-btn" id="wc-attach" title="Прикрепить картинку" aria-label="Прикрепить картинку">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.67 3.67 0 0 1 5.18 5.18l-9.2 9.2a1.83 1.83 0 0 1-2.59-2.6l8.5-8.49"/></svg>
+        </button>
+        <input type="file" id="wc-file" accept="image/*" multiple hidden>
+        <textarea id="wc-input" rows="1" placeholder="Сообщение…" enterkeyhint="send"></textarea>
+        <button type="button" class="wc-icon-btn wc-composer-btn" id="wc-mic" title="Голос" aria-label="Голос">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+        </button>
+        <button type="submit" class="wc-send" id="wc-send" title="Отправить" aria-label="Отправить">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </button>
+      </form>
+      <div class="wc-composer-note" id="wc-composer-note"></div>
+    </div>
+  </main>
+</div>
+
+<!-- ── Overlays ──────────────────────────────────────────────────────────── -->
+<div class="wc-sheet" id="wc-settings" hidden role="dialog" aria-modal="true" aria-label="Настройки"></div>
+<div class="wc-menu" id="wc-menu" hidden role="menu"></div>
+<div class="wc-modal" id="wc-modal" hidden role="dialog" aria-modal="true"></div>
+<div class="wc-toast" id="wc-toast" hidden role="status" aria-live="polite"></div>
+<div class="wc-voice" id="wc-voice" hidden role="dialog" aria-modal="true" aria-label="Голосовой разговор"></div>
+
+<!-- ── Scripts ───────────────────────────────────────────────────────────────
+     Order is load-bearing, not alphabetical: the two primitives (store, bus)
+     come before anything that uses them, the shared modules from the repo root
+     before the backend that wires them, and the boot file last. -->
+<script src="wc-log.js?v=1786822763"></script>
+<script src="wc-store.js?v=1786822763"></script>
+<script src="wc-bus.js?v=1786822763"></script>
+<script src="wc-markdown.js?v=1786822763"></script>
+<script src="wc-ui.js?v=1786822763"></script>
+<!-- Shared with the extension, byte for byte. Both are free of chrome.* by
+     construction — the teacher's core takes every dependency as an argument,
+     and the model registry is pure data. -->
+<script src="model-registry.js?v=1786822763"></script>
+<script src="lex-teacher-core.js?v=1786822763"></script>
+<!-- Sign-in, shared with lex-me.club: same localStorage key, so /app,
+     /account and /checkout are one login. -->
+<script src="lex-web-config.js?v=1786822763"></script>
+<script src="lex-web-auth.js?v=1786822763"></script>
+<script src="wc-history.js?v=1786822763"></script>
+<script src="wc-backend.js?v=1786822763"></script>
+<script src="wc-attach.js?v=1786822763"></script>
+<script src="wc-voice.js?v=1786822763"></script>
+<script src="wc-sidebar.js?v=1786822763"></script>
+<script src="wc-thread.js?v=1786822763"></script>
+<script src="wc-composer.js?v=1786822763"></script>
+<script src="wc-header.js?v=1786822763"></script>
+<script src="wc-settings.js?v=1786822763"></script>
+<script src="wc-app.js?v=1786822763"></script>
+</body>
+</html>
