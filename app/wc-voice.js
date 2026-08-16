@@ -71,7 +71,10 @@
     login: 'Войдите в аккаунт, чтобы говорить с учителем.',
     balance: 'На балансе не хватает денег на голосовой разговор.',
     cap: 'Достигнут предел по голосу. Попробуйте позже.',
-    busy: 'Голосовой разговор уже идёт в другом окне.',
+    // Гонка привязки сессии, пережившая ОДИН автоматический повтор. Про «другое
+    // окно» здесь говорить нельзя: никакого другого окна нет, эта формулировка
+    // была домыслом клиента о коде 409 — см. разбор у места повтора.
+    race: 'Не получилось начать разговор. Нажмите ещё раз.',
     no_listener: 'Сервер не смог начать счёт разговора — попробуйте ещё раз.',
   };
 
@@ -462,12 +465,12 @@
       };
 
       const apiModel = resolveVoiceApiModel(voiceModelId);
-      const r = await post('/functions/v1/llm-proxy/voice-sdp-openai', {
+      const открыть = (sid) => post('/functions/v1/llm-proxy/voice-sdp-openai', {
         model: voiceModelId,
         sdp: offer.sdp,
         session: buildSessionConfig(apiModel, voiceName, knobs),
         meta: {
-          sessionId,
+          sessionId: sid,
           videoId: (opts && opts.conversationId) || null,
           surface: 'standalone',
           pageType: 'text',
@@ -484,6 +487,29 @@
         },
       });
 
+      let r = await открыть(sessionId);
+
+      // ⚠️ 409 — ЭТО НЕ «РАЗГОВОР УЖЕ ИДЁТ В ДРУГОМ ОКНЕ».
+      //
+      // У llm-proxy этот код означает ровно одно: `no_session` — платный вызов
+      // пришёл раньше, чем сессия успела привязаться. Сервер называет это
+      // гонкой прямым текстом и пишет, что клиент обязан ПОВТОРИТЬ, заново
+      // обеспечив сессию (llm-proxy/index.ts:234-239: «TRANSIENT — … so the
+      // client retries … instead of showing a terminal screen»).
+      //
+      // Мы вместо этого показывали человеку выдуманное «в другом окне». Окна
+      // никакого нет и не было — отсюда и жалоба, что плашка вылезает на каждое
+      // второе нажатие: второй разговор начинается сразу после первого, привязка
+      // ещё в полёте, и человек получает в лицо чужую внутреннюю формулировку.
+      if (!r.ok && r.status === 409) {
+        log('409 no_session — гонка привязки, обеспечиваю сессию и повторяю');
+        if (hooks.onStage) hooks.onStage('connecting');
+        let sid2 = null;
+        try { sid2 = await WcBus.call('WC_ENSURE_SESSION').then((x) => x && x.sessionId); } catch (_) {}
+        await new Promise((res) => setTimeout(res, 700));
+        r = await открыть(sid2 == null ? sessionId : sid2);
+      }
+
       if (!r.ok) {
         // `stage` travels with the status because the codes are not unique —
         // 503 is both "no listener" and "the account gate is unavailable" —
@@ -492,7 +518,7 @@
         const gate = stage === 'no_listener' ? 'no_listener'
           : r.status === 402 ? 'balance'
           : r.status === 429 ? 'cap'
-          : r.status === 409 ? 'busy'
+          : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'
           : null;
         const err = new Error(GATE_TEXT[gate] || ((r.json && r.json.error) || ('голос не поднялся: HTTP ' + r.status)));
