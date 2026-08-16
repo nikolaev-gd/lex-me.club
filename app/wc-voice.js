@@ -56,6 +56,7 @@
   let eventsHb = null;
   let eventsSeen = null;
   let callId = null;
+  let startedAt = 0;
   let closed = true;
   let connecting = false;
   let hooks = {};
@@ -64,6 +65,9 @@
   // conflating them means releasing the guard un-mutes somebody who did not
   // ask to be un-muted.
   let userMuted = false;
+  // Идентификатор голосовой модели текущего разговора: его требует отчёт об
+  // отбое, а он отправляется уже после того, как всё остальное снесено.
+  let activeVoiceModelId = null;
 
   // What the reader is told, in words, at each stage. A voice session that
   // fails silently is indistinguishable from one that is listening.
@@ -410,6 +414,7 @@
 
     try {
       const voiceModelId = await WcStore.one('activeVoiceModelId_' + SCOPE, DEFAULT_VOICE_MODEL);
+      activeVoiceModelId = voiceModelId;
       // One reader for both surfaces of this page — the knobs are per-key
       // (knob<Name>_<scope>), never an object. See wc-backend.readKnobs.
       const knobs = await global.WcBackend.readKnobs();
@@ -489,22 +494,21 @@
 
       let r = await открыть(sessionId);
 
-      // ⚠️ 409 — ЭТО НЕ «РАЗГОВОР УЖЕ ИДЁТ В ДРУГОМ ОКНЕ».
+      // ⚠️ 409 БЫВАЕТ ДВУХ ВИДОВ, и различает их `stage`.
       //
-      // У llm-proxy этот код означает ровно одно: `no_session` — платный вызов
-      // пришёл раньше, чем сессия успела привязаться. Сервер называет это
-      // гонкой прямым текстом и пишет, что клиент обязан ПОВТОРИТЬ, заново
-      // обеспечив сессию (llm-proxy/index.ts:234-239: «TRANSIENT — … so the
-      // client retries … instead of showing a terminal screen»).
+      //   · stage 'session'    — `no_session`, гонка привязки. Сервер сам
+      //     называет её временной и просит повторить (llm-proxy:234-239).
+      //   · stage 'voice_busy' — у аккаунта УЖЕ ЕСТЬ живая строка
+      //     `voice_sessions` со status='active' (llm-proxy:2590).
       //
-      // Мы вместо этого показывали человеку выдуманное «в другом окне». Окна
-      // никакого нет и не было — отсюда и жалоба, что плашка вылезает на каждое
-      // второе нажатие: второй разговор начинается сразу после первого, привязка
-      // ещё в полёте, и человек получает в лицо чужую внутреннюю формулировку.
-      // Пауза растёт: разговор, начатый сразу за предыдущим, — самый частый
-      // случай, и привязке нужно чуть больше времени, чем одна попытка через
-      // 700 мс. Замерено на телефоне: при промежутке ~1,2 с одного повтора не
-      // хватало и вторая сессия не поднималась вовсе.
+      // Второй — это то, что видел владелец. И это не «в другом окне»: окно
+      // одно, а строка осталась от ЕГО ЖЕ предыдущего разговора, потому что
+      // раньше мы не сообщали серверу об отбое вовсе. Сама она снимается
+      // только по устареванию — через пять минут.
+      //
+      // Настоящее лечение — закрывать строку на отбое (см. `endCallOnServer`
+      // в stop()). Повтор оставлен для первого вида 409 и для случая, когда
+      // отчёт об отбое не дошёл.
       const ПАУЗЫ = [800, 1800];
       for (let i = 0; i < ПАУЗЫ.length && !r.ok && r.status === 409; i++) {
         log('409 no_session — гонка привязки, повтор', i + 1);
@@ -532,6 +536,7 @@
       }
 
       callId = r.json.callId;
+      startedAt = Date.now();
       closed = false;
       if (hooks.onStage) hooks.onStage('negotiating');
       await pc.setRemoteDescription({ type: 'answer', sdp: r.json.answerSdp });
@@ -573,10 +578,50 @@
   }
 
   // ── Stop ─────────────────────────────────────────────────────────────────
+  // ── Сказать серверу, что мы положили трубку ──────────────────────────────
+  //
+  // Без этого строка `voice_sessions` остаётся со `status='active'`, и
+  // следующий разговор ЭТОГО ЖЕ человека получает 409 `voice_busy` — пока
+  // строку не снимет устаревание, то есть до пяти минут. Именно это владелец
+  // видел как «голосовой разговор уже идёт в другом окне» на каждое второе
+  // нажатие: никакого другого окна не было, была его собственная незакрытая
+  // строка.
+  //
+  // Эндпоинт для этого и существует — «Clean teardown: end the live
+  // voice_sessions row» (llm-proxy:2394-2400), и закрывает он её независимо от
+  // того, легла ли строка расхода.
+  //
+  // ДЕНЕГ ЭТО НЕ КАСАЕТСЯ. Считает по-прежнему серверный слушатель: у него
+  // authority, и наш отчёт при этом пишет ноль. Поле `accumulatorLost` мы не
+  // ставим — именно оно, и только оно, поднимает на сервере тревогу «EMPTY
+  // REPORT» (llm-proxy:1876-1880).
+  async function endCallOnServer(id) {
+    if (!id) return;
+    const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+    try {
+      const r = await post('/functions/v1/llm-proxy/voice-usage-report', {
+        model: activeVoiceModelId || DEFAULT_VOICE_MODEL,
+        durationMs,
+        usage: {},
+        meta: { callId: id, surface: 'standalone' },
+      });
+      if (!r.ok) warn('отбой не подтверждён сервером:', r.status, r.json && r.json.error);
+      else log('сервер закрыл строку разговора', id);
+    } catch (e) {
+      warn('не смог сообщить об отбое:', e && e.message);
+    }
+  }
+
   async function stop(opts) {
     if (closed && !connecting) return;
     const reason = (opts && opts.reason) || 'manual';
+    // Снимаем id ДО сноса: teardown обнуляет его, а отчёт без id бесполезен.
+    const endingCallId = callId;
     await teardown();
+    // AWAITED: «stop() вернулся» обязано значить «шлюз свободен». Иначе
+    // человек, нажавший микрофон сразу после отбоя, упирается в собственную
+    // же незакрытую сессию.
+    await endCallOnServer(endingCallId);
     // AWAITED, not fired and forgotten: the handler is where the last exchange
     // gets written to the account, and "stop() resolved" has to mean "nothing
     // is still in flight". Without the await a caller that checks the
