@@ -143,10 +143,10 @@
   function loadHeif() {
     if (heifPromise) return heifPromise;
     const tryOne = (i) => new Promise((resolve, reject) => {
-      if (i >= HEIF_CANDIDATES.length) { reject(new Error('не удалось загрузить расшифровщик heic')); return; }
+      if (i >= HEIF_CANDIDATES.length) { reject(new Error('could not load the heic decoder')); return; }
       const el = document.createElement('script');
       el.src = new URL(HEIF_CANDIDATES[i], SELF_DIR).href;
-      el.onload = () => (global.libheif ? resolve(global.libheif()) : reject(new Error('libheif не поднялся')));
+      el.onload = () => (global.libheif ? resolve(global.libheif()) : reject(new Error('libheif did not come up')));
       el.onerror = () => { el.remove(); resolve(tryOne(i + 1)); };
       document.head.append(el);
     });
@@ -158,7 +158,7 @@
     const mod = await loadHeif();
     const bytes = new Uint8Array(await file.arrayBuffer());
     const images = new mod.HeifDecoder().decode(bytes);
-    if (!images || !images.length) throw new Error('в файле heic нет изображений');
+    if (!images || !images.length) throw new Error('no images inside the heic file');
     const image = images[0];
     const width = image.get_width();
     const height = image.get_height();
@@ -168,11 +168,11 @@
     const ctx = canvas.getContext('2d');
     const data = ctx.createImageData(width, height);
     await new Promise((resolve, reject) => {
-      image.display(data, (d) => (d ? resolve() : reject(new Error('heic: не отрисовался'))));
+      image.display(data, (d) => (d ? resolve() : reject(new Error('heic: did not render'))));
     });
     ctx.putImageData(data, 0, 0);
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.92));
-    if (!blob) throw new Error('heic: не собрался jpeg');
+    if (!blob) throw new Error('heic: jpeg not produced');
     return blob;
   }
 
@@ -186,7 +186,7 @@
       return await new Promise((resolve, reject) => {
         const img = new Image();
         img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error('картинка не открылась'));
+        img.onerror = () => reject(new Error('the image did not open'));
         img.src = url;
       });
     } finally { URL.revokeObjectURL(url); }
@@ -214,7 +214,7 @@
     // reporting mime 'image/jpeg' and the shrunken dimensions — the attachment
     // then lies about its own format and size. Refusing is the honest answer:
     // an encoder that returned nothing produced nothing.
-    if (!out) throw new Error('не удалось пересобрать картинку');
+    if (!out) throw new Error('could not re-encode the image');
     return { blob: out, mime: 'image/jpeg', width: outW, height: outH };
   }
 
@@ -225,13 +225,13 @@
         const s = String(fr.result || '');
         resolve(s.slice(s.indexOf(',') + 1));
       };
-      fr.onerror = () => reject(fr.error || new Error('файл не прочитался'));
+      fr.onerror = () => reject(fr.error || new Error('the file could not be read'));
       fr.readAsDataURL(blob);
     });
   }
 
   async function normalize(file) {
-    if (!file || !file.size) throw new Error('файл пустой');
+    if (!file || !file.size) throw new Error('the file is empty');
 
     let blob = file;
     let mime = file.type;
@@ -239,7 +239,7 @@
       blob = await decodeHeic(file);
       mime = 'image/jpeg';
     } else if (!isAccepted(file)) {
-      throw new Error('формат не поддерживается: ' + (file.type || 'неизвестный'));
+      throw new Error('unsupported format: ' + (file.type || 'unknown'));
     }
 
     const bitmap = await decodeBitmap(blob);
@@ -262,7 +262,7 @@
       // Terminal, with no second pass at lower quality — the same as the
       // extension. A tall narrow picture never enters compression at all, so
       // this is where it stops.
-      throw new Error('картинка слишком большая — ' + Math.round(blob.size / 1024 / 1024 * 10) / 10 + ' МБ');
+      throw new Error('image too large — ' + Math.round(blob.size / 1024 / 1024 * 10) / 10 + ' MB');
     }
 
     return { blob, mime, base64, width, height, bytes: blob.size };
@@ -281,7 +281,7 @@
   function chipFor(att) {
     const chip = el('.wc-chip', { style: { backgroundImage: `url("${att.previewUrl}")` } }, [
       el('button.wc-chip-x', {
-        type: 'button', title: 'Убрать', 'aria-label': 'Убрать картинку',
+        type: 'button', title: 'Remove', 'aria-label': 'Remove image',
         onclick: () => remove(att.key),
       }, [icon('x')]),
     ]);
@@ -301,7 +301,7 @@
   async function accept(file) {
     if (!file) return;
     if (pending.length) {
-      toast('Пока можно приложить одну картинку — уберите предыдущую');
+      toast('One image at a time for now — remove the previous one');
       return;
     }
     const busy = el('.wc-chip.is-busy');

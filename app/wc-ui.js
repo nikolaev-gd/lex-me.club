@@ -54,6 +54,11 @@
     x: 'M6 6l12 12M18 6L6 18',
     logout: 'M15 17l5-5-5-5M20 12H9M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6',
     plus: 'M12 5v14M5 12h14',
+    image: 'M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6',
+    wave: 'M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4',
+    mic: 'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3',
+    edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
+    link: 'M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1',
     wallet: 'M3 7h15a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 7l1-3h12M17 13h.01',
   };
 
@@ -113,7 +118,7 @@
 
       const okBtn = el('button.wc-btn' + (opts.danger ? '' : '.wc-btn-primary'), {
         type: 'button',
-        text: opts.okText || 'Ок',
+        text: opts.okText || 'OK',
         style: opts.danger ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : null,
         onclick: () => close(input ? input.value.trim() : true),
       });
@@ -124,7 +129,7 @@
         input,
         el('.wc-modal-actions', {}, [
           el('button.wc-btn.wc-btn-ghost', {
-            type: 'button', text: opts.cancelText || 'Отмена', onclick: () => close(null),
+            type: 'button', text: opts.cancelText || 'Cancel', onclick: () => close(null),
           }),
           okBtn,
         ]),
@@ -223,13 +228,54 @@
     function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
 
     const body = el('.wc-sheet-body', {}, bodyNodes);
-    host.replaceChildren(el('.wc-sheet-card', {}, [
-      el('.wc-sheet-head', {}, [el('h2', { text: title }), iconBtn('x', 'Закрыть', close)]),
-      body,
-    ]));
+    // Полоска-ухватка сверху. Она не украшение: это единственное, что говорит
+    // «лист можно тянуть» до того, как человек попробует.
+    const grip = el('.wc-sheet-grip', { 'aria-hidden': 'true' });
+    const head = el('.wc-sheet-head', {}, [el('h2', { text: title }), iconBtn('x', 'Close', close)]);
+    const card = el('.wc-sheet-card', {}, [grip, head, body]);
+    host.replaceChildren(card);
     host.hidden = false;
     host.onpointerdown = (e) => { if (e.target === host) close(); };
     document.addEventListener('keydown', onKey, true);
+
+    // ── Смахнуть вниз ──────────────────────────────────────────────────────
+    // Системный лист iOS закрывается протяжкой вниз, и палец пробует это
+    // первым делом. Тянем только за ШАПКУ и ухватку: если тянуть за тело,
+    // жест отберёт прокрутку у длинного списка настроек.
+    let dragging = false, y0 = 0, lastY = 0, lastT = 0, v = 0;
+    const onDown = (e) => {
+      if (e.pointerType === 'mouse') return;
+      dragging = true; y0 = lastY = e.clientY; lastT = e.timeStamp; v = 0;
+      card.style.transition = 'none';
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const dy = Math.max(0, e.clientY - y0);      // вверх лист не тянется
+      const dt = Math.max(1, e.timeStamp - lastT);
+      v = (e.clientY - lastY) / dt;
+      lastY = e.clientY; lastT = e.timeStamp;
+      card.style.transform = 'translateY(' + dy + 'px)';
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      card.style.transition = '';
+      const dy = Math.max(0, lastY - y0);
+      // Далеко ИЛИ быстро — те же два условия, что у шторки, и по той же
+      // причине: короткий быстрый флик и медленная длинная протяжка обязаны
+      // работать оба.
+      if (dy > card.getBoundingClientRect().height * 0.3 || v > 0.5) {
+        card.style.transform = 'translateY(100%)';
+        setTimeout(close, 180);
+      } else {
+        card.style.transform = '';
+      }
+    };
+    [grip, head].forEach((n) => n.addEventListener('pointerdown', onDown, { passive: true }));
+    card.addEventListener('pointermove', onMove, { passive: true });
+    card.addEventListener('pointerup', onUp, { passive: true });
+    card.addEventListener('pointercancel', onUp, { passive: true });
+
     return { close, body };
   }
 
@@ -248,7 +294,7 @@
     const t = ((item && item.title) || '').trim();
     if (t) return { text: t, untitled: false };
     const p = ((item && item.preview) || '').trim().replace(/\s+/g, ' ');
-    return { text: p ? p.slice(0, 60) : 'Без названия', untitled: true };
+    return { text: p ? p.slice(0, 60) : 'Untitled', untitled: true };
   }
 
   function fmtMoney(usd) {

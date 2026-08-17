@@ -1,0 +1,51 @@
+// webchat/wc-haptics.js — отклик под пальцем, когда страница внутри оболочки.
+//
+// `navigator.vibrate` в WebKit на iOS не реализован вовсе, поэтому отклик может
+// прийти только из родной оболочки. Мост ставит ios/LexChat/Haptics.swift; тут
+// — единственное место, которое о нём знает.
+//
+// Правила, по которым это не мешает:
+//   · в обычном браузере МОЛЧИТ. Не «пробует и падает», а просто ничего не
+//     делает: проверка наличия обработчика стоит один раз при загрузке;
+//   · уважает «меньше движения». Системная настройка про укачивание, а вибро —
+//     это тоже физическое ощущение, и человек, который её включил, просил
+//     приложение вести себя тише;
+//   · один вызов — одно нажатие. Отклик на КАЖДОЕ изменение состояния
+//     превращается в дребезг, поэтому вибрируют только действия человека
+//     (отправил, включил голос, вызвал меню), но не события, которые пришли
+//     сами (ответ дописался, баланс обновился).
+(function (global) {
+  'use strict';
+
+  const bridge = (() => {
+    try {
+      const h = global.webkit && global.webkit.messageHandlers && global.webkit.messageHandlers.lexhaptics;
+      return (h && typeof h.postMessage === 'function') ? h : null;
+    } catch (_) { return null; }
+  })();
+
+  // Читается один раз и дальше слушается: человек может переключить настройку,
+  // не перезагружая приложение.
+  let quiet = false;
+  try {
+    const mq = global.matchMedia('(prefers-reduced-motion: reduce)');
+    quiet = !!mq.matches;
+    if (mq.addEventListener) mq.addEventListener('change', (e) => { quiet = !!e.matches; });
+  } catch (_) {}
+
+  function fire(kind) {
+    if (!bridge || quiet) return;
+    try { bridge.postMessage(kind); } catch (_) {}
+  }
+
+  global.WcHaptics = {
+    /** Обычное нажатие: отправка, включение микрофона. */
+    tap() { fire('tap'); },
+    /** Долгое удержание сработало — меню сейчас появится. */
+    press() { fire('press'); },
+    /** Действие завершилось. */
+    success() { fire('success'); },
+    /** Есть ли мост вообще — для проверок и для журнала. */
+    available() { return !!bridge; },
+  };
+})(typeof self !== 'undefined' ? self : globalThis);

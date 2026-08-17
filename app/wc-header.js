@@ -13,19 +13,32 @@
 // Ровно так устроены ChatGPT, Claude и Gemini на телефоне: аккаунт внизу
 // шторки, новый чат наверху.
 //
-// В шапке остались ровно две вещи: название беседы и кнопка нового чата.
+// ── Что в шапке (решение владельца, 2026-08-17) ─────────────────────────────
+//
+// РОВНО ДВА органа и больше ничего: слева три полоски, открывающие шторку
+// истории, справа — ручка нового чата. Название беседы из шапки убрано; оно
+// осталось в заголовке вкладки и окна оболочки, где не отнимает у телефона
+// строку экрана.
+//
+// Ручка нового чата показывается ТОЛЬКО когда в текущем чате что-то есть.
+// «Новый чат» поверх пустого чата не делает ничего — кнопка, нажатие на
+// которую ничем не отличается от бездействия, хуже отсутствующей: человек
+// жмёт и решает, что сломалось.
+//
+// В строке аккаунта внизу шторки почты больше нет — тоже решение владельца.
+// Свой адрес человек знает; строка стоит дороже сведения. Адрес остался
+// внутри листа настроек.
 (function (global) {
   'use strict';
 
   const { fmtMoney } = WcUI;
 
-  let elTitle, elAvatar, elEmail, elBalance, elAccount;
+  let elAvatar, elBalance, elAccount, elNewChat;
   let hooks = {};
   let account = { signedIn: false };
 
   function paintAccount() {
     const email = account.email || '';
-    elEmail.textContent = email || 'Не выполнен вход';
     elAvatar.textContent = email ? email[0] : '?';
 
     const bal = account.balanceUsd;
@@ -34,17 +47,18 @@
     // означает, что строка не прочиталась, и красить это тревожным цветом
     // значит пугать из-за моргнувшей сети.
     elBalance.classList.toggle('is-empty', Number.isFinite(Number(bal)) && Number(bal) <= 0);
-    elAccount.title = email ? (email + ' · баланс ' + fmtMoney(bal)) : 'Не выполнен вход';
+    // Адрес ушёл с экрана, но не из доступности: он остаётся подписью строки,
+    // так что и скринридер, и наведение мышью его называют.
+    elAccount.title = email ? (email + ' · balance ' + fmtMoney(bal)) : 'Not signed in';
   }
 
   const WcHeader = {
     init(h) {
       hooks = h;
-      elTitle = document.getElementById('wc-topbar-title');
       elAccount = document.getElementById('wc-account');
       elAvatar = document.getElementById('wc-account-avatar');
-      elEmail = document.getElementById('wc-account-email');
       elBalance = document.getElementById('wc-account-balance');
+      elNewChat = document.getElementById('wc-new-chat');
 
       elAccount.addEventListener('click', () => hooks.onSettings());
 
@@ -58,11 +72,16 @@
 
     setTitle(text) {
       const t = (text || '').trim();
-      elTitle.textContent = t || 'Новый чат';
-      elTitle.title = t;
-      // The browser tab and the shell window read this. A conversation you can
-      // find by its window title is worth the two lines.
+      // Шапка название больше не показывает — оно живёт в заголовке вкладки и
+      // окна оболочки. Беседу, которую можно найти по заголовку окна, стоит
+      // назвать.
       document.title = t ? t + ' — Lex' : 'Lex';
+    },
+
+    // Есть ли в текущем чате хоть один ход. Единственный источник правды для
+    // того, показывать ли ручку нового чата.
+    setHasContent(has) {
+      if (elNewChat) elNewChat.hidden = !has;
     },
 
     account() { return account; },

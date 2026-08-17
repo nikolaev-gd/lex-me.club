@@ -17,9 +17,9 @@
   const { el, sheet, fmtMoney } = WcUI;
 
   const THEMES = [
-    ['system', 'Как в системе'],
-    ['light', 'Светлая'],
-    ['dark', 'Тёмная'],
+    ['system', 'System'],
+    ['light', 'Light'],
+    ['dark', 'Dark'],
   ];
 
   function applyTheme(value) {
@@ -86,18 +86,18 @@
         el('.wc-field', {}, [
           el('.wc-field-row', {}, [
             el('.wc-field-label', {}, [
-              el('b', { text: account.email || 'Не выполнен вход' }),
-              el('span', { text: account.signedIn ? 'Баланс ' + fmtMoney(account.balanceUsd) : '' }),
+              el('b', { text: account.email || 'Not signed in' }),
+              el('span', { text: account.signedIn ? 'Balance ' + fmtMoney(account.balanceUsd) : '' }),
             ]),
             el('button.wc-btn.wc-btn-ghost', {
-              type: 'button', text: 'Пополнить',
+              type: 'button', text: 'Top up',
               style: { width: 'auto', padding: '7px 14px' },
               onclick: () => ctx.onTopUp(),
             }),
           ]),
         ]),
 
-        field('Оформление', 'Светлая, тёмная или как в системе',
+        field('Appearance', 'Light, dark, or follow the system',
           select(THEMES, stored.wcTheme || 'system', (v) => {
             applyTheme(v);
             WcStore.set({ wcTheme: v });
@@ -106,8 +106,8 @@
         el('.wc-field', {}, [
           el('.wc-field-row', {}, [
             el('.wc-field-label', {}, [
-              el('b', { text: 'Размер текста' }),
-              el('span', { text: 'Меняет всю страницу целиком' }),
+              el('b', { text: 'Text size' }),
+              el('span', { text: 'Changes the whole page' }),
             ]),
             scale,
             scaleValue,
@@ -124,18 +124,18 @@
       body.push(el('.wc-field', {}, [
         el('.wc-field-row', {}, [
           el('.wc-field-label', {}, [
-            el('b', { text: 'Выйти из аккаунта' }),
-            el('span', { text: 'Только на этом устройстве' }),
+            el('b', { text: 'Sign out' }),
+            el('span', { text: 'On this device only' }),
           ]),
           el('button.wc-btn.wc-btn-ghost', {
-            type: 'button', text: 'Выйти',
+            type: 'button', text: 'Sign out',
             style: { width: 'auto', padding: '7px 14px', color: 'var(--danger)', borderColor: 'var(--danger)' },
             onclick: () => { handle.close(); ctx.onSignOut(); },
           }),
         ]),
       ]));
 
-      const handle = sheet('wc-settings', 'Настройки', body);
+      const handle = sheet('wc-settings', 'Settings', body);
       return handle;
     },
   };

@@ -72,14 +72,14 @@
   // What the reader is told, in words, at each stage. A voice session that
   // fails silently is indistinguishable from one that is listening.
   const GATE_TEXT = {
-    login: 'Войдите в аккаунт, чтобы говорить с учителем.',
-    balance: 'На балансе не хватает денег на голосовой разговор.',
-    cap: 'Достигнут предел по голосу. Попробуйте позже.',
+    login: 'Sign in to talk with the teacher.',
+    balance: 'Your balance is too low for a voice conversation.',
+    cap: 'Voice limit reached. Try again later.',
     // Гонка привязки сессии, пережившая ОДИН автоматический повтор. Про «другое
     // окно» здесь говорить нельзя: никакого другого окна нет, эта формулировка
     // была домыслом клиента о коде 409 — см. разбор у места повтора.
-    race: 'Не получилось начать разговор. Нажмите ещё раз.',
-    no_listener: 'Сервер не смог начать счёт разговора — попробуйте ещё раз.',
+    race: 'Could not start the conversation. Press again.',
+    no_listener: 'The server could not open the billing session — try again.',
   };
 
   async function post(path, body) {
@@ -318,7 +318,7 @@
 
       case 'error':
         warn('realtime error:', ev.error && ev.error.message);
-        if (hooks.onError) hooks.onError((ev.error && ev.error.message) || 'ошибка голосовой сессии');
+        if (hooks.onError) hooks.onError((ev.error && ev.error.message) || 'voice session error');
         break;
 
       default:
@@ -424,14 +424,14 @@
       // bound session so the listener's row can never have a null session_id,
       // which is exactly what keeps it able to bill.
       const sessionId = await WcBus.call('WC_ENSURE_SESSION').then((r) => r && r.sessionId);
-      if (sessionId == null) throw new Error('не удалось завести сессию для разговора');
+      if (sessionId == null) throw new Error('could not create a session for the conversation');
 
       // Mic first: a refused microphone should stop us before any server work.
       localStream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, autoGainControl: false, noiseSuppression: false },
       });
       micTrack = localStream.getAudioTracks()[0];
-      if (!micTrack) throw new Error('микрофон не дал дорожку');
+      if (!micTrack) throw new Error('the microphone yielded no track');
       // Held from the very first frame, before the track is even attached to
       // the connection — the greeting can start arriving the moment the answer
       // does, and arming after that is arming too late.
@@ -511,7 +511,7 @@
       // отчёт об отбое не дошёл.
       const ПАУЗЫ = [800, 1800];
       for (let i = 0; i < ПАУЗЫ.length && !r.ok && r.status === 409; i++) {
-        log('409 no_session — гонка привязки, повтор', i + 1);
+        log('409 no_session — binding race, retrying', i + 1);
         if (hooks.onStage) hooks.onStage('connecting');
         await new Promise((res) => setTimeout(res, ПАУЗЫ[i]));
         let sid2 = null;
@@ -530,7 +530,7 @@
           : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'
           : null;
-        const err = new Error(GATE_TEXT[gate] || ((r.json && r.json.error) || ('голос не поднялся: HTTP ' + r.status)));
+        const err = new Error(GATE_TEXT[gate] || ((r.json && r.json.error) || ('voice did not come up: HTTP ' + r.status)));
         err.gate = gate;
         throw err;
       }
@@ -605,10 +605,10 @@
         usage: {},
         meta: { callId: id, surface: 'standalone' },
       });
-      if (!r.ok) warn('отбой не подтверждён сервером:', r.status, r.json && r.json.error);
-      else log('сервер закрыл строку разговора', id);
+      if (!r.ok) warn('hang-up not confirmed by the server:', r.status, r.json && r.json.error);
+      else log('the server closed the conversation row', id);
     } catch (e) {
-      warn('не смог сообщить об отбое:', e && e.message);
+      warn('could not report the hang-up:', e && e.message);
     }
   }
 

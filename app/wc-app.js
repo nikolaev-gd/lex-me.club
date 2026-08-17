@@ -56,7 +56,7 @@
       state.conversations = (r && r.ok && r.items) ? r.items : [];
     } catch (err) {
       console.warn('[wc] conversations:', err && err.message);
-      toast('Не удалось прочитать список бесед', { error: true });
+      toast('Could not load your chats', { error: true });
       state.conversations = [];
     }
     WcSidebar.setItems(state.conversations, state.conversationId);
@@ -89,8 +89,8 @@
       // Leaving a conversation mid-answer would orphan the stream — the tokens
       // keep arriving for a turn that is no longer on screen, and the account
       // is charged for them either way.
-      const ok = await WcUI.confirm('Ответ ещё пишется',
-        'Если открыть другую беседу, этот ответ оборвётся.', { okText: 'Открыть', danger: true });
+      const ok = await WcUI.confirm('The answer is still being written',
+        'Opening another chat will cut it off.', { okText: 'Open', danger: true });
       if (!ok) return;
       stopStream();
     }
@@ -98,15 +98,16 @@
     try {
       r = await WcBus.call('WC_LOAD_CONVERSATION', { id });
     } catch (err) {
-      toast('Не удалось открыть беседу: ' + (err && err.message), { error: true });
+      toast('Could not open the chat: ' + (err && err.message), { error: true });
       return;
     }
-    if (!r || !r.ok) { toast('Беседа не открылась', { error: true }); return; }
+    if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     state.conversationId = id;
     WcThread.renderTurns(r.turns);
     WcSidebar.setActive(id);
-    WcSidebar.closeOnNarrow();
+    WcSidebar.close();
     syncTitle();
+    syncPageBar();
     WcComposer.focus();
   }
 
@@ -116,13 +117,18 @@
     WcThread.clear();
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
+    syncPageBar();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
     WcComposer.focus();
   }
 
-  async function send(text) {
+  async function send(text, opts) {
     const images = WcAttach.take();
     if (!text && !images.length) return;
+    // 'native' or nothing. The mode rides with the turn rather than living as
+    // page state: it is chosen per message (by which button was pressed), not
+    // switched on and left on.
+    const mode = (opts && opts.mode) || null;
 
     // The preview URL made for the strip is handed to the bubble rather than
     // revoked and remade: it points at the same Blob, and revoking it here
@@ -141,6 +147,7 @@
         conversationId: state.conversationId,
         text,
         images,
+        mode,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
@@ -153,6 +160,62 @@
     }
   }
 
+  // ── Привязанная страница ─────────────────────────────────────────────────
+  // Полоска над полем: беседа, начатую в расширении со страницы или с видео,
+  // на телефоне должно быть видно, к чему она привязана. Только на чтение —
+  // ни прикрепить, ни открепить отсюда нельзя.
+  //
+  // Гонка, которую здесь легко проглядеть: чтение идёт по сети, а человек
+  // успевает переключить беседу. Ответ, пришедший не для текущей, молча
+  // выбрасывается — иначе полоска показывала бы страницу предыдущей.
+  let pageBarFor = null;
+  async function syncPageBar() {
+    const bar = document.getElementById('wc-pagebar');
+    const label = document.getElementById('wc-pagebar-label');
+    if (!bar) return;
+    const want = state.conversationId;
+    pageBarFor = want;
+    if (!want) { bar.hidden = true; return; }
+    let att = null;
+    try {
+      att = await WcBus.call('WC_ATTACHMENT', { id: want });
+    } catch (err) {
+      console.warn('[wc] attachment:', err && err.message);
+    }
+    if (pageBarFor !== want) return;
+    if (!att || !att.url) { bar.hidden = true; return; }
+    bar.href = att.url;
+    label.textContent = att.title || att.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 80);
+    bar.title = att.kind === 'video' ? 'Open the video' : 'Open the page';
+    bar.hidden = false;
+  }
+
+  // ── «Заново» и «изменить» ────────────────────────────────────────────────
+  async function regenerate() {
+    if (WcThread.isStreaming()) return;
+    const requestId = nextRequestId();
+    // Пузырь очищается ДО запроса: между нажатием и первым словом проходит
+    // секунда-другая, и всё это время старый ответ на экране означал бы, что
+    // нажатие не сработало.
+    if (!WcThread.beginRetry(requestId)) return;
+    state.requestId = requestId;
+    WcComposer.setStreaming(true, requestId);
+    WcHaptics.tap();
+    try {
+      await WcBus.call('WC_REGENERATE', { requestId });
+    } catch (err) {
+      WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });
+    }
+  }
+
+  // «Изменить» кладёт вопрос обратно в поле. Свой ход при этом НЕ удаляется:
+  // человек ещё не решил отправлять, а исчезнувшее сообщение при передумывании
+  // не вернуть. Отправка обычная — она добавит новый ход.
+  function editTurn(text) {
+    WcComposer.setText(text || '');
+    WcComposer.focus();
+  }
+
   function stopStream() {
     if (!state.requestId) return;
     WcBus.call('WC_STOP', { requestId: state.requestId })
@@ -162,9 +225,9 @@
   async function renameConversation(id, title) {
     try {
       const r = await WcBus.call('WC_RENAME_CONVERSATION', { id, title });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'отказ');
+      if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
     } catch (err) {
-      toast('Не удалось переименовать: ' + (err && err.message), { error: true });
+      toast('Could not rename: ' + (err && err.message), { error: true });
     }
     await refreshConversations();
   }
@@ -172,9 +235,9 @@
   async function deleteConversation(id) {
     try {
       const r = await WcBus.call('WC_DELETE_CONVERSATION', { id });
-      if (!r || !r.ok) throw new Error((r && r.error) || 'отказ');
+      if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
     } catch (err) {
-      toast('Не удалось удалить: ' + (err && err.message), { error: true });
+      toast('Could not delete: ' + (err && err.message), { error: true });
       return;
     }
     if (state.conversationId === id) newConversation();
@@ -189,6 +252,9 @@
   function openVoiceScreen() {
     WcVoiceScreen.open({
       onToggleMute: () => { WcVoice.mute(!WcVoice.muted()); WcVoiceScreen.muted(WcVoice.muted()); },
+      // «Держи и говори»: дорожка открыта ровно пока палец на кнопке.
+      onHoldStart: () => { WcVoice.mute(false); WcVoiceScreen.muted(false); WcHaptics.tap(); },
+      onHoldEnd: () => { WcVoice.mute(true); WcVoiceScreen.muted(true); },
       onEnd: () => WcVoice.stop({ reason: 'manual' }),
       // Свернуть — это НЕ положить трубку. Разговор продолжается, экран
       // уходит, значок микрофона в поле ввода остаётся зажжённым и возвращает
@@ -200,7 +266,12 @@
     WcVoiceScreen.micHeld(WcVoice.micHeld());
   }
 
-  async function toggleVoice() {
+  async function toggleVoice(opts) {
+    // Push-to-talk is not a different transport — it is the same live session
+    // started with the microphone closed, opened only while the reader holds
+    // the button on the voice screen. Doing it any other way would mean a
+    // second path to the same server for no gain.
+    const ptt = !!(opts && opts.mode === 'ptt');
     // ⚠️ ПОВТОРНОЕ НАЖАТИЕ НЕ КЛАДЁТ ТРУБКУ И НЕ НАЧИНАЕТ ВТОРОЙ РАЗГОВОР.
     //
     // Раньше здесь был stop(), и это давало ровно ту жалобу, что записана в
@@ -218,7 +289,9 @@
 
     openVoiceScreen();
     WcVoiceScreen.stage('mic');
+    WcVoiceScreen.pushToTalk(ptt);
     WcComposer.setVoiceActive(true);
+    WcHaptics.tap();
 
     // A spoken turn needs a conversation to belong to, exactly as a typed one
     // does — and it must be the SAME one, or the reader ends up with two.
@@ -234,7 +307,7 @@
       } catch (err) {
         WcVoiceScreen.close();
         WcComposer.setVoiceActive(false);
-        toast('Не удалось начать разговор: ' + (err && err.message), { error: true });
+        toast('Could not start the conversation: ' + (err && err.message), { error: true });
         return;
       }
     }
@@ -273,7 +346,7 @@
       try {
         await WcBus.call('WC_APPEND_TURNS', { conversationId: convId, turns });
       } catch (err) {
-        console.warn('[wc] не записал голосовой ход:', err && err.message);
+        console.warn('[wc] voice turn not saved:', err && err.message);
         flushed.forEach((k) => { const v = said.get(k); if (v) v.saved = false; });
       }
     }
@@ -283,13 +356,18 @@
         conversationId: convId,
         hooks: {
           onStage: (s) => WcVoiceScreen.stage(s),
-          onConnected: () => WcVoiceScreen.stage('ready'),
+          onConnected: () => {
+            WcVoiceScreen.stage('ready');
+            // Closed until held. Done on connect rather than before start:
+            // there is no track to mute until the session exists.
+            if (ptt) { WcVoice.mute(true); WcVoiceScreen.muted(true); }
+          },
           onRemoteStream: (s) => WcVoiceScreen.meterRemote(s),
           onLocalStream: (s) => WcVoiceScreen.meterLocal(s),
           onMicHeld: (held) => WcVoiceScreen.micHeld(held),
           onTeacherSpeaking: (on) => {
             WcVoiceScreen.speaking(on);
-            if (!on && !WcVoice.micHeld()) WcVoiceScreen.status('Слушаю. Говорите.');
+            if (!on && !WcVoice.micHeld()) WcVoiceScreen.status('Listening. Go ahead.');
           },
 
           onUserStart: (id) => WcThread.beginVoiceUser(id),
@@ -303,7 +381,7 @@
           // response.done — весь ход завершён, можно записывать.
           onTurnDone: () => flushExchange(),
 
-          onError: (msg) => WcVoiceScreen.status('Ошибка: ' + msg),
+          onError: (msg) => WcVoiceScreen.status('Error: ' + msg),
           onDisconnected: async ({ reason, turns }) => {
             // Whatever arrived and was not yet written down goes now, and the
             // caller waits for it. The account was charged for it either way.
@@ -311,7 +389,7 @@
             WcVoiceScreen.close();
             WcComposer.setVoiceActive(false);
             WcThread.endVoice();
-            if (reason && reason !== 'manual') toast('Разговор завершён: ' + reason);
+            if (reason && reason !== 'manual') toast('Conversation ended: ' + reason);
             // The debit is made by the server-side listener after the call
             // closes, so ask for the balance twice, like a text turn does.
             refreshAccount();
@@ -399,18 +477,51 @@
   function watchWidth() {
     const root = document.getElementById('wc-root');
     const mq = global.matchMedia('(max-width: 720px)');
-    const apply = () => {
-      root.classList.toggle('is-narrow', mq.matches);
-      // The sidebar starts closed on a phone and open on a desktop, because on
-      // a phone it covers the thread it is supposed to be a way into.
-      if (mq.matches) root.classList.add('is-sidebar-collapsed');
-      else {
-        root.classList.remove('is-sidebar-collapsed');
-        document.getElementById('wc-scrim').hidden = true;
-      }
-    };
+    // The history is a drawer at every width now, so width no longer decides
+    // whether it is open — it starts closed everywhere and only the hamburger
+    // opens it. .is-narrow survives because other rules (gutters, sheet shape)
+    // genuinely are width questions.
+    root.classList.add('is-sidebar-collapsed');
+    const apply = () => root.classList.toggle('is-narrow', mq.matches);
     apply();
     mq.addEventListener('change', apply);
+  }
+
+  // ── The two glass bars ────────────────────────────────────────────────────
+  // The bar and the composer are laid OVER the thread so the conversation can
+  // be seen through them (wc-app.css, "Glass"). That only works if the thread
+  // reserves their heights as padding — otherwise the newest message is born
+  // underneath the composer and the oldest under the bar.
+  //
+  // Measured rather than assumed: the composer grows with the typed text and
+  // with attachment thumbnails, and a hardcoded number would be wrong the
+  // moment somebody types a second line.
+  function watchBarHeights() {
+    const topbar = document.querySelector('.wc-topbar');
+    const composer = document.querySelector('.wc-composer-wrap');
+    if (!topbar || !composer) return;
+    const root = document.documentElement;
+    let raf = 0;
+    // Same guard as the keyboard watcher: writing an unchanged value still
+    // makes the browser lay the page out again, and ResizeObserver fires in
+    // bursts while the textarea grows.
+    let lastTop = -1;
+    let lastBottom = -1;
+    const apply = () => {
+      raf = 0;
+      const t = Math.round(topbar.getBoundingClientRect().height);
+      const c = Math.round(composer.getBoundingClientRect().height);
+      if (t !== lastTop) { lastTop = t; root.style.setProperty('--wc-topbar-h', t + 'px'); }
+      if (c !== lastBottom) { lastBottom = c; root.style.setProperty('--wc-composer-h', c + 'px'); }
+    };
+    const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
+    if (global.ResizeObserver) {
+      const ro = new ResizeObserver(schedule);
+      ro.observe(topbar);
+      ro.observe(composer);
+    }
+    global.addEventListener('resize', schedule);
+    apply();
   }
 
   // ── The gate ──────────────────────────────────────────────────────────────
@@ -419,8 +530,8 @@
   // site; here the page is ours and there is nobody to isolate the password
   // from.
   const GATE_ERRORS = {
-    EMAIL_TAKEN: 'Этот адрес уже занят — войдите.',
-    RATE_LIMITED: 'Слишком много попыток. Попробуйте через минуту.',
+    EMAIL_TAKEN: 'That address is already taken — sign in instead.',
+    RATE_LIMITED: 'Too many attempts. Try again in a minute.',
   };
 
   function gateStatus(text, isError) {
@@ -447,29 +558,29 @@
     const password = () => document.getElementById('wc-password').value;
 
     async function attempt(label, fn) {
-      if (!email() || !password()) { gateStatus('Введите почту и пароль.', true); return; }
+      if (!email() || !password()) { gateStatus('Enter your email and password.', true); return; }
       gateStatus(label);
       try {
         await fn(email(), password());
         await enterApp();
       } catch (err) {
-        gateStatus(GATE_ERRORS[err.message] || ('Не вышло: ' + err.message), true);
+        gateStatus(GATE_ERRORS[err.message] || ('Did not work: ' + err.message), true);
       }
     }
 
     document.getElementById('wc-gate-form').addEventListener('submit', (e) => {
       e.preventDefault();
-      attempt('Вход…', (a, b) => WcAuth.signIn(a, b));
+      attempt('Signing in…', (a, b) => WcAuth.signIn(a, b));
     });
     document.getElementById('wc-signup').addEventListener('click', () =>
-      attempt('Создаём аккаунт…', (a, b) => WcAuth.signUp(a, b)));
+      attempt('Creating your account…', (a, b) => WcAuth.signUp(a, b)));
     // В браузере это уход по адресу и сюда управление уже не вернётся. В
     // приложении открывается системный лист входа, и вернуться он обязан —
     // в том числе когда человек нажал «Отмена».
     document.getElementById('wc-google').addEventListener('click', async () => {
       const btn = document.getElementById('wc-google');
       btn.disabled = true;
-      gateStatus('Переходим к Google…');
+      gateStatus('Taking you to Google…');
       let r;
       try {
         r = await WcAuth.signInWithGoogle();
@@ -486,7 +597,7 @@
       // Отмена — не ошибка. Красное сообщение на «я передумал» — это ровно то,
       // из-за чего люди решают, что приложение сломалось.
       if (r.cancelled) { gateStatus(''); return; }
-      gateStatus('Вход через Google не прошёл: ' + (r.error || 'неизвестно'), true);
+      gateStatus('Google sign-in did not go through: ' + (r.error || 'unknown'), true);
     });
   }
 
@@ -514,7 +625,10 @@
   async function boot() {
     await WcSettings.applyStored();
 
-    WcThread.init();
+    WcThread.init({
+      onRetry: regenerate,
+      onEdit: editTurn,
+    });
     WcAttach.init();
     WcSidebar.init({
       onOpen: openConversation,
@@ -522,10 +636,10 @@
       onRename: renameConversation,
       onDelete: deleteConversation,
     });
-    WcComposer.init({
+    await WcComposer.init({
       onSend: send,
       onStop: stopStream,
-      onVoice: () => toggleVoice(),
+      onVoice: (o) => toggleVoice(o),
       onAttach: () => WcAttach.pick(),
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
@@ -536,6 +650,7 @@
 
     watchWidth();
     watchKeyboard();
+    watchBarHeights();
 
     WcBus.subscribe((msg) => {
       if (msg.type === 'STREAM_DONE' || msg.type === 'STREAM_ERROR') {
@@ -557,7 +672,7 @@
     wireGate();
 
     if (WcBackend.stubbed) {
-      WcComposer.note('Шаг 1: каркас на заглушках — настоящего учителя за этим ответом нет.');
+      WcComposer.note('Stubbed build — there is no real teacher behind these answers.');
     }
 
     // A Google redirect comes back with the tokens in the URL fragment; take
@@ -577,7 +692,7 @@
     boot().catch((err) => {
       console.error('[wc] boot failed:', err);
       showGate();
-      gateStatus('Не удалось запустить: ' + (err && err.message), true);
+      gateStatus('Could not start: ' + (err && err.message), true);
     });
   });
 
@@ -593,6 +708,7 @@
     openConversation,
     newConversation,
     send,
+    regenerate,
     stopStream,
     toggleVoice,
   };

@@ -3,35 +3,84 @@
  * One stylesheet, no build step: the site this ships to is static GitHub Pages
  * and the native shells load the same files off disk.
  *
- * Colour lives in custom properties on :root and is redefined once for dark.
- * Nothing below names a raw colour outside those two blocks — that is what
- * makes the dark theme a five-line change instead of a search-and-replace.
+ * ── Where these colours come from ───────────────────────────────────────────
+ * They are the EXTENSION's, read off styles.css rather than invented, because
+ * the web page and the iPhone app have to read as the same product as the
+ * panel on YouTube — not as a second one. The extension has NO coloured accent
+ * at all: it is a dark ground with white laid over it at different strengths,
+ * and the only "bright" thing on screen is the send button, which is plain
+ * white with a black arrow.
+ *
+ * The values, with their source:
+ *   panel ground          #272727                  styles.css .ytvocab-explain-panel
+ *   inset ply             #1f1f1f                  composer wrapper + user bubble
+ *   pill                  #2c2c2c on #3a3a3a       .ytvocab-chat-modesplit
+ *   hairline              rgba(255,255,255,.10)    panel + composer border
+ *   hairline, focused     rgba(255,255,255,.30)    composer :focus-within
+ *   text                  #f1f1f1 / #fff
+ *   muted / placeholder   rgba(255,255,255,.55/.40)
+ *   icon idle → hover     rgba(255,255,255,.50) → .70 on a .08 wash
+ *   send                  #fff on #000, hover .90
+ *   radii                 composer 16, bubble 14, panel 12, pill 999
+ *   transitions           120ms ease
+ *
+ * The light theme mirrors the same structure with black laid over white, so
+ * the two are one design rather than two.
+ *
+ * Nothing below names a raw colour outside the three theme blocks.
  */
 
 :root {
   color-scheme: light dark;
 
   --bg:            #ffffff;
-  --bg-sunken:     #f7f7f8;
+  --bg-sunken:     #f4f4f5;
   --bg-raised:     #ffffff;
-  --bg-hover:      rgba(0, 0, 0, .05);
-  --bg-active:     rgba(0, 0, 0, .09);
+  --bg-hover:      rgba(0, 0, 0, .06);
+  --bg-active:     rgba(0, 0, 0, .10);
   --bg-bubble:     #f0f0f1;
 
   --fg:            #1d1d1f;
-  --fg-muted:      #6b6b70;
-  --fg-faint:      #9a9aa0;
+  --fg-muted:      rgba(0, 0, 0, .56);
+  --fg-faint:      rgba(0, 0, 0, .40);
 
   --line:          rgba(0, 0, 0, .10);
-  --line-strong:   rgba(0, 0, 0, .18);
+  --line-strong:   rgba(0, 0, 0, .28);
 
-  --accent:        #2a6df4;
+  /* Not a hue — the "acts on press" tone. White on dark, near-black on light:
+     the extension's send button, generalised. */
+  --accent:        #1d1d1f;
   --accent-fg:     #ffffff;
+  --accent-hover:  rgba(29, 29, 31, .86);
   --danger:        #d93a3a;
 
-  --radius:        14px;
-  --radius-sm:     9px;
-  --sidebar-w:     264px;
+  /* Account circle — a wash inside a ring, never a filled disc. */
+  --avatar-bg:         rgba(0, 0, 0, .05);
+  --avatar-bg-hover:   rgba(0, 0, 0, .10);
+  --avatar-line:       rgba(0, 0, 0, .16);
+  --avatar-line-hover: rgba(0, 0, 0, .26);
+  --avatar-fg:         rgba(0, 0, 0, .80);
+
+  /* The mode pill (Native) — its own three tones, as in the extension. */
+  --pill-bg:       rgba(0, 0, 0, .05);
+  --pill-line:     rgba(0, 0, 0, .14);
+  --pill-fg:       rgba(0, 0, 0, .60);
+  --pill-hover:    rgba(0, 0, 0, .10);
+
+  /* Glass: the header and the composer let the thread show through, the way
+     iOS system bars do. Two tokens so the blur radius is stated once. */
+  --glass:         rgba(255, 255, 255, .72);
+  --glass-blur:    saturate(180%) blur(20px);
+
+  /* The voice orb. Neutral on purpose — a blue ball would be the one coloured
+     thing left in a product that otherwise has no accent colour. */
+  --orb:           #1d1d1f;
+  --orb-speak:     rgba(29, 29, 31, .74);
+
+  --radius:        16px;
+  --radius-sm:     10px;
+  --radius-bubble: 14px;
+  --sidebar-w:     300px;
 
   --shadow-sm:     0 1px 2px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .05);
   --shadow-lg:     0 10px 40px rgba(0, 0, 0, .16), 0 2px 8px rgba(0, 0, 0, .08);
@@ -48,23 +97,39 @@
  * light theme and watch nothing happen. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:          #202021;
-    --bg-sunken:   #171718;
-    --bg-raised:   #2a2a2c;
-    --bg-hover:    rgba(255, 255, 255, .07);
+    --bg:          #272727;
+    --bg-sunken:   #1f1f1f;
+    --bg-raised:   #2c2c2c;
+    --bg-hover:    rgba(255, 255, 255, .08);
     --bg-active:   rgba(255, 255, 255, .12);
-    --bg-bubble:   #303032;
+    --bg-bubble:   #1f1f1f;
 
-    --fg:          #ececee;
-    --fg-muted:    #a8a8ad;
-    --fg-faint:    #77777d;
+    --fg:          #f1f1f1;
+    --fg-muted:    rgba(255, 255, 255, .55);
+    --fg-faint:    rgba(255, 255, 255, .40);
 
-    --line:        rgba(255, 255, 255, .11);
-    --line-strong: rgba(255, 255, 255, .20);
+    --line:        rgba(255, 255, 255, .10);
+    --line-strong: rgba(255, 255, 255, .30);
 
-    --accent:      #5b8dfd;
-    --accent-fg:   #0e1220;
+    --accent:      #ffffff;
+    --accent-fg:   #000000;
+    --accent-hover: rgba(255, 255, 255, .90);
     --danger:      #ff6b6b;
+
+    --avatar-bg:         rgba(255, 255, 255, .08);
+    --avatar-bg-hover:   rgba(255, 255, 255, .14);
+    --avatar-line:       rgba(255, 255, 255, .18);
+    --avatar-line-hover: rgba(255, 255, 255, .30);
+    --avatar-fg:         rgba(255, 255, 255, .85);
+    --pill-bg:     #2c2c2c;
+    --pill-line:   #3a3a3a;
+    --pill-fg:     rgba(255, 255, 255, .55);
+    --pill-hover:  #434343;
+
+    --glass:       rgba(39, 39, 39, .72);
+
+    --orb:         #f1f1f1;
+    --orb-speak:   rgba(255, 255, 255, .72);
 
     --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
     --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
@@ -72,29 +137,115 @@
 }
 
 :root[data-theme="dark"] {
-  --bg:          #202021;
-  --bg-sunken:   #171718;
-  --bg-raised:   #2a2a2c;
-  --bg-hover:    rgba(255, 255, 255, .07);
+  --bg:          #272727;
+  --bg-sunken:   #1f1f1f;
+  --bg-raised:   #2c2c2c;
+  --bg-hover:    rgba(255, 255, 255, .08);
   --bg-active:   rgba(255, 255, 255, .12);
-  --bg-bubble:   #303032;
+  --bg-bubble:   #1f1f1f;
 
-  --fg:          #ececee;
-  --fg-muted:    #a8a8ad;
-  --fg-faint:    #77777d;
+  --fg:          #f1f1f1;
+  --fg-muted:    rgba(255, 255, 255, .55);
+  --fg-faint:    rgba(255, 255, 255, .40);
 
-  --line:        rgba(255, 255, 255, .11);
-  --line-strong: rgba(255, 255, 255, .20);
+  --line:        rgba(255, 255, 255, .10);
+  --line-strong: rgba(255, 255, 255, .30);
 
-  --accent:      #5b8dfd;
-  --accent-fg:   #0e1220;
+  --accent:      #ffffff;
+  --accent-fg:   #000000;
+  --accent-hover: rgba(255, 255, 255, .90);
   --danger:      #ff6b6b;
+
+  --avatar-bg:         rgba(255, 255, 255, .08);
+  --avatar-bg-hover:   rgba(255, 255, 255, .14);
+  --avatar-line:       rgba(255, 255, 255, .18);
+  --avatar-line-hover: rgba(255, 255, 255, .30);
+  --avatar-fg:         rgba(255, 255, 255, .85);
+  --pill-bg:     #2c2c2c;
+  --pill-line:   #3a3a3a;
+  --pill-fg:     rgba(255, 255, 255, .55);
+  --pill-hover:  #434343;
+
+  --glass:       rgba(39, 39, 39, .72);
+
+  --orb:         #f1f1f1;
+  --orb-speak:   rgba(255, 255, 255, .72);
 
   --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
   --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
 }
 
 * { box-sizing: border-box; }
+
+/* `hidden` has to actually hide. The attribute works through a UA rule of
+ * display:none, which ANY author rule with a display of its own outranks — and
+ * most controls here set display:inline-flex or grid. The new-chat handle was
+ * hidden="" and on screen at the same time because of exactly that. Stated
+ * once, loudly, rather than repeated as .thing[hidden] under every component
+ * (which is how the existing overlays each had to solve it separately). */
+[hidden] { display: none !important; }
+
+/* ── iOS hygiene ───────────────────────────────────────────────────────────
+ *
+ * Four things a page has to say out loud before it stops feeling like a web
+ * page inside an app. Each is here because of a specific tell:
+ *
+ * 1. TAP HIGHLIGHT. WebKit paints a grey rectangle over whatever you touch.
+ *    On a real button that flash is the browser announcing itself, and it
+ *    lands a frame before our own :active state — so the control looks like
+ *    it belongs to Safari, not to us. Killed globally; our own :active
+ *    backgrounds are the press feedback.
+ *
+ * 2. TOUCH CALLOUT. Press and hold on a control and iOS opens its own sheet
+ *    ("Copy", "Share…"). We are about to put our OWN long-press menus on
+ *    messages and on the voice button, and the two fight: the system sheet
+ *    wins and ours never appears. Off on controls only.
+ *
+ * 3. SELECTION. A long press that starts a text selection is the same
+ *    gesture as a long press that opens a menu, so selection has to be off
+ *    wherever we own the gesture — controls, and the reader's own messages.
+ *    It stays ON inside the teacher's answers, which is the whole point of an
+ *    answer: hold, drag, copy, exactly as anywhere else. Stated positively
+ *    there rather than merely left alone, because -webkit-user-select
+ *    INHERITS: a `none` on an ancestor silently kills selection in every
+ *    descendant, and this file has ancestors that need `none`.
+ *
+ * 4. MOMENTUM. A scroller without -webkit-overflow-scrolling: touch stops
+ *    dead when the finger lifts instead of gliding. On the history drawer,
+ *    which is the longest list here, that is the difference between a native
+ *    list and a web one.
+ */
+html { -webkit-tap-highlight-color: transparent; }
+
+/* Controls: ours to press, never the system's to interpret. */
+button,
+.wc-conv,
+.wc-account,
+.wc-menu-item,
+.wc-chip,
+.wc-composer-btn,
+.wc-send,
+.wc-icon-btn {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The reader's own message: long-press belongs to our copy/edit menu. */
+.wc-turn-user .wc-bubble {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The teacher's answer: ordinary selectable text, said out loud so no
+   inherited `none` can take it away. Owner's direct requirement. */
+.wc-turn-assistant .wc-bubble,
+.wc-turn-assistant .wc-bubble * {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}
 
 html, body {
   margin: 0;
@@ -109,9 +260,13 @@ html, body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font);
+  /* 15/1.5 antialiased — the extension's chat metrics (styles.css
+     .ytvocab-chat-msg). Pure white on a dark ground blooms without grayscale
+     smoothing: weight-400 text reads as bold. */
   font-size: 15px;
-  line-height: 1.55;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   /* The page itself never scrolls — the thread does. Without this, the iOS
      rubber band drags the whole chrome around. */
   overscroll-behavior: none;
@@ -249,21 +404,44 @@ button { font: inherit; color: inherit; }
   background: rgba(0, 0, 0, .38);
   z-index: 25;
   border: 0;
+  /* Набирается вместе со шторкой. Во время протяжки прозрачность пишет
+     wc-sidebar.js попиксельно и переход не мешает — он короче кадра. */
+  transition: opacity .22s cubic-bezier(.32, .72, 0, 1);
 }
 .wc-scrim[hidden] { display: none; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
+/* The history is a DRAWER at every width, not a column that turns into one
+ * below 720px. Two reasons, both the owner's: the phone app and the web page
+ * have to be the same thing, and the chat itself should own the whole window
+ * — the list is somewhere you go, not something you look at while you read.
+ *
+ * It slides from the LEFT, from under the hamburger that opens it.
+ *
+ * NB it is never display:none — that would drop it out of the layout and kill
+ * the slide. Closed means translated off the left edge. */
 .wc-sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
   display: flex;
   flex-direction: column;
-  flex: none;
-  width: var(--sidebar-w);
+  width: min(84vw, var(--sidebar-w));
   border-right: 1px solid var(--line);
   background: var(--bg-sunken);
-  z-index: 30;
+  box-shadow: var(--shadow-lg);
+  transform: translateX(0);
+  /* The iOS sheet curve: quick to leave, slow to settle. */
+  transition: transform .22s cubic-bezier(.32, .72, 0, 1);
+  /* The drawer runs under the notch and the home indicator, so its own
+     padding has to keep the content out of them. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.wc-root.is-sidebar-collapsed .wc-sidebar { display: none; }
+.wc-root.is-sidebar-collapsed .wc-sidebar { transform: translateX(-101%); }
 
 .wc-sidebar-head {
   display: flex;
@@ -290,6 +468,10 @@ button { font: inherit; color: inherit; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Momentum. Without it the list stops dead the instant the finger lifts,
+     which is the single loudest "this is a web page" tell in the app. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   padding: 6px 8px 10px;
 }
 
@@ -355,16 +537,23 @@ button { font: inherit; color: inherit; }
 .wc-convs-empty { padding: 18px 10px; color: var(--fg-faint); font-size: 13px; }
 
 /* ── Строка аккаунта: низ шторки, единственный вход ─────────────────────────
- * Почта и баланс на виду, за ними — пополнение, настройки и выход (внутри
- * листа). До этого те же три вещи открывались из шапки, из меню кружка и из
- * настроек одновременно. */
+ * Пополнение и сумма на виду, за ними — настройки и выход (внутри листа).
+ * До этого те же три вещи открывались из шапки, из меню кружка и из настроек
+ * одновременно.
+ *
+ * Почты здесь больше НЕТ — решение владельца. Свой собственный адрес человеку
+ * никто не показывает по десять раз в день; место, которое он занимал, стоит
+ * дороже, чем сведение, которое он нёс. Адрес остался внутри листа настроек.
+ *
+ * Кружок с буквой стоит отдельно от остального — своя заливка и разделитель
+ * за ним, — но ведёт туда же, куда и полоска: в лист настроек. */
 .wc-account {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: none;
   width: 100%;
-  padding: 10px 12px;
+  padding: 12px;
   border: 0;
   border-top: 1px solid var(--line);
   background: transparent;
@@ -375,40 +564,61 @@ button { font: inherit; color: inherit; }
 .wc-account:hover { background: var(--bg-hover); }
 .wc-account:active { background: var(--bg-active); }
 
+/* The extension's account circle, value for value (styles.css
+ * .ytvocab-chat-surface-account): a faint white wash inside a slightly
+ * stronger white ring, with the letter at .85 — NOT a filled disc.
+ *
+ * It was a white disc with a black letter, which made the quietest control in
+ * the app the brightest thing on the screen. Its separateness comes from the
+ * gap and the ring, not from inverting it. */
 .wc-account-avatar {
   display: grid;
   place-items: center;
   flex: none;
   width: 32px;
   height: 32px;
+  margin-right: 4px;
+  border: 1px solid var(--avatar-line);
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-fg);
-  font-size: 14px;
+  background: var(--avatar-bg);
+  color: var(--avatar-fg);
+  font-size: 13px;
   font-weight: 600;
+  line-height: 1;
   text-transform: uppercase;
+  transition: background .12s, border-color .12s;
+}
+.wc-account:hover .wc-account-avatar {
+  background: var(--avatar-bg-hover);
+  border-color: var(--avatar-line-hover);
 }
 
-.wc-account-lines { flex: 1; min-width: 0; display: block; }
-.wc-account-email {
-  display: block;
+.wc-account-lines { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.wc-account-topup {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 .wc-account-balance {
-  display: block;
+  flex: none;
   color: var(--fg-muted);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .wc-account-balance.is-empty { color: var(--danger); }
-.wc-account-chev { width: 16px; height: 16px; flex: none; color: var(--fg-faint); }
+/* Стрелки «›» здесь больше нет: владелец просил на её месте «пополнить
+   баланс», и текст со стрелкой одновременно — два указателя на одно действие.
+   Полоска читается как [кружок] Top up balance ....... $46.04 */
 
 /* ── Main ────────────────────────────────────────────────────────────────── */
 
+/* Positioned, because the bar and the composer are laid OVER the thread rather
+ * than stacked around it — see the glass note below. */
 .wc-main {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -416,26 +626,49 @@ button { font: inherit; color: inherit; }
   height: 100%;
 }
 
+/* ── Glass ────────────────────────────────────────────────────────────────
+ *
+ * The bar and the composer are translucent and blurred, and the conversation
+ * slides underneath them — that is what an iOS system bar does, and it is the
+ * one effect that cannot be faked with a solid colour.
+ *
+ * It only works if there is something BEHIND them to blur. As flex siblings
+ * of the thread there was not: they sat next to it, backdrop-filter had an
+ * empty backdrop, and the blur was a no-op. So both are taken out of the
+ * column and pinned over it, and the thread carries their heights as padding
+ * so nothing starts life hidden under either one.
+ *
+ * The heights are measured, not assumed: the composer grows with the text and
+ * with attachments. wc-app.js writes --wc-topbar-h / --wc-composer-h from a
+ * ResizeObserver; the fallbacks here are only for the first paint. */
 .wc-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 12;
   display: flex;
   align-items: center;
   gap: 8px;
   flex: none;
-  padding: 9px 12px;
+  /* The notch inset lives on the base rule, not in the phone media query: the
+     app also runs on an iPad, which is wide AND has a safe area. env() is 0
+     where there is nothing to avoid, so this costs nothing elsewhere. */
+  padding: calc(9px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+           9px max(12px, env(safe-area-inset-left));
   border-bottom: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
-.wc-topbar-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-weight: 550;
-}
+.wc-topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
-.wc-topbar-right { display: flex; align-items: center; gap: 4px; }
+/* Three lines, the middle one full width and the last one short — the shape
+ * Anthropic's app uses, and the reason it reads as "history" rather than as a
+ * generic menu. Drawn with a stroke rather than an icon font so it inherits
+ * the same 1.9 stroke weight as every other glyph on the page. */
+.wc-burger svg { width: 21px; height: 21px; }
 
 
 /* ── Thread ──────────────────────────────────────────────────────────────── */
@@ -444,8 +677,14 @@ button { font: inherit; color: inherit; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  /* Room for the two glass bars this scrolls underneath. Padding rather than
+     margin on purpose: padding belongs to the scrollable box, so the content
+     travels up UNDER the bar instead of stopping short of it. */
+  padding-top: var(--wc-topbar-h, 52px);
+  padding-bottom: var(--wc-composer-h, 88px);
 }
 
 .wc-turns {
@@ -467,15 +706,48 @@ button { font: inherit; color: inherit; }
   color: var(--fg-muted);
 }
 .wc-empty[hidden] { display: none; }
-.wc-empty-brand { font-size: 34px; font-weight: 650; letter-spacing: -.02em; color: var(--fg); }
+/* One sentence, and nothing under it. The suggestion chips other assistants
+   put here are a decision the owner has not taken yet, and an empty screen is
+   better than a guess at what somebody wants to ask. */
+.wc-empty-line {
+  max-width: 15ch;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+  color: var(--fg);
+  text-wrap: balance;
+}
 
 .wc-turn { margin-bottom: 20px; }
 .wc-turn-user { display: flex; justify-content: flex-end; }
 
+/* The width cap goes on the flex ITEM, not on the bubble inside it.
+ *
+ * It used to sit on the bubble as `max-width: 76%`, and that quietly collapsed
+ * short messages into a vertical column of single letters — "hi" rendered as
+ * "h" over "i". The percentage resolves against the wrapper, but the wrapper
+ * is a shrink-to-fit flex item whose width comes FROM its content, so each
+ * pass made the bubble narrower, which made the wrapper narrower, and so on
+ * until it hit one character. Anchoring the cap to the turn — which has a
+ * real width — breaks the loop. (Pre-existing; found by looking at a
+ * two-letter message.) */
+.wc-turn-user > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 0;
+  max-width: 80%;
+}
+
+/* The extension's user bubble, value for value: 10/14 padding, 14px corners
+ * on all four (not a tail — the panel has never had one), same #1f1f1f fill
+ * as the composer. */
 .wc-turn-user .wc-bubble {
-  max-width: 76%;
-  padding: 10px 15px;
-  border-radius: 20px 20px 6px 20px;
+  position: relative;
+  max-width: 100%;
+  padding: 10px 14px;
+  border-radius: var(--radius-bubble);
   background: var(--bg-bubble);
   white-space: pre-wrap;
   /* break-word, НЕ anywhere. Разница между ними — только в расчёте
@@ -603,7 +875,10 @@ button { font: inherit; color: inherit; }
   border-left: 3px solid var(--line-strong);
   color: var(--fg-muted);
 }
-.wc-bubble a { color: var(--accent); }
+/* No coloured accent anywhere means links cannot be "the blue ones". They are
+   underlined instead, which is what distinguishes a link from prose when
+   colour is not available to do it. */
+.wc-bubble a { color: inherit; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 .wc-bubble table { border-collapse: collapse; margin-bottom: .75em; }
 .wc-bubble th, .wc-bubble td { padding: 5px 10px; border: 1px solid var(--line); }
 
@@ -624,32 +899,46 @@ button { font: inherit; color: inherit; }
 /* ── Composer ────────────────────────────────────────────────────────────── */
 
 .wc-composer-wrap {
-  position: relative;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 12;
   flex: none;
-  padding: 0 20px 14px;
-  background: var(--bg);
+  padding: 10px max(20px, env(safe-area-inset-right))
+           calc(14px + env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
+/* One rounded box with everything living inside it — the extension's composer
+ * (styles.css .ytvocab-chat-input-wrapper): #1f1f1f fill, a 10% white
+ * hairline that goes to 30% on focus, 16px corners. No shadow and no ring:
+ * the border doing the work is the whole idea. */
+/* A column, not a row — the extension's shape: the field on top, a row of
+ * controls under it. 10/14 padding and a 6px gap are its numbers exactly
+ * (styles.css .ytvocab-chat-input-wrapper). */
 .wc-composer {
   display: flex;
-  align-items: flex-end;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
   max-width: 760px;
   margin: 0 auto;
-  padding: 6px 6px 6px 8px;
+  padding: 10px 14px;
   border: 1px solid var(--line);
-  border-radius: 26px;
-  background: var(--bg-raised);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius);
+  background: var(--bg-bubble);
+  transition: border-color 120ms ease;
 }
-.wc-composer:focus-within { border-color: var(--line-strong); box-shadow: var(--shadow-sm), 0 0 0 3px rgba(42, 109, 244, .12); }
-.wc-composer.is-dropping { border-color: var(--accent); background: var(--bg-hover); }
+.wc-composer:focus-within { border-color: var(--line-strong); }
+.wc-composer.is-dropping { border-color: var(--line-strong); background: var(--bg-hover); }
 
 #wc-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
+  min-height: 24px;
   max-height: 220px;
-  padding: 8px 4px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--fg);
@@ -659,28 +948,126 @@ button { font: inherit; color: inherit; }
   line-height: 1.45;
   resize: none;
   overflow-y: auto;
+  flex: none;
 }
 #wc-input:focus { outline: none; }
 #wc-input::placeholder { color: var(--fg-faint); }
 
-.wc-composer-btn { width: 34px; height: 34px; margin-bottom: 1px; }
+.wc-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wc-composer-left,
+.wc-composer-right { display: flex; align-items: center; gap: 6px; }
+.wc-composer-right { margin-left: auto; }
 
-.wc-send {
+/* 32px circles — the extension's action-button size. */
+.wc-composer-btn { width: 32px; height: 32px; }
+.wc-composer-btn svg { width: 18px; height: 18px; }
+
+/* Dictating. The microphone has to look unmistakably ON, because everything
+ * else on screen is unchanged and the only other evidence is a system dot in
+ * the status bar. Breathing rather than blinking: a blink reads as an error. */
+#wc-mic.is-recording {
+  background: var(--accent);
+  color: var(--accent-fg);
+  animation: wc-rec 1.6s ease-in-out infinite;
+}
+@keyframes wc-rec {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 38%, transparent); }
+  50%      { box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+/* Sending the audio off. Not the same state as recording — the microphone is
+ * already closed and there is nothing to stop. */
+#wc-mic.is-busy { opacity: .5; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  #wc-mic.is-recording { animation: none; }
+}
+
+/* ── The mode chip ────────────────────────────────────────────────────────
+ * .ytvocab-chat-modesplit, value for value: a 22px-tall pill, 999 radius,
+ * #2c2c2c inside a #3a3a3a ring, label at .55 and 12px. It is a SEND button,
+ * so it carries the send arrow next to its label. There is no ▾ half: the
+ * extension's pill splits into "open the mode menu" and "send in this mode",
+ * and with exactly one mode there is nothing to open. */
+.wc-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--pill-line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--pill-fg);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.wc-mode-pill:hover { background: var(--pill-hover); color: var(--fg); }
+.wc-mode-pill:active { transform: scale(.96); }
+.wc-mode-pill[disabled] { opacity: .4; cursor: default; }
+.wc-mode-pill-arrow { width: 13px; height: 13px; }
+
+/* ── Live ⇄ send ──────────────────────────────────────────────────────────
+ * One slot, two occupants, stacked. The extension hides one and shows the
+ * other (display:none), which is right for a mouse and wrong for a thumb: the
+ * control under the finger changes identity between one frame and the next.
+ * Here they cross-fade and turn, so the change is something you can watch
+ * happen — the owner's rule that every change on screen needs a duration and
+ * a curve. */
+.wc-send-slot {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+.wc-round {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-bottom: 1px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 999px;
+  cursor: pointer;
+  transition: opacity .18s ease, transform .18s cubic-bezier(.32, .72, 0, 1), background .12s;
+}
+.wc-round svg { width: 18px; height: 18px; }
+
+.wc-voice-btn {
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+}
+.wc-voice-btn:hover { background: var(--bg-active); color: var(--fg); }
+/* A live conversation is running: the button is the way back to it. */
+.wc-voice-btn.is-active { background: var(--accent); color: var(--accent-fg); }
+
+.wc-send {
   background: var(--accent);
   color: var(--accent-fg);
-  cursor: pointer;
-  transition: opacity .12s, background .12s;
 }
-.wc-send[disabled] { opacity: .32; cursor: default; }
-.wc-send.is-stop { background: var(--fg); color: var(--bg); }
+.wc-send:hover { background: var(--accent-hover); }
+.wc-send.is-stop { background: var(--accent); color: var(--accent-fg); }
+
+/* Which one is showing. The hidden one is scaled down and turned slightly, so
+ * the swap reads as one control changing rather than two trading places.
+ * pointer-events, not display: a display swap would cancel the transition. */
+.wc-send-slot .wc-round[data-off="1"] {
+  opacity: 0;
+  transform: scale(.6) rotate(-30deg);
+  pointer-events: none;
+}
+.wc-send-slot .wc-round[data-off="0"] {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
 
 .wc-composer-note {
   max-width: 760px;
@@ -692,6 +1079,46 @@ button { font: inherit; color: inherit; }
 /* Пустая подпись не должна занимать место: min-height держал 16 px пустоты под
  * полем ввода всегда, и это и был «лишний отступ снизу». */
 .wc-composer-note:empty { display: none; }
+
+/* ── Привязанная страница ────────────────────────────────────────────────
+ * Строка над композером, как у расширения и у Gemini. Кнопки открепления тут
+ * нет вовсе — не спрятана, а не существует: привязку запечатывает сервер, и
+ * рисовать орган, который заведомо откажет, хуже, чем не рисовать. */
+.wc-pagebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 760px;
+  margin: 0 auto 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-bubble);
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.wc-pagebar:hover { background: var(--bg-hover); color: var(--fg); border-color: var(--line-strong); }
+.wc-pagebar:active { transform: scale(.995); }
+.wc-pagebar-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: .5;
+  -webkit-mask: center/contain no-repeat url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1'/><path d='M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1'/></svg>");
+  mask: center/contain no-repeat url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1'/><path d='M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1'/></svg>");
+}
+.wc-pagebar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .wc-attachments {
   display: flex;
@@ -778,6 +1205,10 @@ button { font: inherit; color: inherit; }
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
+/* Ухватка. На широком экране лист — карточка по центру, тянуть её некуда и
+   незачем, поэтому полоска показывается только там, где лист прижат к низу. */
+.wc-sheet-grip { display: none; }
+
 .wc-sheet-head {
   display: flex;
   align-items: center;
@@ -785,6 +1216,11 @@ button { font: inherit; color: inherit; }
   flex: none;
   padding: 14px 12px 14px 18px;
   border-bottom: 1px solid var(--line);
+  /* За шапку тянут — значит выделять в ней текст нельзя, иначе жест
+     превращается в выделение заголовка. */
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
 }
 .wc-sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
 .wc-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 18px; }
@@ -832,7 +1268,13 @@ button { font: inherit; color: inherit; }
   font-size: 14px;
   text-align: left;
 }
-.wc-menu-item:hover { background: var(--bg-hover); }
+.wc-menu-item:hover { background: var(--bg-active); }
+/* В фокусе пункт меню ПОДСВЕЧИВАЕТСЯ, а не обводится.
+ * Общая рамка фокуса — 2px сплошного акцента, то есть на тёмном белая; вокруг
+ * пункта во всю ширину меню она читается как жирная белая коробка, и WebKit
+ * ставил её после обычного касания. Родные меню показывают выбранный пункт
+ * заливкой — так и здесь. Для клавиатуры видимость сохраняется. */
+.wc-menu-item:focus-visible { outline: none; background: var(--bg-active); }
 .wc-menu-item svg { width: 16px; height: 16px; color: var(--fg-muted); }
 .wc-menu-item.is-danger { color: var(--danger); }
 .wc-menu-item.is-danger svg { color: var(--danger); }
@@ -986,10 +1428,10 @@ button { font: inherit; color: inherit; }
   width: 100%;
   height: 100%;
   border-radius: 999px;
-  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--accent) 72%, #fff), var(--accent) 68%);
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--orb) 72%, #fff), var(--orb) 68%);
   transform: scale(calc(.82 + var(--wc-orb-amp) * .22));
   transition: transform .07s linear;
-  box-shadow: 0 0 0 calc(6px + var(--wc-orb-amp) * 26px) color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 calc(6px + var(--wc-orb-amp) * 26px) color-mix(in srgb, var(--orb) 14%, transparent);
 }
 /* Пока соединяемся — шар ждёт: медленное собственное дыхание и приглушённый
  * цвет, чтобы «идёт подключение» не выглядело как «слушаю». */
@@ -997,8 +1439,10 @@ button { font: inherit; color: inherit; }
   background: radial-gradient(circle at 32% 28%, var(--fg-faint), var(--fg-muted) 70%);
   animation: wc-orb-wait 1.7s ease-in-out infinite;
 }
+/* Speaking is told by a softer, dimmer sphere rather than by a second hue —
+   there is no second hue in this product any more. */
 .wc-vs-orb.is-speaking .wc-vs-orb-core {
-  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--accent) 45%, #fff), color-mix(in srgb, var(--accent) 80%, #7d5cf6) 70%);
+  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--orb) 45%, #fff), var(--orb-speak) 70%);
 }
 @keyframes wc-orb-wait {
   0%, 100% { transform: scale(.80); opacity: .75; }
@@ -1050,6 +1494,10 @@ button { font: inherit; color: inherit; }
  * подпись словами под шаром; молча придержанный микрофон неотличим от
  * сломанного. */
 .wc-vs-mic.is-held { opacity: .45; }
+/* «Держи и говори»: кольцо вокруг кнопки говорит, что она удерживается, а не
+   переключается. Нажатая — заливка как у отправки. */
+.wc-vs-mic.is-ptt { box-shadow: 0 0 0 3px var(--line-strong); }
+.wc-vs-mic.is-ptt:active { background: var(--accent); color: var(--accent-fg); }
 
 .wc-vs-end { background: var(--danger); color: #fff; }
 
@@ -1070,18 +1518,17 @@ button { font: inherit; color: inherit; }
   color: var(--fg-faint);
 }
 
-/* ── The way back to the sidebar ──────────────────────────────────────────
+/* ── The way back to the history ──────────────────────────────────────────
  *
- * The topbar's hamburger is the ONLY control that reopens a collapsed sidebar,
- * so the rule for showing it is "whenever the sidebar is not on screen" — not
- * "on a phone". It was width-only, and that made a one-way door: collapse the
- * list on a desktop and there was no way back to it, on any screen size,
- * because the button that reopens it was display:none. The scenario found it;
- * a person would have found it by losing their conversations.
- */
-.wc-only-narrow { display: none; }
-.wc-root.is-narrow .wc-only-narrow,
-.wc-root.is-sidebar-collapsed .wc-only-narrow { display: inline-flex; }
+ * The hamburger is the ONLY control that opens the drawer, and the drawer is
+ * now the only way the history is ever shown — so the hamburger is visible
+ * unconditionally, at every width. It used to be width-gated, which made a
+ * one-way door: collapse the list on a desktop and nothing could reopen it,
+ * because the button that reopens it was display:none (a scenario found it;
+ * a person would have found it by losing their conversations). Deriving the
+ * rule from state fixed that; deleting the rule outright is the version that
+ * cannot come back, now that there is no width at which the list is on screen
+ * by itself. */
 
 /* ── Touch, as opposed to narrow ──────────────────────────────────────────
  *
@@ -1101,7 +1548,11 @@ button { font: inherit; color: inherit; }
   /* 44px is the smallest target a finger hits reliably; the desktop sizes are
    * built for a cursor, which is precise. */
   .wc-icon-btn { width: 44px; height: 44px; }
-  .wc-composer-btn, .wc-send { width: 40px; height: 40px; }
+  /* 40px targets for a thumb. The slot has to grow with its occupants, or
+     the two circles overflow the box they are absolutely placed in. */
+  .wc-composer-btn { width: 40px; height: 40px; }
+  .wc-send-slot, .wc-round { width: 40px; height: 40px; }
+  .wc-mode-pill { height: 30px; padding: 0 12px; font-size: 13px; }
   .wc-conv { padding-top: 11px; padding-bottom: 11px; }
   /* 40 and not 36: a 36px target inside a list you scroll with the same thumb
      is the one people miss. Measured by dev-tools/webchat-phone-check.mjs,
@@ -1121,38 +1572,13 @@ button { font: inherit; color: inherit; }
  * second thing to keep in step.
  */
 @media (max-width: 720px) {
-  .wc-sidebar {
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: min(84vw, 320px);
-    transform: translateX(0);
-    transition: transform .18s ease;
-    box-shadow: var(--shadow-lg);
-    /* The drawer runs under the notch and the home indicator, so its own
-     * padding has to keep the content out of them. */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  /* display:none would drop it out of the layout and kill the slide. */
-  .wc-root.is-sidebar-collapsed .wc-sidebar {
-    display: flex;
-    transform: translateX(-101%);
-  }
-
-  .wc-topbar {
-    padding-top: calc(9px + env(safe-area-inset-top));
-    padding-left: max(12px, env(safe-area-inset-left));
-    padding-right: max(12px, env(safe-area-inset-right));
-  }
-
+  /* Safe-area insets now live on the base rules — only the tighter horizontal
+     gutters are a phone question. */
   .wc-turns { padding: 16px 14px 8px; }
-  .wc-turn-user .wc-bubble { max-width: 88%; }
+  .wc-turn-user > div { max-width: 88%; }
   .wc-turn-images img { max-width: 60vw; }
 
   .wc-composer-wrap {
-    padding: 0 12px calc(10px + env(safe-area-inset-bottom));
     padding-left: max(12px, env(safe-area-inset-left));
     padding-right: max(12px, env(safe-area-inset-right));
   }
@@ -1165,6 +1591,18 @@ button { font: inherit; color: inherit; }
     max-height: 88%;
     border-radius: 18px 18px 0 0;
     padding-bottom: env(safe-area-inset-bottom);
+    transition: transform .24s cubic-bezier(.32, .72, 0, 1);
+  }
+  /* Ухватка — только у прижатого к низу листа. */
+  .wc-sheet-grip {
+    display: block;
+    flex: none;
+    width: 36px;
+    height: 5px;
+    margin: 8px auto 2px;
+    border-radius: 999px;
+    background: var(--line-strong);
+    touch-action: none;
   }
   .wc-modal { padding: 16px; }
   .wc-menu { min-width: 220px; }
@@ -1176,7 +1614,19 @@ button { font: inherit; color: inherit; }
  * than the composer sliding under the keyboard. */
 .wc-root.is-keyboard .wc-thread { scroll-padding-bottom: 12px; }
 
+/* «Меньше движения» — системная настройка, и она сильнее любой нашей
+ * красоты. Гасим ВСЁ, что мы завели: выезд шторки, перетекание кнопки
+ * разговора в стрелку, нажатия. Состояния при этом остаются различимыми —
+ * пропадает только путь между ними. */
 @media (prefers-reduced-motion: reduce) {
   .wc-sidebar { transition: none; }
   .wc-turn-assistant.is-streaming .wc-bubble::after { animation: none; }
+  .wc-round { transition: opacity .01s linear; }
+  .wc-send-slot .wc-round[data-off="1"] { transform: none; }
+  .wc-mode-pill { transition: none; }
+  .wc-mode-pill:active { transform: none; }
+  .wc-scrim { transition: none; }
+  .wc-sheet-card { transition: none; }
+  .wc-pagebar { transition: none; }
+  .wc-pagebar:active { transform: none; }
 }

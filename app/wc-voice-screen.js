@@ -42,13 +42,13 @@
   // секунды по устройству протокола (несколько обменов по сети до первого
   // звука), и человеку легче ждать, когда видно, что дело движется.
   const STAGE_TEXT = {
-    mic: 'Спрашиваем микрофон…',
-    connecting: 'Соединяемся с учителем…',
-    negotiating: 'Договариваемся о связи…',
-    ready: 'Слушаю. Говорите.',
+    mic: 'Asking for the microphone…',
+    connecting: 'Connecting to the teacher…',
+    negotiating: 'Negotiating the connection…',
+    ready: 'Listening. Go ahead.',
   };
   const STAGE_ORDER = ['mic', 'connecting', 'negotiating', 'ready'];
-  const HELD_TEXT = 'Секунду — слушаю учителя…';
+  const HELD_TEXT = 'One moment — listening to the teacher…';
   // Придержан ли микрофон прямо сейчас. Экран должен знать это сам: подпись
   // «говорите» и состояние «не слышу» не должны спорить друг с другом.
   let held = false;
@@ -91,9 +91,13 @@
       if (!raf) raf = requestAnimationFrame(tick);
     } catch (e) {
       // Без индикатора экран останется рабочим — молча, но рабочим.
-      console.warn('[wc-voice-screen] уровень звука недоступен:', e && e.message);
+      console.warn('[wc-voice-screen] audio level unavailable:', e && e.message);
     }
   }
+
+  // «Держи и говори» вместо открытого микрофона. Живёт здесь, потому что от
+  // него зависит только поведение кнопки на этом экране.
+  let ptt = false;
 
   function build() {
     const orb = el('.wc-vs-orb', { id: 'wc-vs-orb' }, [el('.wc-vs-orb-core')]);
@@ -101,18 +105,37 @@
     const hint = el('.wc-vs-hint', { id: 'wc-vs-hint' });
     const line = el('.wc-vs-line', { id: 'wc-vs-line' });
 
+    // Один орган на два способа говорить.
+    //
+    // Обычный разговор: микрофон открыт, кнопка его закрывает и открывает —
+    // нажатие переключает.
+    //
+    // «Держи и говори»: микрофон закрыт, и открыт ровно пока палец на кнопке.
+    // Это НЕ другой транспорт и не другая сессия — та же живая сессия, просто
+    // дорожка выключена между репликами. Поэтому и кнопка та же: у неё
+    // меняется способ нажатия, а не назначение.
     const mic = el('button.wc-vs-btn.wc-vs-mic', {
-      type: 'button', 'aria-label': 'Выключить микрофон', title: 'Выключить микрофон',
-      onclick: () => hooks.onToggleMute && hooks.onToggleMute(),
+      type: 'button', 'aria-label': 'Mute microphone', title: 'Mute microphone',
+      onclick: () => { if (!ptt) hooks.onToggleMute && hooks.onToggleMute(); },
+      onpointerdown: (e) => {
+        if (!ptt) return;
+        // Палец на кнопке — дорожка открыта. setPointerCapture: пока говорят,
+        // палец ездит, и без захвата «отпустил» приходило бы на другой
+        // элемент, а микрофон оставался бы открытым.
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+        hooks.onHoldStart && hooks.onHoldStart();
+      },
+      onpointerup: () => { if (ptt && hooks.onHoldEnd) hooks.onHoldEnd(); },
+      onpointercancel: () => { if (ptt && hooks.onHoldEnd) hooks.onHoldEnd(); },
     }, [iconMic()]);
 
     const end = el('button.wc-vs-btn.wc-vs-end', {
-      type: 'button', 'aria-label': 'Завершить разговор', title: 'Завершить разговор',
+      type: 'button', 'aria-label': 'End conversation', title: 'End conversation',
       onclick: () => hooks.onEnd && hooks.onEnd(),
     }, [iconEnd()]);
 
     const close = el('button.wc-vs-close', {
-      type: 'button', 'aria-label': 'Свернуть к переписке', title: 'Свернуть к переписке',
+      type: 'button', 'aria-label': 'Back to the chat', title: 'Back to the chat',
       onclick: () => hooks.onCollapse && hooks.onCollapse(),
     }, [iconChevron()]);
 
@@ -166,6 +189,17 @@
 
     isOpen() { return open; },
 
+    /** Переключить экран в «держи и говори». Выбор человека, помнится между
+     *  сессиями — хранит его композер. */
+    pushToTalk(on) {
+      ptt = !!on;
+      if (!nodes.mic) return;
+      nodes.mic.classList.toggle('is-ptt', ptt);
+      const label = ptt ? 'Hold to talk' : 'Mute microphone';
+      nodes.mic.title = label;
+      nodes.mic.setAttribute('aria-label', label);
+    },
+
     // Ступень подключения. Пока не 'ready' — шар «ждёт», а не «слушает»: это
     // единственное честное различие между «идёт соединение» и «говорите».
     stage(name) {
@@ -196,7 +230,7 @@
 
     speaking(on) {
       if (nodes.orb) nodes.orb.classList.toggle('is-speaking', !!on);
-      if (on) WcVoiceScreen.status('Учитель говорит…');
+      if (on) WcVoiceScreen.status('The teacher is speaking…');
     },
 
     // Микрофон придержан на первую реплику — это надо СКАЗАТЬ. Молча
@@ -204,7 +238,7 @@
     micHeld(on) {
       held = !!on;
       if (nodes.mic) nodes.mic.classList.toggle('is-held', held);
-      WcVoiceScreen.hint(held ? 'Микрофон включится, как только учитель договорит' : '');
+      WcVoiceScreen.hint(held ? 'The microphone comes back on as soon as the teacher finishes' : '');
       // Отпустили — теперь приглашение говорить стало правдой, и шар перестаёт
       // ждать. Оба перехода делаются здесь, а не в stage(): в этот момент
       // stage('ready') уже давно прошёл и второй раз не придёт.
@@ -218,7 +252,7 @@
       if (!nodes.mic) return;
       nodes.mic.classList.toggle('is-muted', !!on);
       nodes.mic.replaceChildren(on ? iconMicOff() : iconMic());
-      const label = on ? 'Включить микрофон' : 'Выключить микрофон';
+      const label = on ? 'Unmute microphone' : 'Mute microphone';
       nodes.mic.title = label;
       nodes.mic.setAttribute('aria-label', label);
     },

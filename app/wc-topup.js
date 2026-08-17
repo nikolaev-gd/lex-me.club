@@ -83,11 +83,11 @@
         type: 'number', inputmode: 'decimal',
         min: String(MIN_USD), max: String(MAX_USD), step: '1',
         value: String(DEFAULT_USD),
-        'aria-label': 'Сумма пополнения в долларах',
+        'aria-label': 'Top-up amount in dollars',
       });
       const status = el('.wc-topup-status', { role: 'status', 'aria-live': 'polite' });
-      const pay = el('button.wc-btn.wc-btn-primary', { type: 'button', text: 'Оплатить' });
-      const cancel = el('button.wc-btn.wc-btn-ghost', { type: 'button', text: 'Отмена' });
+      const pay = el('button.wc-btn.wc-btn-primary', { type: 'button', text: 'Pay' });
+      const cancel = el('button.wc-btn.wc-btn-ghost', { type: 'button', text: 'Cancel' });
 
       function close() { host.hidden = true; host.replaceChildren(); }
       cancel.addEventListener('click', close);
@@ -95,12 +95,12 @@
       pay.addEventListener('click', async () => {
         const v = Number(amount.value);
         if (!Number.isFinite(v) || v < MIN_USD || v > MAX_USD) {
-          status.textContent = `Сумма от $${MIN_USD} до $${MAX_USD}.`;
+          status.textContent = `Amount between $${MIN_USD} and $${MAX_USD}.`;
           status.classList.add('is-error');
           return;
         }
         status.classList.remove('is-error');
-        status.textContent = 'Открываем кассу…';
+        status.textContent = 'Opening checkout…';
         pay.disabled = true;
         amount.disabled = true;
 
@@ -123,31 +123,31 @@
           amount.disabled = false;
           status.classList.add('is-error');
           status.textContent = r && r.error === 'not_signed_in'
-            ? 'Похоже, вход истёк. Войдите заново.'
-            : 'Не удалось начать оплату: ' + ((r && r.error) || 'нет ответа');
+            ? 'Your session seems to have expired. Sign in again.'
+            : 'Could not start the payment: ' + ((r && r.error) || 'no response');
           return;
         }
 
         if (win) win.location = r.checkoutUrl;
         else global.open(r.checkoutUrl, '_blank', 'noopener');   // окно заблокировали — пробуем прямо
 
-        status.textContent = 'Ждём оплату. Окно можно закрыть — баланс обновится сам.';
+        status.textContent = 'Waiting for the payment. You can close that window — the balance updates itself.';
         pollUntilPaid(r.orderId, (state) => {
           if (state === 'paid') {
-            toast('Баланс пополнен');
+            toast('Balance topped up');
             if (opts.onPaid) opts.onPaid();
             close();
           } else {
             // Не ошибка: заказ мог быть просто брошен, а мог и дозачислиться
             // позже. Врать «не оплачено» нельзя.
-            status.textContent = 'Пока не видим оплату. Если платёж прошёл, баланс обновится сам.';
+            status.textContent = 'No payment seen yet. If it went through, the balance will update itself.';
           }
         });
       });
 
       host.replaceChildren(el('.wc-modal-card', {}, [
-        el('h3', { text: 'Пополнить баланс' }),
-        el('p', { text: `От $${MIN_USD} до $${MAX_USD}. Оплата на странице платёжной системы.` }),
+        el('h3', { text: 'Top up balance' }),
+        el('p', { text: `From $${MIN_USD} to $${MAX_USD}. Payment happens on the provider's page.` }),
         el('.wc-topup-row', {}, [el('span', { class: 'wc-topup-cur', text: '$' }), amount]),
         status,
         el('.wc-modal-actions', {}, [cancel, pay]),

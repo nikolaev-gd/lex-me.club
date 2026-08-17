@@ -79,6 +79,30 @@
     return /^\d+$/.test(tail) ? Number(tail) : null;
   }
 
+  // ── Чем «занята» беседа: страница или видео ──────────────────────────────
+  //
+  // Беседа, начатая в расширении СО СТРАНИЦЫ, — это обычная строка sessions с
+  // `session_kind='page'` и адресом в `page_url`. Беседа по видео опознаётся по
+  // самому ключу (`<videoId>__<sessionId>`), строка сессии для этого не нужна.
+  //
+  // Читается по требованию — только для ОТКРЫТОЙ беседы, а не для всего
+  // списка: список строится из ходов одним запросом, и добавлять к нему запрос
+  // на каждую строку значило бы платить сетью за полоску, которую видно у
+  // одной беседы из ста.
+  async function attachmentOf(key) {
+    const kind = classifyKey(key);
+    if (kind === 'video') {
+      const videoId = String(key).slice(0, 11);
+      return { kind: 'video', videoId, url: 'https://www.youtube.com/watch?v=' + videoId, title: '' };
+    }
+    const sid = sessionIdOfKey(key);
+    if (sid == null) return null;
+    const rows = await get('/rest/v1/sessions?select=session_kind,page_url,page_title&id=eq.' + encodeURIComponent(sid));
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row || !row.page_url) return null;
+    return { kind: 'page', url: row.page_url, title: row.page_title || '' };
+  }
+
   // A turn the interface planted to give the model context, not something the
   // person said. It must never become a conversation's name.
   const SEED_MARKERS = ['[lex-context]', '[lex-page]', '[lex-transcript]', '[lex-seed]'];
@@ -96,7 +120,7 @@
 
   async function rest(path, init) {
     const token = await A().validToken();
-    if (!token) throw new Error('нет действующего входа');
+    if (!token) throw new Error('no valid session');
     const resp = await fetch(A().supabaseUrl() + path, Object.assign({}, init, {
       headers: Object.assign({
         apikey: A().anonKey(),
@@ -127,10 +151,49 @@
   // no session id ('no_session'), so a conversation without a row here cannot
   // talk to the teacher at all. Same insert the extension makes, with
   // session_kind 'standalone' — this page IS the standalone chat.
+  // ── Откуда пришла беседа ─────────────────────────────────────────────────
+  //
+  // Одна и та же страница живёт и вкладкой в браузере, и начинкой приложения,
+  // поэтому спрашиваем не «какой это код», а «есть ли вокруг оболочка»: мосты
+  // с именами lex* ставит только она (GoogleAuth, Haptics). Ни один браузер их
+  // не заводит.
+  function originOfThisClient() {
+    try {
+      const h = global.webkit && global.webkit.messageHandlers;
+      if (h && (h.lexauth || h.lexhaptics)) return 'ios';
+    } catch (_) {}
+    return 'web';
+  }
+
+  // Есть ли в базе колонка `origin` (supabase/migrations/session_origin.sql).
+  //
+  // Домовое правило требует катить миграцию РАНЬШЕ клиента, потому что клиент,
+  // пишущий неизвестную колонку, получает отказ вставки — а без строки сеанса
+  // беседа вообще не может говорить с учителем (llm-proxy отбивает платный
+  // вызов как 'no_session'). Здесь порядок не важен ни в какую сторону: первый
+  // отказ ИМЕННО по неизвестной колонке снимает поле и повторяет вставку.
+  //
+  // Признак живёт В ПАМЯТИ и только тут. В хранилище ему нельзя: он пережил бы
+  // применение миграции, и origin остался бы пустым навсегда, ничем себя не
+  // выдав. Перезагрузка страницы — и мы снова пробуем как следует.
+  let originColumnMissing = false;
+
+  // Отказ по неизвестной колонке — и ТОЛЬКО он. PostgREST отвечает PGRST204,
+  // Postgres — 42703, и оба называют колонку. Ловить «любой 400» нельзя:
+  // отказом на 400 отвечают и ограничитель частоты, и RLS, и молчаливый
+  // повтор спрятал бы настоящую поломку.
+  function isUnknownOriginColumn(err) {
+    const s = String((err && err.message) || err || '');
+    if (!/origin/i.test(s)) return false;
+    return /PGRST204/.test(s) || /42703/.test(s)
+      || /column .*origin.* does not exist/i.test(s)
+      || /could not find the 'origin' column/i.test(s);
+  }
+
   async function createSession() {
     const account = accountId();
-    if (!account) throw new Error('createSession: не выполнен вход');
-    const rows = await post('/rest/v1/sessions', [{
+    if (!account) throw new Error('createSession: not signed in');
+    const base = {
       account_id: account,
       // NOT the account: `user_id` is the DEVICE, a text column holding a uuid,
       // minted once per browser and NOT NULL. The extension keeps the same
@@ -142,9 +205,25 @@
       // stamp too. Renaming it would break every already-installed extension
       // writing to the same table.
       extension_version: global.WC_VERSION || 'webchat-dev',
-    }], 'return=representation');
+    };
+
+    let rows;
+    if (originColumnMissing) {
+      rows = await post('/rest/v1/sessions', [base], 'return=representation');
+    } else {
+      try {
+        rows = await post('/rest/v1/sessions',
+          [Object.assign({ origin: originOfThisClient() }, base)], 'return=representation');
+      } catch (err) {
+        if (!isUnknownOriginColumn(err)) throw err;
+        originColumnMissing = true;
+        console.warn(TAG, 'sessions.origin отсутствует — миграция session_origin.sql не применена; пишу беседы без пометки источника');
+        rows = await post('/rest/v1/sessions', [base], 'return=representation');
+      }
+    }
+
     const id = Array.isArray(rows) ? (rows[0] && rows[0].id) : null;
-    if (id == null) throw new Error('createSession: строка сессии не вернулась');
+    if (id == null) throw new Error('createSession: no session row returned');
     return id;
   }
 
@@ -162,7 +241,7 @@
 
   function upsertMeta(videoId, patch) {
     const account = accountId();
-    if (!account) throw new Error('upsertMeta: не выполнен вход');
+    if (!account) throw new Error('upsertMeta: not signed in');
     // merge-duplicates on the primary key, so renaming an already-hidden
     // conversation does not silently unhide it and vice versa.
     return post('/rest/v1/conversation_meta?on_conflict=account_id,video_id',
@@ -343,6 +422,7 @@
     isSeedContent,
     keyForSession,
     sessionIdOfKey,
+    attachmentOf,
     createSession,
     list,
     fillPreviews,

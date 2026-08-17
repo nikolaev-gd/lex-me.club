@@ -13,6 +13,7 @@
   const { el, iconBtn, toast } = WcUI;
 
   let elThread, elTurns, elEmpty, elJump;
+  let hooks = {};
   let stickToBottom = true;
   // The streaming turn, keyed by requestId: {node, bubble, text}. A map rather
   // than one variable because a stopped stream can still deliver a trailing
@@ -47,22 +48,67 @@
     });
   }
 
+  // The one place "is this chat empty?" is decided — so it is also the one
+  // place that tells the header, whose new-chat handle only exists while the
+  // current chat has something in it. Anything that adds or clears turns goes
+  // through here, which is why the handle cannot drift out of step.
   function setEmpty(isEmpty) {
     elEmpty.hidden = !isEmpty;
+    if (global.WcHeader && WcHeader.setHasContent) WcHeader.setHasContent(!isEmpty);
   }
 
   function copyButton(getText) {
-    return iconBtn('copy', 'Скопировать', async (e) => {
+    return iconBtn('copy', 'Copy', async (e) => {
       try {
         await navigator.clipboard.writeText(getText());
-        toast('Скопировано');
+        toast('Copied');
       } catch (_) {
         // Clipboard is permissioned and can simply refuse (an insecure origin,
         // a shell that has not granted it). Say so instead of failing mutely.
-        toast('Браузер не дал доступ к буферу обмена', { error: true });
+        toast('The browser refused clipboard access', { error: true });
       }
       if (e && e.currentTarget) e.currentTarget.blur();
     });
+  }
+
+  // ── Долгое нажатие ───────────────────────────────────────────────────────
+  // Тот же жест, что у композера, но здесь он ещё и должен ужиться с
+  // системным выделением текста: на СВОИХ сообщениях выделение подавлено
+  // (wc-app.css), поэтому удержание свободно и достаётся нам. Внутри ответа
+  // учителя удержание принадлежит системе — там мы не слушаем вовсе.
+  function onHold(el_, fire) {
+    let timer = 0, fired = false, x = 0, y = 0;
+    const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
+    el_.addEventListener('pointerdown', (e) => {
+      if (e.button != null && e.button !== 0) return;
+      fired = false; x = e.clientX; y = e.clientY; clear();
+      timer = setTimeout(() => { timer = 0; fired = true; WcHaptics.press(); fire(e); }, 480);
+    });
+    el_.addEventListener('pointermove', (e) => {
+      if (timer && (Math.abs(e.clientX - x) > 10 || Math.abs(e.clientY - y) > 10)) clear();
+    });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => el_.addEventListener(t, clear));
+    // Правая кнопка мыши — тот же жест для того, у кого нет пальца.
+    el_.addEventListener('contextmenu', (e) => { e.preventDefault(); fire(e); });
+    el_.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
+  }
+
+  function userMessageMenu(anchor, bubble) {
+    WcUI.menu(anchor, [
+      {
+        label: 'Copy',
+        icon: 'copy',
+        onSelect: async () => {
+          try { await navigator.clipboard.writeText(bubble.textContent || ''); toast('Copied'); }
+          catch (_) { toast('The browser refused clipboard access', { error: true }); }
+        },
+      },
+      {
+        label: 'Edit',
+        icon: 'edit',
+        onSelect: () => hooks.onEdit && hooks.onEdit(bubble.textContent || ''),
+      },
+    ]);
   }
 
   function userTurn(text, images) {
@@ -72,22 +118,52 @@
       parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
     }
     parts.push(bubble);
+    // Меню висит на ПУЗЫРЕ, а не на всей строке: строка тянется во всю ширину
+    // ленты, и удержание в пустоте справа от короткого «hi» открывало бы меню
+    // ниоткуда.
+    onHold(bubble, (e) => userMessageMenu(e.currentTarget || bubble, bubble));
     return el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
+  }
+
+  // Кнопка «заново» под ответом. Стоит ТОЛЬКО под последним ответом: повтор
+  // середины беседы осиротил бы всё, что после неё, — так же это устроено и в
+  // расширении (decorateLastExchangeControls вешает органы на последний обмен).
+  function retryButton() {
+    return iconBtn('retry', 'Retry', () => hooks.onRetry && hooks.onRetry());
   }
 
   function assistantTurn(text) {
     const bubble = el('.wc-bubble');
     if (text) WcMarkdown.into(bubble, text);
-    const turn = el('.wc-turn.wc-turn-assistant', {}, [
-      bubble,
-      el('.wc-turn-foot', {}, [copyButton(() => turn.dataset.raw || '')]),
-    ]);
+    const foot = el('.wc-turn-foot', {}, [copyButton(() => turn.dataset.raw || '')]);
+    const turn = el('.wc-turn.wc-turn-assistant', {}, [bubble, foot]);
     turn.dataset.raw = text || '';
-    return { turn, bubble };
+    return { turn, bubble, foot };
+  }
+
+  // Перерисовать подвалы: «заново» живёт только под последним ответом, и после
+  // каждого добавления/загрузки его надо перевесить.
+  function syncFeet() {
+    const assistants = [...elTurns.querySelectorAll('.wc-turn-assistant')];
+    assistants.forEach((t, i) => {
+      const foot = t.querySelector('.wc-turn-foot');
+      if (!foot) return;
+      const has = !!foot.querySelector('[data-retry]');
+      const last = (i === assistants.length - 1) && !t.classList.contains('is-streaming')
+        && !t.classList.contains('wc-turn-error');
+      if (last && !has) {
+        const b = retryButton();
+        b.dataset.retry = '1';
+        foot.append(b);
+      } else if (!last && has) {
+        foot.querySelector('[data-retry]').remove();
+      }
+    });
   }
 
   const WcThread = {
-    init() {
+    init(h) {
+      hooks = h || {};
       elThread = document.getElementById('wc-thread');
       elTurns = document.getElementById('wc-turns');
       elEmpty = document.getElementById('wc-empty');
@@ -129,6 +205,7 @@
         else elTurns.append(assistantTurn(t.text).turn);
       });
       setEmpty(!elTurns.childElementCount);
+      syncFeet();
       stickToBottom = true;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
@@ -143,6 +220,24 @@
       scrollToBottom(false);
     },
 
+    // Повтор пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: «заново»
+    // — это замена ответа, а не ещё один. В хранилище он тоже заменяет строку,
+    // потому что уходит под тем же turn_uid (upsert on_conflict).
+    beginRetry(requestId) {
+      const last = [...elTurns.querySelectorAll('.wc-turn-assistant')].pop();
+      if (!last) return false;
+      const bubble = last.querySelector('.wc-bubble');
+      if (!bubble) return false;
+      bubble.innerHTML = '';
+      last.dataset.raw = '';
+      last.classList.remove('wc-turn-error');
+      last.classList.add('is-streaming');
+      live.set(requestId, { turn: last, bubble, text: '' });
+      syncFeet();
+      maybeStick();
+      return true;
+    },
+
     // Opened before the first token so the reader sees the answer start.
     beginAssistant(requestId) {
       setEmpty(false);
@@ -150,6 +245,9 @@
       turn.classList.add('is-streaming');
       elTurns.append(turn);
       live.set(requestId, { turn, bubble, text: '' });
+      // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,
+      // он больше не последний.
+      syncFeet();
       maybeStick();
     },
 
@@ -171,20 +269,21 @@
       if (!entry) return;
       live.delete(msg.requestId);
       entry.turn.classList.remove('is-streaming');
+      syncFeet();
       // An answer that ended without a single token is a failure the reader
       // must see; an empty bubble reads as "the model had nothing to say".
       if (!entry.text) {
         entry.turn.classList.add('wc-turn-error');
         entry.bubble.textContent = msg.stopped
-          ? 'Остановлено до первого слова.'
-          : 'Учитель не прислал ответа.';
+          ? 'Stopped before the first word.'
+          : 'The teacher sent no answer.';
       }
       maybeStick();
     },
 
     error(msg) {
       const entry = live.get(msg.requestId);
-      const text = msg.error || 'Что-то пошло не так.';
+      const text = msg.error || 'Something went wrong.';
       if (entry) {
         live.delete(msg.requestId);
         entry.turn.classList.remove('is-streaming');

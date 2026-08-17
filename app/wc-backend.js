@@ -280,7 +280,7 @@
       skipped.push(k);
     });
     if (skipped.length) {
-      console.warn(TAG, 'в опубликованном наборе ключи, которые новый чат не применяет:', skipped.join(', '));
+      console.warn(TAG, 'published set carries keys the new chat does not apply:', skipped.join(', '));
     }
     patch[wmKey] = row.id;
     await WcStore.set(patch);
@@ -293,8 +293,8 @@
     if (id) return id;
     // No published model is a real, reportable state — not something to paper
     // over with a hardcoded default that would then bill a model nobody chose.
-    throw new Error('Учитель не настроен: в опубликованных настройках нет модели ('
-      + key + '). Опубликуйте набор из расширения.');
+    throw new Error('The teacher is not configured: the published settings name no model ('
+      + key + '). Publish a set from the extension.');
   }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -408,8 +408,124 @@
     openTurns = (turns || []).map((t) => ({ role: t.role, text: t.text, uid: t.uid || WcHistory.newUid() }));
   }
 
-  WcBus.on('WC_SEND', async (m) => {
-    const modelId = await activeModelId();
+  // ── Native, the one action mode ───────────────────────────────────────────
+  //
+  // Not a second teacher and not a second conversation: the SAME turn, sent
+  // with a different instruction and possibly a different model. Three storage
+  // keys carry it, and all three are already in the ADOPTABLE list above, so
+  // the owner publishing a Native prompt from the extension reaches this page
+  // without another step:
+  //
+  //   nativePrompts_shorts-main            the cell (its TEXT lives on the
+  //                                        server; the client only names it)
+  //   activeNativePromptId_shorts-main     which slot of that cell is live
+  //   activeActionModelId_shorts-main_native   the model, '' meaning "inherit"
+  //
+  // The scope is 'shorts-main' for both the chat and the mode — not this
+  // window's name. That is the extension's rule (chat-surface.js
+  // actionModelKeyFor / getPromptGroupConfig, reversing the per-surface split
+  // of v1.74.1): one configuration for the mode wherever its button lives.
+  // Address the catalogue with any other scope and the server finds no row, so
+  // the turn goes out with no instruction at all — silently.
+  //
+  // NOTE, deliberately: a Native turn carries NO promptContentRef. In the
+  // extension contentPromptRefFor() returns null for any cell that is not
+  // chatPrompts, so the content-type half of the instruction is a chat-only
+  // thing. Sending one here would be inventing a combination the extension
+  // never produces.
+  const NATIVE_CELL = 'nativePrompts';
+  const NATIVE_SLOT_KEY = 'activeNativePromptId_' + SCOPE;
+  const NATIVE_MODEL_KEY = 'activeActionModelId_' + SCOPE + '_native';
+
+  async function nativeTurnConfig() {
+    const r = await WcStore.get([NATIVE_SLOT_KEY, NATIVE_MODEL_KEY]);
+    const slot = r[NATIVE_SLOT_KEY] || 'chatB1';
+    // An empty model key means "inherit the chat's model" — the same meaning
+    // the extension's settings row gives it.
+    const model = r[NATIVE_MODEL_KEY] || null;
+    return {
+      slot,
+      model,
+      promptRef: { scope: SCOPE, cell: NATIVE_CELL, slot },
+      promptId: NATIVE_CELL,
+    };
+  }
+
+  // ── Dictation ─────────────────────────────────────────────────────────────
+  //
+  // The SAME server route the extension uses (background.js
+  // LEX_DICTATION_TRANSCRIBE → llm-proxy `openai-asr`), reached directly
+  // because there is no service worker here to relay through. The server holds
+  // the OpenAI key, prices the call from public.models.audio_hour, writes the
+  // `dictation` row and debits the balance — so there is nothing to bill on
+  // this side and nothing to write.
+  WcBus.on('WC_DICTATE', async (m) => {
+    const token = await A.validToken();
+    if (!token) throw new Error('Sign in to dictate.');
+
+    const bin = atob(m.base64 || '');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const mime = m.mimeType || 'audio/webm';
+    const apiModel = 'gpt-4o-mini-transcribe';
+
+    // The extension can hardcode `recording.webm` because it only ever records
+    // in Chrome. Here the recorder is whatever the platform gives us, and on
+    // iOS that is audio/mp4 — MediaRecorder in WebKit does not produce WebM at
+    // all. OpenAI picks the container from the FILENAME, so a .webm name on an
+    // mp4 body is a rejected transcription on the one platform this page exists
+    // for. The extension is derived from the mime type instead.
+    const EXT = {
+      'audio/webm': 'webm', 'audio/mp4': 'mp4', 'audio/m4a': 'm4a', 'audio/x-m4a': 'm4a',
+      'audio/mpeg': 'mp3', 'audio/mpga': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav',
+      'audio/ogg': 'ogg', 'audio/flac': 'flac',
+    };
+    const base = String(mime).split(';')[0].trim().toLowerCase();
+    const ext = EXT[base] || 'webm';
+
+    const form = new FormData();
+    form.append('file', new File([bytes], 'recording.' + ext, { type: base }));
+    form.append('model', apiModel);
+    form.append('response_format', 'json');
+    // The session is whatever conversation is already open — NOT a fresh one.
+    // Minting a session here would give a brand-new empty chat a row before a
+    // single message had been sent, which is the one thing the key rule
+    // forbids (see the header of wc-app.js).
+    form.append('meta', JSON.stringify({
+      sessionId,
+      callType: 'dictation',
+      surface: 'standalone',
+      modelInternalId: 'openai:' + apiModel,
+      pageType: 'text',
+      // Строка в balance_ledger получает ref вида `<call_type>:<videoId>`, и с
+      // null здесь она читалась как «dictation:» — списание, привязанное ни к
+      // чему. Расширение эту же грабку уже проходило. Видео тут нет вовсе, но
+      // беседа есть, и назвать её — единственное осмысленное содержимое хвоста.
+      // Пусто только до первого сообщения, когда беседы ещё не существует.
+      videoId: openId || null,
+      durationMs: m.durationMs,
+    }));
+
+    const resp = await core.proxyFetchMultipart('openai-asr', form, token);
+    const bodyText = await resp.text();
+    if (!resp.ok) {
+      // 402 is "no money", not "could not hear you" — say the one the reader
+      // can act on.
+      if (resp.status === 402) throw new Error('Not enough balance for dictation.');
+      throw new Error(bodyText.slice(0, 160) || ('HTTP ' + resp.status));
+    }
+    let text = '';
+    try { const j = JSON.parse(bodyText); text = (j && typeof j.text === 'string') ? j.text : ''; } catch (_) {}
+    // Dictation costs money, so the balance on screen is now stale.
+    WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
+    return { ok: true, text };
+  });
+
+  async function runSend(m) {
+    const native = (m.mode === 'native') ? await nativeTurnConfig() : null;
+    // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
+    // прошлый раз), и она сильнее и режима, и текущей настройки.
+    const modelId = m.modelOverride || (native && native.model) || await activeModelId();
 
     // The key is minted on the FIRST message, from the session row id. Before
     // that the conversation is not a row anywhere — which is why a brand-new
@@ -429,7 +545,11 @@
     const slot = prompt.activeChatPromptId || 'chatB1';
     const knobs = await readKnobs();
 
-    const userUid = WcHistory.newUid();
+    const userUid = m.assistantUid ? m.userUid : WcHistory.newUid();
+    // Чеканится ЗАРАНЕЕ, а не в момент записи: «заново» переписывает ответ под
+    // тем же uid (upsert on_conflict merge-duplicates), то есть заменяет
+    // строку, а не добавляет вторую.
+    const assistantUid = m.assistantUid || WcHistory.newUid();
     const authoredAt = new Date().toISOString();
     const attachment = (m.images && m.images[0]) || null;
 
@@ -437,7 +557,7 @@
       // Loud, before any money moves. Sending a picture to a model that cannot
       // see it costs the same as sending it to one that can, and the answer
       // would just be about the text.
-      throw new Error('Эта модель не читает картинки. Уберите вложение или дождитесь смены модели.');
+      throw new Error('This model does not read images. Remove the attachment or switch models.');
     }
 
     openTurns.push({ role: 'user', text: m.text, uid: userUid });
@@ -475,14 +595,19 @@
       // account was billed for them, so throwing them away would be throwing
       // away something already paid for.
       const rows = [{ role: 'user', text: m.text, uid: userUid, authoredAt }];
-      if (answer) rows.push({ role: 'assistant', text: answer, uid: WcHistory.newUid(), authoredAt: new Date().toISOString() });
-      if (answer) openTurns.push({ role: 'assistant', text: answer, uid: rows[1].uid });
+      if (answer) rows.push({ role: 'assistant', text: answer, uid: assistantUid, authoredAt: new Date().toISOString() });
+      // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
+      // под модель нет, и заводить её ради «заново» — миграция рядом с
+      // деньгами ради удобства. Следствие честное и записано в журнале: повтор
+      // хода, ПЕРЕЖИВШЕГО перезагрузку, идёт текущей моделью, потому что чем
+      // он был отвечен — не сохранено нигде.
+      if (answer) openTurns.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
       try {
         await WcHistory.push(convId, rows);
         await WcHistory.forgetPreview(convId);
         WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
       } catch (err) {
-        console.warn(TAG, 'не записал ход в аккаунт:', err && err.message);
+        console.warn(TAG, 'turn not written to the account:', err && err.message);
       }
     });
 
@@ -500,11 +625,15 @@
         // and llm-proxy injects it. Sending an empty systemPrompt instead would
         // be worse than sending nothing — the adapters gate on truthiness and
         // providers reject an empty system role.
-        promptRef: { scope: SCOPE, cell: 'chatPrompts', slot },
+        promptRef: native ? native.promptRef : { scope: SCOPE, cell: 'chatPrompts', slot },
         // The lower half of the instruction, chosen by content type. Same pair
-        // the extension's main chat sends.
-        promptContentRef: { scope: SCOPE, cell: 'contentTypePrompts', slot: 'text' },
-        promptId: slot,
+        // the extension's main chat sends — and, like the extension, NOT sent
+        // on an action turn: contentPromptRefFor() gives null for any cell
+        // other than chatPrompts.
+        ...(native ? {} : {
+          promptContentRef: { scope: SCOPE, cell: 'contentTypePrompts', slot: 'text' },
+        }),
+        promptId: native ? native.promptId : slot,
         pageType: 'text',
         messages,
         text: m.text,
@@ -517,6 +646,57 @@
     );
 
     return { ok: true, conversationId: convId };
+  }
+
+  WcBus.on('WC_SEND', runSend);
+
+  // К чему привязана беседа — страница или видео. null, если ни к чему.
+  WcBus.on('WC_ATTACHMENT', async (m) => {
+    if (!m || !m.id) return null;
+    return WcHistory.attachmentOf(m.id);
+  });
+
+  // ── «Заново» ──────────────────────────────────────────────────────────────
+  //
+  // Простой повтор ТОЙ ЖЕ моделью. В расширении есть только переспрос С ВЫБОРОМ
+  // другой модели (ytvocab-reask-menu → runModelReask → sendReask), и его
+  // reaskKind:'regenerate' — это пометка происхождения для лога, а модель
+  // приходит аргументом. То есть повтор той же моделью — это тот же путь с
+  // прежним аргументом, и здесь он собран так же: тот же вопрос, тот же
+  // контекст без последней пары, тот же uid ответа.
+  //
+  // Повторяется ТОЛЬКО последний ответ. Повтор середины беседы осиротил бы всё,
+  // что после него, — расширение вешает свои органы на последний обмен ровно
+  // поэтому.
+  WcBus.on('WC_REGENERATE', async (m) => {
+    if (!openTurns.length) throw new Error('Nothing to retry.');
+    const last = openTurns[openTurns.length - 1];
+    if (!last || last.role !== 'assistant') throw new Error('The last turn is not an answer.');
+    const prev = openTurns[openTurns.length - 2];
+    if (!prev || prev.role !== 'user') throw new Error('No question to repeat.');
+
+    // Ответ выкидывается из контекста, вопрос остаётся: модель должна увидеть
+    // ровно то, что видела в прошлый раз. `dropLastPair` в расширении делает
+    // то же самое.
+    openTurns.pop();
+    const userUid = prev.uid;
+    const assistantUid = last.uid;
+    // Модель того хода, если она известна. Известна она только пока страницу
+    // не перезагрузили — см. комментарий у openTurns.push выше.
+    const modelOverride = last.model || null;
+    // Вопрос тоже выкидываем: runSend положит его обратно сам.
+    openTurns.pop();
+
+    return runSend({
+      requestId: m.requestId,
+      conversationId: openId,
+      text: prev.text,
+      images: [],
+      mode: null,
+      modelOverride,
+      userUid,
+      assistantUid,
+    });
   });
 
   // Voice needs a bound session BEFORE the call is minted: llm-proxy refuses a
@@ -547,7 +727,7 @@
 
   WcBus.on('WC_STOP', async (m) => {
     const entry = inflightStreams.get(m.requestId);
-    if (!entry || !entry.abort) return { ok: false, error: 'нечего останавливать' };
+    if (!entry || !entry.abort) return { ok: false, error: 'nothing to stop' };
     // Marked BEFORE the abort: the abort is what produces the error, and a
     // mark set afterwards would lose the race with it.
     stoppedByUser.add(m.requestId);
