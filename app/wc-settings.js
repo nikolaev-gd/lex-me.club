@@ -49,6 +49,20 @@
     ]);
   }
 
+  // Какая сборка сейчас открыта. До этой строки узнать это было нельзя ничем:
+  // номер существовал, но уходил только в базу. А открыт этот чат в трёх
+  // местах сразу — в браузере, в программе для Мака и на телефоне, — и все
+  // трое берут страницу с сервера, поэтому «у меня старое» и «у тебя новое»
+  // раньше не различались никак.
+  //
+  // `webchat-dev` значит, что страницу отдают прямо из папки репозитория, а не
+  // из сборки: у неотштампованной страницы номера нет и взяться ему неоткуда.
+  function buildLine() {
+    const b = global.WC_BUILD;
+    if (!b || !b.version) return 'webchat-dev';
+    return b.version + ' · ' + b.commit;
+  }
+
   function select(options, value, onChange) {
     const s = el('select', { onchange: (e) => onChange(e.target.value) },
       options.map(([v, t]) => el('option', { value: v, text: t, selected: v === value })));
@@ -58,9 +72,15 @@
   const WcSettings = {
     // Read and applied before the first paint, so nothing flashes in the wrong
     // theme on the way in.
+    //
+    // Default is 'dark', not 'system': the product has no light identity of
+    // its own — the extension this page has to read as the same product
+    // (wc-app.css, top of file) is a dark ground with white laid over it and
+    // never shows anything else. 'System'/'Light' stay in the picker below
+    // for anyone who wants them; only the out-of-the-box look changed.
     async applyStored() {
       const s = await WcStore.get(['wcTheme', 'wcTextScale']);
-      applyTheme(s.wcTheme || 'system');
+      applyTheme(s.wcTheme || 'dark');
       applyTextScale(s.wcTextScale || 100);
     },
 
@@ -83,22 +103,21 @@
       });
 
       const body = [
+        // Кто вошёл и сколько на счету — но БЕЗ кнопки пополнения: она
+        // теперь одна, в подвале шторки истории (решение владельца
+        // 2026-08-20). Пополнение открывалось отсюда и оттуда — ровно тот
+        // дубль, который здесь и снимается.
         el('.wc-field', {}, [
           el('.wc-field-row', {}, [
             el('.wc-field-label', {}, [
               el('b', { text: account.email || 'Not signed in' }),
               el('span', { text: account.signedIn ? 'Balance ' + fmtMoney(account.balanceUsd) : '' }),
             ]),
-            el('button.wc-btn.wc-btn-ghost', {
-              type: 'button', text: 'Top up',
-              style: { width: 'auto', padding: '7px 14px' },
-              onclick: () => ctx.onTopUp(),
-            }),
           ]),
         ]),
 
         field('Appearance', 'Light, dark, or follow the system',
-          select(THEMES, stored.wcTheme || 'system', (v) => {
+          select(THEMES, stored.wcTheme || 'dark', (v) => {
             applyTheme(v);
             WcStore.set({ wcTheme: v });
           })),
@@ -132,6 +151,18 @@
             style: { width: 'auto', padding: '7px 14px', color: 'var(--danger)', borderColor: 'var(--danger)' },
             onclick: () => { handle.close(); ctx.onSignOut(); },
           }),
+        ]),
+      ]));
+
+      // Последней строкой, самым мелким — номер сборки. Он не настройка, его
+      // не крутят; он нужен ровно в тот момент, когда спрашивают «а у тебя
+      // какая версия», и тогда его надо найти, а не искать.
+      body.push(el('.wc-field', { id: 'wc-build' }, [
+        el('.wc-field-row', {}, [
+          el('.wc-field-label', {}, [
+            el('span', { text: 'Build' }),
+          ]),
+          el('.wc-field-value', { id: 'wc-build-value', text: buildLine() }),
         ]),
       ]));
 

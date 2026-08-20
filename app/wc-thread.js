@@ -325,7 +325,9 @@
       if (!itemId || voiceBubbles.has(itemId)) return;
       setEmpty(false);
       const bubble = el('.wc-bubble.is-awaiting', { text: '' });
-      const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, [bubble])]);
+      // .wc-turn-voice: italic, same as the extension's spoken bubbles
+      // (styles.css .ytvocab-chat-msg-voice) — marks it as said, not typed.
+      const turn = el('.wc-turn.wc-turn-user.wc-turn-voice', {}, [el('div', {}, [bubble])]);
       elTurns.append(turn);
       voiceBubbles.set(itemId, { turn, bubble, role: 'user' });
       maybeStick();
@@ -358,6 +360,7 @@
       if (!entry) {
         setEmpty(false);
         const made = assistantTurn('');
+        made.turn.classList.add('wc-turn-voice');
         elTurns.append(made.turn);
         entry = { turn: made.turn, bubble: made.bubble, role: 'assistant' };
         voiceBubbles.set(itemId, entry);

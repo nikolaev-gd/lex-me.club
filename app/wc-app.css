@@ -12,7 +12,7 @@
  * white with a black arrow.
  *
  * The values, with their source:
- *   panel ground          #272727                  styles.css .ytvocab-explain-panel
+ *   screen ground         #000000                  styles.css .ytvocab-chat-surface--frame-tutor
  *   inset ply             #1f1f1f                  composer wrapper + user bubble
  *   pill                  #2c2c2c on #3a3a3a       .ytvocab-chat-modesplit
  *   hairline              rgba(255,255,255,.10)    panel + composer border
@@ -97,7 +97,7 @@
  * light theme and watch nothing happen. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:          #272727;
+    --bg:          #000000;
     --bg-sunken:   #1f1f1f;
     --bg-raised:   #2c2c2c;
     --bg-hover:    rgba(255, 255, 255, .08);
@@ -126,7 +126,7 @@
     --pill-fg:     rgba(255, 255, 255, .55);
     --pill-hover:  #434343;
 
-    --glass:       rgba(39, 39, 39, .72);
+    --glass:       rgba(0, 0, 0, .72);
 
     --orb:         #f1f1f1;
     --orb-speak:   rgba(255, 255, 255, .72);
@@ -137,7 +137,7 @@
 }
 
 :root[data-theme="dark"] {
-  --bg:          #272727;
+  --bg:          #000000;
   --bg-sunken:   #1f1f1f;
   --bg-raised:   #2c2c2c;
   --bg-hover:    rgba(255, 255, 255, .08);
@@ -166,7 +166,7 @@
   --pill-fg:     rgba(255, 255, 255, .55);
   --pill-hover:  #434343;
 
-  --glass:       rgba(39, 39, 39, .72);
+  --glass:       rgba(0, 0, 0, .72);
 
   --orb:         #f1f1f1;
   --orb-speak:   rgba(255, 255, 255, .72);
@@ -462,7 +462,11 @@ button { font: inherit; color: inherit; }
 
 /* Новый чат — иконка в шапке справа, а не строка в шторке. На телефоне шторка
  * закрыта, и кнопка внутри неё была за жестом, которого не видно. */
-.wc-new-chat svg { width: 21px; height: 21px; }
+/* Толщина линии — 2, как у расширения (styles.css рисует значок при
+   stroke-width="2"); базовое правило svg{} на этой странице ставит 1.9
+   и, будучи CSS, побеждает одноимённый атрибут в разметке. */
+.wc-new-chat svg { width: 21px; height: 21px; stroke-width: 2; }
+.wc-voice-gear svg { width: 21px; height: 21px; }
 
 .wc-convs {
   flex: 1;
@@ -547,71 +551,78 @@ button { font: inherit; color: inherit; }
  *
  * Кружок с буквой стоит отдельно от остального — своя заливка и разделитель
  * за ним, — но ведёт туда же, куда и полоска: в лист настроек. */
+/* Подвал шторки — две кнопки, 1:2. Обе с заливкой, обе скруглённые: это
+   плитки того же вида, что кнопки в листе настроек (.wc-btn) и чип режима в
+   композере — ничего постороннего не приносилось.
+   Левая уже правой ровно вдвое: пополнение здесь главное действие, настройки
+   открываются изредка. Пропорция задана flex-долями от одной базы (flex-basis
+   0), поэтому она держится на любой ширине шторки. */
 .wc-account {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  gap: 8px;
   flex: none;
-  width: 100%;
-  padding: 12px;
-  border: 0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-  transition: background .12s;
-}
-.wc-account:hover { background: var(--bg-hover); }
-.wc-account:active { background: var(--bg-active); }
-
-/* The extension's account circle, value for value (styles.css
- * .ytvocab-chat-surface-account): a faint white wash inside a slightly
- * stronger white ring, with the letter at .85 — NOT a filled disc.
- *
- * It was a white disc with a black letter, which made the quietest control in
- * the app the brightest thing on the screen. Its separateness comes from the
- * gap and the ring, not from inverting it. */
-.wc-account-avatar {
-  display: grid;
-  place-items: center;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  margin-right: 4px;
-  border: 1px solid var(--avatar-line);
-  border-radius: 999px;
-  background: var(--avatar-bg);
-  color: var(--avatar-fg);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  text-transform: uppercase;
-  transition: background .12s, border-color .12s;
-}
-.wc-account:hover .wc-account-avatar {
-  background: var(--avatar-bg-hover);
-  border-color: var(--avatar-line-hover);
 }
 
-.wc-account-lines { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.wc-account-settings,
 .wc-account-topup {
-  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
   min-width: 0;
+  /* Отступы тесные нарочно: шторка 300px, из них две трети — это ~170px на
+     всю правую кнопку, и «Top up balance» вместе с суммой в неё влезает
+     только так. Резать подпись до «Top up» владелец не просил. */
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  transition: background .12s, color .12s;
+}
+
+.wc-account-settings {
+  flex: 1 1 0;
+  justify-content: center;
+  gap: 6px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.wc-account-settings svg { width: 16px; height: 16px; }
+.wc-account-settings span {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 14px;
 }
+.wc-account-settings:hover { background: var(--bg-active); color: var(--fg); }
+
+.wc-account-topup {
+  flex: 2 1 0;
+  justify-content: space-between;
+  gap: 6px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 550;
+}
+.wc-account-topup > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-account-topup:hover { background: var(--pill-hover); }
+
 .wc-account-balance {
   flex: none;
   color: var(--fg-muted);
-  font-size: 13px;
+  font-size: 12.5px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
+/* Ноль — это не «не смогли прочитать», см. paintAccount в wc-header.js. */
 .wc-account-balance.is-empty { color: var(--danger); }
-/* Стрелки «›» здесь больше нет: владелец просил на её месте «пополнить
-   баланс», и текст со стрелкой одновременно — два указателя на одно действие.
-   Полоска читается как [кружок] Top up balance ....... $46.04 */
 
 /* ── Main ────────────────────────────────────────────────────────────────── */
 
@@ -628,15 +639,20 @@ button { font: inherit; color: inherit; }
 
 /* ── Glass ────────────────────────────────────────────────────────────────
  *
- * The bar and the composer are translucent and blurred, and the conversation
- * slides underneath them — that is what an iOS system bar does, and it is the
- * one effect that cannot be faked with a solid colour.
+ * The composer is translucent and blurred, and the conversation slides
+ * underneath it — that is what an iOS system bar does, and it is the one
+ * effect that cannot be faked with a solid colour. The top bar gave up its
+ * own plate (see .wc-topbar above) so it reads as part of the chat rather
+ * than a bar sitting on it, but it is positioned the same way, over the
+ * thread rather than stacked beside it, for the same reason: a hairline of
+ * safe-area padding either way and its two controls must not shift when the
+ * thread scrolls under them.
  *
- * It only works if there is something BEHIND them to blur. As flex siblings
- * of the thread there was not: they sat next to it, backdrop-filter had an
- * empty backdrop, and the blur was a no-op. So both are taken out of the
- * column and pinned over it, and the thread carries their heights as padding
- * so nothing starts life hidden under either one.
+ * The composer's blur only works if there is something BEHIND it to blur. As
+ * a flex sibling of the thread there was not: it sat next to it, backdrop-
+ * filter had an empty backdrop, and the blur was a no-op. So it is taken out
+ * of the column and pinned over it, and the thread carries both bars'
+ * heights as padding so nothing starts life hidden under either one.
  *
  * The heights are measured, not assumed: the composer grows with the text and
  * with attachments. wc-app.js writes --wc-topbar-h / --wc-composer-h from a
@@ -656,13 +672,45 @@ button { font: inherit; color: inherit; }
      where there is nothing to avoid, so this costs nothing elsewhere. */
   padding: calc(9px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
            9px max(12px, env(safe-area-inset-left));
-  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+/* Подложка — под самими кнопками, а не полосой во всю ширину. Полоса и была
+   тем, что владелец убирал; но без неё прокрученная лента шла прямо под три
+   полоски и читалась сквозь них.
+   Как у приличных людей (образец — экран разговора в приложении Claude):
+   каждая кнопка стоит на своей круглой матовой подложке — полупрозрачная
+   заливка плюс размытие того, что за ней. Лента продолжает идти за кнопкой,
+   но под кнопкой она размыта и притушена, и строка больше не читается сквозь
+   орган управления.
+   Цвета не новые: `--glass` и `--glass-blur` — та же пара, которой уже сделана
+   полоса под композером; здесь она просто применена к кнопке, а не к полосе. */
+.wc-topbar .wc-icon-btn {
+  border-radius: 999px;
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
+/* Наведение и нажатие кладутся ПОВЕРХ подложки, а не вместо неё: заменить
+   background целиком значило бы на время наведения снова пустить текст
+   сквозь кнопку. */
+.wc-topbar .wc-icon-btn:hover {
+  background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--glass);
+}
+.wc-topbar .wc-icon-btn:active {
+  background: linear-gradient(var(--bg-active), var(--bg-active)), var(--glass);
+}
 
 .wc-topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+
+/* During a call the gear takes the new-chat spot rather than sitting next to
+ * it — starting a second chat mid-call makes no sense, and the top bar stays
+ * at exactly two controls either way (owner's count, 2026-08-17). Visibility
+ * is NOT done here: `[hidden]` carries `!important` (top of this file, on
+ * purpose — see its own comment), so a bare display:… override never wins,
+ * and both buttons are toggled straight on their `hidden` property instead
+ * (wc-header.js paintTopbarRight, driven by WcHeader.setHasContent +
+ * setVoiceActive). */
 
 /* Three lines, the middle one full width and the last one short — the shape
  * Anthropic's app uses, and the reason it reads as "history" rather than as a
@@ -699,27 +747,52 @@ button { font: inherit; color: inherit; }
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 6px;
+  gap: 14px;
   min-height: 60%;
   padding: 40px 20px;
   text-align: center;
   color: var(--fg-muted);
 }
 .wc-empty[hidden] { display: none; }
-/* One sentence, and nothing under it. The suggestion chips other assistants
-   put here are a decision the owner has not taken yet, and an empty screen is
-   better than a guess at what somebody wants to ask. */
+
+/* Mark, then a quiet line under it — the Gemini relationship (small icon,
+   short caption), but the caption's own size, weight and colour are not a
+   guess at that reference: they are the extension's existing empty-state
+   style, styles.css .ytvocab-popup-placeholder (font-size 14px, normal
+   weight, colour #aaa — the "Ask something else…" placeholder), routed
+   through --fg-muted so it stays correct if the theme tokens ever move. No
+   suggestion chips underneath: what to offer there is a decision the owner
+   has not taken yet, and an empty screen is better than a guess at what
+   somebody wants to ask. */
+.wc-empty-logo {
+  /* The PNG (icons/icon128-gold.png) already carries its own rounded corners
+     as alpha, not a square with CSS clipping over it — no border-radius here
+     would do anything but risk fighting that baked-in shape. */
+  width: 72px;
+  height: 72px;
+}
+/* Шрифт, кегль, вес и цвет — те же, что были у однострочной подписи, и
+   меняться им нечего. Тронуты ровно две вещи, обе про то, чтобы две строки
+   читались как одна подпись:
+     · интерлиньяж 1.35 вместо 1.5 — на 14px это 19px против 21px, строки
+       садятся ближе и держатся вместе;
+     · снят max-width: 26ch — перенос теперь задан <br> в разметке, и лишний
+       предел только ломал бы вторую строку в непредусмотренном месте. */
 .wc-empty-line {
-  max-width: 15ch;
-  font-size: 27px;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -.02em;
-  color: var(--fg);
-  text-wrap: balance;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--fg-muted);
 }
 
 .wc-turn { margin-bottom: 20px; }
+
+/* Spoken during a call, not typed — same treatment as the extension's voice
+ * bubbles (styles.css .ytvocab-chat-msg-voice), applied to both sides of the
+ * exchange since both carry the class (wc-thread.js beginVoiceUser /
+ * voiceAssistantText). */
+.wc-turn-voice .wc-bubble { font-style: italic; }
+
 .wc-turn-user { display: flex; justify-content: flex-end; }
 
 /* The width cap goes on the flex ITEM, not on the bubble inside it.
@@ -1361,124 +1434,63 @@ button { font: inherit; color: inherit; }
 .wc-toast[hidden] { display: none; }
 .wc-toast.is-error { background: var(--danger); color: #fff; }
 
-/* ── Экран голосового разговора ───────────────────────────────────────────
+/* ── Звонок ──────────────────────────────────────────────────────────────
  *
- * Было — карточка поверх переписки с двумя мелкими кнопками. Стало — экран:
- * пока идёт разговор, человек не читает и не печатает, ему нужны крупные цели
- * под большой палец и понятное «тебя слышно».
- *
- * Фон НЕПРОЗРАЧНЫЙ (var(--bg)), а не затемнение поверх ленты: полупрозрачный
- * слой оставляет под собой мельтешение приходящих пузырей, и экран перестаёт
- * читаться как отдельное место.
- */
-.wc-voice {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-  z-index: 56;
-  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right))
-           calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-}
+ * Было — полноэкранный лист со своим шаром, статусом и кнопкой «свернуть»
+ * (решение владельца тогда же). Стало (владелец, 2026-08-19) — тот же самый
+ * экран чата: лента во время звонка остаётся на месте и живой, спетые
+ * реплики уже падают в неё пузырями (WcThread.beginVoiceUser / voiceUserText
+ * / voiceAssistantText, wc-app.js), а меняется только низ — на месте формы
+ * композера встают микрофон и трубка. Это буквально ТОТ ЖЕ .wc-composer-wrap,
+ * что и у формы (index.html), поэтому то же измерение высоты
+ * (--wc-composer-h, wc-app.js watchBarHeights) без единой лишней строки, и
+ * ничего не прыгает при переключении. «Свернуть» больше нет — сворачивать
+ * стало некуда, лента и так на виду. */
 .wc-voice[hidden] { display: none; }
 
-.wc-vs { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-
-.wc-vs-top { display: flex; align-items: center; justify-content: flex-start; padding: 6px 0; flex: none; }
-.wc-vs-close {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
+.wc-vs {
+  max-width: 760px;
+  margin: 0 auto;
 }
-.wc-vs-close:hover { background: var(--bg-hover); color: var(--fg); }
-.wc-vs-close svg { width: 26px; height: 26px; }
 
-.wc-vs-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  flex: 1;
-  min-height: 0;
+/* Единственная строка текста на экране звонка: «Connecting…», затем
+   «Listening», затем гаснет (wc-voice-screen.js, stage()). Кегль, вес и цвет
+   не подбирались — это те же 14px / 400 / --fg-muted, которыми набрана
+   подпись на пустом экране (.wc-empty-line выше), то есть уже существующая в
+   этом продукте спокойная подпись.
+   Гаснет прозрачностью, а не hidden: min-height держит место, и ряд кнопок
+   не подпрыгивает ровно в тот момент, когда человек начинает говорить. */
+.wc-vs-status {
+  min-height: 19px;
   text-align: center;
-}
-
-/* Шар. Дышит от РЕАЛЬНОЙ громкости (--wc-orb-amp пишет wc-voice-screen.js из
- * AnalyserNode), а не от таймера: анимация «вообще» идёт одинаково и когда всё
- * работает, и когда звука нет вовсе. */
-.wc-vs-orb {
-  --wc-orb-amp: 0;
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 168px;
-  height: 168px;
-  flex: none;
-}
-.wc-vs-orb-core {
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--orb) 72%, #fff), var(--orb) 68%);
-  transform: scale(calc(.82 + var(--wc-orb-amp) * .22));
-  transition: transform .07s linear;
-  box-shadow: 0 0 0 calc(6px + var(--wc-orb-amp) * 26px) color-mix(in srgb, var(--orb) 14%, transparent);
-}
-/* Пока соединяемся — шар ждёт: медленное собственное дыхание и приглушённый
- * цвет, чтобы «идёт подключение» не выглядело как «слушаю». */
-.wc-vs-orb.is-waiting .wc-vs-orb-core {
-  background: radial-gradient(circle at 32% 28%, var(--fg-faint), var(--fg-muted) 70%);
-  animation: wc-orb-wait 1.7s ease-in-out infinite;
-}
-/* Speaking is told by a softer, dimmer sphere rather than by a second hue —
-   there is no second hue in this product any more. */
-.wc-vs-orb.is-speaking .wc-vs-orb-core {
-  background: radial-gradient(circle at 32% 28%, color-mix(in srgb, var(--orb) 45%, #fff), var(--orb-speak) 70%);
-}
-@keyframes wc-orb-wait {
-  0%, 100% { transform: scale(.80); opacity: .75; }
-  50%      { transform: scale(.90); opacity: 1; }
-}
-
-.wc-vs-status { font-size: 17px; font-weight: 550; min-height: 24px; }
-.wc-vs-hint { color: var(--fg-muted); font-size: 13.5px; min-height: 18px; padding: 0 12px; }
-
-/* Последняя реплика. Ограничена по высоте и обрезается сверху: разговор идёт
- * дальше, и растущий блок утащил бы органы управления за нижний край. */
-.wc-vs-line {
-  max-width: 560px;
-  max-height: 26vh;
-  overflow: hidden;
-  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
   color: var(--fg-muted);
-  font-size: 15px;
-  line-height: 1.5;
-  overflow-wrap: break-word;
+  transition: opacity .45s ease;
 }
-.wc-vs-line.is-teacher { color: var(--fg); }
+.wc-vs-status.is-gone { opacity: 0; }
 
+/* Три колонки, микрофон ровно посередине ряда, завершение — у правого края.
+   Колонки заданы явно (grid-column ниже), поэтому пустая левая клетка не
+   требует подставного элемента в разметке. */
 .wc-vs-controls {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: center;
-  gap: 28px;
-  flex: none;
-  padding: 22px 0 8px;
+  padding: 6px 0;
 }
+/* Размеры — из принятой в этом продукте азбуки, не выдуманные: 32px со
+   значком 18 — это ровно круглая кнопка композера (.wc-round, .wc-composer-btn
+   выше), 44px — тот же орган на касании (.wc-icon-btn в media-запросе внизу).
+   Было 68px со значком 27 — таких кнопок в Lex нет нигде, и на экране они
+   читались как чужие. Микрофон крупнее боковых, потому что он здесь главный;
+   разница ровно как у образца — приложение Claude, экран разговора. */
 .wc-vs-btn {
   display: grid;
   place-items: center;
-  width: 68px;
-  height: 68px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: 0;
   border-radius: 999px;
@@ -1486,30 +1498,50 @@ button { font: inherit; color: inherit; }
   transition: background .12s, transform .08s, opacity .12s;
 }
 .wc-vs-btn:active { transform: scale(.94); }
-.wc-vs-btn svg { width: 27px; height: 27px; stroke-width: 1.8; }
+.wc-vs-btn svg { width: 18px; height: 18px; stroke-width: 1.9; }
 
-.wc-vs-mic { background: var(--bg-bubble); color: var(--fg); }
+.wc-vs-mic {
+  grid-column: 2;
+  width: 44px;
+  height: 44px;
+  background: var(--bg-bubble);
+  color: var(--fg);
+}
+.wc-vs-mic svg { width: 20px; height: 20px; }
 .wc-vs-mic.is-muted { background: var(--fg); color: var(--bg); }
-/* Микрофон придержан на первую реплику — не «выключен». Приглушение плюс
- * подпись словами под шаром; молча придержанный микрофон неотличим от
- * сломанного. */
+/* Соединяемся (стадии mic/connecting/negotiating, ещё не ready) — кнопка
+   притушена. Раньше это же говорил ждущий шар и подпись под ним; теперь
+   единственный экран — сама кнопка, ей и сигналить. */
+.wc-vs-mic.is-connecting { opacity: .5; }
+/* Микрофон придержан на первую реплику — не «выключен», а именно придержан:
+ * свой, более лёгкий приглушённый вид, отличимый от обычного мьюта. Молча
+ * придержанный микрофон неотличим от сломанного, но словами это объяснять
+ * больше негде — тусклая кнопка и есть весь сигнал. */
 .wc-vs-mic.is-held { opacity: .45; }
 /* «Держи и говори»: кольцо вокруг кнопки говорит, что она удерживается, а не
    переключается. Нажатая — заливка как у отправки. */
 .wc-vs-mic.is-ptt { box-shadow: 0 0 0 3px var(--line-strong); }
 .wc-vs-mic.is-ptt:active { background: var(--accent); color: var(--accent-fg); }
 
-.wc-vs-end { background: var(--danger); color: #fff; }
-
-/* Пока экран открыт, переписка под ним не должна быть доступна с клавиатуры и
- * не должна прокручиваться пальцем мимо экрана. */
-.wc-root.is-voice .wc-thread,
-.wc-root.is-voice .wc-composer-wrap { pointer-events: none; }
-
-@media (prefers-reduced-motion: reduce) {
-  .wc-vs-orb-core { transition: none; animation: none; }
-  .wc-vs-orb.is-waiting .wc-vs-orb-core { animation: none; }
+/* Завершение разговора — крестик, не красная трубка (решение владельца,
+   2026-08-20; образец — экран разговора в приложении Claude: тёмное
+   начертание в светлом круглом поле). Цвета не новые: это `--accent` /
+   `--accent-fg`, та самая пара «действует по нажатию», которой уже покрашена
+   кнопка отправки, — белое на тёмной теме, почти чёрное на светлой. Красный
+   `--danger` остался ровно там, где он про опасность (выход из аккаунта):
+   положить трубку — не опасное действие, разговор просто заканчивается. */
+.wc-vs-end {
+  grid-column: 3;
+  justify-self: end;
+  background: var(--accent);
+  color: var(--accent-fg);
 }
+
+/* Единственное отличие от обычного экрана чата: снизу говорят микрофон и
+ * трубка, а не поле ввода — печатать посреди разговора нечего. Лента над
+ * этим остаётся ровно той же лентой, что и всегда: видна, прокручивается,
+ * принимает клики. */
+.wc-root.is-voice .wc-composer { display: none; }
 
 /* Пузырь человека, который ещё расшифровывается: три точки вместо пустоты. */
 .wc-bubble.is-awaiting::after {
@@ -1559,8 +1591,8 @@ button { font: inherit; color: inherit; }
      which refuses anything under 40. */
   .wc-conv-more { width: 40px; height: 40px; }
   .wc-menu-item { padding: 12px 12px; }
-  .wc-account { padding-top: 13px; padding-bottom: 13px; }
-  .wc-account-avatar { width: 36px; height: 36px; }
+  .wc-account-settings,
+  .wc-account-topup { height: 44px; }
   .wc-chip-x { width: 24px; height: 24px; }
   .wc-chip-x svg { width: 14px; height: 14px; }
 }

@@ -255,12 +255,19 @@
       // «Держи и говори»: дорожка открыта ровно пока палец на кнопке.
       onHoldStart: () => { WcVoice.mute(false); WcVoiceScreen.muted(false); WcHaptics.tap(); },
       onHoldEnd: () => { WcVoice.mute(true); WcVoiceScreen.muted(true); },
-      onEnd: () => WcVoice.stop({ reason: 'manual' }),
-      // Свернуть — это НЕ положить трубку. Разговор продолжается, экран
-      // уходит, значок микрофона в поле ввода остаётся зажжённым и возвращает
-      // обратно. Так у эталонов, и так человек может свериться с перепиской,
-      // не обрывая учителя на полуслове.
-      onCollapse: () => WcVoiceScreen.close(),
+      // Разговорный вид уходит ПО НАЖАТИЮ, а не по ответу сервера. Иначе
+      // между нажатием и закрытием проходило больше полусекунды: WcVoice.stop()
+      // сначала гасит сессию и отправляет её конец, и только потом зовёт
+      // onDisconnected, где вид и убирался. Полсекунды «ничего не произошло» —
+      // это когда человек жмёт второй раз. Уборка в onDisconnected остаётся:
+      // она нужна тем случаям, где разговор кончился не крестиком, и повторный
+      // вызов ничего не портит.
+      onEnd: () => {
+        WcVoiceScreen.close();
+        WcComposer.setVoiceActive(false);
+        WcHeader.setVoiceActive(false);
+        WcVoice.stop({ reason: 'manual' });
+      },
     });
     WcVoiceScreen.muted(WcVoice.muted());
     WcVoiceScreen.micHeld(WcVoice.micHeld());
@@ -291,6 +298,7 @@
     WcVoiceScreen.stage('mic');
     WcVoiceScreen.pushToTalk(ptt);
     WcComposer.setVoiceActive(true);
+    WcHeader.setVoiceActive(true);
     WcHaptics.tap();
 
     // A spoken turn needs a conversation to belong to, exactly as a typed one
@@ -307,6 +315,7 @@
       } catch (err) {
         WcVoiceScreen.close();
         WcComposer.setVoiceActive(false);
+        WcHeader.setVoiceActive(false);
         toast('Could not start the conversation: ' + (err && err.message), { error: true });
         return;
       }
@@ -365,10 +374,7 @@
           onRemoteStream: (s) => WcVoiceScreen.meterRemote(s),
           onLocalStream: (s) => WcVoiceScreen.meterLocal(s),
           onMicHeld: (held) => WcVoiceScreen.micHeld(held),
-          onTeacherSpeaking: (on) => {
-            WcVoiceScreen.speaking(on);
-            if (!on && !WcVoice.micHeld()) WcVoiceScreen.status('Listening. Go ahead.');
-          },
+          onTeacherSpeaking: (on) => WcVoiceScreen.speaking(on),
 
           onUserStart: (id) => WcThread.beginVoiceUser(id),
           onUserDelta: (id, t) => { note(id, 'user', t); WcThread.voiceUserText(id, t); WcVoiceScreen.line('user', t); },
@@ -381,14 +387,25 @@
           // response.done — весь ход завершён, можно записывать.
           onTurnDone: () => flushExchange(),
 
-          onError: (msg) => WcVoiceScreen.status('Error: ' + msg),
+          // Toasted directly — same path as every other voice-start failure
+          // in this function — rather than through WcVoiceScreen.status(),
+          // which is now a no-op: the call screen no longer has a status
+          // line to write an error into (2026-08-19, the call screen looks
+          // like the ordinary chat now).
+          onError: (msg) => toast('Error: ' + msg, { error: true }),
           onDisconnected: async ({ reason, turns }) => {
-            // Whatever arrived and was not yet written down goes now, and the
-            // caller waits for it. The account was charged for it either way.
-            await flushExchange();
+            // ЭКРАН УХОДИТ ПЕРВЫМ, до записи в историю. Раньше здесь сначала
+            // ждали flushExchange() — сетевой заход, — и всё это время крестик
+            // выглядел ненажатым: человек жал, ничего не происходило, он жал
+            // ещё раз. Порядок обратный: сначала снимается разговорный вид,
+            // потом дописывается то, что не успело записаться. На бухгалтерию
+            // это не влияет — деньги считает серверный слушатель, а не эта
+            // функция, и await ниже по-прежнему держит вызывающего.
             WcVoiceScreen.close();
             WcComposer.setVoiceActive(false);
+            WcHeader.setVoiceActive(false);
             WcThread.endVoice();
+            await flushExchange();
             if (reason && reason !== 'manual') toast('Conversation ended: ' + reason);
             // The debit is made by the server-side listener after the call
             // closes, so ask for the balance twice, like a text turn does.
@@ -401,6 +418,7 @@
     } catch (err) {
       WcVoiceScreen.close();
       WcComposer.setVoiceActive(false);
+      WcHeader.setVoiceActive(false);
       toast(String((err && err.message) || err), { error: true });
     }
   }
@@ -408,7 +426,6 @@
   function openSettings() {
     return WcSettings.open({
       account: state.account,
-      onTopUp: () => WcTopup.open({ onPaid: refreshAccount }),
       onSignOut: signOut,
     });
   }
@@ -646,6 +663,15 @@
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.
     WcHeader.init({
       onSettings: openSettings,
+      // Пополнение теперь ровно ОДНО место — своя кнопка в подвале шторки.
+      // Из листа настроек оно убрано (wc-settings.js): два входа в одно и то
+      // же и были тем дублем, ради снятия которого подвал когда-то свели в
+      // одну строку.
+      onTopUp: () => WcTopup.open({ onPaid: refreshAccount }),
+      // The call-only gear opens the SAME Live/Push-to-talk switcher the
+      // composer's round button already opens on long-press — not a second
+      // menu (2026-08-19 brief, "новых настроек внутрь не заводить").
+      onVoiceSettings: (anchor) => WcComposer.openVoiceModeMenu(anchor),
     });
 
     watchWidth();

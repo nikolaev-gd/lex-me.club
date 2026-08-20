@@ -1,29 +1,38 @@
-// webchat/wc-voice-screen.js — экран голосового разговора.
+// webchat/wc-voice-screen.js — the call controls, docked where the composer
+// sits.
 //
-// ── Почему экран, а не плашка ────────────────────────────────────────────────
+// ── Why the thread stays on screen ───────────────────────────────────────────
 //
-// Было: карточка «Голосовой разговор» с двумя кнопками, висящая поверх
-// переписки. Так не делает ни один из эталонов, и по делу: пока идёт разговор,
-// человек не читает и не печатает — ему нужны крупные цели под большой палец,
-// понятное «тебя слышно», и один очевидный способ положить трубку. Плашка
-// поверх ленты даёт ровно обратное: мелкие кнопки и текст под ними, который
-// всё равно не читают.
+// This used to build a full-screen "call" takeover — a breathing orb, a
+// status line, the last line spoken, one button to go back to the chat
+// without hanging up. That was a deliberate, explicit request from the owner
+// at the time (see git history), and it stood until 2026-08-19, when a fresh,
+// equally explicit request replaced it: during a call this should look like
+// the ordinary chat screen, because it IS the ordinary chat screen — spoken
+// turns already land in the same thread as typed ones (WcThread.beginVoiceUser
+// / voiceUserText / voiceAssistantText, wired from wc-app.js). The one thing
+// that has to change is the composer, because there is nothing to type into
+// while talking. So this module no longer owns a screen — it owns the two
+// buttons that replace the composer's form, mounted inside the SAME
+// .wc-composer-wrap the form lives in (index.html), shown and hidden by the
+// same .is-voice class on #wc-root that already existed (wc-app.css hides
+// .wc-composer under it and shows this in its place). There is no "collapse"
+// control any more, because there is no separate place to collapse away from.
 //
-// Взято у эталонов (разбор в журнале, шаг 1):
-//   · полноэкранный режим с «шаром», который дышит в такт звуку, — ChatGPT;
-//   · крупные круглые органы в ряд внизу и «×» для выхода — Claude;
-//   · подпись состояния словами рядом с шаром — все трое.
+// Dropped with the takeover: the orb that breathed with real microphone
+// volume, and the running "The teacher is speaking…" commentary. Neither had
+// anywhere left to live once the only thing this module draws is the control
+// row, and neither was asked for.
 //
-// Чего НЕ взято: ChatGPT в 2026 отказался от отдельного экрана в пользу шара
-// поверх видимой переписки. Владелец попросил именно отдельный экран — это его
-// решение, и оно здесь исполнено; лента с расшифровкой никуда не делась и ждёт
-// за экраном.
-//
-// ── Про «уровень звука» ──────────────────────────────────────────────────────
-// Шар дышит от РЕАЛЬНОЙ громкости, а не от таймера. Это не украшение: анимация
-// «вообще» идёт одинаково и когда всё работает, и когда микрофон отвалился, а
-// дышащий от сигнала шар — единственное, что отличает «тебя слышно» от «экран
-// красивый, а звука нет».
+// ONE line of text came back on 2026-08-20, and only one: with the orb gone,
+// pressing "talk" left the screen completely silent for the seconds the
+// connection takes, and there was no way to tell a slow connect from a dead
+// button. So there is a single status line above the row — "Connecting…"
+// while the session is being set up, "Listening" the moment it is live, and
+// then it fades out after two seconds and the lit mic button carries the
+// state on its own. It is driven ONLY from stage() below, i.e. from the
+// transport's own stages; nothing else writes into it, because the thing this
+// screen must not become again is a running commentary on the call.
 (function (global) {
   'use strict';
 
@@ -32,88 +41,28 @@
   let host = null;
   let nodes = {};
   let hooks = {};
-  let audioCtx = null;
-  let meters = [];      // { analyser, data, kind }
-  let raf = 0;
   let open = false;
 
-  // Что показывать на каждой ступени подключения. Ступени названы по тому, что
-  // РЕАЛЬНО происходит, а не «подождите»: подключение к голосу занимает
-  // секунды по устройству протокола (несколько обменов по сети до первого
-  // звука), и человеку легче ждать, когда видно, что дело движется.
-  const STAGE_TEXT = {
-    mic: 'Asking for the microphone…',
-    connecting: 'Connecting to the teacher…',
-    negotiating: 'Negotiating the connection…',
-    ready: 'Listening. Go ahead.',
-  };
-  const STAGE_ORDER = ['mic', 'connecting', 'negotiating', 'ready'];
-  const HELD_TEXT = 'One moment — listening to the teacher…';
-  // Придержан ли микрофон прямо сейчас. Экран должен знать это сам: подпись
-  // «говорите» и состояние «не слышу» не должны спорить друг с другом.
+  // Придержан ли микрофон прямо сейчас (защита первой реплики). Экран должен
+  // знать это сам: не спорить с muted() на противоречивое состояние кнопки.
   let held = false;
 
-  function stopMeters() {
-    cancelAnimationFrame(raf);
-    raf = 0;
-    meters = [];
-    if (audioCtx) { try { audioCtx.close(); } catch (_) {} audioCtx = null; }
-  }
-
-  function tick() {
-    raf = requestAnimationFrame(tick);
-    if (!nodes.orb) return;
-    let peak = 0;
-    for (const m of meters) {
-      m.analyser.getByteTimeDomainData(m.data);
-      let max = 0;
-      for (let i = 0; i < m.data.length; i += 4) {
-        const v = Math.abs(m.data[i] - 128) / 128;
-        if (v > max) max = v;
-      }
-      if (max > peak) peak = max;
-    }
-    // Корень — чтобы тихая речь была видна: линейная громкость почти всё время
-    // сидит у нуля и шар выглядит неподвижным.
-    const amp = Math.min(1, Math.sqrt(peak) * 1.6);
-    nodes.orb.style.setProperty('--wc-orb-amp', amp.toFixed(3));
-  }
-
-  function meter(stream, kind) {
-    if (!stream) return;
-    try {
-      if (!audioCtx) audioCtx = new (global.AudioContext || global.webkitAudioContext)();
-      const src = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512;
-      src.connect(analyser);
-      meters.push({ analyser, data: new Uint8Array(analyser.fftSize), kind });
-      if (!raf) raf = requestAnimationFrame(tick);
-    } catch (e) {
-      // Без индикатора экран останется рабочим — молча, но рабочим.
-      console.warn('[wc-voice-screen] audio level unavailable:', e && e.message);
-    }
-  }
-
-  // «Держи и говори» вместо открытого микрофона. Живёт здесь, потому что от
-  // него зависит только поведение кнопки на этом экране.
+  // «Держи и говори» вместо открытого микрофона.
   let ptt = false;
 
-  function build() {
-    const orb = el('.wc-vs-orb', { id: 'wc-vs-orb' }, [el('.wc-vs-orb-core')]);
-    const status = el('.wc-vs-status', { id: 'wc-vs-status', role: 'status', 'aria-live': 'polite', text: STAGE_TEXT.mic });
-    const hint = el('.wc-vs-hint', { id: 'wc-vs-hint' });
-    const line = el('.wc-vs-line', { id: 'wc-vs-line' });
+  // Гашение строки «Listening». Хранится, чтобы отбой посреди соединения не
+  // оставил висящий таймер, который потом тронет узлы уже закрытого экрана.
+  let fadeTimer = null;
+  const stopFade = () => { if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; } };
 
-    // Один орган на два способа говорить.
-    //
+  function build() {
     // Обычный разговор: микрофон открыт, кнопка его закрывает и открывает —
     // нажатие переключает.
     //
-    // «Держи и говори»: микрофон закрыт, и открыт ровно пока палец на кнопке.
-    // Это НЕ другой транспорт и не другая сессия — та же живая сессия, просто
-    // дорожка выключена между репликами. Поэтому и кнопка та же: у неё
-    // меняется способ нажатия, а не назначение.
+    // «Держи и говори»: микрофон закрыт, и открыт ровно пока палец на
+    // кнопке. Это НЕ другой транспорт и не другая сессия — та же живая
+    // сессия, просто дорожка выключена между репликами. Поэтому и кнопка та
+    // же: у неё меняется способ нажатия, а не назначение.
     const mic = el('button.wc-vs-btn.wc-vs-mic', {
       type: 'button', 'aria-label': 'Mute microphone', title: 'Mute microphone',
       onclick: () => { if (!ptt) hooks.onToggleMute && hooks.onToggleMute(); },
@@ -134,18 +83,20 @@
       onclick: () => hooks.onEnd && hooks.onEnd(),
     }, [iconEnd()]);
 
-    const close = el('button.wc-vs-close', {
-      type: 'button', 'aria-label': 'Back to the chat', title: 'Back to the chat',
-      onclick: () => hooks.onCollapse && hooks.onCollapse(),
-    }, [iconChevron()]);
+    // Пока идёт соединение — «Connecting…»; как соединились — «Listening»,
+    // и через две секунды строка гаснет, оставляя подсвеченный микрофон
+    // единственным знаком, что говорить можно. Пустой экран во время
+    // соединения — то, из-за чего эта строка и вернулась: человек нажал
+    // разговор и не знает, случилось ли что-нибудь.
+    // id — тот самый '#wc-voice-status', который читает голосовой сценарий
+    // (dev-tools/scenarios/cases/webchat-voice.mjs). Строку когда-то убрали
+    // вместе с полноэкранным листом, и селектор с тех пор молча возвращал
+    // пустоту; теперь диагностика снова показывает настоящее состояние.
+    const status = el('.wc-vs-status', { id: 'wc-voice-status', role: 'status', 'aria-live': 'polite' }, ['Connecting…']);
 
-    nodes = { orb, status, hint, line, mic, end, close };
+    nodes = { mic, end, status };
 
-    return el('.wc-vs', {}, [
-      el('.wc-vs-top', {}, [close]),
-      el('.wc-vs-body', {}, [orb, status, hint, line]),
-      el('.wc-vs-controls', {}, [mic, end]),
-    ]);
+    return el('.wc-vs', {}, [status, el('.wc-vs-controls', {}, [mic, end])]);
   }
 
   const svg = (paths, extra) => {
@@ -162,8 +113,9 @@
   };
   const iconMic = () => svg(['M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z', 'M5 11a7 7 0 0 0 14 0', 'M12 18v4']);
   const iconMicOff = () => svg(['M9 5a3 3 0 0 1 6 0v4', 'M15 13a3 3 0 0 1-6 0v-1', 'M5 11a7 7 0 0 0 11 5.3', 'M12 18v4', 'M3 3l18 18']);
-  const iconEnd = () => svg(['M2.5 9.5a14 14 0 0 1 19 0l-2.2 2.7a2 2 0 0 1-2.6.4l-1.6-1a1.6 1.6 0 0 1-.7-1.6l.2-1.3a11 11 0 0 0-5.2 0l.2 1.3a1.6 1.6 0 0 1-.7 1.6l-1.6 1a2 2 0 0 1-2.6-.4z']);
-  const iconChevron = () => svg(['M6 9l6 6 6-6']);
+  // Крестик, а не трубка (решение владельца 2026-08-20). Действие то же:
+  // разговор заканчивается, человек остаётся в том же чате.
+  const iconEnd = () => svg(['M6 6l12 12', 'M18 6L6 18']);
 
   const WcVoiceScreen = {
     open(h) {
@@ -173,15 +125,17 @@
       host.hidden = false;
       open = true;
       document.getElementById('wc-root').classList.add('is-voice');
-      // Уводим фокус на экран: иначе он остаётся в поле ввода за экраном, и
-      // экранный диктор продолжает читать переписку, которой уже не видно.
+      // The composer's input is hidden the instant this opens (wc-app.css,
+      // .is-voice hides .wc-composer) — if focus was left inside it, it is
+      // now sitting in a hidden field. Move it to the one control a keyboard
+      // or screen-reader user can actually act on.
       try { nodes.end.focus({ preventScroll: true }); } catch (_) {}
     },
 
     close() {
-      stopMeters();
       open = false;
       held = false;
+      stopFade();
       if (host) { host.hidden = true; host.replaceChildren(); }
       document.getElementById('wc-root').classList.remove('is-voice');
       nodes = {};
@@ -189,7 +143,7 @@
 
     isOpen() { return open; },
 
-    /** Переключить экран в «держи и говори». Выбор человека, помнится между
+    /** Переключить в «держи и говори». Выбор человека, помнится между
      *  сессиями — хранит его композер. */
     pushToTalk(on) {
       ptt = !!on;
@@ -200,52 +154,59 @@
       nodes.mic.setAttribute('aria-label', label);
     },
 
-    // Ступень подключения. Пока не 'ready' — шар «ждёт», а не «слушает»: это
-    // единственное честное различие между «идёт соединение» и «говорите».
+    // Ступень подключения. Приходит 'mic' → 'connecting' → 'negotiating' от
+    // транспорта и 'ready' из onConnected (wc-app.js). Всё, кроме 'ready', —
+    // это ещё соединение: микрофон притушен, над ним «Connecting…».
     stage(name) {
+      if (!nodes.mic) return;
+      const ready = name === 'ready';
+      nodes.mic.classList.toggle('is-connecting', !ready);
       if (!nodes.status) return;
-      // «Слушаю. Говорите.» нельзя показывать, пока микрофон придержан защитой
-      // первой реплики: приглашать говорить туда, где тебя не слышат, — хуже,
-      // чем молчать. Пока держим — так и пишем.
-      if (name === 'ready' && held) { nodes.status.textContent = HELD_TEXT; return; }
-      nodes.status.textContent = STAGE_TEXT[name] || STAGE_TEXT.mic;
-      const idx = STAGE_ORDER.indexOf(name);
-      if (nodes.orb) {
-        nodes.orb.classList.toggle('is-waiting', name !== 'ready');
-        nodes.orb.style.setProperty('--wc-orb-step', String(Math.max(0, idx)));
+      stopFade();
+      if (!ready) {
+        nodes.status.textContent = 'Connecting…';
+        nodes.status.classList.remove('is-gone');
+        return;
       }
+      nodes.status.textContent = 'Listening';
+      nodes.status.classList.remove('is-gone');
+      // Гаснет, а не исчезает: строка держит свою высоту, и ряд кнопок не
+      // дёргается вверх в тот момент, когда человек начинает говорить.
+      fadeTimer = setTimeout(() => {
+        fadeTimer = null;
+        if (nodes.status) nodes.status.classList.add('is-gone');
+      }, 2000);
     },
 
-    status(text) { if (nodes.status) nodes.status.textContent = text; },
+    // Заглушка, и она должна ею остаться. Строка над кнопками есть (см. шапку
+    // и stage()), но пишет в неё ТОЛЬКО stage() — по ступеням соединения.
+    // Раньше сюда прилетал routine-пинг «Listening. Go ahead.» на каждую
+    // паузу учителя; пустить его в ту же строку значит вернуть бегущий
+    // комментарий к разговору, от которого экран и уходил. Ошибки идут
+    // тостом (WcUI.toast) из wc-app.js, тем же путём, что и остальные сбои
+    // голосового старта.
+    status() {},
 
-    hint(text) { if (nodes.hint) nodes.hint.textContent = text || ''; },
+    hint() {},
 
-    // Последняя реплика на экране — чтобы человек видел, что его расслышали
-    // правильно, не сворачивая экран ради ленты.
-    line(role, text) {
-      if (!nodes.line) return;
-      nodes.line.textContent = text || '';
-      nodes.line.classList.toggle('is-teacher', role === 'assistant');
-    },
+    // Реплика уже падает пузырём в саму ленту (WcThread.voiceUserText /
+    // voiceAssistantText) — здесь дублировать её негде и незачем. Заглушка,
+    // а не удалённый метод: wc-app.js вызывает её на каждый кусок голосового
+    // ответа, и без неё звонок падал бы на TypeError.
+    line() {},
 
-    speaking(on) {
-      if (nodes.orb) nodes.orb.classList.toggle('is-speaking', !!on);
-      if (on) WcVoiceScreen.status('The teacher is speaking…');
-    },
+    // Дышащего шара больше нет — говорить ему нечего. Заглушка по той же
+    // причине, что у line(): чтобы onTeacherSpeaking из wc-app.js не падал.
+    speaking() {},
 
-    // Микрофон придержан на первую реплику — это надо СКАЗАТЬ. Молча
-    // придержанный микрофон неотличим от сломанного.
+    // Придержан микрофон на первую реплику — это не «выключен», кнопка
+    // тускнеет, а не выглядит как обычный мьют. Молча придержанный микрофон
+    // неотличим от сломанного, но объяснять это текстом было ровно тем
+    // текстом, который эта правка убирает — тусклая кнопка и есть весь
+    // сигнал теперь.
     micHeld(on) {
       held = !!on;
       if (nodes.mic) nodes.mic.classList.toggle('is-held', held);
-      WcVoiceScreen.hint(held ? 'The microphone comes back on as soon as the teacher finishes' : '');
-      // Отпустили — теперь приглашение говорить стало правдой, и шар перестаёт
-      // ждать. Оба перехода делаются здесь, а не в stage(): в этот момент
-      // stage('ready') уже давно прошёл и второй раз не придёт.
-      if (!held && nodes.status && nodes.status.textContent === HELD_TEXT) {
-        nodes.status.textContent = STAGE_TEXT.ready;
-        if (nodes.orb) nodes.orb.classList.remove('is-waiting');
-      }
     },
 
     muted(on) {
@@ -257,8 +218,10 @@
       nodes.mic.setAttribute('aria-label', label);
     },
 
-    meterLocal(stream) { meter(stream, 'local'); },
-    meterRemote(stream) { meter(stream, 'remote'); },
+    // Индикатор громкости ушёл вместе с шаром — заглушки, чтобы
+    // onLocalStream/onRemoteStream в wc-app.js не падали.
+    meterLocal() {},
+    meterRemote() {},
   };
 
   global.WcVoiceScreen = WcVoiceScreen;

@@ -14,8 +14,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Lex</title>
-<link rel="stylesheet" href="wc-app.css?v=1787003701">
-<script>window.WC_VERSION = "web-1787003701";</script>
+<link rel="stylesheet" href="wc-app.css?v=1787243576">
+<script>window.WC_VERSION = "web-1787243576";window.WC_BUILD = {"version":"1.157.1","commit":"7669907","stamp":"1787243576"};</script>
 </head>
 <body>
 
@@ -70,25 +70,34 @@
       <div class="wc-sidebar-title">Chats</div>
     </div>
     <div class="wc-convs" id="wc-convs" role="list"></div>
-    <!-- Низ шторки — единственный вход в аккаунт: пополнение, сумма, а за ними
-         настройки и выход. Так у всех трёх эталонов, и так решил владелец.
-         Отдельной шестерёнки, пилюли баланса и кружка с буквой в шапке больше
-         нет — они и были теми дублями, из-за которых пополнение открывалось из
-         трёх мест, а выход из двух.
+    <!-- Низ шторки — ДВЕ кнопки, зрительно разделённые (решение владельца
+         2026-08-20): слева настройки, уже, справа пополнение с суммой на
+         кнопке, шире. Ширины 1:2, и это не «поровну» нарочно — пополнение
+         здесь главное действие, настройки открываются изредка.
+         Аккаунт, оформление и выход никуда не переехали: они внутри листа
+         настроек, который открывает левая кнопка. Кнопка пополнения из того
+         листа при этом УБРАНА — вход в пополнение остаётся ровно один.
+         Кружка с буквой больше нет: он открывал тот же лист, что и подпись
+         рядом, то есть был третьим органом на два действия.
          Почты здесь нет: решение владельца от 2026-08-17. -->
-    <button class="wc-account" id="wc-account" type="button" aria-haspopup="dialog">
-      <span class="wc-account-avatar" id="wc-account-avatar">?</span>
-      <span class="wc-account-lines">
-        <span class="wc-account-topup" id="wc-account-topup">Top up balance</span>
+    <div class="wc-account">
+      <button class="wc-account-settings" id="wc-account-settings" type="button" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.08 4.34 L11.01 2.45 L12.99 2.45 L13.92 4.34 L16.06 5.22 L18.05 4.55 L19.45 5.95 L18.78 7.94 L19.66 10.08 L21.55 11.01 L21.55 12.99 L19.66 13.92 L18.78 16.06 L19.45 18.05 L18.05 19.45 L16.06 18.78 L13.92 19.66 L12.99 21.55 L11.01 21.55 L10.08 19.66 L7.94 18.78 L5.95 19.45 L4.55 18.05 L5.22 16.06 L4.34 13.92 L2.45 12.99 L2.45 11.01 L4.34 10.08 L5.22 7.94 L4.55 5.95 L5.95 4.55 L7.94 5.22 Z"/><circle cx="12" cy="12" r="3.1"/></svg>
+        <span>Settings</span>
+      </button>
+      <button class="wc-account-topup" id="wc-account-topup" type="button">
+        <span>Top up balance</span>
         <span class="wc-account-balance" id="wc-account-balance">—</span>
-      </span>
-    </button>
+      </button>
+    </div>
   </aside>
 
   <main class="wc-main">
-    <!-- Ровно два органа, и больше в шапке нет ничего (решение владельца
-         2026-08-17). Название беседы отсюда убрано: оно осталось в заголовке
-         вкладки и окна оболочки, где не занимает места на экране телефона. -->
+    <!-- Ровно два органа при обычном чтении/наборе — новый чат, либо, во
+         время звонка, шестерёнка на его месте (решение владельца
+         2026-08-17, дополнено 2026-08-19 для звонка). Название беседы отсюда
+         убрано: оно осталось в заголовке вкладки и окна оболочки, где не
+         занимает места на экране телефона. -->
     <header class="wc-topbar">
       <!-- Три полоски, последняя короткая — форма из приложения Anthropic.
            Открывает шторку истории СЛЕВА. -->
@@ -96,18 +105,45 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h9"/></svg>
       </button>
       <div class="wc-topbar-right">
-        <!-- Появляется ТОЛЬКО когда в текущем чате что-то есть: «новый чат»
-             поверх и без того пустого чата — кнопка, которой нечего делать.
-             Скрытием управляет WcHeader.setHasContent. -->
+        <!-- Появляется ТОЛЬКО когда в текущем чате что-то есть — «новый чат»
+             поверх и без того пустого чата — кнопка, которой нечего делать —
+             и гаснет на время звонка (тогда её место занимает шестерёнка
+             ниже). Оба условия считает и решает hidden сам wc-header.js
+             (paintTopbarRight, из setHasContent + setVoiceActive). -->
         <button class="wc-icon-btn wc-new-chat" id="wc-new-chat" title="New chat" aria-label="New chat" hidden>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4z"/><path d="M4 20h16"/></svg>
+          <!-- Ровно те же два пути, что рисует расширение (chat-surface.js,
+               newChatBtn в buildHeader): карандаш НАД листом, а не карандаш с
+               подчёркиванием. Скопировано, а не подобрано похожее. Толщину
+               линии задаёт CSS (.wc-new-chat svg), потому что атрибут
+               stroke-width на элементе проигрывает базовому правилу svg{}
+               этой страницы — от разметки расширения он бы просто отвалился. -->
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>
+        </button>
+        <!-- Только во время звонка — открывает переключатель Live
+             conversation / Push to talk, тот же самый, что и долгое нажатие
+             на круглую кнопку разговора в композере
+             (WcComposer.openVoiceModeMenu, wc-composer.js). Своего меню не
+             заводит. Видимость — wc-header.js, см. новый чат выше. -->
+        <button class="wc-icon-btn wc-voice-gear" id="wc-voice-gear" title="Live conversation or push to talk" aria-label="Live conversation or push to talk" aria-haspopup="menu" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.08 4.34 L11.01 2.45 L12.99 2.45 L13.92 4.34 L16.06 5.22 L18.05 4.55 L19.45 5.95 L18.78 7.94 L19.66 10.08 L21.55 11.01 L21.55 12.99 L19.66 13.92 L18.78 16.06 L19.45 18.05 L18.05 19.45 L16.06 18.78 L13.92 19.66 L12.99 21.55 L11.01 21.55 L10.08 19.66 L7.94 18.78 L5.95 19.45 L4.55 18.05 L5.22 16.06 L4.34 13.92 L2.45 12.99 L2.45 11.01 L4.34 10.08 L5.22 7.94 L4.55 5.95 L5.95 4.55 L7.94 5.22 Z"/><circle cx="12" cy="12" r="3.1"/></svg>
         </button>
       </div>
     </header>
 
     <div class="wc-thread" id="wc-thread" tabindex="-1">
       <div class="wc-empty" id="wc-empty">
-        <p class="wc-empty-line">Hey, gorgeous. Let's light up your English.</p>
+        <!-- Same file as icons/icon128-gold.png (the toolbar/menu-bar mark,
+             v1.151.2) — inlined so the flat webchat/dist build needs no image
+             pipeline of its own (build-webchat.mjs only ever collects
+             <script>/<link> tags, see its own header comment). -->
+        <img class="wc-empty-logo" alt=""
+          src="data:image/png;base64,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"
+          width="72" height="72">
+        <!-- Обе строки подписи живут ЗДЕСЬ и только здесь — одна строка
+             разметки на всю подпись, чтобы менять текст правкой одной
+             строки. Перенос задан <br>, а не двумя абзацами: два абзаца
+             читались бы как два отдельных куска, а это одна подпись. -->
+        <p class="wc-empty-line">Hey, gorgeous!<br>Let's light up your English.</p>
       </div>
       <div class="wc-turns" id="wc-turns"></div>
       <div class="wc-thread-tail" id="wc-thread-tail"></div>
@@ -170,6 +206,20 @@
           </div>
         </div>
       </form>
+      <!-- Звонок докладывается СЮДА, а не отдельным полноэкранным листом
+           поверх всего (это решение владельца было исполнено раньше — см.
+           wc-voice-screen.js — и заменено 2026-08-19 явным заданием: во
+           время звонка это тот же самый экран чата, только вместо поля
+           ввода — микрофон и трубка). Тот же .wc-composer-wrap, что и у
+           обычного композера, значит те же отступы и то же измерение
+           высоты (--wc-composer-h, wc-app.js watchBarHeights) — ничего не
+           прыгает при переключении. Содержимое строит WcVoiceScreen.open();
+           показ/скрытие — тем же атрибутом hidden, что и раньше, и тем же
+           классом .is-voice на #wc-root, который прячет форму композера
+           (wc-app.css). Не диалог: это не модальное окно поверх страницы,
+           а замена одной строки управления на другую внутри той же строки
+           экрана — лента над ним остаётся полностью читаемой и живой. -->
+      <div class="wc-voice" id="wc-voice" hidden></div>
       <div class="wc-composer-note" id="wc-composer-note"></div>
     </div>
   </main>
@@ -180,44 +230,43 @@
 <div class="wc-menu" id="wc-menu" hidden role="menu"></div>
 <div class="wc-modal" id="wc-modal" hidden role="dialog" aria-modal="true"></div>
 <div class="wc-toast" id="wc-toast" hidden role="status" aria-live="polite"></div>
-<div class="wc-voice" id="wc-voice" hidden role="dialog" aria-modal="true" aria-label="Voice conversation"></div>
 
 <!-- ── Scripts ───────────────────────────────────────────────────────────────
      Order is load-bearing, not alphabetical: the two primitives (store, bus)
      come before anything that uses them, the shared modules from the repo root
      before the backend that wires them, and the boot file last. -->
-<script src="wc-log.js?v=1787003701"></script>
-<script src="wc-store.js?v=1787003701"></script>
-<script src="wc-bus.js?v=1787003701"></script>
+<script src="wc-log.js?v=1787243576"></script>
+<script src="wc-store.js?v=1787243576"></script>
+<script src="wc-bus.js?v=1787243576"></script>
 <!-- Отклик под пальцем через родную оболочку. Рано в списке: им пользуются и
      композер, и лента, а в обычном браузере он молчит. -->
-<script src="wc-haptics.js?v=1787003701"></script>
-<script src="wc-markdown.js?v=1787003701"></script>
-<script src="wc-ui.js?v=1787003701"></script>
+<script src="wc-haptics.js?v=1787243576"></script>
+<script src="wc-markdown.js?v=1787243576"></script>
+<script src="wc-ui.js?v=1787243576"></script>
 <!-- Shared with the extension, byte for byte. Both are free of chrome.* by
      construction — the teacher's core takes every dependency as an argument,
      and the model registry is pure data. -->
-<script src="model-registry.js?v=1787003701"></script>
-<script src="lex-teacher-core.js?v=1787003701"></script>
+<script src="model-registry.js?v=1787243576"></script>
+<script src="lex-teacher-core.js?v=1787243576"></script>
 <!-- Sign-in, shared with lex-me.club: same localStorage key, so /app,
      /account and /checkout are one login. -->
-<script src="lex-web-config.js?v=1787003701"></script>
-<script src="lex-web-auth.js?v=1787003701"></script>
-<script src="wc-history.js?v=1787003701"></script>
-<script src="wc-backend.js?v=1787003701"></script>
-<script src="wc-attach.js?v=1787003701"></script>
-<script src="wc-topup.js?v=1787003701"></script>
+<script src="lex-web-config.js?v=1787243576"></script>
+<script src="lex-web-auth.js?v=1787243576"></script>
+<script src="wc-history.js?v=1787243576"></script>
+<script src="wc-backend.js?v=1787243576"></script>
+<script src="wc-attach.js?v=1787243576"></script>
+<script src="wc-topup.js?v=1787243576"></script>
 <!-- Пороги распознавания конца реплики: порт из chat-knobs.js. Грузится ДО
      wc-voice.js, который без него не соберёт сессию. Расхождение с оригиналом
      ловит dev-tools/check-voice-config-parity.mjs. -->
-<script src="wc-voice-config.js?v=1787003701"></script>
-<script src="wc-voice.js?v=1787003701"></script>
-<script src="wc-voice-screen.js?v=1787003701"></script>
-<script src="wc-sidebar.js?v=1787003701"></script>
-<script src="wc-thread.js?v=1787003701"></script>
-<script src="wc-composer.js?v=1787003701"></script>
-<script src="wc-header.js?v=1787003701"></script>
-<script src="wc-settings.js?v=1787003701"></script>
-<script src="wc-app.js?v=1787003701"></script>
+<script src="wc-voice-config.js?v=1787243576"></script>
+<script src="wc-voice.js?v=1787243576"></script>
+<script src="wc-voice-screen.js?v=1787243576"></script>
+<script src="wc-sidebar.js?v=1787243576"></script>
+<script src="wc-thread.js?v=1787243576"></script>
+<script src="wc-composer.js?v=1787243576"></script>
+<script src="wc-header.js?v=1787243576"></script>
+<script src="wc-settings.js?v=1787243576"></script>
+<script src="wc-app.js?v=1787243576"></script>
 </body>
 </html>

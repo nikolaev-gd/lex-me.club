@@ -352,6 +352,12 @@
 
     voiceMode() { return voiceMode; },
 
+    // The gear shown in the top bar during a call opens this SAME menu — the
+    // brief is explicit that it must be the existing switcher, not a second
+    // one. anchor is whatever element the caller wants the menu positioned
+    // against (its own button, typically).
+    openVoiceModeMenu(anchor) { voiceModeMenu(anchor); },
+
     // Exposed for the voice module: a spoken turn lands in the same box.
     setText(text) {
       elInput.value = text || '';
