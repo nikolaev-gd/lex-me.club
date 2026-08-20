@@ -271,11 +271,14 @@
 
       elInput.addEventListener('input', () => { autoGrow(); syncButton(); });
 
+      // Что делает Enter — решает общий модуль, один на четыре места
+      // (`lex-composer-input.js`): на столе отправляет, на телефоне переносит
+      // строку, а отправка там остаётся за стрелкой в поле. Подпись на синей
+      // клавише ставится оттуда же, чтобы она не обещала отправку, которой не
+      // будет.
+      elInput.setAttribute('enterkeyhint', LexComposerInput.enterKeyHint());
       elInput.addEventListener('keydown', (e) => {
-        // Enter sends, Shift+Enter breaks the line. On a touch keyboard Enter
-        // is the "send" key (enterkeyhint in the markup) and there is no Shift
-        // to hold, so the newline lives behind the multiline keyboard instead.
-        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        if (LexComposerInput.enterSends(e)) {
           e.preventDefault();
           submit();
         }
@@ -327,20 +330,17 @@
     // ask for a re-check.
     refresh() { syncButton(); },
 
-    // Фокус — только там, где есть клавиатура НА СТОЛЕ.
+    // Фокус. Правило — в общем модуле, здесь только повод.
     //
-    // На телефоне наведение фокуса поднимает экранную клавиатуру, и она
-    // закрывает ровно ту беседу, которую человек только что открыл: он нажал
-    // «прочитать», а получил «печатать». Видно это было сразу — снизу
-    // выезжала системная полоска ‹ › Done над композером.
+    // Без повода (сменили беседу, вернулись из правки хода) на телефоне фокус
+    // НЕ ставится: клавиатура закрыла бы ровно ту беседу, которую человек
+    // только что открыл — он нажал «прочитать», а получил «печатать».
     //
-    // Проверяется указатель, а не ширина: планшет широкий, а клавиатура у него
-    // всё равно экранная.
-    focus() {
-      try {
-        if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) return;
-        elInput.focus();
-      } catch (_) {}
+    // `raiseKeyboard: true` — это ОКНО, которое человек открыл сам: запуск
+    // приложения, показ окна на Маке. Там он и пришёл печатать, поэтому
+    // клавиатура поднимается сразу и палочка мигает в поле.
+    focus(opts) {
+      LexComposerInput.focus(elInput, opts);
     },
 
     note(text) { elNote.textContent = text || ''; },
