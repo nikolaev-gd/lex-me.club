@@ -134,9 +134,16 @@
           pay.disabled = false;
           amount.disabled = false;
           status.classList.add('is-error');
-          status.textContent = r && r.error === 'not_signed_in'
-            ? 'Your session seems to have expired. Sign in again.'
-            : 'Could not start the payment: ' + ((r && r.error) || 'no response');
+          // Служебный код кассы (`HTTP 400`) человеку ничего не объясняет и
+          // читается как поломка, хотя деньги не тронуты. Карта человеческих
+          // текстов пришла из расширения (topup-window.js) и живёт теперь одна
+          // на оба дерева — lex-error-text.js. Код уходит с экрана, но не из
+          // журнала: без него не разобрать, почему касса не открылась.
+          const rawErr = (r && r.error) || 'no response';
+          try { if (typeof lexLog === 'function') lexLog('[wc-topup] create payment failed:', String(rawErr)); } catch (_) {}
+          status.textContent = global.LexErrorText
+            ? global.LexErrorText.topup(rawErr, { min: MIN_USD, max: MAX_USD })
+            : 'Could not start the payment. Nothing was charged — please try again.';
           return;
         }
 

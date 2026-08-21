@@ -568,10 +568,16 @@
   // chrome-extension:// iframe purely because it renders over an arbitrary
   // site; here the page is ours and there is nobody to isolate the password
   // from.
-  const GATE_ERRORS = {
-    EMAIL_TAKEN: 'That address is already taken — sign in instead.',
-    RATE_LIMITED: 'Too many attempts. Try again in a minute.',
-  };
+  // Карта кодов отказа переехала в общий lex-error-text.js — тот же список
+  // читает расширение (popup.js / login-frame.js), где до этого на экран
+  // уходили EMAIL_TAKEN и «signup failed: 500». Служебный код остаётся в
+  // журнале: по нему потом и разбирают, почему не пустило.
+  function gateErrorText(err) {
+    const raw = String((err && err.message) || err || '');
+    if (raw) { try { if (typeof lexLog === 'function') lexLog('[wc-app] auth failed:', raw); } catch (_) {} }
+    if (global.LexErrorText) return global.LexErrorText.auth(raw);
+    return 'Did not work: ' + raw;
+  }
 
   function gateStatus(text, isError) {
     const el = document.getElementById('wc-gate-status');
@@ -668,7 +674,7 @@
         await fn(email(), password());
         await enterApp();
       } catch (err) {
-        gateStatus(GATE_ERRORS[err.message] || ('Did not work: ' + err.message), true);
+        gateStatus(gateErrorText(err), true);
       }
     }
 
