@@ -767,13 +767,21 @@
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.
+    //
+    // Пополнение зовётся из ДВУХ мест — кнопки в подвале шторки и кнопки в
+    // плашке «кончились деньги», которую строит общий с расширением модуль.
+    // Поэтому оно тут одной функцией: у плашки обязан быть тот же `onPaid`,
+    // иначе после оплаты баланс на экране останется старым.
+    const topUp = () => WcTopup.open({ onPaid: refreshAccount });
+    LexBillingGate.setTopupAction(topUp);
+
     WcHeader.init({
       onSettings: openSettings,
       // Пополнение теперь ровно ОДНО место — своя кнопка в подвале шторки.
       // Из листа настроек оно убрано (wc-settings.js): два входа в одно и то
       // же и были тем дублем, ради снятия которого подвал когда-то свели в
       // одну строку.
-      onTopUp: () => WcTopup.open({ onPaid: refreshAccount }),
+      onTopUp: topUp,
       // The call-only gear opens the SAME Live/Push-to-talk switcher the
       // composer's round button already opens on long-press — not a second
       // menu (2026-08-19 brief, "новых настроек внутрь не заводить").

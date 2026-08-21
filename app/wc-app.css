@@ -919,6 +919,44 @@ button { font: inherit; color: inherit; }
   font-size: 14px;
 }
 
+/* «Кончились деньги» — не ошибка, а следующий шаг: спокойный тон вместо
+   красного и кнопка пополнения рядом с текстом. Разметку строит общий модуль
+   `lex-billing-gate.js`, он же строит её в расширении, поэтому имена классов
+   здесь чужие (`ytvocab-*`) — это цена того, что надпись и кнопка описаны
+   ровно один раз. Цвета свои: у страницы своя палитра и две темы. */
+.wc-turn-gate .wc-bubble {
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--bg-bubble);
+  color: var(--fg);
+  font-size: 14px;
+}
+.ytvocab-billing-gate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ytvocab-billing-gate-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ytvocab-billing-gate-btn {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ytvocab-billing-gate-btn:hover { background: var(--accent-hover); }
+
 /* Markdown inside an answer */
 .wc-bubble > :first-child { margin-top: 0; }
 .wc-bubble > :last-child { margin-bottom: 0; }

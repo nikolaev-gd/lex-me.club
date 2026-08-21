@@ -284,12 +284,32 @@
     error(msg) {
       const entry = live.get(msg.requestId);
       const text = msg.error || 'Something went wrong.';
+
+      // Кончились деньги — это не сбой, а следующий шаг, и человеку он должен
+      // читаться так же, как в расширении: понятная строка и кнопка рядом.
+      // Решается ДО развилок ниже: путей отрисовки три (пузырь пустой, ответ
+      // начался, пузыря нет вовсе), а случай один.
+      //
+      // Служебный код (`LEX_BILLING_GATE`) с экрана уходит, но не пропадает:
+      // без него в журнале не отличить отказ по деньгам от любого другого.
+      const gate = LexBillingGate.isGateError(text);
+      if (gate) lexLog('[wc-thread] billing gate:', text);
+
+      const paint = (turn, bubble) => {
+        turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');
+        if (gate) {
+          bubble.textContent = '';
+          bubble.append(LexBillingGate.createElement());
+        } else {
+          bubble.textContent = text;
+        }
+      };
+
       if (entry) {
         live.delete(msg.requestId);
         entry.turn.classList.remove('is-streaming');
         if (!entry.text) {
-          entry.turn.classList.add('wc-turn-error');
-          entry.bubble.textContent = text;
+          paint(entry.turn, entry.bubble);
           maybeStick();
           return;
         }
@@ -297,7 +317,9 @@
         // the failure under it rather than replacing what arrived.
       }
       setEmpty(false);
-      elTurns.append(el('.wc-turn.wc-turn-error', {}, [el('.wc-bubble', { text })]));
+      const turn = el('.wc-turn', {}, [el('.wc-bubble')]);
+      paint(turn, turn.firstChild);
+      elTurns.append(turn);
       maybeStick();
     },
 
