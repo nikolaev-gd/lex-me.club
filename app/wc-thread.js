@@ -414,6 +414,11 @@
     // True while any stream is open — the composer asks before deciding
     // whether its button says "send" or "stop".
     isStreaming() { return live.size > 0; },
+
+    // Ровно та же проверка, что setEmpty() уже использует внутри renderTurns():
+    // есть ли в открытой сейчас беседе хоть одно сообщение. Единственный
+    // источник правды для решения про клавиатуру у боковой панели (wc-app.js).
+    isEmpty() { return !elTurns.childElementCount; },
   };
 
   global.WcThread = WcThread;
