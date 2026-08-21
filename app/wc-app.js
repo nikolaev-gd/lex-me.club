@@ -460,17 +460,39 @@
     // дёрганья: не сама прокрутка, а перекладка страницы под ней.
     let lastH = -1;
     let lastOffset = -1;
+    // Самое высокое, каким это окно бывало. Признак «клавиатура поднята»
+    // считается ОТ НЕГО, а не от текущего `innerHeight`.
+    //
+    // Почему не от текущего: в приложении на iPhone экранная клавиатура
+    // укорачивает и layout-окно тоже, и `innerHeight - vv.height` выходит
+    // нулём при поднятой клавиатуре (замерено 2026-08-21: 539 и 539 при
+    // клавиатуре во весь низ экрана). Признак не включался вовсе, и правила,
+    // которые на него опираются, молчали. В браузере на столе разницы нет:
+    // там окно не укорачивается, и оба способа дают одно и то же.
+    let maxH = 0;
+    // Печатает ли человек прямо сейчас. Без этой проверки признак включался бы
+    // на обычном изменении размера окна на столе: сузили окно вдвое — «высота
+    // упала», значит клавиатура. Клавиатура не появляется сама по себе: она
+    // приходит только к полю в фокусе.
+    const typing = () => {
+      const el = document.activeElement;
+      return !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+    };
     const apply = () => {
       raf = 0;
       const h = Math.round(vv.height);
       const offset = Math.round(vv.offsetTop);
+      // Пока в поле не пишут, высота окна и есть «полная» — запоминаем её как
+      // есть, в том числе когда окно уменьшили. Пока пишут — не трогаем:
+      // именно от запомненной высоты и считается, поднялась ли клавиатура.
+      if (!typing()) maxH = global.innerHeight;
       if (h !== lastH) {
         lastH = h;
         document.documentElement.style.setProperty('--wc-vh', h + 'px');
         // A keyboard is "open" when the visual viewport is meaningfully shorter
-        // than the window. 120px of slack keeps the browser's own collapsing
-        // toolbars from counting as one.
-        root.classList.toggle('is-keyboard', (global.innerHeight - h) > 120);
+        // than the tallest this window has been. 120px of slack keeps the
+        // browser's own collapsing toolbars from counting as one.
+        root.classList.toggle('is-keyboard', typing() && (maxH - h) > 120);
       }
       if (offset !== lastOffset) {
         lastOffset = offset;
