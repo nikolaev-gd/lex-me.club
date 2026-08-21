@@ -261,6 +261,10 @@
       // would have left a desktop drawer with no way to dismiss it except the
       // hamburger.
       elScrim.hidden = !want;
+      // Единая точка для решения про клавиатуру/курсор в поле ввода — что
+      // кнопка, что жест (installDrag выше) заканчиваются здесь, и оба пути
+      // обязаны решаться одинаково (wc-app.js: onSidebarToggle).
+      if (hooks.onToggle) hooks.onToggle(want);
     },
 
     // Any action that moves the reader into the conversation closes the

@@ -108,7 +108,6 @@
     WcSidebar.close();
     syncTitle();
     syncPageBar();
-    WcComposer.focus();
   }
 
   function newConversation() {
@@ -119,7 +118,32 @@
     WcHeader.setTitle('');
     syncPageBar();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
-    WcComposer.focus();
+  }
+
+  // ── Клавиатура и боковая панель ──────────────────────────────────────────
+  //
+  // Единственная точка, где решается судьба курсора/клавиатуры у поля ввода
+  // по поводу панели бесед. Зовётся из WcSidebar.toggle() — а туда сходятся
+  // ОБА пути: кнопка-гамбургер и протяжка пальцем от края (installDrag в
+  // wc-sidebar.js), так что кнопка и жест решаются одинаково по построению,
+  // не по двум спискам кода.
+  //
+  // Правило (решение владельца, 2026-08-21):
+  //  · панель ОТКРЫВАЕТСЯ — курсор/клавиатура уходят ВСЕГДА, каким бы
+  //    способом её ни открыли;
+  //  · панель ЗАКРЫВАЕТСЯ — курсор/клавиатура возвращаются, только если в
+  //    беседе, что сейчас открыта, ещё нет ни одного сообщения. Проверка одна
+  //    и та же для всех путей закрытия (кнопка, протяжка, тап по скриму, клик
+  //    по пункту списка, «новый чат»): WcThread.isEmpty().
+  //
+  // Ровно поэтому явный focus() убран из openConversation() и newConversation()
+  // выше — оба заканчиваются вызовом WcSidebar.close(), и тем самым уже
+  // проходят через эту точку. Раздельные вызовы плодили бы два места, которые
+  // легко развести разными решениями (это и была причина дефекта: жест шёл в
+  // обход единственного места, где клавиатура убиралась).
+  function onSidebarToggle(open) {
+    if (open) { WcComposer.blur(); return; }
+    if (WcThread.isEmpty()) WcComposer.focus({ raiseKeyboard: true });
   }
 
   async function send(text, opts) {
@@ -764,6 +788,7 @@
       onNew: newConversation,
       onRename: renameConversation,
       onDelete: deleteConversation,
+      onToggle: onSidebarToggle,
     });
     await WcComposer.init({
       onSend: send,
