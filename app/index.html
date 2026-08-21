@@ -14,8 +14,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Lex</title>
-<link rel="stylesheet" href="wc-app.css?v=1787276191">
-<script>window.WC_VERSION = "web-1787276191";window.WC_BUILD = {"version":"1.160.1","commit":"589d445","stamp":"1787276191"};</script>
+<link rel="stylesheet" href="wc-app.css?v=1787320853">
+<script>window.WC_VERSION = "web-1787320853";window.WC_BUILD = {"version":"1.160.3","commit":"1077e34","stamp":"1787320853"};</script>
 </head>
 <body>
 
@@ -235,42 +235,42 @@
      Order is load-bearing, not alphabetical: the two primitives (store, bus)
      come before anything that uses them, the shared modules from the repo root
      before the backend that wires them, and the boot file last. -->
-<script src="wc-log.js?v=1787276191"></script>
-<script src="wc-store.js?v=1787276191"></script>
-<script src="wc-bus.js?v=1787276191"></script>
+<script src="wc-log.js?v=1787320853"></script>
+<script src="wc-store.js?v=1787320853"></script>
+<script src="wc-bus.js?v=1787320853"></script>
 <!-- Отклик под пальцем через родную оболочку. Рано в списке: им пользуются и
      композер, и лента, а в обычном браузере он молчит. -->
-<script src="wc-haptics.js?v=1787276191"></script>
-<script src="wc-markdown.js?v=1787276191"></script>
-<script src="wc-ui.js?v=1787276191"></script>
+<script src="wc-haptics.js?v=1787320853"></script>
+<script src="wc-markdown.js?v=1787320853"></script>
+<script src="wc-ui.js?v=1787320853"></script>
 <!-- Shared with the extension, byte for byte. Both are free of chrome.* by
      construction — the teacher's core takes every dependency as an argument,
      and the model registry is pure data. -->
-<script src="model-registry.js?v=1787276191"></script>
-<script src="lex-teacher-core.js?v=1787276191"></script>
+<script src="model-registry.js?v=1787320853"></script>
+<script src="lex-teacher-core.js?v=1787320853"></script>
 <!-- Тоже общий с расширением, байт в байт: куда встаёт курсор и что делает
      Enter. Правило одно на четыре места, где человек печатает учителю, —
      здесь, в приложении на iPhone, в программе для Мака и в расширении. -->
-<script src="lex-composer-input.js?v=1787276191"></script>
+<script src="lex-composer-input.js?v=1787320853"></script>
 <!-- Sign-in, shared with lex-me.club: same localStorage key, so /app,
      /account and /checkout are one login. -->
-<script src="lex-web-config.js?v=1787276191"></script>
-<script src="lex-web-auth.js?v=1787276191"></script>
-<script src="wc-history.js?v=1787276191"></script>
-<script src="wc-backend.js?v=1787276191"></script>
-<script src="wc-attach.js?v=1787276191"></script>
-<script src="wc-topup.js?v=1787276191"></script>
+<script src="lex-web-config.js?v=1787320853"></script>
+<script src="lex-web-auth.js?v=1787320853"></script>
+<script src="wc-history.js?v=1787320853"></script>
+<script src="wc-backend.js?v=1787320853"></script>
+<script src="wc-attach.js?v=1787320853"></script>
+<script src="wc-topup.js?v=1787320853"></script>
 <!-- Пороги распознавания конца реплики: порт из chat-knobs.js. Грузится ДО
      wc-voice.js, который без него не соберёт сессию. Расхождение с оригиналом
      ловит dev-tools/check-voice-config-parity.mjs. -->
-<script src="wc-voice-config.js?v=1787276191"></script>
-<script src="wc-voice.js?v=1787276191"></script>
-<script src="wc-voice-screen.js?v=1787276191"></script>
-<script src="wc-sidebar.js?v=1787276191"></script>
-<script src="wc-thread.js?v=1787276191"></script>
-<script src="wc-composer.js?v=1787276191"></script>
-<script src="wc-header.js?v=1787276191"></script>
-<script src="wc-settings.js?v=1787276191"></script>
-<script src="wc-app.js?v=1787276191"></script>
+<script src="wc-voice-config.js?v=1787320853"></script>
+<script src="wc-voice.js?v=1787320853"></script>
+<script src="wc-voice-screen.js?v=1787320853"></script>
+<script src="wc-sidebar.js?v=1787320853"></script>
+<script src="wc-thread.js?v=1787320853"></script>
+<script src="wc-composer.js?v=1787320853"></script>
+<script src="wc-header.js?v=1787320853"></script>
+<script src="wc-settings.js?v=1787320853"></script>
+<script src="wc-app.js?v=1787320853"></script>
 </body>
 </html>

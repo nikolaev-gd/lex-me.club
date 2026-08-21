@@ -343,6 +343,14 @@
       LexComposerInput.focus(elInput, opts);
     },
 
+    // Ставить курсор до тех пор, пока каретка не встанет НА САМОМ ДЕЛЕ, и
+    // сказать, встала ли. По этому ответу оболочка снимает заставку: показывать
+    // человеку экран раньше клавиатуры значит показывать, как он подпрыгивает.
+    // Правило и срок — в общем модуле, здесь только поле.
+    focusUntilCaret(opts) {
+      return LexComposerInput.focusUntilCaret(elInput, opts);
+    },
+
     note(text) { elNote.textContent = text || ''; },
 
     setVoiceActive(on) {

@@ -75,6 +75,72 @@
     return true;
   }
 
+  // ── Каретка встала на самом деле? ─────────────────────────────────────────
+  //
+  // `focus()` возвращает «получилось» слишком щедро: он говорит только о том,
+  // что вызов не бросил исключение. На iPhone замерено (2026-08-21, живой
+  // телефон): при запуске приложения тот же вызов записывает поле в
+  // `document.activeElement`, а каретки нет и клавиатура не поднимается — окно
+  // ещё не может взять клавиатуру себе, потому что приложение не закончило
+  // переход в активное состояние. Через две секунды тот же вызов срабатывает
+  // полностью. Значит верить надо не вызову, а признакам.
+  //
+  // Признака два, и они независимы:
+  //  1. `document.hasFocus()` — окно действительно держит клавиатуру;
+  //  2. видимая область стала заметно ниже окна — экранная клавиатура откусила
+  //     свою часть (замер на телефоне: 609 против 956).
+  // Второй нужен потому, что первый на разных оболочках приходит с задержкой;
+  // порог в 80 px берёт настоящую клавиатуру и не ловит адресную строку.
+  function caretIsLive(el) {
+    if (!el) return false;
+    try {
+      if (global.document && global.document.activeElement !== el) return false;
+      if (global.document && global.document.hasFocus()) return true;
+      const vv = global.visualViewport;
+      if (vv && vv.height && global.innerHeight && (global.innerHeight - vv.height) > 80) return true;
+    } catch (_) { /* noop */ }
+    return false;
+  }
+
+  // Сколько держать попытки — и ровно столько же держится заставка оболочки.
+  //
+  // Решение владельца от 2026-08-21: две секунды и ни секундой больше. Прежние
+  // восемь отменены. Число одно на все поверхности страницы; у оболочек есть
+  // своя копия срока в родном коде, и она обязана совпадать — снять заставку,
+  // когда страница не приехала вовсе, страница не может по определению
+  // (`ios/LexChat/LexChat/ChatWebView.swift`, `macos/Sources/LexShell/AppDelegate.swift`).
+  const LAUNCH_HOLD_MS = 2000;
+
+  // Ставить курсор, пока он не встанет ПО-НАСТОЯЩЕМУ, но не дольше срока.
+  //
+  // Зачем повтор, если есть вызов из оболочки по активации: моменты «окно может
+  // взять клавиатуру» и «страница готова» приходят в любом порядке и на разных
+  // устройствах по-разному. Ждать конкретного из них — значит выбрать порядок и
+  // проиграть на другом. Здесь не ждут события, а проверяют признак.
+  //
+  // Останавливается досрочно, если фокус ушёл на другой элемент: человек успел
+  // нажать сам, и отбирать у него курсор обратно нельзя.
+  function focusUntilCaret(el, opts) {
+    if (!el) return Promise.resolve(false);
+    focus(el, opts);
+    if (caretIsLive(el)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        const doc = global.document;
+        const active = doc && doc.activeElement;
+        const stolen = active && active !== el && active !== doc.body;
+        if (caretIsLive(el)) { clearInterval(timer); resolve(true); return; }
+        if (stolen || (Date.now() - started) >= LAUNCH_HOLD_MS) {
+          clearInterval(timer);
+          resolve(false);
+          return;
+        }
+        focus(el, opts);
+      }, 120);
+    });
+  }
+
   // ── Enter ─────────────────────────────────────────────────────────────────
   //
   // На столе Enter отправляет, Shift+Enter переносит строку — так во всех чатах,
@@ -107,6 +173,9 @@
     shellPlatform,
     onScreenKeyboard,
     focus,
+    caretIsLive,
+    focusUntilCaret,
+    launchHoldMs: LAUNCH_HOLD_MS,
     enterSends,
     enterKeyHint,
   });
