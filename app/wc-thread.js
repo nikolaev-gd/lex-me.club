@@ -295,13 +295,20 @@
       const gate = LexBillingGate.isGateError(text);
       if (gate) lexLog('[wc-thread] billing gate:', text);
 
+      // Ответ провайдера («Anthropic 529: {"type":"overloaded_error"}») человеку
+      // тоже ничего не говорит — та же расшифровка, что в расширении, из общего
+      // lex-error-text.js. Сырая строка уходит с экрана, но пишется в журнал.
+      const providerText = !gate && LexErrorText.provider(text);
+      if (providerText) lexLog('[wc-thread] provider error:', text);
+      const shown = providerText || text;
+
       const paint = (turn, bubble) => {
         turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');
         if (gate) {
           bubble.textContent = '';
           bubble.append(LexBillingGate.createElement());
         } else {
-          bubble.textContent = text;
+          bubble.textContent = shown;
         }
       };
 

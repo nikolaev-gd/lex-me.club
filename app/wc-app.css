@@ -765,9 +765,8 @@ button { font: inherit; color: inherit; }
    has not taken yet, and an empty screen is better than a guess at what
    somebody wants to ask. */
 .wc-empty-logo {
-  /* The PNG (icons/icon128-gold.png) already carries its own rounded corners
-     as alpha, not a square with CSS clipping over it — no border-radius here
-     would do anything but risk fighting that baked-in shape. */
+  /* The PNG (icons/icon128-gold.png) is a flat solid square, no alpha, sharp
+     corners by design (design/lex-icon/README.txt) — no border-radius here. */
   width: 72px;
   height: 72px;
 }
