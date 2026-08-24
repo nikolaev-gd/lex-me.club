@@ -35,10 +35,20 @@
   // height — высота САМОЙ БУКВЫ в пикселях; ширина считается из пропорции.
   // 48 по умолчанию: столько буква занимала в квадрате 72×72, которым её
   // рисовала страница картинкой (676/1024 × 72 ≈ 47,5).
+  // ⚠️ Размер и обводка задаются ИНЛАЙН-СТИЛЕМ, а не только атрибутами
+  // width/height. Атрибуты — презентационные, их специфичность нулевая, и любое
+  // правило по селектору `svg` их перебивает. Ровно так буква и съёжилась на
+  // lex-me.club/app: в wc-app.css есть базовое правило для иконок
+  // `svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.9 }`,
+  // и знак, пока он рисовался картинкой, под него не попадал, а вектором —
+  // попал: 20 px вместо 48 и серый контур по краю буквы (stroke наследуется в
+  // path, своего у него нет). Инлайн-стиль бьёт правило по селектору, поэтому
+  // знак теперь одинаков на любой поверхности, что бы ни лежало в её CSS.
   function svgMarkup(height) {
     const h = Number(height) || 48;
     const w = Math.round(h * VIEW_W / VIEW_H);
-    return `<svg viewBox="${VIEW_BOX}" width="${w}" height="${h}" role="img" aria-hidden="true" focusable="false"><path fill="${COLOR}" d="${PATH}"/></svg>`;
+    const style = `width:${w}px;height:${h}px;flex:none;stroke:none`;
+    return `<svg viewBox="${VIEW_BOX}" width="${w}" height="${h}" style="${style}" role="img" aria-hidden="true" focusable="false"><path fill="${COLOR}" d="${PATH}"/></svg>`;
   }
 
   global.LexBrandMark = { svgMarkup, COLOR, VIEW_BOX, PATH };
