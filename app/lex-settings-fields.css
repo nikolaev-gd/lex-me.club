@@ -1,0 +1,120 @@
+/* lex-settings-fields.css — вид строки настроек. Пара к lex-settings-fields.js,
+   один файл на расширение и на страницу lex-me.club/app.
+
+   Цвета берутся из переменных `--lex-field-*` с тёмными значениями по
+   умолчанию. Имена СВОИ, а не расхожие (`--fg`, `--line`): расширение рисуется
+   внутри чужого сайта, где переменная с расхожим именем может оказаться его.
+   Страница переопределяет их своими токенами один раз (wc-app.css), поэтому у
+   неё продолжает работать светлая тема. */
+
+.lex-fields {
+  --lex-field-fg: #f1f1f1;
+  --lex-field-muted: rgba(255, 255, 255, 0.55);
+  --lex-field-line: rgba(255, 255, 255, 0.10);
+  --lex-field-line-strong: rgba(255, 255, 255, 0.18);
+  --lex-field-bg: rgba(0, 0, 0, 0.35);
+  --lex-field-accent: #ffffff;
+  --lex-field-danger: #ff6b6b;
+  color: var(--lex-field-fg);
+}
+
+.lex-field {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--lex-field-line);
+}
+.lex-field:last-child { border-bottom: 0; }
+.lex-field[hidden] { display: none; }
+
+.lex-field-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.lex-field-label {
+  flex: 1;
+  min-width: 0;
+}
+.lex-field-label b {
+  display: block;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lex-field-label span {
+  display: block;
+  margin-top: 2px;
+  color: var(--lex-field-muted);
+  font-size: 12.5px;
+}
+
+.lex-field select,
+.lex-field input[type="text"],
+.lex-field input[type="number"] {
+  padding: 7px 10px;
+  border: 1px solid var(--lex-field-line-strong);
+  border-radius: 8px;
+  background: var(--lex-field-bg);
+  color: var(--lex-field-fg);
+  font: inherit;
+  font-size: 14px;
+  max-width: 62%;
+}
+.lex-field input[type="range"] {
+  width: 160px;
+  accent-color: var(--lex-field-accent);
+}
+.lex-field-value {
+  min-width: 46px;
+  color: var(--lex-field-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Кнопка в строке — по содержимому, не во всю ширину: строка читается как
+   «вот свойство, вот действие над ним», а кнопка во всю ширину читалась бы
+   как отдельный блок. */
+.lex-field-btn {
+  flex: none;
+  padding: 7px 14px;
+  border: 1px solid var(--lex-field-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lex-field-fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.lex-field-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.lex-field-btn--danger {
+  color: var(--lex-field-danger);
+  border-color: var(--lex-field-danger);
+}
+.lex-field-btn--danger:hover {
+  background: rgba(255, 107, 107, 0.12);
+}
+
+/* Кто вошёл — первая строка. Почта крупнее обычного заголовка строки: это не
+   настройка, а ответ на вопрос «я под кем». */
+.lex-field-identity .lex-field-label b { font-size: 15px; }
+
+/* Хвост строки — подтверждение удаления, поле суммы. Живёт ПОД строкой,
+   чтобы не ломать её выравнивание. */
+.lex-field-extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.lex-field-extra[hidden] { display: none; }
+.lex-field-extra span { color: var(--lex-field-muted); font-size: 12.5px; }
+.lex-field-note {
+  margin-top: 8px;
+  color: var(--lex-field-muted);
+  font-size: 12.5px;
+}
+.lex-field-note[hidden] { display: none; }

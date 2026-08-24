@@ -53,7 +53,10 @@
 
   function canSend() {
     return elInput.value.trim().length > 0
-      || (global.WcAttach && WcAttach.count() > 0);
+      || (global.WcAttach && WcAttach.count() > 0)
+      // Слова, выбранные нажатием в ленте, — это уже вопрос: они называют
+      // предмет, а дописывать к ним что-то человек не обязан.
+      || (global.WcWordPick && WcWordPick.count() > 0);
   }
 
   // Which of the two round buttons is showing. Driven by data-off rather than
@@ -106,44 +109,12 @@
   }
 
   // ── Long press ───────────────────────────────────────────────────────────
-  // One helper, because three controls want it (the chip, the round button and
-  // — in the thread — a message). Pointer events rather than touch events: the
-  // same gesture has to work under a mouse for testing.
+  // Сам жест — в общем с расширением модуле (lex-long-press.js): длительность
+  // удержания и допуск на съезд пальца человек чувствует как одно свойство
+  // продукта, и держать их в двух копиях нельзя. Здесь остаётся только отклик
+  // под пальцем — его в расширении нет, там нет родной оболочки.
   function onLongPress(el, fire, opts) {
-    const holdMs = (opts && opts.holdMs) || 480;
-    let timer = 0;
-    let fired = false;
-    let startX = 0;
-    let startY = 0;
-
-    const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
-
-    el.addEventListener('pointerdown', (e) => {
-      if (e.button != null && e.button !== 0) return;
-      fired = false;
-      startX = e.clientX;
-      startY = e.clientY;
-      clear();
-      timer = setTimeout(() => {
-        timer = 0;
-        fired = true;
-        WcHaptics.press();
-        fire(e);
-      }, holdMs);
-    });
-    // A finger that travels is a scroll, not a press.
-    el.addEventListener('pointermove', (e) => {
-      if (!timer) return;
-      if (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10) clear();
-    });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) =>
-      el.addEventListener(t, () => clear()));
-    // Swallow the click that follows a press that already did something.
-    el.addEventListener('click', (e) => {
-      if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; }
-    }, true);
-
-    return { didFire: () => fired };
+    return LexLongPress.attach(el, (e) => { WcHaptics.press(); fire(e); }, opts);
   }
 
   // ── Dictation ────────────────────────────────────────────────────────────

@@ -72,25 +72,29 @@
   }
 
   // ── Долгое нажатие ───────────────────────────────────────────────────────
-  // Тот же жест, что у композера, но здесь он ещё и должен ужиться с
-  // системным выделением текста: на СВОИХ сообщениях выделение подавлено
-  // (wc-app.css), поэтому удержание свободно и достаётся нам. Внутри ответа
-  // учителя удержание принадлежит системе — там мы не слушаем вовсе.
+  // Тот же жест, что у композера, и он ещё должен ужиться с системным
+  // выделением текста: на СВОИХ сообщениях выделение подавлено (wc-app.css),
+  // поэтому удержание свободно и достаётся нам. Внутри ответа учителя
+  // удержание принадлежит системе — там мы не слушаем вовсе.
+  //
+  // Сам жест — в общем с расширением модуле (lex-long-press.js), своей копии
+  // таймера здесь больше нет. Сверх него тут два своих повода: отклик под
+  // пальцем (в расширении родной оболочки нет) и правая кнопка мыши — тот же
+  // жест для того, у кого нет пальца.
   function onHold(el_, fire) {
-    let timer = 0, fired = false, x = 0, y = 0;
-    const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
-    el_.addEventListener('pointerdown', (e) => {
-      if (e.button != null && e.button !== 0) return;
-      fired = false; x = e.clientX; y = e.clientY; clear();
-      timer = setTimeout(() => { timer = 0; fired = true; WcHaptics.press(); fire(e); }, 480);
-    });
-    el_.addEventListener('pointermove', (e) => {
-      if (timer && (Math.abs(e.clientX - x) > 10 || Math.abs(e.clientY - y) > 10)) clear();
-    });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => el_.addEventListener(t, clear));
-    // Правая кнопка мыши — тот же жест для того, у кого нет пальца.
+    LexLongPress.attach(el_, (e) => { WcHaptics.press(); fire(e); });
     el_.addEventListener('contextmenu', (e) => { e.preventDefault(); fire(e); });
-    el_.addEventListener('click', (e) => { if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; } }, true);
+  }
+
+  // Текст ЭТОГО хода как его написал человек. Нарезка на слова кладёт на
+  // пузырь исходник (`lexSrc`) и дальше спрашивать надо его, а не то, что
+  // читается из узлов: между кусками нарезка ставит РОВНО один пробел, и
+  // сообщение с двойным пробелом или отступом вернулось бы из textContent
+  // подправленным. Пузырь без нарезки исходника не несёт — тогда textContent и
+  // есть исходник.
+  function userText(bubble) {
+    const src = bubble && bubble.dataset ? bubble.dataset.lexSrc : null;
+    return (src != null) ? src : ((bubble && bubble.textContent) || '');
   }
 
   function userMessageMenu(anchor, bubble) {
@@ -99,20 +103,25 @@
         label: 'Copy',
         icon: 'copy',
         onSelect: async () => {
-          try { await navigator.clipboard.writeText(bubble.textContent || ''); toast('Copied'); }
+          try { await navigator.clipboard.writeText(userText(bubble)); toast('Copied'); }
           catch (_) { toast('The browser refused clipboard access', { error: true }); }
         },
       },
       {
         label: 'Edit',
         icon: 'edit',
-        onSelect: () => hooks.onEdit && hooks.onEdit(bubble.textContent || ''),
+        onSelect: () => hooks.onEdit && hooks.onEdit(userText(bubble)),
       },
     ]);
   }
 
   function userTurn(text, images) {
     const bubble = el('.wc-bubble', { text });
+    // Ход человека приходит текстом целиком, поэтому режется сразу — ждать
+    // тут нечего. `ready` кладёт на пузырь исходник даже при выключенном
+    // режиме: включение посреди беседы иначе нашло бы пузыри без исходника и
+    // не смогло бы потом снять с них нарезку.
+    if (global.WcWordPick) WcWordPick.ready(bubble, text, 'text');
     const parts = [];
     if (images && images.length) {
       parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
@@ -138,6 +147,11 @@
     const foot = el('.wc-turn-foot', {}, [copyButton(() => turn.dataset.raw || '')]);
     const turn = el('.wc-turn.wc-turn-assistant', {}, [bubble, foot]);
     turn.dataset.raw = text || '';
+    // Готовый ответ (история, реплей) режется сразу; пустой — это открытый
+    // поток, его режет done() по концу. Резать во время потока бессмысленно по
+    // построению: WcMarkdown.into на каждом кадре делает replaceChildren, то
+    // есть стирает нарезку предыдущего кадра вместе со всей разметкой.
+    if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'markdown');
     return { turn, bubble, foot };
   }
 
@@ -168,6 +182,11 @@
       elTurns = document.getElementById('wc-turns');
       elEmpty = document.getElementById('wc-empty');
       elJump = document.getElementById('wc-jump');
+      // Знак Lex на пустом экране. Приходит из общего с расширением
+      // lex-brand-mark.js — одна копия буквы на обе поверхности; в разметке
+      // остаётся пустой контейнер.
+      const logo = document.getElementById('wc-empty-logo');
+      if (logo && global.LexBrandMark) logo.innerHTML = LexBrandMark.svgMarkup(48);
 
       elThread.addEventListener('scroll', () => {
         stickToBottom = nearBottom();
@@ -188,6 +207,7 @@
     },
 
     clear() {
+      if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
       elTurns.replaceChildren();
       stickToBottom = true;
@@ -196,13 +216,28 @@
     },
 
     renderTurns(turns) {
+      // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
+      // и обязан уйти вместе с ними.
+      if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
       elTurns.replaceChildren();
       (turns || []).forEach((t) => {
         // t.images is a list of ready object URLs — the backend resolved them
         // from this browser's picture store while loading the conversation.
-        if (t.role === 'user') elTurns.append(userTurn(t.text, t.images));
-        else elTurns.append(assistantTurn(t.text).turn);
+        if (t.role === 'user') {
+          // Скрытая часть хода со словами («Word: "…"\nContext: "…"») уезжает
+          // учителю и лежит в беседе, но человеку показывать её нельзя: в
+          // живой ленте он видел только напечатанное, и перечитывание обязано
+          // вести себя так же. Правило общее с расширением (лента одна и та
+          // же: беседа из расширения читается здесь и наоборот).
+          const visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
+          // Ход, от которого после этого ничего не осталось, — служебная
+          // инструкция выключенного лексического попапа, а не реплика
+          // человека. Пустой пузырь на её месте читался бы как «он ничего не
+          // сказал».
+          if (global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
+          elTurns.append(userTurn(visible, t.images));
+        } else elTurns.append(assistantTurn(t.text).turn);
       });
       setEmpty(!elTurns.childElementCount);
       syncFeet();
@@ -228,6 +263,9 @@
       if (!last) return false;
       const bubble = last.querySelector('.wc-bubble');
       if (!bubble) return false;
+      // Пузырь переписывается — его слова в наборе указывали бы на текст,
+      // которого больше нет.
+      if (global.WcWordPick) WcWordPick.forgetBubble(bubble);
       bubble.innerHTML = '';
       last.dataset.raw = '';
       last.classList.remove('wc-turn-error');
@@ -270,6 +308,9 @@
       live.delete(msg.requestId);
       entry.turn.classList.remove('is-streaming');
       syncFeet();
+      // Ответ дописан — вот теперь его можно резать на слова. Раньше нельзя:
+      // каждый кадр потока перерисовывает пузырь целиком.
+      if (entry.text && global.WcWordPick) WcWordPick.ready(entry.bubble, entry.text, 'markdown');
       // An answer that ended without a single token is a failure the reader
       // must see; an empty bubble reads as "the model had nothing to say".
       if (!entry.text) {
@@ -321,7 +362,10 @@
           return;
         }
         // Partial answer already on screen — keep it (it was paid for) and put
-        // the failure under it rather than replacing what arrived.
+        // the failure under it rather than replacing what arrived. Больше в
+        // этот пузырь ничего не придёт — значит он дописан, и слова в нём
+        // такие же нажимаемые, как в целом ответе.
+        if (global.WcWordPick) WcWordPick.ready(entry.bubble, entry.text, 'markdown');
       }
       setEmpty(false);
       const turn = el('.wc-turn', {}, [el('.wc-bubble')]);
@@ -411,6 +455,10 @@
       voiceBubbles.forEach((entry) => {
         // Anything still showing the waiting dots never got a transcript.
         if (entry.role === 'user' && !entry.bubble.textContent) entry.turn.remove();
+        // Сказанное — тоже сообщение в этой ленте, и слова в нём нажимаются
+        // так же. Режем ЗДЕСЬ, а не по ходу разговора: пока он идёт, обе
+        // стороны переписывают свои пузыри на каждом кадре расшифровки.
+        else if (global.WcWordPick) WcWordPick.ready(entry.bubble, entry.bubble.textContent, 'text');
       });
       voiceBubbles.clear();
     },

@@ -148,7 +148,17 @@
 
   async function send(text, opts) {
     const images = WcAttach.take();
-    if (!text && !images.length) return;
+    // Слова, выбранные нажатием в ленте, забираются ЗДЕСЬ — в единственный
+    // момент, когда набор перестаёт быть состоянием и становится репликой.
+    // Наружу выходят две разные строки: `visible` — то, что человек увидит в
+    // своём пузыре (слова плюс дописанное), `sent` — то же самое со скрытой
+    // частью впереди (отрывок вокруг каждого слова, форма общая с расширением
+    // — LexWordPick.sendPrefix). Набор при этом опустошается: иначе он уехал
+    // бы вторым экземпляром со следующей репликой.
+    const turn = global.WcWordPick
+      ? WcWordPick.takeTurn(text)
+      : { visible: String(text || '').trim(), sent: String(text || '').trim() };
+    if (!turn.visible && !images.length) return;
     // 'native' or nothing. The mode rides with the turn rather than living as
     // page state: it is chosen per message (by which button was pressed), not
     // switched on and left on.
@@ -157,7 +167,7 @@
     // The preview URL made for the strip is handed to the bubble rather than
     // revoked and remade: it points at the same Blob, and revoking it here
     // would blank the picture the reader just sent.
-    WcThread.appendUser(text, images.map((i) => i.previewUrl).filter(Boolean));
+    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean));
     WcComposer.refresh();
 
     const requestId = nextRequestId();
@@ -169,7 +179,11 @@
       const r = await WcBus.call('WC_SEND', {
         requestId,
         conversationId: state.conversationId,
-        text,
+        // Со скрытой частью — учителю нужен отрывок, в котором стоят выбранные
+        // слова. Она же ложится в беседу: повтор хода и следующие реплики
+        // обязаны видеть ровно то, что видела модель. В ленте её не показывает
+        // ни живой пузырь, ни перечитывание (WcWordPick.visibleText).
+        text: turn.sent,
         images,
         mode,
       });
@@ -781,6 +795,17 @@
     WcThread.init({
       onRetry: regenerate,
       onEdit: editTurn,
+    });
+    // Клик по словам в ленте. Поднимается ДО первой отрисовки беседы: иначе
+    // первые пузыри пришли бы без исходника на узле и включить режим на них
+    // было бы нечем. Значение переключателя — из настроек этой поверхности
+    // (WcStore, своё в браузере, на Маке и на телефоне); подписка нужна для
+    // второй вкладки того же браузера, где переключатель могли тронуть.
+    WcWordPick.init({ onChipsChanged: () => WcComposer.refresh() });
+    WcWordPick.setEnabled(await WcStore.one(WcWordPick.STORAGE_KEY, false));
+    WcStore.subscribe((changes) => {
+      if (!changes || !changes[WcWordPick.STORAGE_KEY]) return;
+      WcWordPick.setEnabled(changes[WcWordPick.STORAGE_KEY].newValue === true);
     });
     WcAttach.init();
     WcSidebar.init({

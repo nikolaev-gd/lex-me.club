@@ -153,12 +153,27 @@
   // session_kind 'standalone' — this page IS the standalone chat.
   // ── Откуда пришла беседа ─────────────────────────────────────────────────
   //
-  // Одна и та же страница живёт и вкладкой в браузере, и начинкой приложения,
-  // поэтому спрашиваем не «какой это код», а «есть ли вокруг оболочка»: мосты
-  // с именами lex* ставит только она (GoogleAuth, Haptics). Ни один браузер их
-  // не заводит.
+  // Одна и та же страница живёт вкладкой в браузере, окном программы на Маке и
+  // приложением на айфоне, и в базе они обязаны различаться: «на телефоне
+  // отвечает не так» и «в программе на Маке отвечает не так» — разные жалобы.
+  //
+  // Спрашиваем ОБОЛОЧКУ, а не браузер. `window.__lexShell` — пометка, которую
+  // каждая ставит сама, до первой строчки страницы
+  // (ios/LexChat/LexChat/ShellBridge.swift, macos/Sources/LexShell/ShellBridge.swift);
+  // её же читает lex-composer-input.js, решая, что делает Enter. Угадывать по
+  // строке браузера нельзя: WebKit внутри обеих оболочек один и тот же.
+  //
+  // ЧЕМ БЫЛО РАНЬШЕ и почему это врало. Раньше здесь спрашивалось «есть ли
+  // вокруг мост с именем lex*» — а такой мост ставят ОБЕ оболочки (GoogleAuth
+  // называется `lexauth` и там, и там). Поэтому Мак писался в базу как 'ios', и
+  // отличить его было нечем. Проверка по мосту оставлена запасной: она
+  // отвечает хотя бы «это оболочка, а не браузер», если пометка не доехала.
+  const SHELL_PLATFORMS = { ios: 'ios', macos: 'macos' };
   function originOfThisClient() {
     try {
+      const shell = global.__lexShell;
+      const p = shell && shell.platform ? SHELL_PLATFORMS[String(shell.platform)] : null;
+      if (p) return p;
       const h = global.webkit && global.webkit.messageHandlers;
       if (h && (h.lexauth || h.lexhaptics)) return 'ios';
     } catch (_) {}
@@ -177,6 +192,10 @@
   // применение миграции, и origin остался бы пустым навсегда, ничем себя не
   // выдав. Перезагрузка страницы — и мы снова пробуем как следует.
   let originColumnMissing = false;
+  // Чем помечать беседы этой загрузки. null — «спросить оболочку»; строка
+  // появляется только после отказа по значению (см. isBadOriginValue) и живёт
+  // ровно до перезагрузки страницы, по той же причине, что и признак выше.
+  let originValue = null;
 
   // Отказ по неизвестной колонке — и ТОЛЬКО он. PostgREST отвечает PGRST204,
   // Postgres — 42703, и оба называют колонку. Ловить «любой 400» нельзя:
@@ -188,6 +207,19 @@
     return /PGRST204/.test(s) || /42703/.test(s)
       || /column .*origin.* does not exist/i.test(s)
       || /could not find the 'origin' column/i.test(s);
+  }
+
+  // Колонка есть, а ЗНАЧЕНИЯ она не знает: 'macos' появился в перечне
+  // 2026-08-23, и база, где миграция ещё старая, отобьёт вставку нарушением
+  // CHECK — код 23514, имя ограничения в тексте отказа. Отдельный случай от
+  // неизвестной колонки: там снимается поле целиком, здесь достаточно написать
+  // 'web' — беседа с Мака попадёт в общую кучу с браузером, что было правдой
+  // до этой правки и уж точно лучше, чем молчащий чат. Без этой ветки цена
+  // ошибки — весь продукт на Маке: нет строки сеанса → llm-proxy отбивает
+  // платный вызов как 'no_session'.
+  function isBadOriginValue(err) {
+    const s = String((err && err.message) || err || '');
+    return /23514/.test(s) && /sessions_origin_check/i.test(s);
   }
 
   async function createSession() {
@@ -213,12 +245,21 @@
     } else {
       try {
         rows = await post('/rest/v1/sessions',
-          [Object.assign({ origin: originOfThisClient() }, base)], 'return=representation');
+          [Object.assign({ origin: originValue || originOfThisClient() }, base)], 'return=representation');
       } catch (err) {
-        if (!isUnknownOriginColumn(err)) throw err;
-        originColumnMissing = true;
-        console.warn(TAG, 'sessions.origin отсутствует — миграция session_origin.sql не применена; пишу беседы без пометки источника');
-        rows = await post('/rest/v1/sessions', [base], 'return=representation');
+        if (isBadOriginValue(err)) {
+          // База со старым перечнем. Один раз за загрузку переходим на 'web' и
+          // повторяем — см. isBadOriginValue выше.
+          originValue = 'web';
+          console.warn(TAG, 'sessions.origin не знает значения этой оболочки — миграция session_origin.sql старее клиента; пишу беседы как web');
+          rows = await post('/rest/v1/sessions',
+            [Object.assign({ origin: originValue }, base)], 'return=representation');
+        } else {
+          if (!isUnknownOriginColumn(err)) throw err;
+          originColumnMissing = true;
+          console.warn(TAG, 'sessions.origin отсутствует — миграция session_origin.sql не применена; пишу беседы без пометки источника');
+          rows = await post('/rest/v1/sessions', [base], 'return=representation');
+        }
       }
     }
 
@@ -266,7 +307,11 @@
   // 73 conversations the preview pass takes seconds, and folding it into
   // `list` left the sidebar empty for all of them — the data was there and the
   // reader could not see it.
-  const PREVIEW_CACHE_KEY = 'wcPreviewCache';
+  // Имя с номером: в кэше лежат уже НАЗВАННЫЕ беседы, и правка правила, по
+  // которому имя строится, обязана их пересчитать. Иначе беседа, названная по
+  // старому правилу, останется с ним навсегда — а именно это и случилось бы с
+  // именами вида `Word: "…" Context: "…"` ниже.
+  const PREVIEW_CACHE_KEY = 'wcPreviewCache2';
   const PREVIEW_PAGE = 30;
 
   async function list() {
@@ -337,7 +382,17 @@
       + '&video_id=eq.' + encodeURIComponent(videoId)
       + '&role=eq.user&deleted_at=is.null&order=authored_at.asc&limit=4');
     const hit = (rows || []).find((r) => r.content && !isSeedContent(r.content));
-    return hit ? String(hit.content).replace(/\s+/g, ' ').trim().slice(0, 120) : '';
+    if (!hit) return '';
+    // Скрытая часть хода со словами снимается ДО обрезки, а не после: она
+    // длиннее ста двадцати знаков сама по себе, и беседа называлась бы
+    // `Word: "welcome" Context: "Wel…` — то есть служебной строкой вместо
+    // вопроса человека. Правило общее с лентой и с расширением
+    // (LexWordPick.stripHiddenPickPrefix): имя беседы и её первый пузырь
+    // обязаны показывать одно и то же.
+    const visible = global.LexWordPick
+      ? global.LexWordPick.stripHiddenPickPrefix(String(hit.content))
+      : String(hit.content);
+    return visible.replace(/\s+/g, ' ').trim().slice(0, 120);
   }
 
   // ── One conversation ─────────────────────────────────────────────────────

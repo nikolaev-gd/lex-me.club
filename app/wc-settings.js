@@ -40,14 +40,11 @@
     document.documentElement.style.fontSize = (15 * n / 100).toFixed(2) + 'px';
   }
 
-  function field(label, hint, control) {
-    return el('.wc-field', {}, [
-      el('.wc-field-row', {}, [
-        el('.wc-field-label', {}, [el('b', { text: label }), hint ? el('span', { text: hint }) : null]),
-        control,
-      ]),
-    ]);
-  }
+  // Строку настроек рисует ОБЩИЙ с расширением модуль (lex-settings-fields.js).
+  // Своей вёрстки `.wc-field` здесь больше нет: пока она была своя, страница и
+  // расширение разъезжались по кеглю, цвету и устройству строки.
+  const field = (label, hint, control) =>
+    LexSettingsFields.fieldNode({ label, hint, control });
 
   // Какая сборка сейчас открыта. До этой строки узнать это было нельзя ничем:
   // номер существовал, но уходил только в базу. А открыт этот чат в трёх
@@ -61,6 +58,23 @@
     const b = global.WC_BUILD;
     if (!b || !b.version) return 'webchat-dev';
     return b.version + ' · ' + b.commit;
+  }
+
+  // ── Переключатель ────────────────────────────────────────────────────────
+  //
+  // Готового не было: в этом листе до сих пор жили только выпадающие списки и
+  // ползунок. Внутри — обычный `<input type="checkbox">`, а не div с
+  // обработчиком: он сам приходит с ролью, с фокусом, с пробелом как нажатием
+  // и с состоянием для скринридера. Вид ему задаёт CSS (`.wc-switch`), и это
+  // ровно тот случай, когда «сделать новый компонент» значит одеть родной, а
+  // не написать свой.
+  function toggle(checked, onChange) {
+    const input = el('input', {
+      type: 'checkbox',
+      checked: !!checked || null,
+      onchange: (e) => onChange(!!e.target.checked),
+    });
+    return el('label.wc-switch', {}, [input, el('span.wc-switch-track', {}, [el('span.wc-switch-knob')])]);
   }
 
   function select(options, value, onChange) {
@@ -85,10 +99,10 @@
     },
 
     async open(ctx) {
-      const stored = await WcStore.get(['wcTheme', 'wcTextScale']);
+      const stored = await WcStore.get(['wcTheme', 'wcTextScale', WcWordPick.STORAGE_KEY]);
       const account = (ctx && ctx.account) || {};
 
-      const scaleValue = el('.wc-field-value', { text: (stored.wcTextScale || 100) + '%' });
+      const scaleValue = el('span', { text: (stored.wcTextScale || 100) + '%' });
       const scale = el('input', {
         type: 'range', min: '85', max: '130', step: '5',
         value: String(stored.wcTextScale || 100),
@@ -107,14 +121,11 @@
         // теперь одна, в подвале шторки истории (решение владельца
         // 2026-08-20). Пополнение открывалось отсюда и оттуда — ровно тот
         // дубль, который здесь и снимается.
-        el('.wc-field', {}, [
-          el('.wc-field-row', {}, [
-            el('.wc-field-label', {}, [
-              el('b', { text: account.email || 'Not signed in' }),
-              el('span', { text: account.signedIn ? 'Balance ' + fmtMoney(account.balanceUsd) : '' }),
-            ]),
-          ]),
-        ]),
+        LexSettingsFields.identityNode({
+          email: account.email,
+          emptyLabel: 'Not signed in',
+          balance: account.signedIn ? 'Balance ' + fmtMoney(account.balanceUsd) : '',
+        }),
 
         field('Appearance', 'Light, dark, or follow the system',
           select(THEMES, stored.wcTheme || 'dark', (v) => {
@@ -122,16 +133,29 @@
             WcStore.set({ wcTheme: v });
           })),
 
-        el('.wc-field', {}, [
-          el('.wc-field-row', {}, [
-            el('.wc-field-label', {}, [
-              el('b', { text: 'Text size' }),
-              el('span', { text: 'Changes the whole page' }),
-            ]),
-            scale,
-            scaleValue,
-          ]),
-        ]),
+        LexSettingsFields.fieldNode({
+          label: 'Text size',
+          hint: 'Changes the whole page',
+          control: scale,
+          value: scaleValue,
+        }),
+
+        // Своя настройка, свой блок с заголовком — правило дома: разные вещи
+        // не делят строку. Рисуется тем же общим модулем, что и соседние
+        // строки (`field` выше → LexSettingsFields.fieldNode): своей вёрстки
+        // у настроек этой страницы больше нет.
+        //
+        // Значение живёт в хранилище ЭТОЙ поверхности, то есть включённое в
+        // браузере не включается на Маке и на телефоне: у каждой оболочки своя
+        // IndexedDB, даже когда адрес страницы один и тот же.
+        field('Tap words', 'Tap a word in any message to ask about it',
+          toggle(stored[WcWordPick.STORAGE_KEY] === true, (on) => {
+            // Применяем СРАЗУ, не дожидаясь записи: лист настроек полупрозрачен
+            // и лента под ним видна — человек видит, что произошло, тем же
+            // движением.
+            WcWordPick.setEnabled(on);
+            WcStore.set({ [WcWordPick.STORAGE_KEY]: on });
+          })),
       ];
 
       // Voice settings are step 4 and register themselves — the sheet does not
@@ -140,31 +164,24 @@
         (await WcVoice.settingsFields()).forEach((f) => body.push(f));
       }
 
-      body.push(el('.wc-field', {}, [
-        el('.wc-field-row', {}, [
-          el('.wc-field-label', {}, [
-            el('b', { text: 'Sign out' }),
-            el('span', { text: 'On this device only' }),
-          ]),
-          el('button.wc-btn.wc-btn-ghost', {
-            type: 'button', text: 'Sign out',
-            style: { width: 'auto', padding: '7px 14px', color: 'var(--danger)', borderColor: 'var(--danger)' },
-            onclick: () => { handle.close(); ctx.onSignOut(); },
-          }),
-        ]),
-      ]));
+      const signOutBtn = el('button.lex-field-btn.lex-field-btn--danger', {
+        type: 'button', text: 'Sign out',
+        onclick: () => { handle.close(); ctx.onSignOut(); },
+      });
+      body.push(LexSettingsFields.fieldNode({
+        label: 'Sign out',
+        hint: 'On this device only',
+        control: signOutBtn,
+      }));
 
       // Последней строкой, самым мелким — номер сборки. Он не настройка, его
       // не крутят; он нужен ровно в тот момент, когда спрашивают «а у тебя
       // какая версия», и тогда его надо найти, а не искать.
-      body.push(el('.wc-field', { id: 'wc-build' }, [
-        el('.wc-field-row', {}, [
-          el('.wc-field-label', {}, [
-            el('span', { text: 'Build' }),
-          ]),
-          el('.wc-field-value', { id: 'wc-build-value', text: buildLine() }),
-        ]),
-      ]));
+      const buildField = LexSettingsFields.fieldNode({ hint: 'Build', value: buildLine() });
+      buildField.id = 'wc-build';
+      const buildValue = buildField.querySelector('.lex-field-value');
+      if (buildValue) buildValue.id = 'wc-build-value';
+      body.push(buildField);
 
       const handle = sheet('wc-settings', 'Settings', body);
       return handle;

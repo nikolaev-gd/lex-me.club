@@ -227,7 +227,11 @@
     }
     function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
 
-    const body = el('.wc-sheet-body', {}, bodyNodes);
+    // `lex-fields` — контейнер строк настроек из общего с расширением
+    // lex-settings-fields.css: на нём объявлены переменные вида, и страница
+    // переопределяет их своими токенами (wc-app.css), чтобы светлая тема
+    // продолжала работать.
+    const body = el('.wc-sheet-body.lex-fields', {}, bodyNodes);
     // Полоска-ухватка сверху. Она не украшение: это единственное, что говорит
     // «лист можно тянуть» до того, как человек попробует.
     const grip = el('.wc-sheet-grip', { 'aria-hidden': 'true' });

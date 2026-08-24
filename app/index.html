@@ -14,8 +14,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Lex</title>
-<link rel="stylesheet" href="wc-app.css?v=1787437347">
-<script>window.WC_VERSION = "web-1787437347";window.WC_BUILD = {"version":"1.160.11","commit":"ea8a88c","stamp":"1787437347"};</script>
+<link rel="stylesheet" href="lex-settings-fields.css?v=1787592141">
+<link rel="stylesheet" href="wc-app.css?v=1787592141">
+<script>window.WC_VERSION = "web-1787592141";window.WC_BUILD = {"version":"1.160.13","commit":"98e1070","stamp":"1787592141"};</script>
 </head>
 <body>
 
@@ -131,19 +132,17 @@
     </header>
 
     <div class="wc-thread" id="wc-thread" tabindex="-1">
+      <!-- Пустой чат — ОДИН знак Lex по центру, без единой строки текста
+           (решение владельца 2026-08-23). Подпись «Hey, gorgeous! / Let's
+           light up your English.» убрана: приветствие, которое человек видит
+           каждый раз при открытии нового чата, перестаёт читаться на второй
+           раз и просто занимает место.
+           Знак — общий с расширением lex-brand-mark.js: разметку буквы
+           вставляет wc-thread.js на загрузке, чтобы копия была ровно одна.
+           Чёрной подложки у него нет — на этой странице она и так была не
+           видна, а в расширении читалась лишним квадратом. -->
       <div class="wc-empty" id="wc-empty">
-        <!-- Same file as icons/icon128-gold.png (the toolbar/menu-bar mark,
-             v1.151.2) — inlined so the flat webchat/dist build needs no image
-             pipeline of its own (build-webchat.mjs only ever collects
-             <script>/<link> tags, see its own header comment). -->
-        <img class="wc-empty-logo" alt=""
-          src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAIAAABMXPacAAAEoElEQVR4nO3dXUxbZRzH8VNOD30ByjgF2jHGhg7FRF7UZYFtTUycZlF8SdyLerOoMzMsU+MSNXphdEazcOFcookJXoxFXWKmMWOCmmyammU4lm1IJGzgHOVldGWUQumBthwvTIzhoin0/J//Kfl9Lsn6f570O2DndDmPJAEAAAAAAAAAAAAAAAAAAAAJC8uqRS6lwutUC5SZWGIkqI2GNJZtmIHQAJVlzuefqGja6t2wNu//Xw9Ozv10PnisPdDVOylyP2YgKEBhvvLevuo9TWvlnFQrnu0OHTzSOxCIitmVGYgIULvBdeLDjeUeRzp/OKYlmw/3nDwzSr0rkyAPcN/dhac+bnDlWdN/ia5LB1p62k4H6HZlHrQBvG6bv9XnUW1LfWEiqT/5epf/8gTFrkwlh3T6kYM1y3j3JUmyypbP365z2mXDt2Q2hAF89e5Ht3iW/fJyj2P/zkoD92NOhAH278r07dv39HqrzHOlIgxVgII867ZNJRkOKS2yba13G7If06IKsPGeVbmKAcM316mZDzEzqgBVFfmGzLnLoDmmRRVALVCMmeMyZo5pUQWwpLzlkD4Zv4SBFAIwQwBmCMAMAZghADMEYIYAzBCAGQIwQwBmCMAMAZghADMEYIYAzBCAGQIwQwBmCMAMAZghADMEYIYAzBCAGQIwQwBmCMAMAZghADMEYIYAzBCAGQIwQwBmCMAMAZghADMEYIYAzBCAGQIwQwBmCMCMLICuU01eWagCJJIIkBaqADOxJNHkFWYJz1NdklB4zpA5vnp35NfHDBmVQjSWGByZ7f4z3O6/eaY7tLAg7tuX6nFIW+rUjqONRMNJDQ5HD7X2f3t2TMxyVAFWF9v7Tz5ENFyAU/6bL390ZTqaoF6I6nfAWEi7HZknGi7A4z5vx9FG1ZVLvRDhdcDFvim64QL8+9B3Qx6+mQLh9N+y/9HbDTVFb+6pIl2CMMDPXbfohgvz6jN3rFvtpJtPGKB3MHJtKOvPwshVcg5k/BDsFGh/wH394zDpfDF2bCtLffJKJmgDtJ0OaPMLpEsIoLpya6tcRMNpAwQn577sWAknkdx7Z3YGkCSppW0gpmX9faHSZZ0Dkg7yAKMhreX4APUq1GSy90nEBzKfnBi8cjW7L8puT8WJJosIEE/oLxy6JOC+Cp2rQzNEkwV9JHltKPriB5eSAm/zGkibX7jQFyYaLu4z4c5zwVda/hB5q90onefG6f4dIfRD+eM/BJoP98QTWdbg02+u0w0X/b8ivuoc3vHG7xNTWXOn+rtfxkjPeOU5IKS81PHZW7UPPlDMsnr6Rm5pvr3+UJjwrwvbCS0Wi/Tc9vJ3X6r2uqmucTIUno43vXa+ZyBCugrzETlOu7z3qXXNOyvLiu28O1nkr5Hos+9c7Ls+Tb2QKc4oUqyW7Y2e3Y+seXhTiYP7AM94Qv/i+xvvt/bPzIq4cDFFgP84bHJDTdHmWvX+6lXV6/PXlNhzyO4DL6LrUt/f0+3+8WPtQ4HxmJhFJbMFWESxWjyqXS1UHDbZaaP6ztAlaWJq/sbYbCSbr9UBAAAAAAAAAAAAAAAAAABgkX8A4IMi8hZLzKwAAAAASUVORK5CYII="
-          width="72" height="72">
-        <!-- Обе строки подписи живут ЗДЕСЬ и только здесь — одна строка
-             разметки на всю подпись, чтобы менять текст правкой одной
-             строки. Перенос задан <br>, а не двумя абзацами: два абзаца
-             читались бы как два отдельных куска, а это одна подпись. -->
-        <p class="wc-empty-line">Hey, gorgeous!<br>Let's light up your English.</p>
+        <div class="wc-empty-logo" id="wc-empty-logo"></div>
       </div>
       <div class="wc-turns" id="wc-turns"></div>
       <div class="wc-thread-tail" id="wc-thread-tail"></div>
@@ -165,6 +164,12 @@
         <span class="wc-pagebar-label" id="wc-pagebar-label"></span>
       </a>
       <div class="wc-attachments" id="wc-attachments" hidden></div>
+      <!-- Слова, выбранные нажатием в ленте. Ряд фишек стоит НАД полем ввода,
+           ниже превью картинки: картинка крупнее, ей место сверху. Состав ряда
+           отдаёт общий модуль (LexWordPick.chips()), рисует его
+           wc-word-pick.js — окна у поверхностей разные, общего кода отрисовки
+           с расширением нет и быть не может. -->
+      <div class="wc-wordchips" id="wc-wordchips" hidden></div>
       <!-- Композер повторяет устройство расширения: ОДНА скруглённая коробка,
            внутри поле, под ним ряд органов. Слева плюс и чип режима, справа
            микрофон и одна кнопка на два состояния. -->
@@ -235,51 +240,67 @@
      Order is load-bearing, not alphabetical: the two primitives (store, bus)
      come before anything that uses them, the shared modules from the repo root
      before the backend that wires them, and the boot file last. -->
-<script src="wc-log.js?v=1787437347"></script>
-<script src="wc-store.js?v=1787437347"></script>
-<script src="wc-bus.js?v=1787437347"></script>
+<script src="wc-log.js?v=1787592141"></script>
+<script src="wc-store.js?v=1787592141"></script>
+<script src="wc-bus.js?v=1787592141"></script>
 <!-- Отклик под пальцем через родную оболочку. Рано в списке: им пользуются и
      композер, и лента, а в обычном браузере он молчит. -->
-<script src="wc-haptics.js?v=1787437347"></script>
-<script src="wc-markdown.js?v=1787437347"></script>
-<script src="wc-ui.js?v=1787437347"></script>
+<script src="wc-haptics.js?v=1787592141"></script>
+<script src="wc-markdown.js?v=1787592141"></script>
+<script src="wc-ui.js?v=1787592141"></script>
 <!-- Shared with the extension, byte for byte. Both are free of chrome.* by
      construction — the teacher's core takes every dependency as an argument,
      and the model registry is pure data. -->
-<script src="model-registry.js?v=1787437347"></script>
-<script src="lex-teacher-core.js?v=1787437347"></script>
+<script src="model-registry.js?v=1787592141"></script>
+<script src="lex-teacher-core.js?v=1787592141"></script>
 <!-- Тоже общий с расширением, байт в байт: куда встаёт курсор и что делает
      Enter. Правило одно на четыре места, где человек печатает учителю, —
      здесь, в приложении на iPhone, в программе для Мака и в расширении. -->
-<script src="lex-composer-input.js?v=1787437347"></script>
+<script src="lex-composer-input.js?v=1787592141"></script>
+<!-- Тоже общий с расширением: «нажал и подержал». Один жест на три органа —
+     круглая кнопка разговора, чип режима и ход в ленте, — и одна длительность
+     удержания на все поверхности. -->
+<script src="lex-long-press.js?v=1787592141"></script>
+<!-- И этот общий: сам знак Lex одной строкой. Раньше он был вписан прямо в
+     разметку ниже, отдельной копией от расширения — теперь копия одна. -->
+<script src="lex-brand-mark.js?v=1787592141"></script>
+<!-- И этот общий: как выглядит СТРОКА настроек — жирный заголовок с серой
+     подсказкой слева, орган справа. Вид в парном lex-settings-fields.css. -->
+<script src="lex-settings-fields.js?v=1787592141"></script>
 <!-- Тоже общий с расширением: что человек видит, когда на счету кончились
      деньги. Раньше страница показывала здесь служебный код LEX_BILLING_GATE в
      красной рамке, а расширение — понятную надпись с кнопкой; теперь надпись,
      кнопка и адрес кассы описаны один раз и на всех четырёх поверхностях. -->
-<script src="lex-billing-gate.js?v=1787437347"></script>
+<script src="lex-billing-gate.js?v=1787592141"></script>
 <!-- И этот общий: человеческий текст вместо служебного кода отказа — вход,
      окно пополнения, ответ провайдера. До него страница показывала здесь
      EMAIL_TAKEN и «HTTP 400», а расширение — понятные строки. -->
-<script src="lex-error-text.js?v=1787437347"></script>
+<script src="lex-error-text.js?v=1787592141"></script>
+<!-- Тоже общий, байт в байт: выбор слов нажатием. Набор, его порядок по
+     тексту, подсветка, состав ряда фишек, скрытая часть хода и окно контекста
+     вокруг слова — одни на расширение и на эту страницу. Без chrome.* по
+     построению. Адаптер этой страницы — wc-word-pick.js ниже. -->
+<script src="lex-word-pick.js?v=1787592141"></script>
 <!-- Sign-in, shared with lex-me.club: same localStorage key, so /app,
      /account and /checkout are one login. -->
-<script src="lex-web-config.js?v=1787437347"></script>
-<script src="lex-web-auth.js?v=1787437347"></script>
-<script src="wc-history.js?v=1787437347"></script>
-<script src="wc-backend.js?v=1787437347"></script>
-<script src="wc-attach.js?v=1787437347"></script>
-<script src="wc-topup.js?v=1787437347"></script>
+<script src="lex-web-config.js?v=1787592141"></script>
+<script src="lex-web-auth.js?v=1787592141"></script>
+<script src="wc-history.js?v=1787592141"></script>
+<script src="wc-backend.js?v=1787592141"></script>
+<script src="wc-attach.js?v=1787592141"></script>
+<script src="wc-topup.js?v=1787592141"></script>
 <!-- Пороги распознавания конца реплики: порт из chat-knobs.js. Грузится ДО
      wc-voice.js, который без него не соберёт сессию. Расхождение с оригиналом
      ловит dev-tools/check-voice-config-parity.mjs. -->
-<script src="wc-voice-config.js?v=1787437347"></script>
-<script src="wc-voice.js?v=1787437347"></script>
-<script src="wc-voice-screen.js?v=1787437347"></script>
-<script src="wc-sidebar.js?v=1787437347"></script>
-<script src="wc-thread.js?v=1787437347"></script>
-<script src="wc-composer.js?v=1787437347"></script>
-<script src="wc-header.js?v=1787437347"></script>
-<script src="wc-settings.js?v=1787437347"></script>
-<script src="wc-app.js?v=1787437347"></script>
+<script src="wc-voice-config.js?v=1787592141"></script>
+<script src="wc-voice.js?v=1787592141"></script>
+<script src="wc-voice-screen.js?v=1787592141"></script>
+<script src="wc-sidebar.js?v=1787592141"></script>
+<script src="wc-word-pick.js?v=1787592141"></script>
+<script src="wc-thread.js?v=1787592141"></script>
+<script src="wc-composer.js?v=1787592141"></script>
+<script src="wc-header.js?v=1787592141"></script>
+<script src="wc-settings.js?v=1787592141"></script>
+<script src="wc-app.js?v=1787592141"></script>
 </body>
 </html>

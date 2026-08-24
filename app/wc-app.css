@@ -755,33 +755,17 @@ button { font: inherit; color: inherit; }
 }
 .wc-empty[hidden] { display: none; }
 
-/* Mark, then a quiet line under it — the Gemini relationship (small icon,
-   short caption), but the caption's own size, weight and colour are not a
-   guess at that reference: they are the extension's existing empty-state
-   style, styles.css .ytvocab-popup-placeholder (font-size 14px, normal
-   weight, colour #aaa — the "Ask something else…" placeholder), routed
-   through --fg-muted so it stays correct if the theme tokens ever move. No
-   suggestion chips underneath: what to offer there is a decision the owner
-   has not taken yet, and an empty screen is better than a guess at what
-   somebody wants to ask. */
+/* Один знак по центру — и всё. Подписи под ним больше нет (2026-08-23):
+   приветствие, которое человек читает при каждом открытии нового чата, к
+   третьему разу перестаёт читаться и остаётся просто занятым местом. Никаких
+   подсказок-чипов под знаком тоже нет: что предлагать, владелец не решал, а
+   пустой экран лучше догадки. */
 .wc-empty-logo {
-  /* The PNG (icons/icon128-gold.png) is a flat solid square, no alpha, sharp
-     corners by design (design/lex-icon/README.txt) — no border-radius here. */
-  width: 72px;
-  height: 72px;
-}
-/* Шрифт, кегль, вес и цвет — те же, что были у однострочной подписи, и
-   меняться им нечего. Тронуты ровно две вещи, обе про то, чтобы две строки
-   читались как одна подпись:
-     · интерлиньяж 1.35 вместо 1.5 — на 14px это 19px против 21px, строки
-       садятся ближе и держатся вместе;
-     · снят max-width: 26ch — перенос теперь задан <br> в разметке, и лишний
-       предел только ломал бы вторую строку в непредусмотренном месте. */
-.wc-empty-line {
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.35;
-  color: var(--fg-muted);
+  /* Размер задаёт сама разметка буквы (lex-brand-mark.js svgMarkup) — здесь
+     только строчный бокс, чтобы вокруг не оставалось лишней высоты. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .wc-turn { margin-bottom: 20px; }
@@ -1335,24 +1319,19 @@ button { font: inherit; color: inherit; }
 .wc-sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
 .wc-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 18px; }
 
-.wc-field { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.wc-field:last-child { border-bottom: 0; }
-.wc-field-row { display: flex; align-items: center; gap: 12px; }
-.wc-field-label { flex: 1; min-width: 0; }
-.wc-field-label b { display: block; font-weight: 550; }
-.wc-field-label span { display: block; margin-top: 2px; color: var(--fg-muted); font-size: 12.5px; }
-.wc-field select, .wc-field input[type="text"] {
-  padding: 7px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-size: 14px;
-  max-width: 62%;
+/* Строку настроек рисует общий с расширением lex-settings-fields.css. Здесь
+   остаётся ровно одно — сказать ему, какими цветами рисовать: его переменные
+   получают токены этой страницы, и светлая тема продолжает работать. Своей
+   вёрстки `.wc-field*` больше нет. */
+.wc-sheet-body.lex-fields {
+  --lex-field-fg:          var(--fg);
+  --lex-field-muted:       var(--fg-muted);
+  --lex-field-line:        var(--line);
+  --lex-field-line-strong: var(--line-strong);
+  --lex-field-bg:          var(--bg);
+  --lex-field-accent:      var(--accent);
+  --lex-field-danger:      var(--danger);
 }
-.wc-field input[type="range"] { width: 160px; accent-color: var(--accent); }
-.wc-field-value { min-width: 46px; color: var(--fg-muted); font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
 
 .wc-menu {
   position: fixed;
@@ -1493,8 +1472,8 @@ button { font: inherit; color: inherit; }
 /* Единственная строка текста на экране звонка: «Connecting…», затем
    «Listening», затем гаснет (wc-voice-screen.js, stage()). Кегль, вес и цвет
    не подбирались — это те же 14px / 400 / --fg-muted, которыми набрана
-   подпись на пустом экране (.wc-empty-line выше), то есть уже существующая в
-   этом продукте спокойная подпись.
+   была набрана подпись на пустом экране (снята 2026-08-23), то есть уже
+   существующая в этом продукте спокойная подпись.
    Гаснет прозрачностью, а не hidden: min-height держит место, и ряд кнопок
    не подпрыгивает ровно в тот момент, когда человек начинает говорить. */
 .wc-vs-status {
@@ -1692,6 +1671,141 @@ button { font: inherit; color: inherit; }
    клавише вплотную. */
 .wc-root.is-keyboard .wc-composer-wrap { padding-bottom: 10px; }
 
+/* ── Клик по словам в ленте ──────────────────────────────────────────────────
+ *
+ * Слова нарезает общий с расширением модуль (`lex-word-pick.js`), и класс у
+ * них общий — `.vocab-word`. Оформление здесь своё: у расширения это тёмная
+ * панель поверх YouTube, здесь — страница с двумя темами.
+ *
+ * Курсор и наведение включаются ТОЛЬКО при включённом режиме
+ * (`body.wc-wordpick-on`). Выключенный режим обязан выглядеть в точности как
+ * до появления этой правки: слово ничем не отличается от соседнего знака
+ * препинания, потому что оно и не нажимается. Одного гашения обработчика для
+ * этого мало — палец видит курсор, а не обработчик.
+ *
+ * НИ ОДНОГО СВОЙСТВА, МЕНЯЮЩЕГО РАСКЛАДКУ. Нарезка проходит по готовому
+ * сообщению, и высота строк, переносы и ширина пузыря обязаны остаться теми
+ * же: единственное, что рисуется, — фон, скругление и цвет курсора. */
+.wc-wordpick-on .wc-turns .vocab-word {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background-color 100ms cubic-bezier(.4, 0, 1, 1);
+}
+/* :not(--selected) обязателен, а не украшение. Правило наведения длиннее
+   правила выбора на один класс, то есть в каскаде сильнее, — и выбранное
+   слово под курсором теряло синий, возвращая его при уводе мыши. Проверено
+   на живой странице: снимок показывал серую подсветку вместо синей. */
+.wc-wordpick-on .wc-turns .vocab-word:not(.vocab-word--selected):hover {
+  background-color: var(--bg-active);
+}
+/* Выбранное слово — тот же синий, что в расширении. Он здесь единственное
+   цветное пятно, и это намеренно: набор должен быть виден с одного взгляда,
+   а больше ничего на экране за внимание не борется. Подсветка держится и при
+   выключенном режиме — но её там не бывает: выключение чистит набор. */
+.wc-turns .vocab-word.vocab-word--selected {
+  background-color: rgba(62, 166, 255, .38);
+  border-radius: 3px;
+  color: #fff;
+}
+
+/* Ряд фишек над полем ввода. Те же пропорции, что у плашек набора в
+   расширении (styles.css .ytvocab-chat-chip) — это одна и та же вещь на двух
+   поверхностях, и выглядеть она должна одинаково. */
+.wc-wordchips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 760px;
+  margin: 0 auto 8px;
+  min-width: 0;
+}
+.wc-wordchips[hidden] { display: none; }
+.wc-wordchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border-radius: 999px;
+  background: rgba(62, 166, 255, .22);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.wc-wordchip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-wordchip-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.wc-wordchip-x:hover { background: var(--bg-active); color: var(--fg); }
+
+/* ── Переключатель в настройках ──────────────────────────────────────────────
+ *
+ * Родной `<input type="checkbox">` под слоем оформления: сам флажок уводится
+ * с глаз, но остаётся на месте в раскладке и в порядке обхода с клавиатуры —
+ * поэтому пробел его переключает, фокус видно, а скринридер называет
+ * состояние сам. `display:none` отняло бы всё перечисленное. */
+.wc-switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  cursor: pointer;
+}
+.wc-switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.wc-switch-track {
+  display: block;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-line);
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+.wc-switch-knob {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+.wc-switch input:checked + .wc-switch-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.wc-switch input:checked + .wc-switch-track .wc-switch-knob {
+  background: var(--accent-fg);
+  transform: translateX(18px);
+}
+.wc-switch input:focus-visible + .wc-switch-track {
+  outline: 2px solid var(--line-strong);
+  outline-offset: 2px;
+}
+
 /* «Меньше движения» — системная настройка, и она сильнее любой нашей
  * красоты. Гасим ВСЁ, что мы завели: выезд шторки, перетекание кнопки
  * разговора в стрелку, нажатия. Состояния при этом остаются различимыми —
@@ -1707,4 +1821,6 @@ button { font: inherit; color: inherit; }
   .wc-sheet-card { transition: none; }
   .wc-pagebar { transition: none; }
   .wc-pagebar:active { transform: none; }
+  .vocab-word { transition: none; }
+  .wc-switch-track, .wc-switch-knob { transition: none; }
 }
