@@ -28,11 +28,19 @@
 //   1. Разметка композера строится СИНХРОННО, а каталог — сетевой запрос. Без
 //      локальной копии после каждой перезагрузки страницы меню заготовок было
 //      бы пустым до первого захода в настройки.
-//   2. Статический массив на эту роль не годится: в нём два слота (chatB1
-//      «Native» и chatB2 «Чат 2»), а в каталоге сегодня ровно один — chatB1.
-//      Слот, которого в каталоге нет, промпт не разрешит: отправка через него
-//      ушла бы к модели без инструкции. Поэтому статический массив остаётся
-//      ровно тем, чем назван, — ЗАПАСНЫМ, и сворачивается до ПЕРВОГО слота.
+//   2. Статический массив на эту роль не годится: он описывает СЛОТЫ, а не то,
+//      что реально лежит в каталоге, и эти два множества не обязаны совпадать.
+//      Слот, которого в каталоге нет, промпт не разрешит — а отправка через
+//      неразрешённый слот теперь получает явный отказ (llm-proxy отвечает 424).
+//      Поэтому статический массив остаётся ровно тем, чем назван, — ЗАПАСНЫМ,
+//      и сворачивается до ПЕРВОГО слота.
+//
+//      ⚠️ Здесь стояло «в каталоге сегодня ровно один слот — chatB1». Это было
+//      неверно уже к 2026-08-25 и стоило отдельного разбора: в каталоге лежат
+//      ОБА статических слота — chatB1 «Native» и chatB2 (переименован в
+//      «recommendation»), — плюс заведённые владельцем. То есть Native и
+//      recommendation — такие же заготовки, как любая другая, и ходят тем же
+//      путём. Не писать сюда состояние базы: оно меняется, а комментарий нет.
 //
 // Отсюда правило, одно на все случаи:
 //
@@ -48,19 +56,27 @@
 // уходит вовсе. То есть «у обычного пользователя и в вебе — одна кнопка
 // Native, как сегодня» получается САМО, отдельного гейта не понадобилось.
 //
-// ⚠️ Обратная сторона того же факта: заготовки, заведённые владельцем, ВИДИТ
-// ТОЛЬКО РЕДАКТОР. Донести список до обычного пользователя сегодня нечем —
-// ячейка nativePrompts_<scope> снята с публикации (background.js
-// isMachineLocalKey), а каталог читают только редакторы. Это осознанный хвост
-// этого захода, а не недосмотр.
+// ⚠️ Обратная сторона того же факта, и она пережила публикацию заготовок
+// (2026-08-25): ТЕКСТ опубликованной заготовки до обычного пользователя
+// доезжает — его подставляет llm-proxy по указателю, — а СПИСОК нет. Каталог
+// (prompts-admin) отвечает не-редактору 403, ячейка nativePrompts_<scope> снята
+// с публикации, ключ lexActionPresets_<scope> машинно-локальный. Поэтому у
+// обычного пользователя в меню по-прежнему ОДНА заготовка — первый статический
+// слот, — и опубликованная владельцем «Лимерик» ему не покажется, сколько её ни
+// публикуй. Публикация меняет то, ЧТО ответит уже видимая заготовка, а не то,
+// СКОЛЬКО их видно. Осознанный хвост, решение за владельцем.
 //
 // ── УДАЛЕНИЕ ────────────────────────────────────────────────────────────────
-// Действия «удалить строку» у prompts-admin нет (пять действий: list/get/put/
-// publish/rollback), а трогать edge-функции задание запрещает. Поэтому
-// удаление — это `put` с пустым текстом и пометкой DELETED_PREFIX в начале
-// имени; такие строки список отбрасывает. Префикс начинается с подчёркиваний,
-// а интерфейс запрещает человеку начинать имя с '_' — случайно завести
-// невидимую заготовку нельзя.
+// Два шага, и оба обязательны (2026-08-25):
+//   1. `unpublish` — снять опубликованную версию, иначе текст удалённой
+//      заготовки продолжает жить на сервере и отдаваться людям навсегда;
+//   2. `put` с пустым текстом и пометкой DELETED_PREFIX в начале имени — такие
+//      строки список отбрасывает.
+// Строку каталога физически стереть по-прежнему нечем: DELETE у prompts-admin
+// нет, и заводить его не стали — снятие с публикации решает задачу, не ломая
+// append-only историю. Префикс начинается с подчёркиваний, а интерфейс
+// запрещает человеку начинать имя с '_' — случайно завести невидимую заготовку
+// нельзя. Порядок шагов и цена сбоя на каждом — во врезке у самой remove().
 (function (global) {
   'use strict';
 
@@ -176,6 +192,73 @@
     });
   }
 
+  // ИМЯ КЛЮЧА МОДЕЛИ ЗАГОТОВКИ — одно правило на обе поверхности.
+  //
+  // Лежало в двух копиях: `actionModelKeyFor` в chat-surface.js и
+  // `nativeModelKeyFor` в webchat/wc-backend.js. Копии уже расходились: на
+  // странице хвост остался 'native', когда расширение перешло на слот, — и
+  // страница читала ключ, в который больше никто не пишет, молча отвечая
+  // моделью основного чата, каким бы ни был выбор владельца. Правило переехало
+  // сюда, к владельцу заготовок.
+  //
+  // Scope берётся у ЯЧЕЙКИ (её refScope, сегодня 'shorts-main'), а не у окна:
+  // конфигурация заготовки одна на все окна, где живёт её кнопка. Аргумент
+  // scope — запасной, на поверхность, чья ячейка не разрешилась.
+  function modelKeyFor(scope, slotId) {
+    const c = cellDesc();
+    const cellScope = c && c.ref && c.ref.scope;
+    return 'activeActionModelId_' + (cellScope || scope) + '_' + slotId;
+  }
+
+  // ── Публикация настроек: точечно, своими ключами ──────────────────────────
+  // Своей двери у страницы и у расширения снова две (SW против прямого fetch),
+  // поэтому обе отданы впрыску — с запасным путём через chrome.runtime, как у
+  // promptsAdmin выше. Не объявлено и chrome нет → честный отказ, а не тишина.
+  function publishKeysCall(scope, keys, note) {
+    if (adapter && typeof adapter.publishKeys === 'function') {
+      return Promise.resolve()
+        .then(() => adapter.publishKeys(scope, keys, note))
+        .then((res) => res || { error: 'no response', status: 0 })
+        .catch((e) => ({ error: String((e && e.message) || e), status: 0 }));
+    }
+    return new Promise((resolve) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        resolve({ error: 'no runtime', status: 0 });
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage({ type: 'LEX_PUBLISH_KEYS', scope, keys, note }, (res) => {
+          resolve(res || { error: 'no response', status: 0 });
+        });
+      } catch (e) {
+        resolve({ error: String((e && e.message) || e), status: 0 });
+      }
+    });
+  }
+
+  // Последний опубликованный набор этого scope — для сравнения ключа модели.
+  // Возвращает объект либо null (прочитать не удалось / истории нет).
+  function publishedKeysCall(scope) {
+    if (adapter && typeof adapter.publishedKeys === 'function') {
+      return Promise.resolve()
+        .then(() => adapter.publishedKeys(scope))
+        .catch(() => null);
+    }
+    return new Promise((resolve) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage({ type: 'LEX_PUBLISHED_KEYS', scope }, (res) => {
+          resolve(res && res.ok && res.data && typeof res.data === 'object' ? res.data : null);
+        });
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
   // ── Состояние на ОКНО ────────────────────────────────────────────────────
   // Список тянется с сервера ОДИН раз за жизнь окна (задание, шаг 2) и живёт
   // здесь. `fetched` отмечает состоявшийся заход, `inflight` склеивает
@@ -217,12 +300,22 @@
     if (!Array.isArray(raw) || !raw.length) return null;
     const clean = raw
       .filter((p) => p && typeof p.id === 'string' && p.id && !isDeletedName(p.name))
-      .map((p) => ({ id: p.id, name: typeof p.name === 'string' ? p.name : '', chars: (typeof p.chars === 'number') ? p.chars : null }));
+      .map((p) => ({
+        id: p.id,
+        name: typeof p.name === 'string' ? p.name : '',
+        chars: (typeof p.chars === 'number') ? p.chars : null,
+        dirty: !!p.dirty,
+        published: !!p.published,
+      }));
     return clean.length ? orderList(clean) : null;
   }
 
   async function remember(scope, items) {
-    await storageSet({ [listKey(scope)]: items.map((p) => ({ id: p.id, name: p.name, chars: p.chars })) });
+    await storageSet({
+      [listKey(scope)]: items.map((p) => ({
+        id: p.id, name: p.name, chars: p.chars, dirty: !!p.dirty, published: !!p.published,
+      })),
+    });
   }
 
   // Синхронное «что показывать прямо сейчас»: то, что уже в памяти, иначе
@@ -275,10 +368,19 @@
       // Пустой ответ по этой ячейке — не повод стереть список: строки могли не
       // доехать, а заготовки на экране должны пережить это.
       if (!rows.length) return list(scope);
+      // `dirty` считает СЕРВЕР (prompts-admin action:'list' сравнивает текст
+      // черновика с текстом последней версии). Клиенту сравнивать нечем: текста
+      // у него нет ни в одном виде — ни черновика, ни опубликованного.
+      // `published` = null означает «не публиковали ни разу»; сервер в этом
+      // случае и сам ставит dirty=true, но признак «никогда не публиковалась»
+      // нужен отдельно — он читается иначе («ещё не у людей», а не «правка не
+      // уехала»).
       s.list = orderList(rows.map((x) => ({
         id: x.slot,
         name: typeof x.name === 'string' ? x.name : '',
         chars: typeof x.chars === 'number' ? x.chars : null,
+        dirty: !!x.dirty,
+        published: !!x.published,
       })));
       await remember(scope, s.list);
       await mirrorNames(scope, s.list);
@@ -353,18 +455,60 @@
     return null;
   }
 
-  // Черновик + публикация одной строки. Публикация обязана нести note (сервер
-  // требует непустую), иначе строка осталась бы черновиком: её видел бы только
-  // редактор, а все остальные — ничего.
-  async function putAndPublish(ref, slotId, name, text, note) {
+  // ЧЕРНОВИК И ТОЛЬКО ЧЕРНОВИК (решение владельца 2026-08-25).
+  //
+  // Здесь раньше стояла пара put+publish в одной функции: заведение и правка
+  // заготовки писали черновик и ТУТ ЖЕ публиковали его. Из-за этого «черновик»
+  // и «опубликованное» совпадали по построению, и любая правка текста мгновенно
+  // уезжала всем — в том числе недописанная. Развилка «редактору черновик,
+  // остальным опубликованное» на сервере при этом была и работала: публиковать
+  // было нечего, потому что всё публиковалось само.
+  //
+  // Теперь запись — это put. Публикация отдельным действием и отдельной кнопкой
+  // (publishOne ниже), по одной заготовке за раз.
+  async function putDraft(ref, slotId, name, text) {
     const put = await promptsAdmin({
       action: 'put', scope: ref.scope, cell: ref.cell, slot: slotId, text, name,
     });
     if (!put || !put.ok) return { error: (put && (put.error || put.status)) || 'put failed' };
+    return { ok: true };
+  }
+
+  // ПУБЛИКАЦИЯ ОДНОЙ ЗАГОТОВКИ: текст промпта и ключ модели одним действием.
+  //
+  // Две половины уезжают в РАЗНЫЕ места и разными функциями — текст в каталог
+  // (prompts-admin), ключ модели в опубликованные настройки (settings-publish),
+  // — но для человека это одно нажатие, поэтому и отказ должен быть один.
+  // Порядок: сперва текст, потом ключ модели. Обратный порядок открывал бы окно
+  // «модель уже переключилась, промпт ещё старый».
+  //
+  // Ключ модели публикуется ТОЧЕЧНО, действием 'publishKeys' (см. врезку в
+  // settings-publish): дописывает свои ключи в последний опубликованный набор,
+  // не трогая соседние. Прежняя форма (весь набор scope одним куском) утащила
+  // бы вместе с заготовкой все несохранённые черновики остальных настроек.
+  async function publishOne(scope, id, note) {
+    const c = cellDesc();
+    if (!c || !c.ref) return { error: 'no cell' };
+
     const pub = await promptsAdmin({
-      action: 'publish', scope: ref.scope, cell: ref.cell, slot: slotId, note,
+      action: 'publish', scope: c.ref.scope, cell: c.ref.cell, slot: id,
+      note: note || 'action preset published',
     });
     if (!pub || !pub.ok) return { error: (pub && (pub.error || pub.status)) || 'publish failed' };
+
+    // Вторая половина — ключ модели этой заготовки. Его может не быть вовсе
+    // (модель не выбирали → «наследовать модель чата»); тогда публикуем пустую
+    // строку, а не пропускаем ключ: у людей могло остаться ранее опубликованное
+    // значение, и «не трогать» означало бы «оставить чужой выбор».
+    const modelKey = modelKeyFor(scope, id);
+    const r = await storageGet([modelKey]);
+    const res = await publishKeysCall(
+      c.ref.scope,
+      { [modelKey]: typeof r[modelKey] === 'string' ? r[modelKey] : '' },
+      note || 'action preset published',
+    );
+    if (!res || !res.ok) return { error: (res && (res.error || res.status)) || 'model publish failed' };
+    await refresh(scope, { force: true });
     return { ok: true };
   }
 
@@ -380,7 +524,7 @@
     if (items.length >= MAX_PRESETS) return { error: 'limit' };
     const id = newSlotId(items.map((p) => p.id));
     if (!id) return { error: 'no id' };
-    const res = await putAndPublish(c.ref, id, normName(name), body, 'action preset created');
+    const res = await putDraft(c.ref, id, normName(name), body);
     if (res.error) return res;
     await refresh(scope, { force: true });
     return { ok: true, id };
@@ -394,7 +538,7 @@
     const body = String(text == null ? '' : text);
     const tp = textProblem(body);
     if (tp) return { error: tp };
-    const res = await putAndPublish(c.ref, id, normName(name), body, 'action preset updated');
+    const res = await putDraft(c.ref, id, normName(name), body);
     if (res.error) return res;
     await refresh(scope, { force: true });
     return { ok: true };
@@ -403,26 +547,44 @@
   // Удаление: строку каталога стереть нечем, поэтому пустой текст + метка в
   // имени.
   //
-  // ⚠️ ПУБЛИКАЦИИ ЗДЕСЬ НЕТ, И ЭТО НЕ ЗАБЫТО. prompts-admin отказывается
-  // публиковать пустой черновик (`draft is empty`, 400) — намеренно: пустой
-  // промпт, уехавший всем, молча снял бы с учителя его роль. Значит удаление
-  // живёт ТОЛЬКО в черновике, и этого достаточно: список заготовок читается из
-  // черновиков (action 'list' отдаёт server_prompts), помеченную строку фильтр
-  // отбрасывает, выбрать её больше нечем.
-  // Следствие, которое надо знать: ОПУБЛИКОВАННАЯ версия удалённой заготовки
-  // остаётся на сервере со старым текстом навсегда. Вреда нет — адресовать её
-  // некому, — но «удалил» здесь значит «убрал из списка», а не «стёр из базы».
-  // Первая попытка делала put+publish, и publish возвращал 400: удаление
-  // отваливалось целиком, хотя пометка уже была записана.
+  // ⚠️ ДВА ШАГА, И ВТОРОЙ ОБЯЗАТЕЛЕН (решение владельца 2026-08-25).
+  //
+  // Раньше здесь стоял только put с меткой: помеченная строка исчезала из
+  // списка, а ОПУБЛИКОВАННАЯ версия оставалась на сервере со старым текстом
+  // навсегда. Пока список читался только редактором, это было незаметно; как
+  // только заготовки поехали людям, «удалил» обязано значить «людям больше не
+  // отдаётся», а не «пропало у меня из списка».
+  //
+  // Через `publish` снять нельзя: он берёт текст из черновика, а черновик здесь
+  // пуст — сервер ответит 400 `draft is empty`, и это правило снимать нельзя.
+  // Поэтому снятие — своё действие `unpublish` (вставляет версию с пустым
+  // текстом, историю не трогает; см. врезку в prompts-admin). Резолвер на
+  // пустом тексте слот больше не отдаёт → ход по нему получает явный отказ.
+  //
+  // Порядок: сперва СНЯТЬ С ПУБЛИКАЦИИ, потом пометить черновик. Обратный
+  // порядок оставлял бы окно, в котором заготовка уже исчезла у редактора из
+  // списка, а людям всё ещё отдаётся; при сбое на втором шаге это окно стало бы
+  // постоянным. При выбранном порядке сбой на втором шаге даёт заготовку,
+  // которая видна редактору и не отдаётся людям, — состояние честное и
+  // чинится повторным удалением.
   //
   // Native не удаляется (решение задания) — гард здесь, а не только в разметке.
   async function remove(scope, id) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
     if (isNativeId(id)) return { error: 'native' };
+    const un = await promptsAdmin({
+      action: 'unpublish', scope: c.ref.scope, cell: c.ref.cell, slot: id,
+      note: 'action preset deleted',
+    });
+    if (!un || !un.ok) return { error: (un && (un.error || un.status)) || 'unpublish failed' };
     const put = await promptsAdmin({
       action: 'put', scope: c.ref.scope, cell: c.ref.cell, slot: id,
       text: '', name: DELETED_PREFIX + Date.now().toString(36),
+      // Единственное место во всём коде, где пустой текст записывается
+      // намеренно. Сервер по умолчанию такую запись отвергает (2026-08-26),
+      // поэтому исключение объявляется здесь явно и видно глазами.
+      allowEmpty: true,
     });
     if (!put || !put.ok) return { error: (put && (put.error || put.status)) || 'put failed' };
     // Убрать из запомненного до перечитки: каталог отдаст строку с меткой, и
@@ -469,6 +631,40 @@
     return true;
   }
 
+  // РАСХОЖДЕНИЕ ЗАГОТОВКИ — одно значение на две независимые половины.
+  //
+  // Текст: признак считает сервер и присылает полем `dirty` (клиенту сравнивать
+  // нечем — текста у него нет ни в одном виде).
+  // Ключ модели: сравнивается ЗДЕСЬ, локальное значение против опубликованного.
+  // Опубликованный набор читается прямо из published_settings (его отдаёт любому
+  // вошедшему), поэтому сравнение доступно и без прав редактора — но зовёт его
+  // только отсек настроек, а он и так виден одному редактору.
+  //
+  // Пустая строка и отсутствие ключа — ОДНО И ТО ЖЕ состояние («наследовать
+  // модель чата»), иначе заготовка, у которой модель никогда не выбирали,
+  // вечно светилась бы расходящейся.
+  async function modelDirty(scope, id) {
+    const c = cellDesc();
+    if (!c || !c.ref) return false;
+    const modelKey = modelKeyFor(scope, id);
+    // Не смогли прочитать опубликованное — не выдумываем расхождение.
+    const published = await publishedKeysCall(c.ref.scope);
+    if (!published) return false;
+    const local = await storageGet([modelKey]);
+    const a = typeof local[modelKey] === 'string' ? local[modelKey] : '';
+    const b = typeof published[modelKey] === 'string' ? published[modelKey] : '';
+    return a !== b;
+  }
+
+  // Сводный признак для строки заготовки в настройках: текст ИЛИ ключ модели.
+  // Человеку не нужно знать, какая из половин разошлась, — ему нужно знать, что
+  // нажатие «Опубликовать» что-то изменит.
+  async function isDirty(scope, id) {
+    const hit = current(scope).find((p) => p.id === id);
+    if (hit && (hit.dirty || !hit.published)) return true;
+    return await modelDirty(scope, id);
+  }
+
   // Ключ указателя активной заготовки — он же указатель активного слота ячейки.
   // Один ключ, а не два: отправка уже читает активный слот ячейки
   // (chat-surface.js readPromptCell), так что чип и отправка не могут разъехаться.
@@ -496,7 +692,13 @@
           if (!Array.isArray(next) || !next.length) return;
           s.list = orderList(next
             .filter((p) => p && typeof p.id === 'string' && p.id && !isDeletedName(p.name))
-            .map((p) => ({ id: p.id, name: p.name || '', chars: (typeof p.chars === 'number') ? p.chars : null })));
+            .map((p) => ({
+              id: p.id,
+              name: p.name || '',
+              chars: (typeof p.chars === 'number') ? p.chars : null,
+              dirty: !!p.dirty,
+              published: !!p.published,
+            })));
           notify(scope);
         });
       });
@@ -517,6 +719,10 @@
     create,
     update,
     remove,
+    publishOne,
+    isDirty,
+    modelDirty,
+    modelKeyFor,
     getText,
     resolves,
     isNativeId,

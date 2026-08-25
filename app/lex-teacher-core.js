@@ -241,6 +241,28 @@
       return e;
     }
 
+    // ── «Промпт не опубликован» ─────────────────────────────────────────────
+    // llm-proxy отвечает 424 + stage 'prompt', когда клиент прислал УКАЗАТЕЛЬ на
+    // серверный промпт, а текста по нему нет: у обычного человека это значит
+    // «черновик есть, публикации нет», у редактора — «пустой черновик».
+    //
+    // До 2026-08-25 такой ход молча уходил провайдеру без системной роли — и
+    // человек платил за ответ учителя, которому не выдали роль. Теперь сервер
+    // отказывает ДО провайдера, а здесь отказ превращается в маркер, который
+    // поверхность рисует человеческой строкой (chat-surface.js / wc-app.js).
+    //
+    // Гейтимся по СТАДИИ, а не по голому 424: чужой 424 не должен превращаться
+    // в «промпт не опубликован».
+    function lexPromptMissingError(response) {
+      if (!response || response.status !== 424) return null;
+      const stage = (response.headers && typeof response.headers.get === 'function')
+        ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
+      if (stage !== 'prompt') return null;
+      const e = new Error('LEX_PROMPT_MISSING');
+      e.lexPromptMissing = true;
+      return e;
+    }
+
     // Wave 2a: multipart variant for the audio kinds (ASR / SpeechAce). The caller
     // builds the exact provider FormData and appends a `meta` field (JSON string);
     // the proxy forwards everything except `meta` to the provider with a server-held
@@ -527,6 +549,8 @@
       if (!response.ok) {
         const gateErr = lexBillingGateError(response.status);
         if (gateErr) throw gateErr;
+        const promptMissing = lexPromptMissingError(response);
+        if (promptMissing) throw promptMissing;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -857,6 +881,8 @@
       if (!response.ok) {
         const gateErr = lexBillingGateError(response.status);
         if (gateErr) throw gateErr;
+        const promptMissing = lexPromptMissingError(response);
+        if (promptMissing) throw promptMissing;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1141,6 +1167,8 @@
       if (!response.ok) {
         const gateErr = lexBillingGateError(response.status);
         if (gateErr) throw gateErr;
+        const promptMissing = lexPromptMissingError(response);
+        if (promptMissing) throw promptMissing;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1331,6 +1359,8 @@
       if (!response.ok) {
         const gateErr = lexBillingGateError(response.status);
         if (gateErr) throw gateErr;
+        const promptMissing = lexPromptMissingError(response);
+        if (promptMissing) throw promptMissing;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);

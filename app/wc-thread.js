@@ -358,9 +358,15 @@
       // Ответ провайдера («Anthropic 529: {"type":"overloaded_error"}») человеку
       // тоже ничего не говорит — та же расшифровка, что в расширении, из общего
       // lex-error-text.js. Сырая строка уходит с экрана, но пишется в журнал.
-      const providerText = !gate && LexErrorText.provider(text);
+      // Промпт не опубликован — сервер отказал ДО провайдера (424 + stage
+      // 'prompt'). Не сбой и не перегрузка: заготовку не опубликовали, денег не
+      // взяли. Текст берём из общего модуля — тот же, что показывает расширение.
+      const promptMissing = !gate && LexErrorText.isPromptMissing(text);
+      if (promptMissing) lexLog('[wc-thread] prompt missing:', text);
+
+      const providerText = !gate && !promptMissing && LexErrorText.provider(text);
       if (providerText) lexLog('[wc-thread] provider error:', text);
-      const shown = providerText || text;
+      const shown = promptMissing ? LexErrorText.promptMissing() : (providerText || text);
 
       const paint = (turn, bubble) => {
         turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');

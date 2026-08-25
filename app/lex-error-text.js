@@ -42,6 +42,7 @@
     'topup.errAuth': 'Please sign in first.',
     'topup.errAmount': 'Enter an amount between ${min} and ${max}.',
     'topup.errProvider': 'Could not start the payment. Nothing was charged — please try again.',
+    'err.prompt.notPublished': 'This preset has not been published yet — the teacher has no instructions. You were not charged.',
     'err.provider.busy': 'The service is overloaded right now. Please try again in a minute.',
     'err.provider.generic': 'The answer did not come through. Please try again.',
   };
@@ -148,11 +149,30 @@
     return t('err.provider.generic');
   }
 
+  // ── 4. Промпт не опубликован ──────────────────────────────────────────────
+  //
+  // llm-proxy отвечает 424 + stage 'prompt', адаптеры в `lex-teacher-core.js`
+  // превращают это в маркер `LEX_PROMPT_MISSING`. Маркер служебный — человеку
+  // он не говорит ничего, поэтому обе поверхности спрашивают текст здесь.
+  //
+  // Отдельным текстом от «ответ не пришёл»: это не сбой и не перегрузка, а
+  // состояние, которое чинится действием владельца (опубликовать заготовку), и
+  // человеку важно, что денег с него не взяли.
+  function isPromptMissing(raw) {
+    return str(raw).includes('LEX_PROMPT_MISSING');
+  }
+
+  function promptMissing() {
+    return t('err.prompt.notPublished');
+  }
+
   global.LexErrorText = Object.freeze({
     auth,
     topup,
     provider,
     isProviderError,
     providerStatus,
+    isPromptMissing,
+    promptMissing,
   });
 })(typeof self !== 'undefined' ? self : globalThis);

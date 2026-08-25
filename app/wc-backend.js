@@ -524,7 +524,16 @@
   //   · слот приезжает С ХОДОМ, а не берётся из хранилища на месте. Человек
   //     мог выбрать другую заготовку между нажатием и этой строкой, и промпт
   //     обязан относиться к той, чьё имя он видел на кнопке.
-  const nativeModelKeyFor = (slot) => 'activeActionModelId_' + SCOPE + '_' + slot;
+  // ⚠️ 2026-08-25, второй заход: правило имени переехало в lex-action-presets.js,
+  // к владельцу заготовок. Копия жила здесь и УЖЕ разошлась однажды (хвост
+  // остался 'native', когда расширение перешло на слот) — ровно та поломка,
+  // ради которой правило и сведено в одно место. Запасной путь оставлен на
+  // случай, если модуль не загрузился: страница не должна падать целиком.
+  const nativeModelKeyFor = (slot) => (
+    (global.LexActionPresets && typeof global.LexActionPresets.modelKeyFor === 'function')
+      ? global.LexActionPresets.modelKeyFor(SCOPE, slot)
+      : 'activeActionModelId_' + SCOPE + '_' + slot
+  );
 
   async function nativeTurnConfig(slotId) {
     const r = await WcStore.get([NATIVE_SLOT_KEY]);
@@ -557,26 +566,44 @@
   if (global.LexActionPresets) {
     LexActionPresets.configure({
       kv: { get: (keys) => WcStore.get(keys), set: (obj) => WcStore.set(obj) },
+      // Транспорт общий с расширением (lex-edge-call.js) — раньше эта форма
+      // лежала здесь третьей дословной копией.
       promptsAdmin: async (body) => {
         const token = await A.validToken();
         if (!token) return { error: 'login', status: 401 };
-        let resp;
+        return await LexEdgeCall.callEdgeJson('prompts-admin', body, {
+          token, anonKey: A.anonKey(), baseUrl: A.supabaseUrl(),
+        });
+      },
+      // Половина «ключ модели» у кнопки публикации заготовки. На странице
+      // редактора заготовок нет (wc-settings.js объявляет это прямым текстом),
+      // поэтому дверь нужна не ради кнопки здесь, а чтобы общий модуль вёл себя
+      // на обеих поверхностях одинаково и не деградировал молча.
+      publishKeys: async (scope, keys, note) => {
+        const token = await A.validToken();
+        if (!token) return { error: 'login', status: 401 };
+        return await LexEdgeCall.callEdgeJson('settings-publish', {
+          action: 'publishKeys', scope, keys, note: note || 'action preset published',
+        }, { token, anonKey: A.anonKey(), baseUrl: A.supabaseUrl() });
+      },
+      // Последний опубликованный набор scope — читается прямо из
+      // published_settings (RLS отдаёт его любому вошедшему), без edge-функции.
+      publishedKeys: async (scope) => {
+        const token = await A.validToken();
+        if (!token) return null;
         try {
-          resp = await fetch(A.supabaseUrl() + '/functions/v1/prompts-admin', {
-            method: 'POST',
-            headers: {
-              Authorization: 'Bearer ' + token,
-              apikey: A.anonKey(),
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-          });
-        } catch (e) {
-          return { error: String((e && e.message) || e), status: 0, stage: 'network' };
+          const resp = await fetch(
+            A.supabaseUrl() + '/rest/v1/published_settings'
+            + '?select=data&scope=eq.' + encodeURIComponent(scope) + '&order=id.desc&limit=1',
+            { headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token } },
+          );
+          if (!resp.ok) return null;
+          const rows = await resp.json();
+          const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
+          return (row && row.data && typeof row.data === 'object') ? row.data : {};
+        } catch (_) {
+          return null;
         }
-        const json = await resp.json().catch(() => null);
-        if (!resp.ok) return { error: (json && json.error) || ('HTTP ' + resp.status), status: resp.status };
-        return Object.assign({ ok: true }, json || {});
       },
     });
   }
