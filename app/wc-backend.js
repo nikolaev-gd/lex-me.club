@@ -350,8 +350,34 @@
     // findable from the extension.
     const sid = WcHistory.sessionIdOfKey(m.id);
     if (sid != null) sessionId = sid;
-    setOpen(m.id, turns);
-    return { ok: true, turns };
+
+    // ── Ходы ЗАГОТОВОК подмешиваются В ЛЕНТУ, но не в контекст ───────────
+    //
+    // Ходов заготовок нет в переписке урока — у каждой своя ветка. Не покажи
+    // мы их здесь, они появлялись бы живыми и исчезали при первой же
+    // перезагрузке страницы, то есть человек терял бы сказанное. Расширение
+    // сшивает ровно так же и в одной точке (chat-surface.js renderStoredTurns).
+    //
+    // ⚠️ ЛЕНТА И КОНТЕКСТ РАСХОДЯТСЯ ЗДЕСЬ, И ЭТО НАМЕРЕННО. `setOpen`
+    // получает ТОЛЬКО реплики урока плюс ветки по отдельности; сшитый список
+    // уходит наружу и живёт только на экране. Положи мы сшитое в openTurns —
+    // учитель со следующего же вопроса увидел бы всё, что человек говорил
+    // заготовкам, и изоляция кончилась бы молча, без единой ошибки.
+    let branchTurns = [];
+    try {
+      const prefix = global.LexActionBranch.actionBranchPrefixOf(m.id);
+      if (prefix) branchTurns = await WcHistory.actionBranchTurns(prefix);
+    } catch (err) {
+      // Ветки не прочитались — показываем один урок. Это хуже полного, но
+      // лучше пустого экрана.
+      console.warn(TAG, 'action branches not read:', err && err.message);
+    }
+    const byBranch = {};
+    branchTurns.forEach((t) => {
+      (byBranch[t.branchKey] || (byBranch[t.branchKey] = [])).push(t);
+    });
+    setOpen(m.id, turns, byBranch);
+    return { ok: true, turns: mergeForDisplay(turns, branchTurns) };
   });
 
   // Starting over. The session is dropped so the NEXT message mints a new one —
@@ -402,10 +428,56 @@
   // conversation is opened.
   let openId = null;
   let openTurns = [];
+  // ── ПЕРЕПИСКИ ЗАГОТОВОК ХРАНЯТСЯ ОТДЕЛЬНО, ПО ОДНОЙ НА ЗАГОТОВКУ ─────────
+  //
+  // Это не кэш и не украшение, а сама изоляция. Учитель урока не должен видеть
+  // ходы заготовки, а заготовка — историю урока и ходы СОСЕДНЕЙ заготовки: то,
+  // что уходит модели, собирается из буфера СВОЕЙ ветки и только из него.
+  // Ключ карты — ключ ветки (lex-action-branch.js), тот же, под которым реплики
+  // лежат в базе и под которым их пишет расширение.
+  const openBranches = new Map();      // branchKey → turns[]
 
-  function setOpen(id, turns) {
+  const normalizeTurns = (turns) => (turns || [])
+    .map((t) => ({ role: t.role, text: t.text, uid: t.uid || WcHistory.newUid() }));
+
+  function setOpen(id, turns, branches) {
     openId = id;
-    openTurns = (turns || []).map((t) => ({ role: t.role, text: t.text, uid: t.uid || WcHistory.newUid() }));
+    openTurns = normalizeTurns(turns);
+    openBranches.clear();
+    if (branches) {
+      Object.keys(branches).forEach((k) => openBranches.set(k, normalizeTurns(branches[k])));
+    }
+  }
+
+  // Буфер ветки. Пусто в памяти — тянем из аккаунта: заготовку могли трогать с
+  // другого устройства или в расширении, и её переписка обязана продолжиться, а
+  // не начаться заново.
+  async function branchBuffer(branchKey) {
+    if (openBranches.has(branchKey)) return openBranches.get(branchKey);
+    let loaded = [];
+    try { loaded = normalizeTurns(await WcHistory.turns(branchKey)); } catch (err) {
+      console.warn(TAG, 'action branch not read:', err && err.message);
+    }
+    // Пока читали, тот же ключ мог завести параллельный вызов — берём тот, что
+    // уже лежит, иначе один из двух ходов потерялся бы из контекста.
+    if (openBranches.has(branchKey)) return openBranches.get(branchKey);
+    openBranches.set(branchKey, loaded);
+    return loaded;
+  }
+
+  // Урок и все ветки заготовок этого чата — одной лентой, в порядке авторства.
+  // Точка склейки ОДНА, как и в расширении (chat-surface.js renderStoredTurns):
+  // зовущих у неё несколько, и вторая копия правила порядка разошлась бы.
+  function mergeForDisplay(lesson, branchTurns) {
+    const all = (lesson || []).concat(branchTurns || []);
+    return all.sort((a, b) => {
+      const at = String(a.authoredAt || '');
+      const bt = String(b.authoredAt || '');
+      if (at !== bt) return at < bt ? -1 : 1;
+      const au = String(a.uid || '');
+      const bu = String(b.uid || '');
+      return au < bu ? -1 : au > bu ? 1 : 0;
+    });
   }
 
   // ── Native, the one action mode ───────────────────────────────────────────
@@ -435,20 +507,78 @@
   // never produces.
   const NATIVE_CELL = 'nativePrompts';
   const NATIVE_SLOT_KEY = 'activeNativePromptId_' + SCOPE;
-  const NATIVE_MODEL_KEY = 'activeActionModelId_' + SCOPE + '_native';
 
-  async function nativeTurnConfig() {
-    const r = await WcStore.get([NATIVE_SLOT_KEY, NATIVE_MODEL_KEY]);
-    const slot = r[NATIVE_SLOT_KEY] || 'chatB1';
+  // ── ЗАГОТОВОК МНОГО, И КАЖДАЯ — ЭТО СЛОТ ─────────────────────────────────
+  //
+  // Кнопка в композере по-прежнему ОДНА. Заготовка — не вторая кнопка, а
+  // выбранный слот ячейки nativePrompts: своё имя, свой текст промпта, своя
+  // модель и своя переписка (lex-action-presets.js). Отсюда две вещи, которые
+  // на этой странице раньше были неверны:
+  //
+  //   · ключ модели считается ОТ СЛОТА. Здесь стояло
+  //     'activeActionModelId_<scope>_native' — форма, которую расширение
+  //     бросило 2026-08-25 (background.js migrateActionModelKeyToSlot
+  //     перенесло значение на 'activeActionModelId_<scope>_chatB1'). То есть
+  //     страница читала ключ, в который больше никто не пишет, и молча
+  //     отвечала моделью основного чата, каким бы ни был выбор владельца;
+  //   · слот приезжает С ХОДОМ, а не берётся из хранилища на месте. Человек
+  //     мог выбрать другую заготовку между нажатием и этой строкой, и промпт
+  //     обязан относиться к той, чьё имя он видел на кнопке.
+  const nativeModelKeyFor = (slot) => 'activeActionModelId_' + SCOPE + '_' + slot;
+
+  async function nativeTurnConfig(slotId) {
+    const r = await WcStore.get([NATIVE_SLOT_KEY]);
+    const slot = slotId || r[NATIVE_SLOT_KEY] || 'chatB1';
+    const mk = nativeModelKeyFor(slot);
     // An empty model key means "inherit the chat's model" — the same meaning
     // the extension's settings row gives it.
-    const model = r[NATIVE_MODEL_KEY] || null;
+    const model = (await WcStore.get([mk]))[mk] || null;
     return {
       slot,
       model,
       promptRef: { scope: SCOPE, cell: NATIVE_CELL, slot },
       promptId: NATIVE_CELL,
     };
+  }
+
+  // ── Каталог заготовок ────────────────────────────────────────────────────
+  //
+  // Список заготовок общий с расширением по КОДУ (lex-action-presets.js), но
+  // не по способу до него дотянуться: в расширении модуль ходит в service
+  // worker сообщением LEX_PROMPT_ADMIN, а здесь никакого worker'а нет —
+  // страница стучится в ту же edge-функцию сама, своим токеном. Хранилище так
+  // же: там chrome.storage.local, здесь IndexedDB. Обе зависимости отданы
+  // модулю впрыском, чтобы имён этой страницы внутри общего файла не было.
+  //
+  // Право проверяет СЕРВЕР. Не-редактор получает 403, список сворачивается в
+  // одну заготовку Native, и кнопка на странице ведёт себя ровно как до этой
+  // работы — меню не открывается, потому что выбирать не из чего. Отдельного
+  // гейта под это не заводили: он получился сам.
+  if (global.LexActionPresets) {
+    LexActionPresets.configure({
+      kv: { get: (keys) => WcStore.get(keys), set: (obj) => WcStore.set(obj) },
+      promptsAdmin: async (body) => {
+        const token = await A.validToken();
+        if (!token) return { error: 'login', status: 401 };
+        let resp;
+        try {
+          resp = await fetch(A.supabaseUrl() + '/functions/v1/prompts-admin', {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer ' + token,
+              apikey: A.anonKey(),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          });
+        } catch (e) {
+          return { error: String((e && e.message) || e), status: 0, stage: 'network' };
+        }
+        const json = await resp.json().catch(() => null);
+        if (!resp.ok) return { error: (json && json.error) || ('HTTP ' + resp.status), status: resp.status };
+        return Object.assign({ ok: true }, json || {});
+      },
+    });
   }
 
   // ── Dictation ─────────────────────────────────────────────────────────────
@@ -522,7 +652,9 @@
   });
 
   async function runSend(m) {
-    const native = (m.mode === 'native') ? await nativeTurnConfig() : null;
+    // Слот приезжает С ХОДОМ: имя на кнопке и то, что уходит модели, обязаны
+    // относиться к одной и той же заготовке.
+    const native = (m.mode === 'native') ? await nativeTurnConfig(m.slotId) : null;
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
     const modelId = m.modelOverride || (native && native.model) || await activeModelId();
@@ -540,6 +672,18 @@
       // Opened from history in another tab, or the page reloaded mid-thread.
       setOpen(convId, await WcHistory.turns(convId));
     }
+
+    // ── Куда ляжет этот ход ──────────────────────────────────────────────
+    // Ход заготовки живёт СВОЕЙ веткой чата, а не в переписке урока: ключ
+    // '__lex_action__<ключ чата>__<слот>' (lex-action-branch.js), тот же самый,
+    // что пишет расширение, — поэтому ход, отправленный там, продолжается
+    // здесь. Ветка выводится ПОСЛЕ чеканки ключа чата: до неё ключа ещё нет, и
+    // ветка привязалась бы к пустому месту.
+    const branchKey = native ? global.LexActionBranch.actionBranchKeyOf(convId, native.slot) : null;
+    // Куда пишем строки в базу и из чего собираем контекст для модели. Для
+    // обычного хода это переписка урока, для хода заготовки — только её ветка.
+    const writeKey = branchKey || convId;
+    const buf = branchKey ? await branchBuffer(branchKey) : openTurns;
 
     const prompt = await WcStore.get(['activeChatPromptId']);
     const slot = prompt.activeChatPromptId || 'chatB1';
@@ -560,7 +704,7 @@
       throw new Error('This model does not read images. Remove the attachment or switch models.');
     }
 
-    openTurns.push({ role: 'user', text: m.text, uid: userUid });
+    buf.push({ role: 'user', text: m.text, uid: userUid });
 
     // Everything the model sees, inline. There is no server-side thread to
     // chain onto — every text surface ships the whole conversation now.
@@ -571,7 +715,7 @@
     // prefix, and one image per message. Older turns keep their text only —
     // re-sending every picture of a long conversation on every turn would
     // multiply the bill by the number of pictures in it.
-    const messages = openTurns.map((t) => ({ role: t.role, content: t.text }));
+    const messages = buf.map((t) => ({ role: t.role, content: t.text }));
     if (attachment) {
       messages[messages.length - 1] = {
         role: 'user',
@@ -601,10 +745,14 @@
       // деньгами ради удобства. Следствие честное и записано в журнале: повтор
       // хода, ПЕРЕЖИВШЕГО перезагрузку, идёт текущей моделью, потому что чем
       // он был отвечен — не сохранено нигде.
-      if (answer) openTurns.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
+      if (answer) buf.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
       try {
-        await WcHistory.push(convId, rows);
-        await WcHistory.forgetPreview(convId);
+        // Ход заготовки ложится в СВОЮ ветку. Название беседы и полоска в
+        // «Недавних» при этом не меняются: ветка не беседа, в список она не
+        // идёт (WcHistory.classifyKey отбрасывает всё '__lex_*'), и трогать
+        // подпись беседы ходом, которого в ней не видно, было бы враньём.
+        await WcHistory.push(writeKey, rows);
+        if (!branchKey) await WcHistory.forgetPreview(convId);
         WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
       } catch (err) {
         console.warn(TAG, 'turn not written to the account:', err && err.message);
@@ -639,7 +787,7 @@
         text: m.text,
         surface: 'standalone',
         source: 'webchat',
-        turnIndex: openTurns.length - 1,
+        turnIndex: buf.length - 1,
       },
       convId,
       knobs

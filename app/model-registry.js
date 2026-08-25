@@ -26,7 +26,32 @@
 //   label           human-readable UI label
 //   efforts         text only — accepted reasoning-effort / thinkingLevel values
 //   defaultEffort   text only — default effort
-//   pricing         USD per 1M tokens (text/voice) or per audio-hour (asr)
+//   pricing         USD per 1M tokens (text/voice) or per audio-hour (asr).
+//                   Необязательное вложенное поле `longContext` — ТАРИФ
+//                   ДЛИННОГО КОНТЕКСТА: { threshold, input, cachedInput,
+//                   output, cacheCreation? }. Провайдер переключается на эти
+//                   цены, когда ВХОД запроса СТРОГО превысил `threshold`
+//                   токенов, и считает по ним ВЕСЬ запрос — вход, чтение кэша
+//                   и выход. Поля НЕТ → порога нет, цена одна на любой объём;
+//                   это и есть состояние большинства моделей, отсутствие поля
+//                   ничего не ломает. `cacheCreation` необязателен и внутри
+//                   (своя цена записи кэша есть только у Anthropic, а у
+//                   Anthropic порога нет) — пусто значит «по цене входа
+//                   повышенного тарифа», тем же запасным правилом, каким
+//                   обычный тариф считает запись кэша по обычному входу.
+//                   ⚠ Зеркало этих цен — строка модели в Supabase
+//                   public.models (колонки long_*): деньги списывает СЕРВЕР по
+//                   ней, а не по этой таблице. Правишь здесь — правь и там.
+//
+//                   Сверено по официальным страницам провайдеров 2026-08-25,
+//                   чтобы не перепроверять каждую заново. Порог ЕСТЬ у шести:
+//                   gpt-5.6-luna / terra / sol, gpt-5.5, gpt-5.4 (все 272 000)
+//                   и gemini-3.1-pro-preview (200 000). Порога НЕТ у
+//                   gpt-5.5-pro, gpt-5.4-mini, gpt-5.4-nano (у последних двух
+//                   окно 400 000 и цена одна), у всех Google Flash и
+//                   Flash-Lite и у ВСЕХ Anthropic — там прямая формулировка:
+//                   «Claude 4.6 and later models include the full 1M token
+//                   context window at standard pricing».
 //   hidden          text only — kept for pricing/compat, not shown in the bar
 //   vision          text only, ОБЯЗАТЕЛЬНОЕ — принимает ли модель картинку на
 //                   входе. Умолчания нет намеренно: новая модель без этого
@@ -46,6 +71,16 @@
 //   knobQuirks      text only — per-model overrides of the provider knob
 //                   baseline (PROVIDER_TEXT_KNOBS). Each value: true | false |
 //                   'openaiReasoning' | 'anthropicThinking'.
+//   thinkingAlwaysOn text only — модель размышляет ВСЕГДА, независимо от того,
+//                   что мы послали (Anthropic: Fable 5 вообще не выключается,
+//                   Opus 5 включён по умолчанию при пропущенном `thinking`).
+//                   Это не косметическая пометка: у Anthropic токены
+//                   размышления считаются внутри `max_tokens`, а адаптер по
+//                   умолчанию берёт 1024 и поднимает до 4096 только когда
+//                   ЗНАЕТ, что размышление идёт. Без флага первый же ход на
+//                   Opus 5 упёрся бы в потолок и оборвался на середине —
+//                   выглядит как баг модели, а не как забытое поле. Читает
+//                   `thinkingAlwaysOn(modelId)` ниже, зовёт callAnthropicStream.
 
 (function (global) {
   'use strict';
@@ -61,11 +96,24 @@
       // 2026-07-30: OpenAI cut Luna by 80% (was 1.00 / 0.10 / 6.00). Mirror
       // row in Supabase public.models updated in the same commit — that table,
       // not this one, is what the server debits by.
+      // 2026-08-25: 'max' added to the ladder. OpenAI's model page now documents
+      // none / low / medium (their default) / high / xhigh / max for all three
+      // 5.6 variants; the 2026-07-12 live check predates 'max' existing. Lex
+      // keeps 'none' as ITS default — cheapest turn, not OpenAI's suggestion.
       apiModel: 'gpt-5.6-luna', provider: 'openai', type: 'text', label: '5.6 Luna',
       vision: true,
-      efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'none',
-      pricing: { input: 0.20, cachedInput: 0.02, output: 1.20 },
+      // Тариф длинного контекста, сверено 2026-08-25 по
+      // developers.openai.com/api/docs/models/gpt-5.6-luna: «Prompts with >272K
+      // input tokens are priced at 2x input and 1.5x output for the full
+      // request». Порог считается по ВХОДУ, граница СТРОГАЯ (ровно 272 000 —
+      // ещё обычная цена), повышенная цена применяется ко ВСЕМУ запросу.
+      // Чтение кэша тоже удваивается — так напечатано в их таблице цен.
+      pricing: {
+        input: 0.20, cachedInput: 0.02, output: 1.20,
+        longContext: { threshold: 272000, input: 0.40, cachedInput: 0.04, output: 1.80 },
+      },
       registryEntries: [
         { id: 'preprocess-gpt-5-6-luna-off', fields: { effort: 'none' }, preprocess: true },
       ],
@@ -76,20 +124,36 @@
       // NOT part of that cut — it stays at 5.00 / 0.50 / 30.00.
       apiModel: 'gpt-5.6-terra', provider: 'openai', type: 'text', label: '5.6 Terra',
       vision: true,
-      efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'none',
-      pricing: { input: 2.00, cachedInput: 0.20, output: 12.00 },
+      // Тариф длинного контекста — то же правило и та же страница, что у Luna
+      // (developers.openai.com/api/docs/models/gpt-5.6-terra, 2026-08-25).
+      pricing: {
+        input: 2.00, cachedInput: 0.20, output: 12.00,
+        longContext: { threshold: 272000, input: 4.00, cachedInput: 0.40, output: 18.00 },
+      },
       registryEntries: [
         { id: 'preprocess-gpt-5-6-terra-off', fields: { effort: 'none' }, preprocess: true },
       ],
     },
     {
       // Live-verified 2026-07-12, same effort surface as Luna/Terra.
+      // 2026-08-25: OpenAI cut Sol to 4.00 / 0.40 / 20.00 (was 5.00 / 0.50 /
+      // 30.00 — the figure this row and the Supabase mirror both still carried,
+      // so Sol was billed at 2.5x/3x markup instead of the intended 2x). Their
+      // pricing page calls it promotional "at least through November 21, 2026";
+      // re-check on that date. Mirror row in public.models updated in the same
+      // commit — that table, not this one, is what the server debits by.
       apiModel: 'gpt-5.6-sol', provider: 'openai', type: 'text', label: '5.6 Sol',
       vision: true,
-      efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'none',
-      pricing: { input: 5.00, cachedInput: 0.50, output: 30.00 },
+      // Тариф длинного контекста — то же правило и та же страница, что у Luna
+      // (developers.openai.com/api/docs/models/gpt-5.6-sol, 2026-08-25).
+      pricing: {
+        input: 4.00, cachedInput: 0.40, output: 20.00,
+        longContext: { threshold: 272000, input: 8.00, cachedInput: 0.80, output: 30.00 },
+      },
       registryEntries: [
         { id: 'preprocess-gpt-5-6-sol-off', fields: { effort: 'none' }, preprocess: true },
       ],
@@ -104,7 +168,18 @@
       // verified live 2026-07-01, same for gpt-5.4 / gpt-5.4-mini below.
       efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
       defaultEffort: 'none',
-      pricing: { input: 5.00, cachedInput: 0.50, output: 30.00 },
+      // Тариф длинного контекста есть и здесь, хотя модель скрыта: скрытая —
+      // не значит недостижимая, сохранённая настройка может по-прежнему её
+      // называть (для того и dev-tools/audit-model-cells.mjs). Сверено
+      // 2026-08-25 по developers.openai.com/api/docs/models/gpt-5.5: «For
+      // GPT-5.5, prompts with >272K input tokens are priced at 2x input and
+      // 1.5x output for the full session». Второй таблицы цен на этой странице
+      // нет — цифры получены тем же множителем, каким сходятся напечатанные
+      // цифры всех трёх 5.6 (вход и чтение кэша ×2, выход ×1.5).
+      pricing: {
+        input: 5.00, cachedInput: 0.50, output: 30.00,
+        longContext: { threshold: 272000, input: 10.00, cachedInput: 1.00, output: 45.00 },
+      },
       registryEntries: [
         { id: 'gpt-5-5-off', fields: { effort: 'none' } },
         { id: 'gpt-5-5-hi', fields: { effort: 'high' } },
@@ -121,6 +196,13 @@
       vision: true,
       efforts: ['medium', 'high', 'xhigh'],
       defaultEffort: 'medium',
+      // Порога длинного контекста у Pro НЕТ — на его странице правила «>272K»
+      // нет вовсе (сверено 2026-08-25), окно при этом 1.05M.
+      // TODO(цена, не порог): та же страница говорит «GPT-5.5 Pro does not
+      // offer a cached input discount», а здесь и в public.models стоит
+      // cachedInput 3.00. Если это так, чтение кэша на Pro недосчитывается в
+      // десять раз. Не трогаю в задаче про пороги: это правка ЦЕНЫ на скрытой
+      // модели, её решать отдельно.
       pricing: { input: 30.00, cachedInput: 3.00, output: 180.00 },
       registryEntries: [
         { id: 'gpt-5-5-pro-off', fields: { effort: 'medium' } },
@@ -134,7 +216,15 @@
       vision: true,
       efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
       defaultEffort: 'none',
-      pricing: { input: 2.50, cachedInput: 0.25, output: 15.00 },
+      // Тариф длинного контекста, сверено 2026-08-25 по
+      // developers.openai.com/api/docs/models/gpt-5.4: «For models with a 1.05M
+      // context window (GPT-5.4 and GPT-5.4 Pro), prompts with >272K input
+      // tokens are priced at 2x input and 1.5x output for the full session for
+      // standard, batch, and flex». Цифры — тем же множителем, что у 5.5 выше.
+      pricing: {
+        input: 2.50, cachedInput: 0.25, output: 15.00,
+        longContext: { threshold: 272000, input: 5.00, cachedInput: 0.50, output: 22.50 },
+      },
       registryEntries: [
         { id: 'gpt-5.4', fields: { thinkingSupported: false }, legacy: true },
       ],
@@ -178,6 +268,51 @@
 
     // ── Google · text ────────────────────────────────────────────────
     {
+      // Gemini 3.7 Flash — added 2026-08-25, the visible Google default.
+      // Prices from ai.google.dev/gemini-api/docs/pricing, checked 2026-08-25:
+      // 0.75 / 0.075 / 3.75 is INTRODUCTORY "through December 31, 2026";
+      // 1.50 / 0.15 / 7.50 from 2027-01-01. Re-check on that date — the
+      // Supabase public.models row has to move with it, that table is what
+      // the server debits by.
+      //
+      // ⚠ thinkingLevel: low / medium (default) / high — 'minimal' does NOT
+      // exist on this model (docs/thinking, checked 2026-08-25). This is the
+      // one place 3.7 Flash differs from every other Flash in this file, and
+      // it is why the model was ADDED rather than 3.5 Flash renamed: the
+      // subtitle-cleanup preset preprocess-gemini-35f-min pins thinkingLevel
+      // 'minimal', which would have become a 400 on the cleanup path only.
+      apiModel: 'gemini-3.7-flash', provider: 'google', type: 'text', label: '3.7 Flash',
+      vision: true,
+      efforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+      pricing: { input: 0.75, cachedInput: 0.075, output: 3.75 },
+      // Google's migration page for 3.7 Flash: "Strip temperature, top_p, and
+      // top_k from generation configs." Enforced here rather than in the
+      // adapter — callGoogleStream now asks textKnobSupported, the same
+      // registry-driven gate the Anthropic path already uses.
+      //   seed: Google's docs say nothing about it either way for 3.7 Flash.
+      // Turned off as a precaution, not on a documented requirement — the
+      // knob is a dev-only debugging aid, and an unknown-parameter 400 on the
+      // main chat path costs more than the knob is worth. Flip to true if it
+      // is ever confirmed accepted.
+      knobQuirks: { temperature: false, seed: false },
+    },
+    {
+      // Gemini 3.5 Flash-Lite — added 2026-08-25, the cheap Google tier
+      // (0.30 / 0.03 / 2.50, checked 2026-08-25). Successor to 3.1 Flash-Lite
+      // below, which is hidden as of the same date.
+      // thinkingLevel: minimal (default) / low / medium / high.
+      apiModel: 'gemini-3.5-flash-lite', provider: 'google', type: 'text', label: '3.5 Flash-Lite',
+      vision: true,
+      efforts: ['minimal', 'low', 'medium', 'high'],
+      defaultEffort: 'minimal',
+      pricing: { input: 0.30, cachedInput: 0.03, output: 2.50 },
+    },
+    {
+      // Hidden 2026-08-25 — superseded by 3.7 Flash. Kept in the registry
+      // (not deleted) so historical telemetry rows referencing it stay valid
+      // and so the subtitle-cleanup preset below keeps resolving.
+      hidden: true,
       // Gemini 3.5 Flash — released 2026-05-19, the default Google model.
       // Best-effort fields, verify against Google docs once GA:
       //  · apiModel — 'gemini-3.5-flash'; Gemini text models
@@ -202,15 +337,27 @@
       ],
     },
     {
-      // Hidden 2026-05-22 — superseded by 3.5 Flash. Kept in the registry
-      // (not deleted) so historical telemetry rows referencing it stay valid.
-      // Pro rejects thinkingLevel 'minimal' (HTTP 400) — lowest tier is 'low'.
-      hidden: true,
+      // Hidden 2026-05-22 — superseded by 3.5 Flash. UN-hidden 2026-08-25 at
+      // the owner's request: he wants the Pro tier back in the bar.
+      // Pro rejects thinkingLevel 'minimal' (HTTP 400) — lowest tier is 'low',
+      // and Google documents 'high' as the model's own default (docs/thinking,
+      // checked 2026-08-25), so that is what this row now defaults to.
+      // Pricing checked 2026-08-25 — unchanged at 2.00 / 0.20 / 12.00 for
+      // prompts ≤200k tokens.
       apiModel: 'gemini-3.1-pro-preview', provider: 'google', type: 'text', label: '3.1 Pro',
       vision: true,
       efforts: ['low', 'medium', 'high'],
-      defaultEffort: 'low',
-      pricing: { input: 2.00, cachedInput: 0.20, output: 12.00 },
+      defaultEffort: 'high',
+      // Тариф длинного контекста, сверено 2026-08-25 по
+      // ai.google.dev/gemini-api/docs/pricing: у 3.1 Pro каждая строка цены
+      // разбита надвое — «prompts <= 200k tokens» и «prompts > 200k tokens»,
+      // отдельно на вход, на выход и на кэш. Граница СТРОГАЯ: ровно 200 000
+      // токенов входа — ещё обычная цена. Порог считается по ВХОДУ, повышенная
+      // цена применяется ко всему запросу, включая выход.
+      pricing: {
+        input: 2.00, cachedInput: 0.20, output: 12.00,
+        longContext: { threshold: 200000, input: 4.00, cachedInput: 0.40, output: 18.00 },
+      },
       registryEntries: [
         { id: 'gemini-3-1-pro-low', fields: { thinkingLevel: 'low' }, googleInteractions: true },
         { id: 'gemini-3-1-pro-high', fields: { thinkingLevel: 'high' }, googleInteractions: true },
@@ -232,6 +379,13 @@
       ],
     },
     {
+      // Hidden 2026-08-25 — superseded by 3.5 Flash-Lite. Kept in the registry
+      // (not deleted) so historical telemetry rows referencing it stay valid
+      // AND because preprocess-gemini-fl-min below is still the subtitle-
+      // cleanup default (DEFAULT_PREPROCESS_MODEL_ID in background.js) — the
+      // named preprocess ids are not filtered by `hidden`, so the cleanup bar
+      // keeps working off this entry.
+      hidden: true,
       apiModel: 'gemini-3.1-flash-lite', provider: 'google', type: 'text', label: '3.1 Flash-Lite',
       vision: true,
       efforts: ['minimal', 'low', 'medium', 'high'],
@@ -247,6 +401,54 @@
 
     // ── Anthropic · text ─────────────────────────────────────────────
     {
+      // Claude Fable 5 — added 2026-08-25. Anthropic's most capable widely
+      // released model. Pricing checked 2026-08-25 on the official pricing
+      // page: 10 / 1 (cache hit) / 12.50 (5m cache write) / 50.
+      //
+      // ⚠ Thinking cannot be turned off on this model — it is always on, and
+      // an explicit thinking:{type:'disabled'} returns 400. Lex never sends
+      // `disabled` (it only ever ADDS thinking:{type:'adaptive'}), so no
+      // adapter change is needed for that. What DOES matter is max_tokens:
+      // reasoning tokens count against it, and callAnthropicStream's default
+      // is 1024 unless it knows thinking is running. Hence thinkingAlwaysOn
+      // below — it is the flag that adapter reads.
+      apiModel: 'claude-fable-5', provider: 'anthropic', type: 'text', label: 'Fable 5',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+      thinkingAlwaysOn: true,
+      pricing: { input: 10.00, cachedInput: 1.00, cacheCreation: 12.50, output: 50.00 },
+      // Sampling params (temperature/top_p/top_k) are removed from the API on
+      // this model — rejected regardless of thinking state, same as Opus 4.8
+      // and Sonnet 5.
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Claude Opus 5 — added 2026-08-25. Pricing checked 2026-08-25 on the
+      // official pricing page: 5 / 0.50 / 6.25 / 25 — identical to Opus 4.8.
+      //
+      // ⚠ Thinking is ON BY DEFAULT here, unlike Opus 4.8/4.7 where omitting
+      // the `thinking` field meant no thinking at all. Lex omits it for
+      // synthetic provider:apiModel:effort ids, so every turn on this model
+      // reasons whether or not the UI says so — hence thinkingAlwaysOn, which
+      // is what lifts callAnthropicStream's default max_tokens off 1024.
+      //   thinking:{type:'disabled'} is accepted only at effort 'high' or
+      // below — 400 at xhigh/max. Lex never sends `disabled`, so this is a
+      // note for whoever adds a thinking-off knob, not a live constraint.
+      apiModel: 'claude-opus-5', provider: 'anthropic', type: 'text', label: 'Opus 5',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+      thinkingAlwaysOn: true,
+      pricing: { input: 5.00, cachedInput: 0.50, cacheCreation: 6.25, output: 25.00 },
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Hidden 2026-08-25 — superseded by Opus 5 (same price, same surface).
+      // Kept in the registry (not deleted) so historical telemetry rows
+      // referencing it stay valid and routing keeps working for anyone whose
+      // stored settings still name it.
+      hidden: true,
       apiModel: 'claude-opus-4-8', provider: 'anthropic', type: 'text', label: 'Opus 4.8',
       vision: true,
       efforts: ['low', 'medium', 'high', 'max', 'xhigh'],
@@ -280,9 +482,19 @@
       ],
     },
     {
+      // Hidden 2026-08-25 — superseded by Sonnet 5 (cheaper AND newer). Kept
+      // in the registry (not deleted) so historical telemetry rows referencing
+      // it stay valid and so the named sonnet-4-6-* ids — including the
+      // subtitle-cleanup preset preprocess-sonnet-4-6 — keep resolving.
+      hidden: true,
+      // 'xhigh' removed 2026-08-25: it arrived with Opus 4.7 and this model
+      // never had it (Anthropic's effort docs list low/medium/high/max here).
+      // It had been in this row since the model was added — a stored
+      // effortByApiModel entry pinning 'xhigh' for Sonnet 4.6 still ships it
+      // and still 400s, so re-pick the effort if that ever shows up.
       apiModel: 'claude-sonnet-4-6', provider: 'anthropic', type: 'text', label: 'Sonnet 4.6',
       vision: true,
-      efforts: ['low', 'medium', 'high', 'max', 'xhigh'],
+      efforts: ['low', 'medium', 'high', 'max'],
       defaultEffort: 'low',
       pricing: { input: 3.00, cachedInput: 0.30, cacheCreation: 3.75, output: 15.00 },
       // Sonnet accepts `temperature` only while adaptive thinking is off.
@@ -302,9 +514,12 @@
       // are rejected entirely regardless of thinking state — unlike Sonnet 4.6,
       // where temperature works while adaptive thinking is off. Matches Opus
       // 4.7/4.8's request surface, not Sonnet 4.6's.
-      // Pricing: intro tariff $2/$10 per 1M tokens through 2026-08-31, then
-      // standard $3/$15 — bump input/cachedInput/cacheCreation/output after
-      // that date if this hasn't already been revisited.
+      // Pricing: $2/$10 per 1M tokens, PERMANENT. This row used to warn that
+      // the intro tariff expired 2026-08-31 and to bump the numbers after that
+      // date — that is now wrong and the warning is removed. Anthropic's
+      // pricing page, checked 2026-08-25: "The $2/$10 … announced at launch as
+      // introductory pricing through August 31, 2026, is now the standard
+      // price. The previously scheduled increase to $3/$15 … will not occur."
       apiModel: 'claude-sonnet-5', provider: 'anthropic', type: 'text', label: 'Sonnet 5',
       vision: true,
       efforts: ['low', 'medium', 'high', 'max', 'xhigh'],
@@ -692,6 +907,81 @@
     return !!(model && model.vision);
   }
 
+  // ── Очистка субтитров: перечень ВЫВОДИТСЯ, а не перечисляется ──────
+  // Решение владельца 2026-08-25: отдельного списка моделей очистки не
+  // существует. Кнопки — это те же ВИДИМЫЕ текстовые модели реестра, каждая на
+  // своей самой дешёвой ступени размышления. Обновили состав реестра — бар
+  // очистки обновился сам, второго места с перечнем моделей в проекте нет.
+  //
+  // До этого перечень жил в `content.js` массивом `PREPROCESS_MODELS`, а
+  // умолчание — константой в ДВУХ файлах. Шапка этого файла при этом обещала
+  // «no other file needs editing», и для бара очистки это была неправда: новая
+  // модель появлялась в чате и не появлялась в очистке, а скрытая оставалась в
+  // очистке навсегда.
+
+  // Ступени от самой дешёвой к самой дорогой. Порядок именно ЦЕНЫ, а не тот, в
+  // котором ступени перечислены у модели: в `efforts` они кое-где идут
+  // 'max','xhigh' (исторический порядок добавления), и «взять первую из
+  // массива» выбрало бы самую дорогую.
+  const EFFORT_COST_ORDER = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+  function cheapestEffort(m) {
+    const have = m.efforts || [];
+    for (const e of EFFORT_COST_ORDER) if (have.includes(e)) return e;
+    return null;
+  }
+
+  // Кнопки бара очистки: [{ id, label, provider, apiModel, effort }].
+  // id — обычный синтетический `provider:apiModel:effort`, тот же вид, что у
+  // выбора модели в чате, поэтому его понимает resolveModelEntry и ничего
+  // особенного для очистки резолвить не нужно.
+  function preprocessModelOptions() {
+    const out = [];
+    for (const m of LEX_MODELS) {
+      if (m.type !== 'text' || m.hidden) continue;
+      const effort = cheapestEffort(m);
+      out.push({
+        id: m.provider + ':' + m.apiModel + ':' + (effort || ''),
+        label: m.label,
+        provider: m.provider,
+        apiModel: m.apiModel,
+        effort,
+      });
+    }
+    return out;
+  }
+
+  // Сохранённое значение → id одной из кнопок, либо null.
+  //
+  // Нужно из-за прошлых имён: в `chrome.storage.local` и в опубликованных
+  // настройках лежат легаси-имена вида `preprocess-gpt-5-6-luna-off`, и без
+  // приведения бар не нашёл бы совпадения и показал «модель не выбрана» тому,
+  // у кого всё настроено. Приводим ПО apiModel: имя ступени в легаси-пресете
+  // могло быть каким угодно, кнопка у модели теперь одна.
+  //
+  // null означает ровно одно: «такой кнопки нет». Либо значения нет вовсе, либо
+  // оно называет скрытую модель — и тогда честнее сказать «не выбрана», чем
+  // молча чистить не тем, что подсвечено.
+  function normalizePreprocessModelId(stored) {
+    if (!stored || typeof stored !== 'string') return null;
+    const facts = resolveModelFacts(stored);
+    if (!facts) return null;
+    const hit = preprocessModelOptions().find((o) => o.apiModel === facts.apiModel);
+    return hit ? hit.id : null;
+  }
+
+  // Размышляет ли модель всегда, что бы мы ни послали. modelId — синтетический
+  // `provider:apiModel:effort` или легаси-имя; неизвестный id → false.
+  // Единственный потребитель — callAnthropicStream: он берёт из этого потолок
+  // `max_tokens` (1024 → 4096), потому что у Anthropic токены размышления
+  // тратятся из того же лимита, что и видимый ответ.
+  function thinkingAlwaysOn(modelId) {
+    const facts = resolveModelFacts(modelId);
+    if (!facts) return false;
+    const model = MODELS_BY_API[facts.apiModel];
+    return !!(model && model.thinkingAlwaysOn);
+  }
+
   // Is a text-mode knob (temperature / maxTokens / seed / verbosity /
   // serviceTier) supported for the given modelId?
   function textKnobSupported(knobName, modelId) {
@@ -797,23 +1087,72 @@
   // тарифной арифметики разошлась бы с первой на первом же новом провайдере.
   const PRICING = buildPricing();
 
-  function computeCost(apiModel, totalInputTokens, cachedInputTokens, cacheCreationTokens, outputTokens) {
-    const price = PRICING[apiModel];
+  // Какой тариф действует на запросе такого размера. Возвращает набор цен и имя
+  // тарифа, либо null — «посчитать нечем».
+  //
+  // Порог считается по ВСЕМУ входу, включая прочитанные из кэша токены: это
+  // размер промпта, а провайдеры формулируют правило именно про размер промпта
+  // («Prompts with >272K input tokens…», «prompts > 200k tokens»). Ни OpenAI,
+  // ни Google отдельной оговорки про кэш не печатают.
+  //
+  // Граница СТРОГАЯ у обоих: ровно на пороге действует обычная цена.
+  //
+  // Порог есть, а второй цены нет — считать нечем. Молча взять обычную цену
+  // здесь запрещено: это молчаливый недосчёт ровно на тех запросах, ради
+  // которых всё и заведено. На сервере такой случай отклоняет запрос целиком
+  // (llm-proxy), тут — тот же смысл: null, то есть «цена неизвестна» ($? на
+  // пузырьке), а не заниженное число.
+  function ratesFor(price, totalInputTokens) {
     if (!price || price.input == null) return null;
+    const lc = price.longContext;
+    const over = !!(lc && lc.threshold != null && (totalInputTokens || 0) > lc.threshold);
+    if (!over) {
+      return {
+        tier: 'standard',
+        input: price.input,
+        cachedInput: (price.cachedInput != null) ? price.cachedInput : price.input,
+        // Fallback to base input price when the provider has no separate cache-
+        // creation tariff — for those providers `created` is always 0, so the
+        // fallback never actually contributes.
+        cacheCreation: (price.cacheCreation != null) ? price.cacheCreation : price.input,
+        output: (price.output != null) ? price.output : 0,
+      };
+    }
+    if (lc.input == null || lc.cachedInput == null || lc.output == null) {
+      try {
+        console.error('[lex-model-registry] long-context tier declared without prices — cost unknown');
+      } catch (_) { /* нет консоли — молчим, ответ всё равно null */ }
+      return null;
+    }
+    return {
+      tier: 'longContext',
+      input: lc.input,
+      cachedInput: lc.cachedInput,
+      cacheCreation: (lc.cacheCreation != null) ? lc.cacheCreation : lc.input,
+      output: lc.output,
+    };
+  }
+
+  function computeCost(apiModel, totalInputTokens, cachedInputTokens, cacheCreationTokens, outputTokens) {
+    const rates = ratesFor(PRICING[apiModel], totalInputTokens);
+    if (!rates) return null;
     const cached  = cachedInputTokens   || 0;
     const created = cacheCreationTokens || 0;
     const nonCached = Math.max(0, (totalInputTokens || 0) - cached - created);
-    // Fallback to base input price when the provider has no separate cache-
-    // creation tariff — for those providers `created` is always 0, so the
-    // fallback never actually contributes.
-    const cacheCreationPrice = (price.cacheCreation != null) ? price.cacheCreation : price.input;
-    const cachedReadPrice    = (price.cachedInput   != null) ? price.cachedInput   : price.input;
     const inputCost =
-      (nonCached / 1e6) * price.input +
-      (cached    / 1e6) * cachedReadPrice +
-      (created   / 1e6) * cacheCreationPrice;
-    const outputCost = ((outputTokens || 0) / 1e6) * price.output;
+      (nonCached / 1e6) * rates.input +
+      (cached    / 1e6) * rates.cachedInput +
+      (created   / 1e6) * rates.cacheCreation;
+    const outputCost = ((outputTokens || 0) / 1e6) * rates.output;
     return { inputCost, outputCost };
+  }
+
+  // Имя действующего тарифа — 'standard' | 'longContext' | null («неизвестно»).
+  // Отдельно от computeCost, потому что след в журнале нужен и там, где сумма
+  // уже посчитана.
+  function pricingTier(apiModel, totalInputTokens) {
+    const rates = ratesFor(PRICING[apiModel], totalInputTokens);
+    return rates ? rates.tier : null;
   }
 
   global.LexModelRegistry = {
@@ -824,6 +1163,7 @@
     modelRegistry: builtModelRegistry,
     pricing: PRICING,
     computeCost,
+    pricingTier,
     providerApiModels: buildProviderApiModels(),
     apiModelLabel: buildApiModelLabel(),
     effortSupport: buildEffortSupport(),
@@ -840,6 +1180,11 @@
     voiceModelOptionsHtml,
     // knob capability
     textKnobSupported,
+    // размышление, которое провайдер включает сам
+    thinkingAlwaysOn,
+    // очистка субтитров: перечень выводится из реестра, а не хранится отдельно
+    preprocessModelOptions,
+    normalizePreprocessModelId,
     // вложения: умеет ли модель читать картинку
     visionSupported,
     voiceKnobAvailability: VOICE_KNOB_AVAILABILITY,

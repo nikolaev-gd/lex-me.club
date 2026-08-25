@@ -404,10 +404,47 @@
       + '?select=role,content,turn_uid,authored_at,created_at,deleted_at'
       + '&video_id=eq.' + encodeURIComponent(videoId)
       + '&order=authored_at.asc,turn_uid.asc');
+    return (rows || []).filter(keepRow).map(toTurn);
+  }
+
+  // Время авторства идёт НАРУЖУ вместе с репликой — оно нужно тому, кто сшивает
+  // урок с ветками заготовок в одну ленту (wc-backend.js). Внутри одного ключа
+  // порядок задаёт сам запрос, между ключами задать его нечем, кроме этого поля.
+  const keepRow = (r) => !r.deleted_at && !(r.role === 'user' && isSeedContent(r.content));
+  const toTurn = (r) => ({
+    role: r.role,
+    text: r.content || '',
+    uid: r.turn_uid || null,
+    authoredAt: r.authored_at || r.created_at || null,
+  });
+
+  // ── Переписки ЗАГОТОВОК одного чата ──────────────────────────────────────
+  //
+  // Ход через заготовку живёт своей веткой — ключ '__lex_action__<чат>__<слот>'
+  // (lex-action-branch.js). Веток у чата столько, сколько заготовок в нём
+  // трогали, и вперёд их список неизвестен: перечисляем ХРАНИЛИЩЕ, а не список
+  // заготовок — ровно так же, как расширение (chat-surface.js
+  // actionBranchPrefixOfChat). Удалённая заготовка от этого не уносит с собой
+  // сказанное, и свежезагруженной странице не нужно дожидаться каталога.
+  //
+  // ⚠️ ОТБОР ИДЁТ В ДВА ШАГА, И ВТОРОЙ ОБЯЗАТЕЛЕН. В SQL LIKE подчёркивание —
+  // это подстановочный знак «любой один символ», а в нашем префиксе их девять.
+  // Значит запрос отбирает ШИРЕ, чем надо, и сузить его до точного совпадения
+  // здесь нечем (ESCAPE PostgREST не даёт). Поэтому запрос только сокращает
+  // выборку, а решает — actionBranchBelongsTo: тот же самый разбор, каким
+  // расширение решает, чья это ветка. Без него в ленту чата попали бы ходы
+  // ДРУГОГО чата, чей ключ отличается только знаком препинания.
+  async function actionBranchTurns(prefix) {
+    if (typeof prefix !== 'string' || !prefix) return [];
+    const rows = await get('/rest/v1/video_chat_turns'
+      + '?select=video_id,role,content,turn_uid,authored_at,created_at,deleted_at'
+      + '&video_id=like.' + encodeURIComponent(prefix + '*')
+      + '&order=authored_at.asc,turn_uid.asc');
+    const AB = global.LexActionBranch;
     return (rows || [])
-      .filter((r) => !r.deleted_at)
-      .filter((r) => !(r.role === 'user' && isSeedContent(r.content)))
-      .map((r) => ({ role: r.role, text: r.content || '', uid: r.turn_uid || null }));
+      .filter((r) => AB.actionBranchBelongsTo(r.video_id, prefix))
+      .filter(keepRow)
+      .map((r) => Object.assign(toTurn(r), { branchKey: r.video_id }));
   }
 
   // ── Writing turns back ───────────────────────────────────────────────────
@@ -482,6 +519,7 @@
     list,
     fillPreviews,
     turns,
+    actionBranchTurns,
     push,
     rename,
     hide,

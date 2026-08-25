@@ -97,7 +97,16 @@
     return (src != null) ? src : ((bubble && bubble.textContent) || '');
   }
 
-  function userMessageMenu(anchor, bubble) {
+  // ── Ход ЗАГОТОВКИ в ленте ────────────────────────────────────────────────
+  // Отличается ровно одним: под ним нет ни «заново», ни «изменить». Оба органа
+  // отправляют заново, а отправить заново они умеют только в переписку учителя
+  // — то есть ход заготовки уехал бы в чат, из которого его весь смысл был
+  // исключить. Расширение поступает так же и по той же причине
+  // (chat-surface.js: «Action turns never participate in ⟳ re-ask»).
+  const ACTION_CLASS = 'wc-turn-action';
+  const isActionTurn = (node) => !!(node && node.classList && node.classList.contains(ACTION_CLASS));
+
+  function userMessageMenu(anchor, bubble, opts) {
     WcUI.menu(anchor, [
       {
         label: 'Copy',
@@ -107,7 +116,7 @@
           catch (_) { toast('The browser refused clipboard access', { error: true }); }
         },
       },
-      {
+      (opts && opts.action) ? null : {
         label: 'Edit',
         icon: 'edit',
         onSelect: () => hooks.onEdit && hooks.onEdit(userText(bubble)),
@@ -115,7 +124,7 @@
     ]);
   }
 
-  function userTurn(text, images) {
+  function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     // Ход человека приходит текстом целиком, поэтому режется сразу — ждать
     // тут нечего. `ready` кладёт на пузырь исходник даже при выключенном
@@ -130,8 +139,10 @@
     // Меню висит на ПУЗЫРЕ, а не на всей строке: строка тянется во всю ширину
     // ленты, и удержание в пустоте справа от короткого «hi» открывало бы меню
     // ниоткуда.
-    onHold(bubble, (e) => userMessageMenu(e.currentTarget || bubble, bubble));
-    return el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
+    onHold(bubble, (e) => userMessageMenu(e.currentTarget || bubble, bubble, opts));
+    const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
+    if (opts && opts.action) turn.classList.add(ACTION_CLASS);
+    return turn;
   }
 
   // Кнопка «заново» под ответом. Стоит ТОЛЬКО под последним ответом: повтор
@@ -164,7 +175,8 @@
       if (!foot) return;
       const has = !!foot.querySelector('[data-retry]');
       const last = (i === assistants.length - 1) && !t.classList.contains('is-streaming')
-        && !t.classList.contains('wc-turn-error');
+        && !t.classList.contains('wc-turn-error')
+        && !isActionTurn(t);
       if (last && !has) {
         const b = retryButton();
         b.dataset.retry = '1';
@@ -236,8 +248,14 @@
           // человека. Пустой пузырь на её месте читался бы как «он ничего не
           // сказал».
           if (global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          elTurns.append(userTurn(visible, t.images));
-        } else elTurns.append(assistantTurn(t.text).turn);
+          elTurns.append(userTurn(visible, t.images, { action: !!t.branchKey }));
+        } else {
+          const { turn } = assistantTurn(t.text);
+          // Ход, пришедший из ветки заготовки, узнаётся по ключу ветки рядом с
+          // репликой — его проставил тот, кто сшивал ленту (wc-backend.js).
+          if (t.branchKey) turn.classList.add(ACTION_CLASS);
+          elTurns.append(turn);
+        }
       });
       setEmpty(!elTurns.childElementCount);
       syncFeet();
@@ -247,9 +265,9 @@
       requestAnimationFrame(() => scrollToBottom(false));
     },
 
-    appendUser(text, images) {
+    appendUser(text, images, opts) {
       setEmpty(false);
-      elTurns.append(userTurn(text, images));
+      elTurns.append(userTurn(text, images, opts));
       stickToBottom = true;
       elJump.hidden = true;
       scrollToBottom(false);
@@ -260,7 +278,7 @@
     // потому что уходит под тем же turn_uid (upsert on_conflict).
     beginRetry(requestId) {
       const last = [...elTurns.querySelectorAll('.wc-turn-assistant')].pop();
-      if (!last) return false;
+      if (!last || isActionTurn(last)) return false;
       const bubble = last.querySelector('.wc-bubble');
       if (!bubble) return false;
       // Пузырь переписывается — его слова в наборе указывали бы на текст,
@@ -277,10 +295,11 @@
     },
 
     // Opened before the first token so the reader sees the answer start.
-    beginAssistant(requestId) {
+    beginAssistant(requestId, opts) {
       setEmpty(false);
       const { turn, bubble } = assistantTurn('');
       turn.classList.add('is-streaming');
+      if (opts && opts.action) turn.classList.add(ACTION_CLASS);
       elTurns.append(turn);
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,

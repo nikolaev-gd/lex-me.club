@@ -1011,7 +1011,19 @@
 
       // With thinking enabled or high-effort, max_tokens must cover both reasoning
       // and visible output. Bump the cap for those paths.
-      const defaultMaxTokens = (thinking || effort === 'max' || effort === 'xhigh') ? 4096 : 1024;
+      //
+      // `thinking` is the flag WE set, and for a synthetic provider:apiModel:effort
+      // id it is always false — resolveModelEntry never sets thinkingDefault. That
+      // used to be the whole truth: on Opus 4.8 and earlier, omitting the field
+      // really did mean the model would not reason. It stopped being true with
+      // Opus 5 (thinking on by default when the field is omitted) and Fable 5
+      // (thinking cannot be turned off at all). On those two the model reasons on
+      // every turn while `thinking` reads false here, and reasoning tokens come
+      // out of max_tokens — so the 1024 branch would cut the visible answer off
+      // mid-sentence, with no error anywhere to say why. The registry marks those
+      // models `thinkingAlwaysOn`; ask it rather than the flag.
+      const alwaysThinks = modelId ? LexModelRegistry.thinkingAlwaysOn(modelId) : false;
+      const defaultMaxTokens = (thinking || alwaysThinks || effort === 'max' || effort === 'xhigh') ? 4096 : 1024;
       const knobMax = knobs ? knobNumberOrNull(knobs.maxTokens) : null;
       const body = {
         model,
@@ -1275,15 +1287,24 @@
       const genCfg = {};
       if (thinkingLevel) genCfg.thinkingConfig = { thinkingLevel };
       if (knobs) {
-        const entry = modelId ? resolveModelEntry(modelId) : null;
         const tempN = knobNumberOrNull(knobs.temperature);
-        // Gemini accepts temperature on all variants — including thinking — per
-        // GenerationConfig docs. No extra gating here.
-        if (tempN != null) genCfg.temperature = tempN;
+        // Older Gemini text models accept temperature on every variant,
+        // thinking included, and this used to send it unconditionally. Gemini
+        // 3.7 Flash ended that: its migration page says in as many words
+        // "Strip temperature, top_p, and top_k from generation configs"
+        // (checked 2026-08-25). Gating is registry-driven — the same
+        // textKnobSupported call the Anthropic adapter already makes — so the
+        // next Gemini that drops a sampling param needs a knobQuirks line in
+        // model-registry.js and nothing here.
+        if (tempN != null && LexModelRegistry.textKnobSupported('temperature', modelId)) {
+          genCfg.temperature = tempN;
+        }
         const maxN = knobNumberOrNull(knobs.maxTokens);
         if (maxN != null) genCfg.maxOutputTokens = maxN;
         const seedN = knobNumberOrNull(knobs.seed);
-        if (seedN != null) genCfg.seed = seedN;
+        if (seedN != null && LexModelRegistry.textKnobSupported('seed', modelId)) {
+          genCfg.seed = seedN;
+        }
       }
       if (Object.keys(genCfg).length > 0) body.generationConfig = genCfg;
 

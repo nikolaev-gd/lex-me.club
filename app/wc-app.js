@@ -163,16 +163,21 @@
     // page state: it is chosen per message (by which button was pressed), not
     // switched on and left on.
     const mode = (opts && opts.mode) || null;
+    // Какой ЗАГОТОВКОЙ. Кнопка одна, заготовок много (lex-action-presets.js):
+    // слот едет с ходом, а не читается на месте, — человек мог выбрать другую
+    // между нажатием и отправкой, а промпт, модель и ветка переписки обязаны
+    // относиться к той, чьё имя он видел на кнопке.
+    const slotId = (opts && opts.slotId) || null;
 
     // The preview URL made for the strip is handed to the bubble rather than
     // revoked and remade: it points at the same Blob, and revoking it here
     // would blank the picture the reader just sent.
-    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean));
+    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { action: !!mode });
     WcComposer.refresh();
 
     const requestId = nextRequestId();
     state.requestId = requestId;
-    WcThread.beginAssistant(requestId);
+    WcThread.beginAssistant(requestId, { action: !!mode });
     WcComposer.setStreaming(true, requestId);
 
     try {
@@ -186,6 +191,7 @@
         text: turn.sent,
         images,
         mode,
+        slotId,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
@@ -763,6 +769,11 @@
     } catch (err) {
       console.warn('[wc] published settings:', err && err.message);
     }
+    // Список ЗАГОТОВОК ДЕЙСТВИЙ — здесь же и по той же причине, что настройки
+    // выше: каталог промптов отвечает только по токену, а на сборке композера
+    // токена ещё нет. Не ждём — кнопка живая и с одной заготовкой, а подпись и
+    // меню доедут сами.
+    WcComposer.loadPresets();
 
     document.getElementById('wc-root').hidden = false;
     // Скелет держится, пока не приехали баланс и список бесед: заставка

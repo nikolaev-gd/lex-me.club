@@ -22,14 +22,14 @@
   // Палец, который поехал, — это прокрутка, а не удержание.
   const MOVE_TOLERANCE_PX = 10;
 
-  // attach(el, fire, opts) → { didFire() }
+  // attach(el, fire, opts) → { didFire(), detach() }
   //
   // fire(event) зовётся, когда удержание состоялось. Клик, который придёт
   // следом за состоявшимся удержанием, глотается здесь же (capture-фаза), но
   // вызывающему всё равно нужен didFire(): его собственный обработчик клика
   // мог быть повешен раньше нашего и на другом узле.
   function attach(el, fire, opts) {
-    if (!el || typeof fire !== 'function') return { didFire: () => false };
+    if (!el || typeof fire !== 'function') return { didFire: () => false, detach: () => {} };
     const holdMs = (opts && opts.holdMs) || HOLD_MS;
     let timer = 0;
     let fired = false;
@@ -38,7 +38,15 @@
 
     const clear = () => { if (timer) { clearTimeout(timer); timer = 0; } };
 
-    el.addEventListener('pointerdown', (e) => {
+    // Слушатели заводятся списком, чтобы их можно было снять. Снимать
+    // понадобилось, когда повод для жеста стал переменным: меню заготовок
+    // открывается только со второй заготовки, и удалив её, жест надо ОТЦЕПИТЬ.
+    // Оставленный висеть, он продолжал бы глотать клик после удержания —
+    // кнопка молча не отправляла бы реплику.
+    const bound = [];
+    const on = (type, fn, opts) => { el.addEventListener(type, fn, opts); bound.push([type, fn, opts]); };
+
+    on('pointerdown', (e) => {
       if (e.button != null && e.button !== 0) return;
       fired = false;
       startX = e.clientX;
@@ -50,18 +58,24 @@
         fire(e);
       }, holdMs);
     });
-    el.addEventListener('pointermove', (e) => {
+    on('pointermove', (e) => {
       if (!timer) return;
       if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE_PX
         || Math.abs(e.clientY - startY) > MOVE_TOLERANCE_PX) clear();
     });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) =>
-      el.addEventListener(t, () => clear()));
-    el.addEventListener('click', (e) => {
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => on(t, () => clear()));
+    on('click', (e) => {
       if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; }
     }, true);
 
-    return { didFire: () => fired };
+    return {
+      didFire: () => fired,
+      detach: () => {
+        clear();
+        fired = false;
+        bound.splice(0).forEach(([type, fn, opts]) => el.removeEventListener(type, fn, opts));
+      },
+    };
   }
 
   global.LexLongPress = { attach, HOLD_MS };
