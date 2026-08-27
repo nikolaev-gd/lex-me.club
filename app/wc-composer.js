@@ -21,7 +21,7 @@
 
   const { menu, toast } = WcUI;
 
-  let elForm, elInput, elSend, elVoice, elMic, elPlus, elNative, elNote, elNativeLabel;
+  let elForm, elInput, elSend, elVoice, elMic, elPlus, elNative, elNote, elNativeLabel, elNativeMenu;
   let hooks = {};
   let streaming = false;
   let currentRequestId = null;
@@ -85,11 +85,13 @@
     }
   }
 
-  // Долгое нажатие живёт и умирает ВМЕСТЕ со списком: одна заготовка —
-  // открывать нечего, и жест не цепляется вовсе (так же молчит чип в
-  // расширении, chat-surface.js syncLongPress).
+  // Долгое нажатие И стрелка ▾ живут ВМЕСТЕ со списком: одна заготовка —
+  // открывать нечего, жест не цепляется и стрелки нет (так же молчит чип в
+  // расширении, chat-surface.js syncLongPress). Признак один на оба входа,
+  // иначе стрелка обещала бы список, которого нет.
   function syncPresetLongPress(count) {
     const want = count > 1;
+    if (elNativeMenu) elNativeMenu.hidden = !want;
     if (want && !nativePress && elNative) {
       nativePress = onLongPress(elNative, (e) => openPresetMenu(e.currentTarget || elNative));
     } else if (!want && nativePress) {
@@ -369,6 +371,7 @@
       elPlus = document.getElementById('wc-plus');
       elNative = document.getElementById('wc-native');
       elNativeLabel = elNative && elNative.querySelector('.wc-mode-pill-label');
+      elNativeMenu = document.getElementById('wc-native-menu');
       elNote = document.getElementById('wc-composer-note');
 
       try {
@@ -421,6 +424,16 @@
         }
         submit({ mode: 'native', slotId: activePresetId });
       });
+
+      // ▾ открывает тот же список и НИЧЕГО не отправляет. Второй вход к нему,
+      // не замена долгому нажатию: на телефоне стрелки нет, и жест там остаётся
+      // единственным.
+      if (elNativeMenu) {
+        elNativeMenu.addEventListener('click', (e) => {
+          e.preventDefault();
+          openPresetMenu(e.currentTarget || elNativeMenu);
+        });
+      }
 
       elMic.addEventListener('click', () => {
         if (transcribing) return;

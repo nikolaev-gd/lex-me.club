@@ -1082,27 +1082,62 @@ button { font: inherit; color: inherit; }
 
 /* ── The mode chip ────────────────────────────────────────────────────────
  * .ytvocab-chat-modesplit, value for value: a 22px-tall pill, 999 radius,
- * #2c2c2c inside a #3a3a3a ring, label at .55 and 12px. It is a SEND button,
- * so it carries the send arrow next to its label. There is no ▾ half: the
- * extension's pill splits into "open the mode menu" and "send in this mode",
- * and with exactly one mode there is nothing to open. */
-.wc-mode-pill {
+ * #2c2c2c inside a #3a3a3a ring, label at .55 and 12px. Two halves: a ▾ that
+ * opens the list of presets and a SEND half that carries the label and the
+ * send arrow. The shell — ring, fill, radius — belongs to the wrapper, so the
+ * halves stay transparent and each lights up on its own hover, exactly as in
+ * the extension.
+ *
+ * The ▾ is not always there. It is hidden with one preset (nothing to open)
+ * and hidden on touch, where the long press on the send half is the way in and
+ * a 11px arrow is not a finger target. That is the whole mobile difference —
+ * the composer is otherwise the same page. */
+.wc-mode-split {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
   height: 22px;
-  padding: 0 9px;
   border: 1px solid var(--pill-line);
   border-radius: 999px;
   background: var(--pill-bg);
   color: var(--pill-fg);
   font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
+  overflow: hidden;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
 }
+.wc-mode-split:active { transform: scale(.96); }
+/* Полоска между половинами — вот эта border-right, отдельного узла под неё нет.
+   Правило [hidden] обязательно: скрывает кнопку атрибут (wc-composer.js), а
+   свой display:inline-flex перебил бы его молча. */
+.wc-mode-pill-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: none;
+  border-right: 1px solid var(--pill-line);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.wc-mode-pill-menu[hidden] { display: none; }
+.wc-mode-pill-menu svg { width: 11px; height: 11px; stroke-width: 2.5; }
+.wc-mode-pill-menu:hover { background: var(--pill-hover); color: var(--fg); }
+.wc-mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease;
+}
 .wc-mode-pill:hover { background: var(--pill-hover); color: var(--fg); }
-.wc-mode-pill:active { transform: scale(.96); }
+/* Гаснет ПОЛОВИНА, а не пилюля целиком: отправлять нечего, а выбрать заготовку
+   при этом можно — ▾ живая и остаётся видимой. */
 .wc-mode-pill[disabled] { opacity: .4; cursor: default; }
 .wc-mode-pill-arrow { width: 13px; height: 13px; }
 
@@ -1600,7 +1635,12 @@ button { font: inherit; color: inherit; }
      the two circles overflow the box they are absolutely placed in. */
   .wc-composer-btn { width: 40px; height: 40px; }
   .wc-send-slot, .wc-round { width: 40px; height: 40px; }
-  .wc-mode-pill { height: 30px; padding: 0 12px; font-size: 13px; }
+  .wc-mode-split { height: 30px; font-size: 13px; }
+  .wc-mode-pill { padding: 0 12px; }
+  /* ▾ здесь не показывается вовсе: пальцем список открывает долгое нажатие на
+     самой половине отправки, и стрелка в 11px была бы промахом, а не входом.
+     Это и есть вся разница телефона со столом в композере. */
+  .wc-mode-pill-menu { display: none; }
   .wc-conv { padding-top: 11px; padding-bottom: 11px; }
   /* 40 and not 36: a 36px target inside a list you scroll with the same thumb
      is the one people miss. Measured by dev-tools/webchat-phone-check.mjs,
@@ -1815,8 +1855,9 @@ button { font: inherit; color: inherit; }
   .wc-turn-assistant.is-streaming .wc-bubble::after { animation: none; }
   .wc-round { transition: opacity .01s linear; }
   .wc-send-slot .wc-round[data-off="1"] { transform: none; }
+  .wc-mode-split { transition: none; }
+  .wc-mode-split:active { transform: none; }
   .wc-mode-pill { transition: none; }
-  .wc-mode-pill:active { transform: none; }
   .wc-scrim { transition: none; }
   .wc-sheet-card { transition: none; }
   .wc-pagebar { transition: none; }
