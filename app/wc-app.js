@@ -426,10 +426,13 @@
       await WcVoice.start({
         conversationId: convId,
         hooks: {
+          // 'ready' приходит СЮДА ЖЕ, вместе с остальными ступенями. Здесь
+          // стоял отдельный onConnected со stage('ready') — и надпись
+          // «Listening» опережала слышимость на ~790 мс: onConnected значит
+          // «брокер ответил», а не «связь поднята». Теперь ступень чеканит
+          // announceReady() в wc-voice.js, по второму из двух настоящих
+          // событий. Обратно сюда её не возвращать.
           onStage: (s) => WcVoiceScreen.stage(s),
-          onConnected: () => {
-            WcVoiceScreen.stage('ready');
-          },
           onRemoteStream: (s) => WcVoiceScreen.meterRemote(s),
           onLocalStream: (s) => {
             WcVoiceScreen.meterLocal(s);

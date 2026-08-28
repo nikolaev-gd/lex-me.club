@@ -28,7 +28,8 @@
 // pressing "talk" left the screen completely silent for the seconds the
 // connection takes, and there was no way to tell a slow connect from a dead
 // button. So there is a single status line above the row — "Connecting…"
-// while the session is being set up, "Listening" the moment it is live, and
+// while the session is being set up, "Listening" the moment the reader is
+// actually audible (not a moment sooner — see stage() below), and
 // then it fades out after two seconds and the lit mic button carries the
 // state on its own. It is driven ONLY from stage() below, i.e. from the
 // transport's own stages; nothing else writes into it, because the thing this
@@ -154,9 +155,13 @@
       nodes.mic.setAttribute('aria-label', label);
     },
 
-    // Ступень подключения. Приходит 'mic' → 'connecting' → 'negotiating' от
-    // транспорта и 'ready' из onConnected (wc-app.js). Всё, кроме 'ready', —
+    // Ступень подключения. Приходит 'mic' → 'connecting' → 'negotiating' →
+    // 'ready', и всё это от транспорта (wc-voice.js). Всё, кроме 'ready', —
     // это ещё соединение: микрофон притушен, над ним «Connecting…».
+    //
+    // 'ready' значит «человека уже слышно», а не «сессия создана»: чеканит её
+    // announceReady() по pc.connectionState === 'connected'. Раньше её ставил
+    // onConnected из wc-app.js — на ~790 мс раньше слышимости.
     stage(name) {
       if (!nodes.mic) return;
       const ready = name === 'ready';

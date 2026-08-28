@@ -68,6 +68,11 @@
   // Идентификатор голосовой модели текущего разговора: его требует отчёт об
   // отбое, а он отправляется уже после того, как всё остальное снесено.
   let activeVoiceModelId = null;
+  // Два факта, из которых складывается «человека уже слышно», и защёлка на
+  // них. Разбор — у announceReady() ниже.
+  let linkUp = false;
+  let sessionUp = false;
+  let readyTold = false;
 
   // What the reader is told, in words, at each stage. A voice session that
   // fails silently is indistinguishable from one that is listening.
@@ -438,6 +443,47 @@
     }, SETTLE_MS);
   }
 
+  // ── «Listening» — по связи, а не по ответу брокера ───────────────────────
+  //
+  // Надпись приглашает говорить, поэтому появляться она обязана тогда, когда
+  // сказанное УЖЕ СЛЫШНО. Чеканилась она из onConnected — то есть в тот миг,
+  // когда брокер вернул ответ и мы применили его к соединению, — а транспорт
+  // в этот момент только НАЧИНАЕТ подниматься. Замер на стенде (10 прогонов,
+  // 2026-08-28, шаг опроса 20 мс): pc уходит в 'connecting' в тот же кадр,
+  // что и надпись (расхождение 1-15 мс), а 'connected' приходит на 729-904 мс
+  // позже, медиана 787. Ровно столько речи и терялось — и это ПОТЕРЯ, а не
+  // задержка: WebRTC не буферизует звук, пойманный до готовности канала, он
+  // его выбрасывает. Скидки на prefix_padding_ms здесь нет: серверный VAD
+  // хранит то, что ПРИШЛО, а сказанное до подъёма транспорта не приходит
+  // никуда.
+  //
+  // ⚠️ ФАКТОВ ДВА, И ПОРЯДОК ИХ НЕ ФИКСИРОВАН:
+  //   · связь поднята      — pc.connectionState === 'connected';
+  //   · сессия состоялась  — start() дошёл до конца, не отказав.
+  // Обычно вторым приходит первый (обмен SDP кончается раньше, чем жмётся
+  // DTLS), но между ними лежит ещё и session.update, и на медленной сети
+  // порядок переворачивается. Чеканим по ВТОРОМУ из них. По одной только
+  // связи надпись могла бы появиться перед отказом, который тут же снесёт
+  // сессию: человеку сказали бы «говорите» и положили трубку.
+  //
+  // ⚠️ ФИКСИРОВАННОЙ ЗАДЕРЖКИ ЗДЕСЬ НЕТ И БЫТЬ НЕ МОЖЕТ. Она была бы подгонкой
+  // под этот замер: на медленной сети соврала бы в другую сторону, на быстрой
+  // отняла бы у человека время впустую.
+  //
+  // Защёлка на один раз: после каждого 'disconnected' — а это в живом
+  // разговоре штатная рябь, из-за которой сессию и не рвут, — 'connected'
+  // приходит снова. Без защёлки надпись перечеканивалась бы посреди речи и
+  // заново запускала своё двухсекундное гашение.
+  //
+  // Тот же признак, по которому расширение чеканит «связь поднята» в плашке
+  // «Голосовая связь» (voice/openai-realtime.js). Второго способа отвечать на
+  // один и тот же вопрос в проекте быть не должно.
+  function announceReady() {
+    if (readyTold || !linkUp || !sessionUp) return;
+    readyTold = true;
+    if (hooks.onStage) hooks.onStage('ready');
+  }
+
   // ── Start ────────────────────────────────────────────────────────────────
   async function start(opts) {
     if (!closed || connecting) return;
@@ -446,6 +492,9 @@
     state.items.clear();
     state.turns = 0;
     userMuted = false;
+    linkUp = false;
+    sessionUp = false;
+    readyTold = false;
     // Said before any network work, because the wait that follows is the long
     // one and an empty screen during it is the complaint being fixed.
     if (hooks.onStage) hooks.onStage('mic');
@@ -486,6 +535,13 @@
       pc = new RTCPeerConnection();
       pc.onconnectionstatechange = () => {
         log('pc', pc.connectionState);
+        // Связь поднята — с этого мгновения звук физически идёт в модель.
+        // Первый исходящий аудиопакет отстаёт отсюда на десятки миллисекунд
+        // (замер на стенде — 26-80 мс, шаг опроса 20 мс; в расширении
+        // независимо намерено 17-63), и гнаться за ним опросом getStats()
+        // значило бы завести в продукте периодический таймер ради разницы
+        // меньше слога. См. announceReady.
+        if (pc.connectionState === 'connected' && !linkUp) { linkUp = true; announceReady(); }
         // Only 'failed' is fatal; 'disconnected' recovers on its own often
         // enough that tearing down on it drops healthy sessions.
         if (pc.connectionState === 'failed') stop({ reason: 'connection-failed' });
@@ -592,6 +648,10 @@
       // у startGreetingWait: запущенный раньше, он истекал посреди обмена SDP.
       startGreetingWait();
       if (hooks.onConnected) hooks.onConnected({ callId, apiModel: r.json.apiModel });
+      // Сессия состоялась. Это ВТОРОЙ из двух фактов, а не сигнал «говорите»:
+      // надпись отсюда больше не чеканится, см. announceReady.
+      sessionUp = true;
+      announceReady();
       log('connected', callId, r.json.apiModel);
       return { callId };
     } catch (err) {
@@ -674,6 +734,9 @@
     firstTurn.timer = null;
     firstTurn.armed = false;
     firstTurn.heardAudio = false;
+    linkUp = false;
+    sessionUp = false;
+    readyTold = false;
     // The events socket is closed LAST and deliberately not before the peer
     // connection: a reply still arriving at hangup should still be seen by the
     // listener that bills it. The listener is server-side and does not depend
