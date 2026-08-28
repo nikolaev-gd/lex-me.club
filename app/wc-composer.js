@@ -397,12 +397,30 @@
       });
 
       // The plus carries the surface's own menu, exactly as in the extension
-      // (config.composerPlusItems). One item today; it is a menu rather than a
-      // direct paperclip so the second item does not change the control.
+      // (config.composerPlusItems). Two items now: what the conversation is
+      // BOUND TO — first, and only when there is a binding — and «attach a
+      // file». Собирается на КАЖДОЕ открытие: беседа переключается под панелью,
+      // и привязка вместе с ней.
+      //
+      // Раньше привязку показывала отдельная полоска над композером. Она ушла
+      // 2026-08-28 вслед за расширением: там полоска осталась только у СВЕЖЕЙ
+      // беседы, где привязку ещё можно открепить, а здесь таких не бывает —
+      // привязку запечатывает сервер, и полоска показывалась ровно в том
+      // случае, который в расширении теперь живёт в этом меню.
       elPlus.addEventListener('click', (e) => {
-        menu(e.currentTarget, [
-          { label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() },
-        ]);
+        const items = [];
+        let att = null;
+        try { att = hooks.attachedPage && hooks.attachedPage(); } catch (_) { att = null; }
+        if (att && att.url) {
+          items.push({
+            label: att.label,
+            icon: 'link',
+            iconUrl: att.iconUrl || null,
+            onSelect: () => { try { window.open(att.url, '_blank', 'noopener'); } catch (_) {} },
+          });
+        }
+        items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
+        menu(e.currentTarget, items);
       });
 
       // Чип отправляет ВЫБРАННОЙ заготовкой; долгое нажатие выбирает другую.

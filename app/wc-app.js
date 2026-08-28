@@ -107,7 +107,7 @@
     WcSidebar.setActive(id);
     WcSidebar.close();
     syncTitle();
-    syncPageBar();
+    syncAttachment();
   }
 
   function newConversation() {
@@ -116,7 +116,7 @@
     WcThread.clear();
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
-    syncPageBar();
+    syncAttachment();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
   }
 
@@ -205,21 +205,38 @@
   }
 
   // ── Привязанная страница ─────────────────────────────────────────────────
-  // Полоска над полем: беседа, начатую в расширении со страницы или с видео,
-  // на телефоне должно быть видно, к чему она привязана. Только на чтение —
-  // ни прикрепить, ни открепить отсюда нельзя.
+  // К чему привязана открытая беседа — страница или ролик, с которых её начали
+  // в расширении. ПОКАЗЫВАЕТСЯ ПЕРВЫМ ПУНКТОМ МЕНЮ «+» (wc-composer.js), своей
+  // строки над композером у неё больше нет.
+  //
+  // Полоска стояла здесь до 2026-08-28 и ушла вслед за расширением. Там она
+  // осталась только у СВЕЖЕЙ беседы — той, где привязку ещё можно открепить
+  // крестиком; здесь таких не бывает вовсе: привязку запечатывает сервер, а
+  // прикрепить с телефона нечего — чужую вкладку он не читает. То есть полоска
+  // показывалась ровно в том случае, который в расширении теперь живёт в меню,
+  // и держать под него отдельную строку окна незачем.
+  //
+  // Читается по сети, поэтому лежит в переменной: меню открывается синхронно и
+  // ждать ответа не может.
   //
   // Гонка, которую здесь легко проглядеть: чтение идёт по сети, а человек
   // успевает переключить беседу. Ответ, пришедший не для текущей, молча
-  // выбрасывается — иначе полоска показывала бы страницу предыдущей.
+  // выбрасывается — иначе меню показывало бы привязку предыдущей.
   let pageBarFor = null;
-  async function syncPageBar() {
-    const bar = document.getElementById('wc-pagebar');
-    const label = document.getElementById('wc-pagebar-label');
-    if (!bar) return;
+  let attachedPage = null;
+
+  // Значок сайта, которому привязка ПРИНАДЛЕЖИТ. Свой документ здесь ни при
+  // чём — мы на lex-me.club, а разговор про чужую страницу, — поэтому адрес
+  // строится от её собственного происхождения. Не доедет — пункт меню сам
+  // подставит обычный контур звена (wc-ui.js menuIcon).
+  function faviconFor(url) {
+    try { return new URL(url).origin + '/favicon.ico'; } catch (_) { return null; }
+  }
+
+  async function syncAttachment() {
     const want = state.conversationId;
     pageBarFor = want;
-    if (!want) { bar.hidden = true; return; }
+    if (!want) { attachedPage = null; return; }
     let att = null;
     try {
       att = await WcBus.call('WC_ATTACHMENT', { id: want });
@@ -227,11 +244,12 @@
       console.warn('[wc] attachment:', err && err.message);
     }
     if (pageBarFor !== want) return;
-    if (!att || !att.url) { bar.hidden = true; return; }
-    bar.href = att.url;
-    label.textContent = att.title || att.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 80);
-    bar.title = att.kind === 'video' ? 'Open the video' : 'Open the page';
-    bar.hidden = false;
+    if (!att || !att.url) { attachedPage = null; return; }
+    attachedPage = {
+      url: att.url,
+      label: att.title || att.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 80),
+      iconUrl: faviconFor(att.url),
+    };
   }
 
   // ── «Заново» и «изменить» ────────────────────────────────────────────────
@@ -831,6 +849,9 @@
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
       onAttach: () => WcAttach.pick(),
+      // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
+      // значение уже лежит наготове (syncAttachment выше).
+      attachedPage: () => attachedPage,
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.

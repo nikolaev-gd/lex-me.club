@@ -173,6 +173,25 @@
     if (menuCleanup) { menuCleanup(); menuCleanup = null; }
   }
 
+  // Значок пункта меню. Обычно это наш встроенный контур (`icon`), но пункту
+  // можно дать `iconUrl` — тогда рисуется картинка по адресу: так привязанная
+  // страница носит значок СВОЕГО сайта, а не общий значок звена.
+  //
+  // Адрес пишет чужой сайт, поэтому узел собирается руками, а не подстановкой в
+  // разметку. Не доехало (сайт держит значок не по /favicon.ico, сеть, CSP) —
+  // на его место встаёт обычный контур: сломанная картинка в ряду читается как
+  // поломка окна.
+  function menuIcon(it) {
+    if (!it.iconUrl) return it.icon ? icon(it.icon) : null;
+    const img = el('img.wc-menu-fav', { alt: '' });
+    img.addEventListener('error', () => {
+      const fallback = icon(it.icon || 'link');
+      if (img.parentElement) img.parentElement.replaceChild(fallback, img);
+    });
+    img.src = it.iconUrl;
+    return img;
+  }
+
   function menu(anchor, items) {
     closeMenu();
     const host = document.getElementById('wc-menu');
@@ -183,7 +202,7 @@
       return el('button.wc-menu-item' + (it.danger ? '.is-danger' : ''), {
         type: 'button', role: 'menuitem',
         onclick: () => { closeMenu(); it.onSelect(); },
-      }, [it.icon ? icon(it.icon) : null, el('span', { text: it.label })]);
+      }, [menuIcon(it), el('span.wc-menu-label', { text: it.label })]);
     }));
 
     host.hidden = false;
