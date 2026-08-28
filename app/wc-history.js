@@ -97,10 +97,14 @@
     }
     const sid = sessionIdOfKey(key);
     if (sid == null) return null;
-    const rows = await get('/rest/v1/sessions?select=session_kind,page_url,page_title&id=eq.' + encodeURIComponent(sid));
+    const rows = await get('/rest/v1/sessions?select=session_kind,page_url,page_url_full,page_title&id=eq.' + encodeURIComponent(sid));
     const row = Array.isArray(rows) ? rows[0] : null;
     if (!row || !row.page_url) return null;
-    return { kind: 'page', url: row.page_url, title: row.page_title || '' };
+    // Ссылка ведёт по ПОЛНОМУ адресу (page_url_full.sql). `page_url`
+    // нормализован — он ключ поиска, и у приложения, адресующего документ
+    // после '#', указывает на само приложение, а не на документ: беседа про
+    // письмо уводила бы в ящик. У бесед до той миграции полного адреса нет.
+    return { kind: 'page', url: row.page_url_full || row.page_url, title: row.page_title || '' };
   }
 
   // A turn the interface planted to give the model context, not something the

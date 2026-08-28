@@ -429,12 +429,21 @@
           onStage: (s) => WcVoiceScreen.stage(s),
           onConnected: () => {
             WcVoiceScreen.stage('ready');
-            // Closed until held. Done on connect rather than before start:
-            // there is no track to mute until the session exists.
-            if (ptt) { WcVoice.mute(true); WcVoiceScreen.muted(true); }
           },
           onRemoteStream: (s) => WcVoiceScreen.meterRemote(s),
-          onLocalStream: (s) => WcVoiceScreen.meterLocal(s),
+          onLocalStream: (s) => {
+            WcVoiceScreen.meterLocal(s);
+            // «Держи и говори» — дорожка закрыта С МОМЕНТА ЗАХВАТА, а не с
+            // момента соединения. Раньше эти две строки стояли в onConnected и
+            // работали правильно только по случайности: до соединения дорожку
+            // держала закрытой защита первой реплики. Защиту сняли
+            // (FIRST_TURN_GUARD в wc-voice.js) — и окно «связь уже поднялась,
+            // а mute(true) ещё не позвали» стало открытым микрофоном на весь
+            // обмен SDP. onLocalStream приходит ровно в тот кадр, в котором
+            // раньше срабатывала защита: micTrack уже назначен, mute() его
+            // видит.
+            if (ptt) { WcVoice.mute(true); WcVoiceScreen.muted(true); }
+          },
           onMicHeld: (held) => WcVoiceScreen.micHeld(held),
           onTeacherSpeaking: (on) => WcVoiceScreen.speaking(on),
 
