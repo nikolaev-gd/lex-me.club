@@ -153,6 +153,15 @@
         status.textContent = 'Waiting for the payment. You can close that window — the balance updates itself.';
         pollUntilPaid(r.orderId, (state) => {
           if (state === 'paid') {
+            // Единственное место во всём чате, где уместен `success`. Деньги
+            // человек вводил НЕ ЗДЕСЬ — касса открылась в системном браузере,
+            // и в наше окно он возвращается, не зная, дошло ли. Отклик и есть
+            // ответ на этот вопрос, ещё до того, как он прочтёт плашку.
+            //
+            // Сигнал не выдуманный: `state === 'paid'` приходит от нашего же
+            // сервера (`WC_PAYMENT_STATUS` по номеру заказа), а не от кассы и
+            // не по возврату из браузера.
+            WcHaptics.success();
             toast('Balance topped up');
             if (opts.onPaid) opts.onPaid();
             close();

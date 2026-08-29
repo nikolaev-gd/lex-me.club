@@ -420,6 +420,11 @@
           });
         }
         items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
+        // Меню открывается по обычному нажатию, значит и отклик обычный —
+        // `tap`. `press` носит долгое удержание (onLongPress выше), и разница
+        // между ними здесь смысловая: она говорит пальцу, каким жестом это
+        // было вызвано.
+        WcHaptics.tap();
         menu(e.currentTarget, items);
       });
 

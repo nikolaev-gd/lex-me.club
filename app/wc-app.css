@@ -87,6 +87,30 @@
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* ── Кегль переписки ──────────────────────────────────────────────────────
+   * Два числа, и они про разное. `--wc-font-base` — сколько текст весит на
+   * ЭТОЙ поверхности; `--wc-font-scale` — во сколько раз его увеличил сам
+   * человек ползунком «Text size» (пишет wc-settings.js, applyTextScale).
+   * Порознь их держать обязательно: пока база стояла числом в `html, body`, а
+   * ползунок писал готовый размер в `style.fontSize` корня, одно затирало
+   * другое — и побеждала база. */
+  --wc-font-base:  15px;
+  --wc-font-scale: 1;
+}
+
+/* ── Айфон: свой кегль ───────────────────────────────────────────────────────
+ *
+ * 15px — кегль расширения, снятый со `styles.css` панели на YouTube. Он взят
+ * для окна на столе, где читают с полуметра курсором. На телефоне читают с
+ * тридцати сантиметров, и системный размер основного текста в iOS — 17. База
+ * телефона поднимается до неё; ползунок продолжает считать от новой базы, а не
+ * вместо неё.
+ *
+ * Только айфон. У Мака `data-lex-platform="macos"` и он остаётся на 15px: там
+ * то же окно, что в браузере, и разъезжаться им незачем. */
+:root[data-lex-platform="ios"] {
+  --wc-font-base: 17px;
 }
 
 /* Dark is written once and applied from two places, because the theme has
@@ -262,8 +286,13 @@ html, body {
   font-family: var(--font);
   /* 15/1.5 antialiased — the extension's chat metrics (styles.css
      .ytvocab-chat-msg). Pure white on a dark ground blooms without grayscale
-     smoothing: weight-400 text reads as bold. */
-  font-size: 15px;
+     smoothing: weight-400 text reads as bold.
+
+     Кегль СЧИТАЕТСЯ, а не стоит числом: база зависит от поверхности, множитель
+     — от ползунка. Правило обязано стоять и на `html`, и на `body`: почти всё
+     на странице наследует размер от `body`, и правило только для `html`
+     осталось бы без последствий. */
+  font-size: calc(var(--wc-font-base) * var(--wc-font-scale));
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -989,6 +1018,34 @@ button { font: inherit; color: inherit; }
 .wc-turn:hover .wc-turn-foot, .wc-turn-foot:focus-within { opacity: 1; }
 .wc-turn-foot .wc-icon-btn { width: 28px; height: 28px; }
 .wc-turn-foot svg { width: 15px; height: 15px; }
+
+/* ── Айфон: под ответом жмут пальцем ─────────────────────────────────────────
+ *
+ * 28 pt — размер для курсора, и промахнуться по нему пальцем легко: Apple
+ * называет 44 pt наименьшей целью, в которую попадают надёжно.
+ *
+ * Правило про касание в этом файле уже было (`@media (hover: none)`, ниже) и
+ * ставило `.wc-icon-btn` в 44 — но до подвала ответа не доходило: селектор
+ * `.wc-turn-foot .wc-icon-btn` длиннее на класс, то есть в каскаде сильнее, а
+ * медиа-запрос веса не добавляет. Поэтому здесь селектор ещё длиннее.
+ *
+ * Значок растёт умереннее коробки — 15 → 18: он и был читаемым, увеличивать
+ * надо было ЦЕЛЬ, а не рисунок.
+ *
+ * Поля выбраны замером, а не на глаз. Отрицательное ПОЛЕ СВЕРХУ вернуло бы
+ * значок ровно туда, где он стоял, но заводит цель на 4 px внутрь пузыря
+ * ответа (замерено: `overlapWithAnswerPx: [4,4]`), а текст ответа —
+ * единственное место в чате, где выделение оставлено человеку: цель поверх
+ * последней строки отняла бы у него удержание. Поэтому сверху ноль, и ряд
+ * встаёт на 4 px ниже прежнего — этого на экране не видно.
+ *
+ * Отрицательное поле СНИЗУ, наоборот, нужно: без него следующая реплика
+ * отъехала бы на все 16 px прироста коробки. С ним от нижнего края цели до
+ * следующего хода остаётся 12 px (20 собственных минус 8), то есть цель ни на
+ * что не налезает и снизу. */
+:root[data-lex-platform="ios"] .wc-turn-foot .wc-icon-btn { width: 44px; height: 44px; }
+:root[data-lex-platform="ios"] .wc-turn-foot svg { width: 18px; height: 18px; }
+:root[data-lex-platform="ios"] .wc-turn-foot { margin-top: 0; margin-bottom: -8px; }
 
 /* ── Composer ────────────────────────────────────────────────────────────── */
 

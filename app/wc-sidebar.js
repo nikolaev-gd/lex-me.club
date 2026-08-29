@@ -255,6 +255,16 @@
       const collapsed = elRoot.classList.contains('is-sidebar-collapsed');
       const want = open === undefined ? collapsed : open;
       elRoot.classList.toggle('is-sidebar-collapsed', !want);
+      // Щелчок под пальцем на ЗАЩЁЛКИВАНИИ — в тот кадр, где меняется класс и
+      // начинается доводка. Не во время протяжки: `pointermove` приходит на
+      // каждый кадр, и отклик там был бы не щелчком, а дребезгом.
+      //
+      // Условие «состояние изменилось» — не перестраховка. Через эту точку
+      // проходит и `close()`, который зовут открытие беседы и «новый чат»; там
+      // шторка чаще всего УЖЕ закрыта, и безусловный отклик означал бы щелчок
+      // на каждой отправке. Цена условия: брошенная на полпути протяжка
+      // отщёлкивает назад молча — состояние-то не менялось.
+      if (want !== !collapsed) WcHaptics.press();
       // The drawer covers the thread at EVERY width now, so the scrim that
       // catches the tap-to-close is not a phone-only thing any more. It used
       // to be gated on .is-narrow; with the sidebar-as-column gone, that gate
