@@ -21,7 +21,7 @@
 
   const { menu, toast } = WcUI;
 
-  let elForm, elInput, elSend, elVoice, elMic, elPlus, elNative, elNote, elNativeLabel, elNativeMenu;
+  let elForm, elInput, elSend, elVoice, elMic, elPlus, elModeSplit, elNote;
   let hooks = {};
   let streaming = false;
   let currentRequestId = null;
@@ -32,19 +32,20 @@
   // Кнопка в композере ОДНА, а заготовок у неё много: каждая — слот ячейки
   // промптов, со своим именем, своим текстом и своей моделью. Список общий с
   // расширением по коду (lex-action-presets.js), хранилище и каталог модулю
-  // даёт wc-backend.js. Здесь — только орган: подпись, меню долгого нажатия и
-  // то, какой слот уезжает с ходом.
+  // даёт wc-backend.js. До ТРЁХ заготовок стоят пилюлями в ряд, тап по любой
+  // сразу отправляет ЕЁ — без выбора «активной» и без меню (2026-09-01,
+  // решение владельца; раньше здесь была одна пилюля с ▾-меню и стрелкой
+  // отправки, тот же дизайн, что в chat-surface.js до этой же правки).
   //
-  // ⚠️ Список приходит АСИНХРОННО, а кнопка есть с первого кадра. Поэтому
-  // меню и решение «цеплять ли долгое нажатие» пересобираются на КАЖДОЕ
-  // изменение списка. Проверь «заготовок больше одной» один раз при сборке —
-  // и меню наполнится, но не откроется никогда: разметка выглядит правильной,
-  // жест мёртв. Ровно эта грабля описана в chat-surface.js.
+  // ⚠️ Список приходит АСИНХРОННО, а ряд есть с первого кадра. Поэтому он
+  // пересобирается на КАЖДОЕ изменение списка — иначе переименование или
+  // новая заготовка в открытых настройках не долетит до уже открытой
+  // страницы.
   const PRESETS = () => global.LexActionPresets || null;
+  const MAX_VISIBLE_PRESETS = 3;
   let presetScope = null;        // 'shorts-main' — из описания ячейки, не литералом
   let presetActiveKey = null;    // activeNativePromptId_<scope>
-  let activePresetId = null;     // что уедет с ходом; кэшируется СИНХРОННО
-  let nativePress = null;        // ручка долгого нажатия, цепляется по длине списка
+  let presetPillEls = [];        // текущие кнопки ряда — syncButton() гасит/включает все разом
 
   // Подпись «Native» — запасная: её отдаёт labelOf(), пока имя первой заготовки
   // в каталоге не тронуто человеком. У расширения на её месте строка перевода,
@@ -62,72 +63,53 @@
     return P ? P.labelOf(p, NATIVE_FALLBACK_LABEL) : ((p && p.name) || NATIVE_FALLBACK_LABEL);
   };
 
-  // Активная заготовка: сохранённый слот, иначе первая в списке. Промах по
-  // удалённой откатывается на первую — иначе кнопка называла бы то, чего нет.
-  function resolveActivePreset(storedId) {
-    const items = presetList();
-    return items.find((p) => p.id === storedId) || items[0];
-  }
-
-  async function repaintPreset() {
-    let stored = activePresetId;
-    if (presetActiveKey) {
-      try { stored = await WcStore.one(presetActiveKey, activePresetId); } catch (_) { /* keep cache */ }
+  // Отправка КОНКРЕТНОЙ заготовкой p — той, чью пилюлю нажали. Кнопка
+  // выключена (disabled), пока отправлять нечего или уже идёт стрим —
+  // syncButton() держит это в актуальном состоянии, отдельной проверки
+  // здесь по той же причине, что и раньше, нет.
+  function sendWithPreset(p) {
+    const slotId = p && p.id;
+    // ОТКАЗ ВМЕСТО ОТВЕТА БЕЗ ИНСТРУКЦИИ. Весь смысл заготовки в её
+    // промпте: ход без него — не «чуть хуже», а совсем не то, что просили.
+    // Проверка локальная и до отправки (LexActionPresets.resolves): слот
+    // обязан быть в списке, а если каталог отвечал — ещё и с непустым
+    // текстом. Каталог не отвечал (не редактор, офлайн) — не запрещаем:
+    // чужих строк мы не видим, и запрет по незнанию был бы хуже.
+    const P = PRESETS();
+    if (P && presetScope && !P.resolves(presetScope, slotId)) {
+      toast('«' + presetLabel(p) + '» has no prompt yet', { error: true });
+      return;
     }
-    const p = resolveActivePreset(stored);
-    activePresetId = p && p.id;
-    const lbl = presetLabel(p);
-    if (elNativeLabel) elNativeLabel.textContent = lbl;
-    if (elNative) {
-      elNative.title = 'Send as ' + lbl;
-      elNative.setAttribute('aria-label', elNative.title);
-      if (p && p.id) elNative.dataset.presetId = p.id;
+    if (slotId && presetActiveKey) {
+      WcStore.set({ [presetActiveKey]: slotId }).catch(() => {});
     }
+    submit({ mode: 'native', slotId });
   }
 
-  // Долгое нажатие И стрелка ▾ живут ВМЕСТЕ со списком: одна заготовка —
-  // открывать нечего, жест не цепляется и стрелки нет (так же молчит чип в
-  // расширении, chat-surface.js syncLongPress). Признак один на оба входа,
-  // иначе стрелка обещала бы список, которого нет.
-  function syncPresetLongPress(count) {
-    const want = count > 1;
-    if (elNativeMenu) elNativeMenu.hidden = !want;
-    if (want && !nativePress && elNative) {
-      nativePress = onLongPress(elNative, (e) => openPresetMenu(e.currentTarget || elNative));
-    } else if (!want && nativePress) {
-      try { nativePress.detach && nativePress.detach(); } catch (_) { /* noop */ }
-      nativePress = null;
-    }
+  // Рисует ряд заново с нуля — проще и надёжнее патча трёх кнопок по месту,
+  // а вызывается редко (сборка + смена списка, не на каждый кадр).
+  function renderPresetPills() {
+    if (!elModeSplit) return;
+    const items = presetList().slice(0, MAX_VISIBLE_PRESETS);
+    elModeSplit.innerHTML = '';
+    presetPillEls = items.map((p) => {
+      const lbl = presetLabel(p);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'wc-mode-pill';
+      if (p.id) btn.dataset.presetId = p.id;
+      btn.title = 'Send as ' + lbl;
+      btn.setAttribute('aria-label', btn.title);
+      btn.textContent = lbl;
+      btn.addEventListener('click', () => sendWithPreset(p));
+      elModeSplit.appendChild(btn);
+      return btn;
+    });
+    syncButton();   // выставить disabled по текущему полю сразу, не только на input
   }
 
-  function openPresetMenu(anchor) {
-    const items = presetList();
-    menu(anchor, items.map((p) => ({
-      label: presetLabel(p),
-      // Выбранная носит галочку вместо своего знака — тот же приём, что у
-      // выбора способа разговора ниже.
-      icon: (p.id === activePresetId) ? 'check' : 'spark',
-      onSelect: () => selectPreset(p),
-    })));
-  }
-
-  function selectPreset(p) {
-    // Кэш меняется СИНХРОННО: отправка сразу за выбором обязана уйти новой
-    // заготовкой, а не той, что успеет дочитаться из хранилища.
-    activePresetId = p && p.id;
-    if (p && p.id && presetActiveKey) {
-      WcStore.set({ [presetActiveKey]: p.id }).catch(() => {});
-    }
-    repaintPreset();
-  }
-
-  function syncPresetMenu() {
-    syncPresetLongPress(presetList().length);
-    repaintPreset();
-  }
-
-  // Сборка органа. БЕЗ СЕТИ и без ожидания: кнопка обязана быть живой с первого
-  // кадра, а список доедет и перерисует подпись сам.
+  // Сборка органа. БЕЗ СЕТИ и без ожидания: ряд обязан быть живым с первого
+  // кадра, а список доедет и перерисуется сам.
   function initPresets() {
     const P = PRESETS();
     const cells = global.LexSettingsCells;
@@ -137,10 +119,8 @@
     presetScope = (cell.ref && cell.ref.scope) || null;
     presetActiveKey = cell.activeIdStorageKey || null;
     if (!presetScope) return;
-    // Засеять синхронно, чтобы отправка до первой отрисовки ушла определённо.
-    activePresetId = (presetList()[0] || {}).id;
-    syncPresetMenu();
-    P.onChange((scope) => { if (scope === presetScope) syncPresetMenu(); });
+    renderPresetPills();
+    P.onChange((scope) => { if (scope === presetScope) renderPresetPills(); });
   }
 
   // ── Список заготовок тянется ПОСЛЕ ВХОДА, а не при сборке композера ──────
@@ -161,9 +141,9 @@
     // открывается. Отдельного гейта под «обычному пользователю заготовок не
     // видно» здесь нет — он получается сам.
     try { await P.list(presetScope); } catch (_) { /* остаёмся на запасной */ }
-    syncPresetMenu();
+    renderPresetPills();
     try { await P.refresh(presetScope); } catch (_) { /* каталог молчит — не авария */ }
-    syncPresetMenu();
+    renderPresetPills();
   }
 
   // Live conversation or push-to-talk. Remembered across sessions: it is a
@@ -222,9 +202,10 @@
         : 'M12 19V5M5 12l7-7 7 7');       // an arrow: send
     }
 
-    // The chip sends, so it is dead while there is nothing to send and while a
-    // turn is already streaming.
-    elNative.disabled = streaming || !canSend();
+    // The pills send, so they are dead while there is nothing to send and
+    // while a turn is already streaming.
+    const pillsOff = streaming || !canSend();
+    presetPillEls.forEach((btn) => { btn.disabled = pillsOff; });
 
     elVoice.classList.toggle('is-active', voiceActive);
     elVoice.title = voiceActive
@@ -369,9 +350,7 @@
       elVoice = document.getElementById('wc-talk');
       elMic = document.getElementById('wc-mic');
       elPlus = document.getElementById('wc-plus');
-      elNative = document.getElementById('wc-native');
-      elNativeLabel = elNative && elNative.querySelector('.wc-mode-pill-label');
-      elNativeMenu = document.getElementById('wc-native-menu');
+      elModeSplit = document.getElementById('wc-mode-split');
       elNote = document.getElementById('wc-composer-note');
 
       try {
@@ -427,36 +406,6 @@
         WcHaptics.tap();
         menu(e.currentTarget, items);
       });
-
-      // Чип отправляет ВЫБРАННОЙ заготовкой; долгое нажатие выбирает другую.
-      // Жест цепляется не здесь, а по длине списка (syncPresetLongPress): при
-      // одной заготовке выбирать не из чего, и меню не открывается вовсе.
-      elNative.addEventListener('click', () => {
-        if (nativePress && nativePress.didFire()) return;   // это было удержание
-        // ОТКАЗ ВМЕСТО ОТВЕТА БЕЗ ИНСТРУКЦИИ. Весь смысл заготовки в её
-        // промпте: ход без него — не «чуть хуже», а совсем не то, что просили.
-        // Проверка локальная и до отправки (LexActionPresets.resolves): слот
-        // обязан быть в списке, а если каталог отвечал — ещё и с непустым
-        // текстом. Каталог не отвечал (не редактор, офлайн) — не запрещаем:
-        // чужих строк мы не видим, и запрет по незнанию был бы хуже.
-        const P = PRESETS();
-        if (P && presetScope && !P.resolves(presetScope, activePresetId)) {
-          const p = resolveActivePreset(activePresetId);
-          toast('«' + presetLabel(p) + '» has no prompt yet', { error: true });
-          return;
-        }
-        submit({ mode: 'native', slotId: activePresetId });
-      });
-
-      // ▾ открывает тот же список и НИЧЕГО не отправляет. Второй вход к нему,
-      // не замена долгому нажатию: на телефоне стрелки нет, и жест там остаётся
-      // единственным.
-      if (elNativeMenu) {
-        elNativeMenu.addEventListener('click', (e) => {
-          e.preventDefault();
-          openPresetMenu(e.currentTarget || elNativeMenu);
-        });
-      }
 
       elMic.addEventListener('click', () => {
         if (transcribing) return;

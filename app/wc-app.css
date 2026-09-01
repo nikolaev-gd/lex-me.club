@@ -1112,6 +1112,12 @@ button { font: inherit; color: inherit; }
 .wc-composer-left,
 .wc-composer-right { display: flex; align-items: center; gap: 6px; }
 .wc-composer-right { margin-left: auto; }
+/* Заготовки называет человек: «recommendation» рядом с «Limerick» не
+   помещается в узкий композер вместе с плюсом и микрофоном/голосом справа.
+   min-width:0 снимает с левой группы защиту «не сжимайся ниже контента» —
+   сжатие уходит внутрь .wc-mode-split (ниже), а не выталкивает вправо
+   микрофон и кнопку записи. */
+.wc-composer-left { min-width: 0; }
 
 /* 32px circles — the extension's action-button size. */
 .wc-composer-btn { width: 32px; height: 32px; }
@@ -1137,66 +1143,47 @@ button { font: inherit; color: inherit; }
   #wc-mic.is-recording { animation: none; }
 }
 
-/* ── The mode chip ────────────────────────────────────────────────────────
- * .ytvocab-chat-modesplit, value for value: a 22px-tall pill, 999 radius,
- * #2c2c2c inside a #3a3a3a ring, label at .55 and 12px. Two halves: a ▾ that
- * opens the list of presets and a SEND half that carries the label and the
- * send arrow. The shell — ring, fill, radius — belongs to the wrapper, so the
- * halves stay transparent and each lights up on its own hover, exactly as in
- * the extension.
- *
- * The ▾ is not always there. It is hidden with one preset (nothing to open)
- * and hidden on touch, where the long press on the send half is the way in and
- * a 11px arrow is not a finger target. That is the whole mobile difference —
- * the composer is otherwise the same page. */
+/* ── The mode-preset pills ────────────────────────────────────────────────
+ * Up to three separate pills (lex-action-presets.js), tap any of them to
+ * send with THAT preset immediately — no dropdown, no "active" one to pick
+ * first (2026-09-01, mirrors chat-surface.js's .ytvocab-chat-modesplit after
+ * the same change there). Each pill carries its own full shell now — 22px
+ * tall, 999 radius, --pill-bg inside a --pill-line ring — where before ONE
+ * shell held a ▾ zone and a send zone side by side. */
 .wc-mode-split {
   display: inline-flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 6px;
+  /* Свой скролл, а не общий с композером: длинное имя заготовки свайпается
+     само, микрофон и запись справа с места не сходят. Требует min-width:0 у
+     .wc-composer-left выше. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.wc-mode-split::-webkit-scrollbar { height: 3px; }
+.wc-mode-split::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+.wc-mode-pill {
+  display: inline-flex;
+  align-items: center;
   height: 22px;
+  padding: 0 9px;
   border: 1px solid var(--pill-line);
   border-radius: 999px;
   background: var(--pill-bg);
   color: var(--pill-fg);
   font-size: 12px;
-  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
 }
-.wc-mode-split:active { transform: scale(.96); }
-/* Полоска между половинами — вот эта border-right, отдельного узла под неё нет.
-   Правило [hidden] обязательно: скрывает кнопку атрибут (wc-composer.js), а
-   свой display:inline-flex перебил бы его молча. */
-.wc-mode-pill-menu {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border: none;
-  border-right: 1px solid var(--pill-line);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.wc-mode-pill-menu[hidden] { display: none; }
-.wc-mode-pill-menu svg { width: 11px; height: 11px; stroke-width: 2.5; }
-.wc-mode-pill-menu:hover { background: var(--pill-hover); color: var(--fg); }
-.wc-mode-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 120ms ease, color 120ms ease;
-}
+.wc-mode-pill:active { transform: scale(.96); }
 .wc-mode-pill:hover { background: var(--pill-hover); color: var(--fg); }
-/* Гаснет ПОЛОВИНА, а не пилюля целиком: отправлять нечего, а выбрать заготовку
-   при этом можно — ▾ живая и остаётся видимой. */
 .wc-mode-pill[disabled] { opacity: .4; cursor: default; }
-.wc-mode-pill-arrow { width: 13px; height: 13px; }
 
 /* ── Live ⇄ send ──────────────────────────────────────────────────────────
  * One slot, two occupants, stacked. The extension hides one and shows the
@@ -1662,12 +1649,7 @@ button { font: inherit; color: inherit; }
      the two circles overflow the box they are absolutely placed in. */
   .wc-composer-btn { width: 40px; height: 40px; }
   .wc-send-slot, .wc-round { width: 40px; height: 40px; }
-  .wc-mode-split { height: 30px; font-size: 13px; }
-  .wc-mode-pill { padding: 0 12px; }
-  /* ▾ здесь не показывается вовсе: пальцем список открывает долгое нажатие на
-     самой половине отправки, и стрелка в 11px была бы промахом, а не входом.
-     Это и есть вся разница телефона со столом в композере. */
-  .wc-mode-pill-menu { display: none; }
+  .wc-mode-pill { height: 30px; font-size: 13px; padding: 0 12px; }
   .wc-conv { padding-top: 11px; padding-bottom: 11px; }
   /* 40 and not 36: a 36px target inside a list you scroll with the same thumb
      is the one people miss. Measured by dev-tools/webchat-phone-check.mjs,
@@ -1882,9 +1864,8 @@ button { font: inherit; color: inherit; }
   .wc-turn-assistant.is-streaming .wc-bubble::after { animation: none; }
   .wc-round { transition: opacity .01s linear; }
   .wc-send-slot .wc-round[data-off="1"] { transform: none; }
-  .wc-mode-split { transition: none; }
-  .wc-mode-split:active { transform: none; }
   .wc-mode-pill { transition: none; }
+  .wc-mode-pill:active { transform: none; }
   .wc-scrim { transition: none; }
   .wc-sheet-card { transition: none; }
   .vocab-word { transition: none; }
