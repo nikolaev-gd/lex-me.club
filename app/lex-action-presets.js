@@ -40,19 +40,32 @@
 //    Ходит прежним действием `list`, и его по-прежнему отдают только редактору.
 //    Публичный список этих признаков не несёт и нести не должен.
 //
-// ⚠️ ЗАПОМНЕННОГО СПИСКА БОЛЬШЕ НЕТ, и это тоже решение, а не упрощение. Здесь
-// стоял третий слой — копия списка в chrome.storage под ключом
-// `lexActionPresets_<scope>`, чтобы разметка (она строится СИНХРОННО) не ждала
-// сети. Он снят целиком вместе с ключом: пока список был редакторским, «показать
-// вчерашнее» было безобидно, а теперь это значит показать человеку заготовку,
-// которую владелец уже снял с публикации, — и она молча уедет к модели. Правило
-// стало жёстким: человек видит ЛИБО актуальный список, ЛИБО не видит ряда вовсе.
-// Ряд просто появляется на кадр позже, когда ответит сервер.
+// ── СОХРАНЁННЫЙ СПИСОК: КНОПКА ЕСТЬ ВСЕГДА И ВСЕГДА С НАЗВАНИЕМ ─────────────
 //
-// ⚠️ И запасной одиночки Native тоже больше нет. Сервер не ответил (офлайн, не
-// вошёл, сбой) — ряда нет. Пилюля, за которой не стоит подтверждённого сервером
-// промпта, хуже отсутствия пилюли: нажатие по ней уходит к модели без
-// инструкции либо упирается в 424.
+// Решение владельца 2026-09-02. Ряд, пропадающий на неответе сервера, отклонён:
+// человек открывает продукт и видит пустое место там, где вчера были кнопки.
+// Поэтому список переживает закрытие окна — ключ `lexActionPresets_<scope>` в
+// хранилище.
+//
+// Порядок на открытии: нарисовать сохранённое, параллельно спросить сервер,
+// пришёл ответ — заменить. Никаких пометок «несвежий» и никакой особой
+// отрисовки: это обычные кнопки. Пустой ряд остаётся ровно у одного человека —
+// того, кто открыл продукт впервые и ответа ещё ни разу не получал.
+//
+// ⚠️ СОХРАНЁННОЕ ПРИВЯЗАНО К АККАУНТУ, и это обязательное условие, а не
+// перестраховка. У редактора в списке лежат ЧЕРНОВЫЕ заготовки — те, которых
+// обычный человек видеть не должен. Один браузер, выход из редакторского
+// аккаунта и вход обычным — и без привязки его первый кадр показал бы чужие
+// черновики. Поэтому рядом со списком лежит id аккаунта, под которым он снят, и
+// список чужого аккаунта не читается вовсе (`loadRemembered` ниже). Вторым
+// рубежом стоит общая уборка при смене человека: ключ аккаунтный, при выходе
+// его стирают, а слушатель ниже гасит и копию в памяти — «ни на мгновение»
+// значит и это тоже.
+//
+// ⚠️ Запасной одиночки Native при этом НЕ ВЕРНУЛОСЬ. Она врала: показывала
+// кнопку, за которой не стоит подтверждённого сервером промпта, и нажатие
+// уходило к модели без инструкции либо упиралось в 424. Сохранённый список
+// такого не делает — в нём лежит то, что сервер однажды подтвердил.
 //
 // ── УДАЛЕНИЕ ────────────────────────────────────────────────────────────────
 // Два шага, и оба обязательны (2026-08-25):
@@ -78,6 +91,10 @@
   const NAME_MAX = 120;            // ровно NAME_MAX из prompts-admin
   const SLOT_ID_MAX = 40;          // ровно SLOT_RE из prompts-admin
   const DELETED_PREFIX = '__deleted__';
+
+  // Сохранённый список — по ключу на scope. Внутри не голый массив, а
+  // { account, items }: без имени аккаунта список нечем отличить от чужого.
+  const listKey = (scope) => 'lexActionPresets_' + scope;
 
   function cellDesc() {
     try {
@@ -143,6 +160,29 @@
     });
   }
 
+  // ID ВОШЕДШЕГО — только чтобы понять, чей сохранённый список читать.
+  //
+  // Третья функция за впрыском, по той же причине, что и две соседние: в
+  // расширении ответ живёт в service worker, на странице — в её собственной
+  // сессии. Не дали и chrome нет → null, и тогда сохранённое просто не
+  // читается: показать чужое хуже, чем не показать ничего.
+  function accountTag() {
+    if (adapter && typeof adapter.accountId === 'function') {
+      return Promise.resolve().then(() => adapter.accountId()).catch(() => null);
+    }
+    return new Promise((resolve) => {
+      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+        resolve(null);
+        return;
+      }
+      try {
+        chrome.runtime.sendMessage({ type: 'LEX_ACCOUNT_ID' }, (res) => {
+          resolve((res && typeof res.accountId === 'string' && res.accountId) || null);
+        });
+      } catch (_) { resolve(null); }
+    });
+  }
+
   // Один раунд-трип в SW → prompts-admin. Право проверяет сервер: публичное
   // действие `presets` отвечает любому вошедшему, редакторские (`list`, `get`,
   // `put`, `publish`, …) — только редактору, остальным 403.
@@ -168,81 +208,22 @@
     });
   }
 
-  // ИМЯ КЛЮЧА МОДЕЛИ ЗАГОТОВКИ — ТОЛЬКО ДЛЯ РЕДАКТОРА (2026-09-02).
+  // ⚠️ ЗДЕСЬ ЖИЛИ ТРИ ВЕЩИ, И ВСЕ ТРИ СНЯТЫ 2026-09-02 ОДНИМ РЕШЕНИЕМ.
   //
-  // ⚠️ Путь ОТПРАВКИ этим правилом больше не пользуется: id модели приезжает
-  // готовым полем `modelId` в строке публичного списка, потому что имя ключа
-  // считает сервер. Здесь оно осталось ровно для двух вещей, и обе — редакторские:
-  // выбор модели в отсеке настроек (пишется в local как стейджинг) и публикация
-  // этого выбора (publishOne). Следствие для редактора: выбранная, но не
-  // опубликованная модель на отправку больше не влияет — сперва «Опубликовать».
+  //   · `modelKeyFor` — правило имени ключа 'activeActionModelId_<scope>_<слот>';
+  //   · `publishKeysCall` — точечная публикация этого ключа через settings-publish;
+  //   · `publishedKeysCall` — чтение опубликованного набора ради сверки модели.
   //
-  // Ниже — исходная врезка о том, почему правило вообще свели в одно место.
+  // Все три существовали потому, что МОДЕЛЬ заготовки хранилась отдельно от её
+  // текста: текст на сервере, модель в chrome.storage.local у редактора. Модель
+  // переехала в каталог, к тексту (колонка model_id), и вместе с переездом
+  // исчезла и причина. Ключа в хранилище больше нет ВОВСЕ — ни как источника,
+  // ни как отражения: пока он существует, остаётся дверь, через которую значение
+  // пишется мимо сервера, а эта дверь уже однажды затёрла выбор владельца
+  // (публикация всего scope сняла снимок с локального хранилища).
   //
-  // Лежало в двух копиях: `actionModelKeyFor` в chat-surface.js и
-  // `nativeModelKeyFor` в webchat/wc-backend.js. Копии уже расходились: на
-  // странице хвост остался 'native', когда расширение перешло на слот, — и
-  // страница читала ключ, в который больше никто не пишет, молча отвечая
-  // моделью основного чата, каким бы ни был выбор владельца. Правило переехало
-  // сюда, к владельцу заготовок.
-  //
-  // Scope берётся у ЯЧЕЙКИ (её refScope, сегодня 'shorts-main'), а не у окна:
-  // конфигурация заготовки одна на все окна, где живёт её кнопка. Аргумент
-  // scope — запасной, на поверхность, чья ячейка не разрешилась.
-  function modelKeyFor(scope, slotId) {
-    const c = cellDesc();
-    const cellScope = c && c.ref && c.ref.scope;
-    return 'activeActionModelId_' + (cellScope || scope) + '_' + slotId;
-  }
-
-  // ── Публикация настроек: точечно, своими ключами ──────────────────────────
-  // Своей двери у страницы и у расширения снова две (SW против прямого fetch),
-  // поэтому обе отданы впрыску — с запасным путём через chrome.runtime, как у
-  // promptsAdmin выше. Не объявлено и chrome нет → честный отказ, а не тишина.
-  function publishKeysCall(scope, keys, note) {
-    if (adapter && typeof adapter.publishKeys === 'function') {
-      return Promise.resolve()
-        .then(() => adapter.publishKeys(scope, keys, note))
-        .then((res) => res || { error: 'no response', status: 0 })
-        .catch((e) => ({ error: String((e && e.message) || e), status: 0 }));
-    }
-    return new Promise((resolve) => {
-      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
-        resolve({ error: 'no runtime', status: 0 });
-        return;
-      }
-      try {
-        chrome.runtime.sendMessage({ type: 'LEX_PUBLISH_KEYS', scope, keys, note }, (res) => {
-          resolve(res || { error: 'no response', status: 0 });
-        });
-      } catch (e) {
-        resolve({ error: String((e && e.message) || e), status: 0 });
-      }
-    });
-  }
-
-  // Последний опубликованный набор этого scope — для сравнения ключа модели.
-  // Возвращает объект либо null (прочитать не удалось / истории нет).
-  function publishedKeysCall(scope) {
-    if (adapter && typeof adapter.publishedKeys === 'function') {
-      return Promise.resolve()
-        .then(() => adapter.publishedKeys(scope))
-        .catch(() => null);
-    }
-    return new Promise((resolve) => {
-      if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
-        resolve(null);
-        return;
-      }
-      try {
-        chrome.runtime.sendMessage({ type: 'LEX_PUBLISHED_KEYS', scope }, (res) => {
-          resolve(res && res.ok && res.data && typeof res.data === 'object' ? res.data : null);
-        });
-      } catch (_) {
-        resolve(null);
-      }
-    });
-  }
+  // Следствие, ради которого всё и делалось: `publishOne` стал ОДНИМ вызовом.
+  // Половинчатого исхода «текст уехал, модель нет» больше не бывает.
 
   // ── Состояние на ОКНО: ДВА списка, каждый со своим заходом ───────────────
   //
@@ -253,11 +234,11 @@
   //
   // `inflight` склеивает одновременных зовущих (ряд пилюль и настройки строятся
   // независимо друг от друга).
-  const pubState = new Map();   // scope → {list, inflight}
+  const pubState = new Map();   // scope → {list, inflight, account}
   const catState = new Map();   // scope → {list, fetched, inflight}
   function pub(scope) {
     let s = pubState.get(scope);
-    if (!s) { s = { list: null, inflight: null }; pubState.set(scope, s); }
+    if (!s) { s = { list: null, inflight: null, account: null }; pubState.set(scope, s); }
     return s;
   }
   function cat(scope) {
@@ -277,29 +258,70 @@
 
   // ── ПУБЛИЧНЫЙ СПИСОК: то, что видит человек ──────────────────────────────
 
-  // Синхронное «что показывать прямо сейчас». Разметка ряда пилюль строится
-  // синхронно, ей нужен ответ без await. Пусто до первого удачного ответа
-  // сервера — и это НЕ дефект, а само правило: ряда нет, пока список неизвестен.
+  // Синхронное «что показывать прямо сейчас»: разметка ряда строится синхронно,
+  // ей нужен ответ без await. Пусто ровно в одном случае — сохранённого списка
+  // нет и сервер ещё не ответил.
   function current(scope) {
     const s = pub(scope);
     return (s.list && s.list.length) ? s.list : [];
   }
 
+  // Прочитать сохранённый список. Чужой аккаунт — НЕ читаем: у редактора там
+  // лежат черновые заготовки, и показать их обычному человеку нельзя даже на
+  // один кадр. Не знаем, кто вошёл, — тоже не читаем.
+  async function loadRemembered(scope) {
+    const s = pub(scope);
+    const account = await accountTag();
+    if (!account) return null;
+    const r = await storageGet([listKey(scope)]);
+    const raw = r[listKey(scope)];
+    if (!raw || typeof raw !== 'object' || raw.account !== account) return null;
+    const items = Array.isArray(raw.items) ? raw.items : [];
+    const clean = items
+      .filter((p) => p && typeof p.id === 'string' && p.id)
+      .map((p) => ({
+        id: p.id,
+        name: typeof p.name === 'string' ? p.name : '',
+        chars: (typeof p.chars === 'number') ? p.chars : null,
+        modelId: typeof p.modelId === 'string' ? p.modelId : '',
+      }));
+    if (!clean.length) return null;
+    s.account = account;
+    return clean;
+  }
+
+  // Сохранённое пишется ВМЕСТЕ с именем аккаунта — иначе его нечем отличить от
+  // чужого. Ключ аккаунтный: при смене человека общая уборка его стирает.
+  async function remember(scope, items, account) {
+    if (!account) return;
+    await storageSet({ [listKey(scope)]: { account, items } });
+  }
+
   // Список С СЕРВЕРА, действие `presets`. Зовётся на открытие чата — то есть у
   // каждого, а не только у того, кто зашёл в настройки.
+  //
+  // Два шага в одном заходе: сперва поднять сохранённое (без сети — ряд обязан
+  // быть на месте сразу), потом спросить сервер и заменить.
   //
   // ⚠️ ЗАХОД НЕ ЗАЩЁЛКИВАЕТСЯ НА НЕУДАЧЕ, и это уже стоило одной поломки: до
   // входа каталог отвечает 401, и прежний признак «сходили» превращал 401 в
   // пустой ряд НАВСЕГДА, до перезагрузки страницы (врезка в wc-composer.js).
-  // Поэтому здесь нет флага «сходили» вовсе: удачный ответ кладёт список,
-  // неудачный не трогает НИЧЕГО, и следующее открытие чата пробует снова.
+  // Поэтому флага «сходили» здесь нет вовсе: удачный ответ кладёт список,
+  // неудачный оставляет сохранённый, и следующее открытие чата пробует снова.
   async function refresh(scope) {
     const s = pub(scope);
     if (s.inflight) return s.inflight;
     s.inflight = (async () => {
+      if (!(s.list && s.list.length)) {
+        const remembered = await loadRemembered(scope);
+        if (remembered && !(s.list && s.list.length)) {
+          s.list = remembered;
+          notify(scope);
+        }
+      }
+      const account = await accountTag();
       const res = await promptsAdmin({ action: 'presets' });
-      // 401 / офлайн / нет runtime → оставляем как есть. Ряд, которого ещё не
-      // было, не появится; ряд, который уже видно, не мигнёт.
+      // 401 / офлайн / нет runtime → остаёмся на сохранённом. Ряд не мигает.
       if (!res || !res.ok || !Array.isArray(res.presets)) return current(scope);
       // Отбор и порядок уже сделаны СЕРВЕРОМ — здесь только перекладка полей.
       // Ни filter, ни sort: любой из них означал бы вторую копию правила.
@@ -310,6 +332,8 @@
         // Пустая строка = «наследовать модель чата». Не подменять её ничем.
         modelId: typeof x.modelId === 'string' ? x.modelId : '',
       })).filter((x) => typeof x.id === 'string' && x.id);
+      s.account = account;
+      await remember(scope, s.list, account);
       notify(scope);
       return s.list;
     })();
@@ -361,6 +385,9 @@
         id: x.slot,
         name: typeof x.name === 'string' ? x.name : '',
         chars: typeof x.chars === 'number' ? x.chars : null,
+        // ЧЕРНОВАЯ модель — её и рисует выпадашка в отсеке настроек. Локальной
+        // копии этого выбора больше нет: единственный источник — каталог.
+        modelId: typeof x.modelId === 'string' ? x.modelId : '',
         dirty: !!x.dirty,
         published: !!x.published,
       })));
@@ -474,43 +501,35 @@
     return { ok: true };
   }
 
-  // ПУБЛИКАЦИЯ ОДНОЙ ЗАГОТОВКИ: текст промпта и ключ модели одним действием.
+  // ПУБЛИКАЦИЯ ОДНОЙ ЗАГОТОВКИ — буквально одно действие.
   //
-  // Две половины уезжают в РАЗНЫЕ места и разными функциями — текст в каталог
-  // (prompts-admin), ключ модели в опубликованные настройки (settings-publish),
-  // — но для человека это одно нажатие, поэтому и отказ должен быть один.
-  // Порядок: сперва текст, потом ключ модели. Обратный порядок открывал бы окно
-  // «модель уже переключилась, промпт ещё старый».
-  //
-  // Ключ модели публикуется ТОЧЕЧНО, действием 'publishKeys' (см. врезку в
-  // settings-publish): дописывает свои ключи в последний опубликованный набор,
-  // не трогая соседние. Прежняя форма (весь набор scope одним куском) утащила
-  // бы вместе с заготовкой все несохранённые черновики остальных настроек.
+  // Раньше их было два: текст уезжал в каталог (prompts-admin), ключ модели — в
+  // опубликованные настройки (settings-publish), и между ними было окно, в
+  // котором половина заготовки уже у людей, а половина ещё нет. Модель переехала
+  // в каталог, к тексту, поэтому publish копирует строку целиком, и разъехаться
+  // половинам больше нечем.
   async function publishOne(scope, id, note) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
-
     const pub = await promptsAdmin({
       action: 'publish', scope: c.ref.scope, cell: c.ref.cell, slot: id,
       note: note || 'action preset published',
     });
     if (!pub || !pub.ok) return { error: (pub && (pub.error || pub.status)) || 'publish failed' };
+    await refreshBoth(scope);
+    return { ok: true };
+  }
 
-    // Вторая половина — ключ модели этой заготовки. Его может не быть вовсе
-    // (модель не выбирали → «наследовать модель чата»); тогда публикуем пустую
-    // строку, а не пропускаем ключ: у людей могло остаться ранее опубликованное
-    // значение, и «не трогать» означало бы «оставить чужой выбор».
-    const modelKey = modelKeyFor(scope, id);
-    const r = await storageGet([modelKey]);
-    const res = await publishKeysCall(
-      c.ref.scope,
-      { [modelKey]: typeof r[modelKey] === 'string' ? r[modelKey] : '' },
-      note || 'action preset published',
-    );
-    if (!res || !res.ok) return { error: (res && (res.error || res.status)) || 'model publish failed' };
-    // Оба списка: каталог — чтобы погасла точка расхождения, публичный — чтобы
-    // заготовка появилась в ряду у людей. Публикация без второго обновления
-    // выглядела бы как «нажал, и ничего не произошло».
+  // Смена модели заготовки — правка ЧЕРНОВИКА, без публикации. Текст с собой не
+  // возим: его у клиента нет, и сервер разрешает объявить одну только модель.
+  async function setModel(scope, id, modelId) {
+    const c = cellDesc();
+    if (!c || !c.ref) return { error: 'no cell' };
+    const res = await promptsAdmin({
+      action: 'put', scope: c.ref.scope, cell: c.ref.cell, slot: id,
+      modelId: String(modelId == null ? '' : modelId),
+    });
+    if (!res || !res.ok) return { error: (res && (res.error || res.status)) || 'put failed' };
     await refreshBoth(scope);
     return { ok: true };
   }
@@ -630,40 +649,19 @@
     return true;
   }
 
-  // РАСХОЖДЕНИЕ ЗАГОТОВКИ — одно значение на две независимые половины.
+  // РАСХОЖДЕНИЕ ЗАГОТОВКИ — целиком серверный признак.
   //
-  // Текст: признак считает сервер и присылает полем `dirty` (клиенту сравнивать
-  // нечем — текста у него нет ни в одном виде).
-  // Ключ модели: сравнивается ЗДЕСЬ, локальное значение против опубликованного.
-  // Опубликованный набор читается прямо из published_settings (его отдаёт любому
-  // вошедшему), поэтому сравнение доступно и без прав редактора — но зовёт его
-  // только отсек настроек, а он и так виден одному редактору.
+  // Раньше он считался в двух местах: текст сравнивал сервер (клиенту нечем — у
+  // него нет ни черновика, ни опубликованного), а ключ модели клиент сверял сам
+  // с опубликованным набором. Обе половины теперь лежат в одной строке каталога,
+  // и сравнивает их сервер (`dirty` в действии list). Второй половине здесь
+  // взяться неоткуда: локального значения модели больше не существует.
   //
-  // Пустая строка и отсутствие ключа — ОДНО И ТО ЖЕ состояние («наследовать
-  // модель чата»), иначе заготовка, у которой модель никогда не выбирали,
-  // вечно светилась бы расходящейся.
-  async function modelDirty(scope, id) {
-    const c = cellDesc();
-    if (!c || !c.ref) return false;
-    const modelKey = modelKeyFor(scope, id);
-    // Не смогли прочитать опубликованное — не выдумываем расхождение.
-    const published = await publishedKeysCall(c.ref.scope);
-    if (!published) return false;
-    const local = await storageGet([modelKey]);
-    const a = typeof local[modelKey] === 'string' ? local[modelKey] : '';
-    const b = typeof published[modelKey] === 'string' ? published[modelKey] : '';
-    return a !== b;
-  }
-
-  // Сводный признак для строки заготовки в настройках: текст ИЛИ ключ модели.
-  // Человеку не нужно знать, какая из половин разошлась, — ему нужно знать, что
-  // нажатие «Опубликовать» что-то изменит.
+  // `published` = null означает «не публиковали ни разу» — это тоже расхождение,
+  // но читается иначе: «ещё не у людей», а не «правка не уехала».
   async function isDirty(scope, id) {
-    // КАТАЛОГ, а не публичный список: расхождение — про черновик, и в публичном
-    // списке признаков черновика нет по построению.
     const hit = (cat(scope).list || []).find((p) => p.id === id);
-    if (hit && (hit.dirty || !hit.published)) return true;
-    return await modelDirty(scope, id);
+    return !!(hit && (hit.dirty || !hit.published));
   }
 
   function onChange(fn) {
@@ -671,10 +669,49 @@
     return () => listeners.delete(fn);
   }
 
-  // ⚠️ ЗДЕСЬ СТОЯЛ СЛУШАТЕЛЬ chrome.storage.onChanged, подхватывавший правку
-  // списка из соседней вкладки через запомненный ключ. Ключа больше нет (см.
-  // шапку), поэтому нет и слушателя. Синхронность вкладок теперь даёт сам
-  // источник: каждая вкладка спрашивает сервер на открытии чата.
+  // ── СМЕНА ЧЕЛОВЕКА ГАСИТ РЯД НЕМЕДЛЕННО ──────────────────────────────────
+  //
+  // Выход из аккаунта стирает аккаунтные ключи, и сохранённый список — один из
+  // них. Но КОПИЯ В ПАМЯТИ пережила бы это: окно не пересобирается на выходе, и
+  // черновые заготовки редактора остались бы на экране, пока следующий человек
+  // не откроет чат заново. Требование владельца — «ни на мгновение», поэтому
+  // исчезновение ключа гасит и память, и ряд перерисовывается пустым.
+  //
+  // Здесь же ловится и правка списка в соседней вкладке: ключ один на установку.
+  try {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'local') return;
+        Object.keys(changes).forEach((k) => {
+          if (k.indexOf('lexActionPresets_') !== 0) return;
+          const scope = k.slice('lexActionPresets_'.length);
+          const s = pub(scope);
+          const next = changes[k].newValue;
+          // Ключ стёрли (выход, смена человека) → гасим память и ряд.
+          if (!next || typeof next !== 'object' || !Array.isArray(next.items)) {
+            s.list = null; s.account = null; notify(scope);
+            return;
+          }
+          // Записал кто-то другой в этой же установке — берём как есть, но
+          // только если это ТОТ ЖЕ аккаунт, что уже подтверждён у нас.
+          if (s.account && next.account !== s.account) {
+            s.list = null; s.account = null; notify(scope);
+            return;
+          }
+          s.list = next.items
+            .filter((p) => p && typeof p.id === 'string' && p.id)
+            .map((p) => ({
+              id: p.id,
+              name: typeof p.name === 'string' ? p.name : '',
+              chars: (typeof p.chars === 'number') ? p.chars : null,
+              modelId: typeof p.modelId === 'string' ? p.modelId : '',
+            }));
+          notify(scope);
+        });
+      });
+    }
+  } catch (_) { /* noop */ }
+
 
   global.LexActionPresets = {
     configure,
@@ -694,9 +731,8 @@
     update,
     remove,
     publishOne,
+    setModel,
     isDirty,
-    modelDirty,
-    modelKeyFor,
     getText,
     resolves,
     isNativeId,

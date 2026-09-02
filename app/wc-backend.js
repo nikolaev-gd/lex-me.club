@@ -529,8 +529,8 @@
   // (lex-action-presets.js).
   //
   // Scope — 'shorts-main' и для чата, и для заготовки, а не имя этого окна. Это
-  // правило расширения (chat-surface.js actionModelKeyFor / getPromptGroupConfig,
-  // отмена посурфейсного расщепления v1.74.1): одна конфигурация заготовки везде,
+  // правило расширения (chat-surface.js getPromptGroupConfig, отмена
+  // посурфейсного расщепления v1.74.1): одна конфигурация заготовки везде,
   // где живёт её кнопка. Адресуй каталог любым другим scope — сервер не найдёт
   // строки, и ход уйдёт вообще без инструкции, молча.
   //
@@ -539,11 +539,12 @@
   //   · NATIVE_SLOT_KEY ('activeNativePromptId_<scope>') — указатель активной
   //     заготовки. Слот приезжает С ХОДОМ с тех пор, как выбор заменили рядом
   //     пилюль; сам ключ снят с обращения везде.
-  //   · nativeModelKeyFor — правило имени ключа модели. Его считает сервер и
-  //     кладёт готовый id в строку публичного списка. Копия этого правила жила
-  //     здесь и УЖЕ разошлась однажды (хвост остался 'native', когда расширение
-  //     перешло на слот) — страница читала ключ, в который никто не пишет, и
-  //     молча отвечала моделью основного чата, каким бы ни был выбор владельца.
+  //   · nativeModelKeyFor — правило имени ключа модели. Ключа больше нет вовсе:
+  //     модель заготовки живёт в каталоге, в одной строке с её текстом, и
+  //     приезжает готовым значением в строке списка. Копия правила жила здесь и
+  //     УЖЕ разошлась однажды (хвост остался 'native', когда расширение перешло
+  //     на слот) — страница читала ключ, в который никто не пишет, и молча
+  //     отвечала моделью основного чата, каким бы ни был выбор владельца.
   //
   // ЗАМЕЧАНИЕ, намеренное: ход заготовки НЕ несёт promptContentRef. В расширении
   // contentPromptRefFor() возвращает null для любой ячейки, кроме chatPrompts,
@@ -582,6 +583,14 @@
   if (global.LexActionPresets) {
     LexActionPresets.configure({
       kv: { get: (keys) => WcStore.get(keys), set: (obj) => WcStore.set(obj) },
+      // Чей сохранённый список читать. У редактора в нём лежат ЧЕРНОВЫЕ
+      // заготовки, поэтому список чужого аккаунта модуль не берёт вовсе.
+      // Здесь сессия под рукой и сети не нужно — в расширении за тем же
+      // отвечает сообщение LEX_ACCOUNT_ID в service worker.
+      accountId: () => {
+        const s = A.session();
+        return (s && s.user && s.user.id) || null;
+      },
       // Транспорт общий с расширением (lex-edge-call.js) — раньше эта форма
       // лежала здесь третьей дословной копией.
       promptsAdmin: async (body) => {
@@ -591,36 +600,12 @@
           token, anonKey: A.anonKey(), baseUrl: A.supabaseUrl(),
         });
       },
-      // Половина «ключ модели» у кнопки публикации заготовки. На странице
-      // редактора заготовок нет (wc-settings.js объявляет это прямым текстом),
-      // поэтому дверь нужна не ради кнопки здесь, а чтобы общий модуль вёл себя
-      // на обеих поверхностях одинаково и не деградировал молча.
-      publishKeys: async (scope, keys, note) => {
-        const token = await A.validToken();
-        if (!token) return { error: 'login', status: 401 };
-        return await LexEdgeCall.callEdgeJson('settings-publish', {
-          action: 'publishKeys', scope, keys, note: note || 'action preset published',
-        }, { token, anonKey: A.anonKey(), baseUrl: A.supabaseUrl() });
-      },
-      // Последний опубликованный набор scope — читается прямо из
-      // published_settings (RLS отдаёт его любому вошедшему), без edge-функции.
-      publishedKeys: async (scope) => {
-        const token = await A.validToken();
-        if (!token) return null;
-        try {
-          const resp = await fetch(
-            A.supabaseUrl() + '/rest/v1/published_settings'
-            + '?select=data&scope=eq.' + encodeURIComponent(scope) + '&order=id.desc&limit=1',
-            { headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token } },
-          );
-          if (!resp.ok) return null;
-          const rows = await resp.json();
-          const row = Array.isArray(rows) && rows[0] ? rows[0] : null;
-          return (row && row.data && typeof row.data === 'object') ? row.data : {};
-        } catch (_) {
-          return null;
-        }
-      },
+      // ⚠️ ЗДЕСЬ БЫЛИ `publishKeys` и `publishedKeys` — половина «ключ модели»
+      // у кнопки публикации заготовки и чтение опубликованного набора ради
+      // сверки. Обе сняты 2026-09-02: модель заготовки переехала в каталог, к
+      // её тексту, и публикуется тем же действием, что и он. Серверное
+      // действие settings-publish 'publishKeys' осталось на месте, просто его
+      // больше никто не зовёт.
     });
   }
 
