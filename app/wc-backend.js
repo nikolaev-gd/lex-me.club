@@ -369,17 +369,26 @@
 
   WcBus.on('WC_LOAD_CONVERSATION', async (m) => {
     const turns = await WcHistory.turns(m.id);
-    // Re-attach the pictures this browser still holds for these turns.
+    // Пути в бакете приезжают вместе с репликой, ключи блобов лежат здесь.
+    // Берём и то и другое: ключ — быстрая местная дорожка, путь — то, что
+    // работает на другом устройстве и после повторного входа.
     const imgs = await turnImages();
     for (const t of turns) {
-      const ref = t.uid && imgs[t.uid];
-      if (!ref) continue;
-      const url = await WcAttach.url(ref.key);
-      // No url means the picture was evicted or this is a different machine.
-      // The turn keeps its text and says nothing about a picture it cannot
-      // show, which beats a broken image box.
+      const ref = (t.uid && imgs[t.uid]) || null;
+      const srv = (t.attachments || []).find((a) => a && a.kind === 'image' && a.path) || null;
+      if (!ref && !srv) continue;
+      const url = await WcAttach.url(ref && ref.key, (ref && ref.path) || (srv && srv.path));
+      // Ни ключа, ни пути не хватило — картинки нет нигде. Реплика остаётся с
+      // текстом и молчит про картинку, которую показать нечем: это лучше
+      // сломанной рамки.
       if (url) t.images = [url];
     }
+    // Старые картинки этой переписки довозим на сервер по нескольку за
+    // открытие — тем же ленивым правилом, что и расширение, и по той же
+    // причине: на устройстве их до сотни мегабайт, а на весь проект сейчас
+    // выделен гигабайт. Разговор, в который человек не вернётся, места не
+    // занимает. Fire-and-forget: показ ленты этого не ждёт.
+    backfillTurnImages(m.id, turns, imgs).catch(() => {});
     // Reopening PINS the conversation's own session: minting a fresh one for an
     // existing thread would split it in two, and the second half would not be
     // findable from the extension.
@@ -445,22 +454,56 @@
   });
 
   // ── Pictures attached to turns ────────────────────────────────────────────
-  // The reference lives LOCALLY, keyed by turn uid, exactly as it does in the
-  // extension: public.video_chat_turns.content is a string column, and the
-  // picture itself is in this browser's IndexedDB. So a picture survives a
-  // reload on this machine and does not follow the conversation to another —
-  // the same promise the extension makes, and the honest one, because the
-  // pixels never left this device.
+  // Две записи об одной картинке, и обе нужны. Ключ блоба живёт ЗДЕСЬ, по uid
+  // хода: пока картинка в этом браузере, показ мгновенный и без сети. Путь в
+  // бакете живёт НА СЕРВЕРЕ, в колонке `attachments` той же реплики: он и
+  // делает так, что переписка, открытая на другом устройстве или после
+  // повторного входа, показывает ту же картинку.
   const TURN_IMAGES_KEY = 'wcTurnImages';
 
-  async function rememberTurnImage(uid, att) {
+  async function rememberTurnImage(uid, att, path) {
     const map = await WcStore.one(TURN_IMAGES_KEY, {});
-    map[uid] = { key: att.key, mime: att.mime, width: att.width, height: att.height };
+    map[uid] = {
+      key: att.key, mime: att.mime, width: att.width, height: att.height,
+      ...(path ? { path } : {}),
+    };
     await WcStore.set({ [TURN_IMAGES_KEY]: map });
   }
 
   async function turnImages() {
     return WcStore.one(TURN_IMAGES_KEY, {});
+  }
+
+  const BACKFILL_PER_OPEN = 5;
+  const backfillBusy = new Set();
+
+  async function backfillTurnImages(convId, turns, imgs) {
+    if (!convId || backfillBusy.has(convId)) return;
+    backfillBusy.add(convId);
+    try {
+      let done = 0;
+      for (const t of turns) {
+        if (done >= BACKFILL_PER_OPEN) break;
+        const ref = t.uid && imgs[t.uid];
+        if (!ref || !ref.key || ref.path) continue;
+        const hasSrv = (t.attachments || []).some((a) => a && a.kind === 'image' && a.path);
+        if (hasSrv) continue;
+        const up = await WcAttach.upload(ref.key, convId);
+        if (!up || !up.ok || !up.path) {
+          // Место кончилось, вход протух, сети нет — дальше по этой переписке
+          // упрёмся в то же самое. Следующее открытие попробует снова.
+          if (up && (up.reason === 'quota' || up.reason === 'auth' || up.reason === 'offline')) break;
+          continue;
+        }
+        await rememberTurnImage(t.uid, ref, up.path);
+        await WcHistory.push(convId, [{
+          role: t.role, text: t.text, uid: t.uid, authoredAt: t.authoredAt,
+          attachments: [{ kind: 'image', path: up.path, mime: ref.mime, width: ref.width, height: ref.height }],
+        }]);
+        done += 1;
+      }
+    } catch (_) { /* добор — не обязанность, показ уже состоялся */ }
+    finally { backfillBusy.delete(convId); }
   }
 
   // ── Sending ───────────────────────────────────────────────────────────────
@@ -754,6 +797,8 @@
     // re-sending every picture of a long conversation on every turn would
     // multiply the bill by the number of pictures in it.
     const messages = buf.map((t) => ({ role: t.role, content: t.text }));
+    // Обещание загрузки картинки в бакет; null, когда картинки нет.
+    let uploading = null;
     if (attachment) {
       messages[messages.length - 1] = {
         role: 'user',
@@ -763,6 +808,9 @@
         ],
       };
       await rememberTurnImage(userUid, attachment);
+      // Загрузка в бакет идёт ПАРАЛЛЕЛЬНО с запросом к учителю: ответ модели
+      // всё равно дольше. Забираем её ниже, ровно в момент записи реплики.
+      uploading = WcAttach.upload(attachment.key, writeKey);
     }
 
     // Collect the answer as it streams so it can be written back on DONE. The
@@ -776,7 +824,26 @@
       // A partial answer is kept: the provider produced those tokens and the
       // account was billed for them, so throwing them away would be throwing
       // away something already paid for.
-      const rows = [{ role: 'user', text: m.text, uid: userUid, authoredAt }];
+      // Отказ загрузки не отменяет ничего: сообщение уже ушло, ответ уже есть.
+      // Максимум, что теряется, — картинка останется только в этом браузере.
+      let srvPath = null;
+      if (uploading) {
+        try {
+          const up = await uploading;
+          if (up && up.ok && up.path) {
+            srvPath = up.path;
+            await rememberTurnImage(userUid, attachment, srvPath);
+          } else {
+            WcUI.toast(up && up.reason === 'quota'
+              ? 'Картинка осталась только на этом устройстве: место для файлов закончилось.'
+              : 'Картинка осталась только на этом устройстве: не удалось сохранить её на сервере.');
+          }
+        } catch (_) { /* сообщение всё равно отправлено */ }
+      }
+      const rows = [{
+        role: 'user', text: m.text, uid: userUid, authoredAt,
+        ...(srvPath ? { attachments: [{ kind: 'image', path: srvPath, mime: attachment.mime, width: attachment.width, height: attachment.height }] } : {}),
+      }];
       if (answer) rows.push({ role: 'assistant', text: answer, uid: assistantUid, authoredAt: new Date().toISOString() });
       // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
       // под модель нет, и заводить её ради «заново» — миграция рядом с

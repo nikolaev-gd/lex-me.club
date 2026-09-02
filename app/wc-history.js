@@ -346,7 +346,7 @@
   // would put every recent turn in an arbitrary place.
   async function turns(videoId) {
     const rows = await get('/rest/v1/video_chat_turns'
-      + '?select=role,content,turn_uid,authored_at,created_at,deleted_at'
+      + '?select=role,content,turn_uid,authored_at,created_at,deleted_at,attachments'
       + '&video_id=eq.' + encodeURIComponent(videoId)
       + '&order=authored_at.asc,turn_uid.asc');
     return (rows || []).filter(keepRow).map(toTurn);
@@ -368,6 +368,10 @@
     text: r.content || '',
     uid: r.turn_uid || null,
     authoredAt: r.authored_at || r.created_at || null,
+    // Файлы реплики приезжают ПУТЯМИ в бакете. Ключ блоба здесь не появляется
+    // никогда: он адресует хранилище конкретного браузера и на другом
+    // устройстве не значит ничего.
+    attachments: Array.isArray(r.attachments) ? r.attachments : null,
   });
 
   // ── Переписки ЗАГОТОВОК одного чата ──────────────────────────────────────
@@ -389,7 +393,7 @@
   async function actionBranchTurns(prefix) {
     if (typeof prefix !== 'string' || !prefix) return [];
     const rows = await get('/rest/v1/video_chat_turns'
-      + '?select=video_id,role,content,turn_uid,authored_at,created_at,deleted_at'
+      + '?select=video_id,role,content,turn_uid,authored_at,created_at,deleted_at,attachments'
       + '&video_id=like.' + encodeURIComponent(prefix + '*')
       + '&order=authored_at.asc,turn_uid.asc');
     const AB = global.LexActionBranch;
@@ -410,6 +414,11 @@
     const account = accountId();
     if (!account || !rows.length) return { ok: false };
     const deviceId = await deviceIdOnce();
+    // `attachments` стоит в КАЖДОЙ строке пачки, в том числе как null:
+    // PostgREST берёт список колонок из ПЕРВОГО объекта массива, и без ключа у
+    // первой реплики колонка не попала бы в запрос вовсе — путь второй молча не
+    // доехал бы. Та же оговорка стоит в chat-history-server.js, потому что это
+    // вторая реализация того же договора.
     const payload = rows.map((t) => ({
       account_id: account,
       video_id: videoId,
@@ -418,6 +427,7 @@
       device_id: deviceId,
       role: t.role,
       content: t.text,
+      attachments: (Array.isArray(t.attachments) && t.attachments.length) ? t.attachments : null,
     }));
     for (let i = 0; i < payload.length; i += BATCH) {
       await post('/rest/v1/video_chat_turns?on_conflict=account_id,video_id,turn_uid',

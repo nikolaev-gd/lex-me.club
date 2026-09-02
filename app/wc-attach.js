@@ -51,6 +51,11 @@
 
   function db() {
     if (dbPromise) return dbPromise;
+    // Соединение переживает удаление базы (чистка при выходе) и остаётся
+    // мёртвым: транзакция по нему кидает NotFoundError. Поэтому обещание
+    // сбрасывается, как только соединение закрылось или база снесена, — иначе
+    // после повторного входа местное хранилище не заработало бы до
+    // перезагрузки страницы.
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, 1);
       req.onupgradeneeded = () => {
@@ -60,39 +65,69 @@
           st.createIndex('ts', 'ts');
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const d = req.result;
+        d.onclose = () => { dbPromise = null; };
+        d.onversionchange = () => { try { d.close(); } catch (_) {} dbPromise = null; };
+        resolve(d);
+      };
+      req.onerror = () => { dbPromise = null; reject(req.error); };
     });
     return dbPromise;
   }
 
   async function put(record) {
-    const d = await db();
-    await new Promise((resolve, reject) => {
+    await withDb((d) => new Promise((resolve, reject) => {
       const tx = d.transaction(STORE, 'readwrite');
       tx.objectStore(STORE).put(record);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
-    });
+    }));
     evict().catch(() => {});
     return record.key;
   }
 
+  // Одна повторная попытка на мёртвом соединении: база могла быть удалена
+  // чисткой при выходе, и второй заход открывает её заново.
+  async function withDb(run) {
+    try {
+      return await run(await db());
+    } catch (e) {
+      if (!e || (e.name !== 'NotFoundError' && e.name !== 'InvalidStateError')) throw e;
+      dbPromise = null;
+      return run(await db());
+    }
+  }
+
   async function get(key) {
-    const d = await db();
-    return new Promise((resolve, reject) => {
+    return withDb((d) => new Promise((resolve, reject) => {
       const tx = d.transaction(STORE, 'readonly');
       const r = tx.objectStore(STORE).get(key);
       r.onsuccess = () => resolve(r.result || null);
       r.onerror = () => reject(r.error);
-    });
+    }));
   }
 
-  // Oldest out first, same two ceilings the extension uses. Reads only the
-  // metadata it needs to decide — never the pixels.
+  // Один объект из приватного бакета. Подписанных адресов нет вовсе: запрос
+  // идёт с обычным заголовком входа, и право на объект сервер проверяет на
+  // КАЖДЫЙ запрос (политика чтения своего префикса на storage.objects).
+  async function fetchFromBucket(path) {
+    const A = global.LexWebAuth;
+    if (!A || typeof path !== 'string' || path.indexOf('user-attachments/') !== 0) return null;
+    const token = await A.validToken();
+    if (!token) return null;
+    const resp = await fetch(A.supabaseUrl() + '/storage/v1/object/authenticated/' + path, {
+      headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token },
+    });
+    if (!resp.ok) return null;
+    return resp.blob();
+  }
+
   const MAX_COUNT = 300;
   const MAX_BYTES = 100 * 1024 * 1024;
 
+  // Oldest out first, same two ceilings the extension uses. Reads only the
+  // metadata it needs to decide — never the pixels.
   async function evict() {
     const d = await db();
     const rows = await new Promise((resolve, reject) => {
@@ -427,13 +462,61 @@
     },
 
     // Reading a stored picture back — this is what makes an image survive a
-    // reload. Returns an object URL, or null when the picture is gone.
-    async url(key) {
+    // reload. Local store first, then the bucket: while the blob is on this
+    // machine nothing touches the network, and when it is not (another device,
+    // or this one after signing out and back in) the same picture still comes
+    // back. What arrives from the server is put into the local store under its
+    // own path, so the second look at the same turn is local again.
+    async url(key, path) {
+      // ⚠️ У КАЖДОГО ШАГА СВОЙ try, И ЭТО НЕ ПЕДАНТИЗМ. Общий try вокруг всего
+      // однажды уже съел работающую картинку: выход из аккаунта УДАЛЯЕТ базу
+      // `lex_webchat_images`, а соединение с ней закэшировано в `dbPromise` —
+      // первое же чтение после входа кидает NotFoundError. С одним try на всё
+      // это читалось как «картинки нет» и до бакета дело не доходило вовсе,
+      // хотя там она лежала. Местное хранилище — УСКОРЕНИЕ; его поломка не
+      // имеет права отменять чтение с сервера.
+      let local = null;
+      if (key) { try { local = await get(key); } catch (_) { local = null; } }
+      if (local && local.blob) return URL.createObjectURL(local.blob);
+      if (!path) return null;
+      let cached = null;
+      try { cached = await get(path); } catch (_) { cached = null; }
+      if (cached && cached.blob) return URL.createObjectURL(cached.blob);
+      let blob = null;
+      try { blob = await fetchFromBucket(path); } catch (_) { blob = null; }
+      if (!blob) return null;
+      // Кэш — побочный эффект, а не условие ответа.
+      try { await put({ key: path, blob, mime: blob.type || 'image/jpeg', ts: Date.now(), bytes: blob.size }); } catch (_) {}
+      return URL.createObjectURL(blob);
+    },
+
+    // Send a stored picture to the bucket. Returns { ok, path } or
+    // { ok:false, reason } — and never throws: a failed upload must not cancel
+    // a message that has already been sent.
+    async upload(key, chatKey) {
       try {
         const rec = await get(key);
-        if (!rec || !rec.blob) return null;
-        return URL.createObjectURL(rec.blob);
-      } catch (_) { return null; }
+        if (!rec || !rec.blob) return { ok: false, reason: 'no_local_blob' };
+        const A = global.LexWebAuth;
+        const token = A && await A.validToken();
+        if (!token) return { ok: false, reason: 'auth' };
+        const fd = new FormData();
+        fd.append('file', rec.blob, 'file');
+        fd.append('meta', JSON.stringify({ kind: 'image', chat_key: chatKey || null }));
+        const resp = await fetch(A.supabaseUrl() + '/functions/v1/attach-upload', {
+          method: 'POST',
+          headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token },
+          body: fd,
+        });
+        if (!resp.ok) {
+          const body = await resp.json().catch(() => null);
+          return { ok: false, reason: (body && body.error) || ('http_' + resp.status) };
+        }
+        const j = await resp.json().catch(() => null);
+        return (j && j.path) ? { ok: true, path: j.path } : { ok: false, reason: 'bad_response' };
+      } catch (_) {
+        return { ok: false, reason: 'offline' };
+      }
     },
 
     async base64(key) {
@@ -446,6 +529,7 @@
     // driving a native file dialog.
     accept,
     normalize,
+    fetchFromBucket,
   };
 
   global.WcAttach = WcAttach;
