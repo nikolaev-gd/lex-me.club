@@ -1178,6 +1178,7 @@
     textModelOptionsHtml,
     actionModelOptionsHtml,
     voiceModelOptionsHtml,
+    providerGroupLabel: PROVIDER_GROUP_LABEL,
     // knob capability
     textKnobSupported,
     // размышление, которое провайдер включает сам
