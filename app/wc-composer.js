@@ -32,19 +32,20 @@
   // Кнопка в композере ОДНА, а заготовок у неё много: каждая — слот ячейки
   // промптов, со своим именем, своим текстом и своей моделью. Список общий с
   // расширением по коду (lex-action-presets.js), хранилище и каталог модулю
-  // даёт wc-backend.js. До ТРЁХ заготовок стоят пилюлями в ряд, тап по любой
-  // сразу отправляет ЕЁ — без выбора «активной» и без меню (2026-09-01,
-  // решение владельца; раньше здесь была одна пилюля с ▾-меню и стрелкой
-  // отправки, тот же дизайн, что в chat-surface.js до этой же правки).
+  // даёт wc-backend.js. Заготовки стоят пилюлями в ряд, тап по любой сразу
+  // отправляет ЕЁ — без выбора «активной» и без меню (2026-09-01, решение
+  // владельца; раньше здесь была одна пилюля с ▾-меню и стрелкой отправки,
+  // тот же дизайн, что в chat-surface.js до этой же правки).
+  //
+  // ⚠️ СРЕЗА В ТРИ ЗАГОТОВКИ БОЛЬШЕ НЕТ (2026-09-02): ряд показывает всё, что
+  // отдал сервер, лишнее доскролливается вбок (.wc-mode-split, overflow-x).
   //
   // ⚠️ Список приходит АСИНХРОННО, а ряд есть с первого кадра. Поэтому он
   // пересобирается на КАЖДОЕ изменение списка — иначе переименование или
   // новая заготовка в открытых настройках не долетит до уже открытой
   // страницы.
   const PRESETS = () => global.LexActionPresets || null;
-  const MAX_VISIBLE_PRESETS = 3;
   let presetScope = null;        // 'shorts-main' — из описания ячейки, не литералом
-  let presetActiveKey = null;    // activeNativePromptId_<scope>
   let presetPillEls = [];        // текущие кнопки ряда — syncButton() гасит/включает все разом
 
   // Подпись «Native» — запасная: её отдаёт labelOf(), пока имя первой заготовки
@@ -52,10 +53,12 @@
   // здесь переводчика нет — и по решению эта страница показывает английский.
   const NATIVE_FALLBACK_LABEL = 'Native';
 
+  // Пусто — значит ряда нет ВОВСЕ. Запасной одиночки Native тут больше нет
+  // намеренно (шапка lex-action-presets.js): пилюля без подтверждённого
+  // сервером промпта уводит ход к модели без инструкции.
   function presetList() {
     const P = PRESETS();
-    const items = (P && presetScope) ? P.current(presetScope) : [];
-    return items.length ? items : [{ id: null, name: '', chars: null }];
+    return (P && presetScope) ? P.current(presetScope) : [];
   }
 
   const presetLabel = (p) => {
@@ -80,17 +83,19 @@
       toast('«' + presetLabel(p) + '» has no prompt yet', { error: true });
       return;
     }
-    if (slotId && presetActiveKey) {
-      WcStore.set({ [presetActiveKey]: slotId }).catch(() => {});
-    }
-    submit({ mode: 'native', slotId });
+    // ⚠️ ЗДЕСЬ ПИСАЛСЯ activeNativePromptId_<scope>. Ключа больше нет
+    // (2026-09-02): «активной» заготовки не бывает, слот едет с ходом.
+    // Модель — тоже готовым значением из строки списка, а не по имени ключа,
+    // которое страница собирала у себя: та копия правила уже расходилась
+    // однажды (врезка в wc-backend.js).
+    submit({ mode: 'native', slotId, modelId: (p && p.modelId) || '' });
   }
 
   // Рисует ряд заново с нуля — проще и надёжнее патча трёх кнопок по месту,
   // а вызывается редко (сборка + смена списка, не на каждый кадр).
   function renderPresetPills() {
     if (!elModeSplit) return;
-    const items = presetList().slice(0, MAX_VISIBLE_PRESETS);
+    const items = presetList();
     elModeSplit.innerHTML = '';
     presetPillEls = items.map((p) => {
       const lbl = presetLabel(p);
@@ -117,7 +122,6 @@
     const cell = cells.cellFor('nativePrompts');
     if (!cell) return;
     presetScope = (cell.ref && cell.ref.scope) || null;
-    presetActiveKey = cell.activeIdStorageKey || null;
     if (!presetScope) return;
     renderPresetPills();
     P.onChange((scope) => { if (scope === presetScope) renderPresetPills(); });
@@ -135,14 +139,11 @@
   async function loadPresets() {
     const P = PRESETS();
     if (!P || !presetScope) return;
-    // Сначала БЕЗ сети (запомненный список) — это то, что видно сразу после
-    // перезагрузки страницы. Потом каталог: право проверяет сервер, и
-    // не-редактору он отвечает 403, отчего список остаётся одиночкой и меню не
-    // открывается. Отдельного гейта под «обычному пользователю заготовок не
-    // видно» здесь нет — он получается сам.
-    try { await P.list(presetScope); } catch (_) { /* остаёмся на запасной */ }
-    renderPresetPills();
-    try { await P.refresh(presetScope); } catch (_) { /* каталог молчит — не авария */ }
+    // Один заход, публичным действием: список приходит любому вошедшему, и в
+    // нём уже сделаны отбор и порядок. Локальной копии, которую можно было бы
+    // показать «пока едет», больше нет — ряд появляется, когда ответит сервер,
+    // и не появляется вовсе, если не ответит.
+    try { await P.refresh(presetScope); } catch (_) { /* не ответил — ряда нет */ }
     renderPresetPills();
   }
 

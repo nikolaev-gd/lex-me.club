@@ -273,7 +273,7 @@
     // surface actually consumes fails closed. And an unrecognised key is
     // REPORTED, not dropped in silence — silence is how "the owner published
     // it and nothing happened" becomes a mystery.
-    const ADOPTABLE = /^(activeModelId_|activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|activeNativePromptId_|activeActionModelId_|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|effortByApiModel_|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
+    const ADOPTABLE = /^(activeModelId_|activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|effortByApiModel_|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
     const patch = {};
     const skipped = [];
     Object.keys(data).forEach((k) => {
@@ -521,72 +521,47 @@
     });
   }
 
-  // ── Native, the one action mode ───────────────────────────────────────────
+  // ── Заготовки действий: ОДНА кнопка, много заготовок ─────────────────────
   //
-  // Not a second teacher and not a second conversation: the SAME turn, sent
-  // with a different instruction and possibly a different model. Three storage
-  // keys carry it, and all three are already in the ADOPTABLE list above, so
-  // the owner publishing a Native prompt from the extension reaches this page
-  // without another step:
+  // Не второй учитель и не вторая беседа: ТОТ ЖЕ ход, отправленный с другой
+  // инструкцией и, возможно, на другой модели. Заготовка — это СЛОТ ячейки
+  // nativePrompts: своё имя, свой текст промпта, своя модель и своя переписка
+  // (lex-action-presets.js).
   //
-  //   nativePrompts_shorts-main            the cell (its TEXT lives on the
-  //                                        server; the client only names it)
-  //   activeNativePromptId_shorts-main     which slot of that cell is live
-  //   activeActionModelId_shorts-main_native   the model, '' meaning "inherit"
+  // Scope — 'shorts-main' и для чата, и для заготовки, а не имя этого окна. Это
+  // правило расширения (chat-surface.js actionModelKeyFor / getPromptGroupConfig,
+  // отмена посурфейсного расщепления v1.74.1): одна конфигурация заготовки везде,
+  // где живёт её кнопка. Адресуй каталог любым другим scope — сервер не найдёт
+  // строки, и ход уйдёт вообще без инструкции, молча.
   //
-  // The scope is 'shorts-main' for both the chat and the mode — not this
-  // window's name. That is the extension's rule (chat-surface.js
-  // actionModelKeyFor / getPromptGroupConfig, reversing the per-surface split
-  // of v1.74.1): one configuration for the mode wherever its button lives.
-  // Address the catalogue with any other scope and the server finds no row, so
-  // the turn goes out with no instruction at all — silently.
+  // ⚠️ ЧЕГО ЗДЕСЬ БОЛЬШЕ НЕТ (2026-09-02), и оба «нет» — про одно и то же:
+  // страница перестала выводить у себя ИМЕНА КЛЮЧЕЙ.
+  //   · NATIVE_SLOT_KEY ('activeNativePromptId_<scope>') — указатель активной
+  //     заготовки. Слот приезжает С ХОДОМ с тех пор, как выбор заменили рядом
+  //     пилюль; сам ключ снят с обращения везде.
+  //   · nativeModelKeyFor — правило имени ключа модели. Его считает сервер и
+  //     кладёт готовый id в строку публичного списка. Копия этого правила жила
+  //     здесь и УЖЕ разошлась однажды (хвост остался 'native', когда расширение
+  //     перешло на слот) — страница читала ключ, в который никто не пишет, и
+  //     молча отвечала моделью основного чата, каким бы ни был выбор владельца.
   //
-  // NOTE, deliberately: a Native turn carries NO promptContentRef. In the
-  // extension contentPromptRefFor() returns null for any cell that is not
-  // chatPrompts, so the content-type half of the instruction is a chat-only
-  // thing. Sending one here would be inventing a combination the extension
-  // never produces.
+  // ЗАМЕЧАНИЕ, намеренное: ход заготовки НЕ несёт promptContentRef. В расширении
+  // contentPromptRefFor() возвращает null для любой ячейки, кроме chatPrompts,
+  // то есть нижний уровень инструкции — принадлежность обычного чата. Слать его
+  // отсюда значило бы выдумать сочетание, которого расширение не производит.
   const NATIVE_CELL = 'nativePrompts';
-  const NATIVE_SLOT_KEY = 'activeNativePromptId_' + SCOPE;
 
-  // ── ЗАГОТОВОК МНОГО, И КАЖДАЯ — ЭТО СЛОТ ─────────────────────────────────
-  //
-  // Кнопка в композере по-прежнему ОДНА. Заготовка — не вторая кнопка, а
-  // выбранный слот ячейки nativePrompts: своё имя, свой текст промпта, своя
-  // модель и своя переписка (lex-action-presets.js). Отсюда две вещи, которые
-  // на этой странице раньше были неверны:
-  //
-  //   · ключ модели считается ОТ СЛОТА. Здесь стояло
-  //     'activeActionModelId_<scope>_native' — форма, которую расширение
-  //     бросило 2026-08-25 (background.js migrateActionModelKeyToSlot
-  //     перенесло значение на 'activeActionModelId_<scope>_chatB1'). То есть
-  //     страница читала ключ, в который больше никто не пишет, и молча
-  //     отвечала моделью основного чата, каким бы ни был выбор владельца;
-  //   · слот приезжает С ХОДОМ, а не берётся из хранилища на месте. Человек
-  //     мог выбрать другую заготовку между нажатием и этой строкой, и промпт
-  //     обязан относиться к той, чьё имя он видел на кнопке.
-  // ⚠️ 2026-08-25, второй заход: правило имени переехало в lex-action-presets.js,
-  // к владельцу заготовок. Копия жила здесь и УЖЕ разошлась однажды (хвост
-  // остался 'native', когда расширение перешло на слот) — ровно та поломка,
-  // ради которой правило и сведено в одно место. Запасной путь оставлен на
-  // случай, если модуль не загрузился: страница не должна падать целиком.
-  const nativeModelKeyFor = (slot) => (
-    (global.LexActionPresets && typeof global.LexActionPresets.modelKeyFor === 'function')
-      ? global.LexActionPresets.modelKeyFor(SCOPE, slot)
-      : 'activeActionModelId_' + SCOPE + '_' + slot
-  );
-
-  async function nativeTurnConfig(slotId) {
-    const r = await WcStore.get([NATIVE_SLOT_KEY]);
-    const slot = slotId || r[NATIVE_SLOT_KEY] || 'chatB1';
-    const mk = nativeModelKeyFor(slot);
-    // An empty model key means "inherit the chat's model" — the same meaning
-    // the extension's settings row gives it.
-    const model = (await WcStore.get([mk]))[mk] || null;
+  // Слот и модель приезжают С ХОДОМ — оба из строки публичного списка, которую
+  // отдал сервер. Ни одного чтения хранилища здесь больше нет: читать было бы
+  // нечего и незачем.
+  function nativeTurnConfig(slotId, modelId) {
+    if (!slotId) return null;             // без слота заготовки не бывает
     return {
-      slot,
-      model,
-      promptRef: { scope: SCOPE, cell: NATIVE_CELL, slot },
+      slot: slotId,
+      // Пустая строка = «наследовать модель чата» — то же значение, что даёт ей
+      // строка настроек в расширении. null здесь означает ровно это.
+      model: modelId || null,
+      promptRef: { scope: SCOPE, cell: NATIVE_CELL, slot: slotId },
       promptId: NATIVE_CELL,
     };
   }
@@ -722,7 +697,7 @@
   async function runSend(m) {
     // Слот приезжает С ХОДОМ: имя на кнопке и то, что уходит модели, обязаны
     // относиться к одной и той же заготовке.
-    const native = (m.mode === 'native') ? await nativeTurnConfig(m.slotId) : null;
+    const native = (m.mode === 'native') ? nativeTurnConfig(m.slotId, m.modelId) : null;
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
     const modelId = m.modelOverride || (native && native.model) || await activeModelId();

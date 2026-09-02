@@ -221,6 +221,11 @@
     // между нажатием и отправкой, а промпт, модель и ветка переписки обязаны
     // относиться к той, чьё имя он видел на кнопке.
     const slotId = (opts && opts.slotId) || null;
+    // И на какой МОДЕЛИ. Тоже с ходом, и тоже готовым значением: имя ключа
+    // модели заготовки считает сервер (см. handlePresets в prompts-admin), а
+    // страница его больше не выводит — прежняя копия правила уже расходилась.
+    // Пустая строка = «наследовать модель чата».
+    const modelId = (opts && typeof opts.modelId === 'string') ? opts.modelId : '';
 
     // The preview URL made for the strip is handed to the bubble rather than
     // revoked and remade: it points at the same Blob, and revoking it here
@@ -245,6 +250,7 @@
         images,
         mode,
         slotId,
+        modelId,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
@@ -910,9 +916,10 @@
       console.warn('[wc] published settings:', err && err.message);
     }
     // Список ЗАГОТОВОК ДЕЙСТВИЙ — здесь же и по той же причине, что настройки
-    // выше: каталог промптов отвечает только по токену, а на сборке композера
-    // токена ещё нет. Не ждём — кнопка живая и с одной заготовкой, а подпись и
-    // меню доедут сами.
+    // выше: он отвечает только по токену, а на сборке композера токена ещё нет.
+    // Эта функция и есть «открытие чата» на странице: через неё проходят оба
+    // пути внутрь приложения — вход руками и возврат с живой сессией. Не ждём:
+    // ряд появится сам, когда список доедет.
     WcComposer.loadPresets();
 
     document.getElementById('wc-root').hidden = false;

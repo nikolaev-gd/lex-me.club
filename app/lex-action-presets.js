@@ -20,51 +20,39 @@
 // 'native', — и «Носитель» в том же чате открывал переписку «Лимерика».
 // Требование к id слота отсюда одно: без '__' (newSlotId ниже его и не даёт).
 //
-// ── ТРИ СЛОЯ ИСТОЧНИКА СПИСКА, и почему их три ──────────────────────────────
-// Задание называет два — каталог и статический массив запасным. Между ними
-// пришлось поставить третий, ЗАПОМНЕННЫЙ список (`lexActionPresets_<scope>` в
-// chrome.storage.local), и вот почему:
+// ── ДВА СПИСКА, И ПУТАТЬ ИХ НЕЛЬЗЯ ──────────────────────────────────────────
 //
-//   1. Разметка композера строится СИНХРОННО, а каталог — сетевой запрос. Без
-//      локальной копии после каждой перезагрузки страницы меню заготовок было
-//      бы пустым до первого захода в настройки.
-//   2. Статический массив на эту роль не годится: он описывает СЛОТЫ, а не то,
-//      что реально лежит в каталоге, и эти два множества не обязаны совпадать.
-//      Слот, которого в каталоге нет, промпт не разрешит — а отправка через
-//      неразрешённый слот теперь получает явный отказ (llm-proxy отвечает 424).
-//      Поэтому статический массив остаётся ровно тем, чем назван, — ЗАПАСНЫМ,
-//      и сворачивается до ПЕРВОГО слота.
+// 1. ПУБЛИЧНЫЙ (`current` / `refresh`) — то, что человек видит пилюлями. Его
+//    целиком считает СЕРВЕР, действием `presets` мимо гейта редактора: он же
+//    отбирает опубликованные слоты, он же задаёт порядок, он же кладёт в строку
+//    готовый id модели. Клиент не отбирает и не сортирует ничего — иначе три
+//    поверхности (расширение, страница, айфон) разъезжаются, что уже случилось
+//    однажды с именем ключа модели.
 //
-//      ⚠️ Здесь стояло «в каталоге сегодня ровно один слот — chatB1». Это было
-//      неверно уже к 2026-08-25 и стоило отдельного разбора: в каталоге лежат
-//      ОБА статических слота — chatB1 «Native» и chatB2 (переименован в
-//      «recommendation»), — плюс заведённые владельцем. То есть Native и
-//      recommendation — такие же заготовки, как любая другая, и ходят тем же
-//      путём. Не писать сюда состояние базы: оно меняется, а комментарий нет.
+// 2. КАТАЛОГ РЕДАКТОРА (`catalog` / `refreshCatalog`) — то, что видно в отсеке
+//    настроек: ЧЕРНОВИКИ, признак расхождения, «ни разу не публиковали». Ходит
+//    прежним действием `list`, и его по-прежнему отдают только редактору.
 //
-// Отсюда правило, одно на все случаи:
+// Отсюда следствие, которое стоит знать заранее: у РЕДАКТОРА в ряду пилюль
+// видны тоже только опубликованные заготовки. Цикл «поправил → проверил на
+// себе» при этом жив — llm-proxy отдаёт редактору ЧЕРНОВОЙ текст уже
+// опубликованного слота, — теряется ровно одно: попробовать совсем новую
+// заготовку до её первой публикации. Это цена принципа «публикация решает всё»,
+// и она уплачена сознательно.
 //
-//   каталог ответил   → список = строки каталога (минус помеченные удалёнными);
-//                       он же записывается в запомненный ключ;
-//   каталог не отвечал, но запомненный ключ есть → он;
-//   ни того, ни другого → ОДНА заготовка Native (первый статический слот).
+// ⚠️ ЗАПОМНЕННОГО СПИСКА БОЛЬШЕ НЕТ, и это тоже решение, а не упрощение. Здесь
+// стоял третий слой — копия списка в chrome.storage под ключом
+// `lexActionPresets_<scope>`, чтобы разметка (она строится СИНХРОННО) не ждала
+// сети. Он снят целиком вместе с ключом: пока список был редакторским, «показать
+// вчерашнее» было безобидно, а теперь это значит показать человеку заготовку,
+// которую владелец уже снял с публикации, — и она молча уедет к модели. Правило
+// стало жёстким: человек видит ЛИБО актуальный список, ЛИБО не видит ряда вовсе.
+// Ряд просто появляется на кадр позже, когда ответит сервер.
 //
-// Третья ветка — это ровно сегодняшнее поведение у всех, кто не редактор:
-// prompts-admin отвечает им 403, список сворачивается в одну заготовку, меню
-// долгого нажатия не открывается (chat-surface.js цепляет его только при
-// длине > 1). Так же ведёт себя и веб: там нет chrome.runtime, запрос не
-// уходит вовсе. То есть «у обычного пользователя и в вебе — одна кнопка
-// Native, как сегодня» получается САМО, отдельного гейта не понадобилось.
-//
-// ⚠️ Обратная сторона того же факта, и она пережила публикацию заготовок
-// (2026-08-25): ТЕКСТ опубликованной заготовки до обычного пользователя
-// доезжает — его подставляет llm-proxy по указателю, — а СПИСОК нет. Каталог
-// (prompts-admin) отвечает не-редактору 403, ячейка nativePrompts_<scope> снята
-// с публикации, ключ lexActionPresets_<scope> машинно-локальный. Поэтому у
-// обычного пользователя в меню по-прежнему ОДНА заготовка — первый статический
-// слот, — и опубликованная владельцем «Лимерик» ему не покажется, сколько её ни
-// публикуй. Публикация меняет то, ЧТО ответит уже видимая заготовка, а не то,
-// СКОЛЬКО их видно. Осознанный хвост, решение за владельцем.
+// ⚠️ И запасной одиночки Native тоже больше нет. Сервер не ответил (офлайн, не
+// вошёл, сбой) — ряда нет. Пилюля, за которой не стоит подтверждённого сервером
+// промпта, хуже отсутствия пилюли: нажатие по ней уходит к модели без
+// инструкции либо упирается в 424.
 //
 // ── УДАЛЕНИЕ ────────────────────────────────────────────────────────────────
 // Два шага, и оба обязательны (2026-08-25):
@@ -91,23 +79,10 @@
   const SLOT_ID_MAX = 40;          // ровно SLOT_RE из prompts-admin
   const DELETED_PREFIX = '__deleted__';
 
-  // Запомненный список — машинно-локальный кэш серверного состояния, по одному
-  // ключу на scope. НЕ публикуемый: у каждой установки он свой и восстанавливается
-  // из каталога (см. background.js isMachineLocalKey).
-  const listKey = (scope) => 'lexActionPresets_' + scope;
-
   function cellDesc() {
     try {
       return (global.LexSettingsCells && global.LexSettingsCells.cellFor(CELL_NAME)) || null;
     } catch (_) { return null; }
-  }
-
-  // Запасная одиночка: ПЕРВЫЙ статический слот. Имя пустое намеренно — подпись
-  // ему даст labelOf() из i18n (см. ниже).
-  function fallbackList() {
-    const c = cellDesc();
-    const s = c && c.slots && c.slots[0];
-    return s ? [{ id: s.id, name: '', chars: null }] : [];
   }
 
   // ── Подпись заготовки — ОДНО правило на чип, меню и отсек настроек ────────
@@ -192,7 +167,16 @@
     });
   }
 
-  // ИМЯ КЛЮЧА МОДЕЛИ ЗАГОТОВКИ — одно правило на обе поверхности.
+  // ИМЯ КЛЮЧА МОДЕЛИ ЗАГОТОВКИ — ТОЛЬКО ДЛЯ РЕДАКТОРА (2026-09-02).
+  //
+  // ⚠️ Путь ОТПРАВКИ этим правилом больше не пользуется: id модели приезжает
+  // готовым полем `modelId` в строке публичного списка, потому что имя ключа
+  // считает сервер. Здесь оно осталось ровно для двух вещей, и обе — редакторские:
+  // выбор модели в отсеке настроек (пишется в local как стейджинг) и публикация
+  // этого выбора (publishOne). Следствие для редактора: выбранная, но не
+  // опубликованная модель на отправку больше не влияет — сперва «Опубликовать».
+  //
+  // Ниже — исходная врезка о том, почему правило вообще свели в одно место.
   //
   // Лежало в двух копиях: `actionModelKeyFor` в chat-surface.js и
   // `nativeModelKeyFor` в webchat/wc-backend.js. Копии уже расходились: на
@@ -259,14 +243,25 @@
     });
   }
 
-  // ── Состояние на ОКНО ────────────────────────────────────────────────────
-  // Список тянется с сервера ОДИН раз за жизнь окна (задание, шаг 2) и живёт
-  // здесь. `fetched` отмечает состоявшийся заход, `inflight` склеивает
-  // одновременных зовущих (настройки и меню чипа открываются независимо).
-  const state = new Map();   // scope → {list, fetched, inflight, loaded}
-  function slot(scope) {
-    let s = state.get(scope);
-    if (!s) { s = { list: null, fetched: false, inflight: null, loaded: null }; state.set(scope, s); }
+  // ── Состояние на ОКНО: ДВА списка, каждый со своим заходом ───────────────
+  //
+  // `pub` — публичный (пилюли), `cat` — каталог редактора (отсек настроек).
+  // Держатся врозь намеренно: у них разный источник, разные права и разный смысл
+  // пустоты. Общее состояние на двоих означало бы, что заход редактора в
+  // настройки подменяет людям ряд пилюль черновиками.
+  //
+  // `inflight` склеивает одновременных зовущих (ряд пилюль и настройки строятся
+  // независимо друг от друга).
+  const pubState = new Map();   // scope → {list, inflight}
+  const catState = new Map();   // scope → {list, fetched, inflight}
+  function pub(scope) {
+    let s = pubState.get(scope);
+    if (!s) { s = { list: null, inflight: null }; pubState.set(scope, s); }
+    return s;
+  }
+  function cat(scope) {
+    let s = catState.get(scope);
+    if (!s) { s = { list: null, fetched: false, inflight: null }; catState.set(scope, s); }
     return s;
   }
 
@@ -279,11 +274,104 @@
     return typeof name === 'string' && name.indexOf(DELETED_PREFIX) === 0;
   }
 
-  // Порядок показа. Статические слоты идут первыми и в своём порядке (Native
-  // обязана быть первой), остальные — как отдал каталог. Полагаться на то, что
-  // сгенерированный id отсортируется после 'chatB1', нельзя: каталог сортирует
-  // по имени слота, и одна буква решала бы порядок заготовок на экране.
-  function orderList(items) {
+  // ── ПУБЛИЧНЫЙ СПИСОК: то, что видит человек ──────────────────────────────
+
+  // Синхронное «что показывать прямо сейчас». Разметка ряда пилюль строится
+  // синхронно, ей нужен ответ без await. Пусто до первого удачного ответа
+  // сервера — и это НЕ дефект, а само правило: ряда нет, пока список неизвестен.
+  function current(scope) {
+    const s = pub(scope);
+    return (s.list && s.list.length) ? s.list : [];
+  }
+
+  // Список С СЕРВЕРА, действие `presets`. Зовётся на открытие чата — то есть у
+  // каждого, а не только у того, кто зашёл в настройки.
+  //
+  // ⚠️ ЗАХОД НЕ ЗАЩЁЛКИВАЕТСЯ НА НЕУДАЧЕ, и это уже стоило одной поломки: до
+  // входа каталог отвечает 401, и прежний признак «сходили» превращал 401 в
+  // пустой ряд НАВСЕГДА, до перезагрузки страницы (врезка в wc-composer.js).
+  // Поэтому здесь нет флага «сходили» вовсе: удачный ответ кладёт список,
+  // неудачный не трогает НИЧЕГО, и следующее открытие чата пробует снова.
+  async function refresh(scope) {
+    const s = pub(scope);
+    if (s.inflight) return s.inflight;
+    s.inflight = (async () => {
+      const res = await promptsAdmin({ action: 'presets' });
+      // 401 / офлайн / нет runtime → оставляем как есть. Ряд, которого ещё не
+      // было, не появится; ряд, который уже видно, не мигнёт.
+      if (!res || !res.ok || !Array.isArray(res.presets)) return current(scope);
+      // Отбор и порядок уже сделаны СЕРВЕРОМ — здесь только перекладка полей.
+      // Ни filter, ни sort: любой из них означал бы вторую копию правила.
+      s.list = res.presets.map((x) => ({
+        id: x.slot,
+        name: typeof x.name === 'string' ? x.name : '',
+        chars: typeof x.chars === 'number' ? x.chars : null,
+        // Пустая строка = «наследовать модель чата». Не подменять её ничем.
+        modelId: typeof x.modelId === 'string' ? x.modelId : '',
+      })).filter((x) => typeof x.id === 'string' && x.id);
+      notify(scope);
+      return s.list;
+    })();
+    try { return await s.inflight; } finally { s.inflight = null; }
+  }
+
+  // ── КАТАЛОГ РЕДАКТОРА: черновики и признак расхождения ───────────────────
+
+  // Каталог без сети, если он уже приезжал за жизнь окна.
+  async function catalog(scope) {
+    const s = cat(scope);
+    if (s.list) return s.list;
+    return await refreshCatalog(scope);
+  }
+
+  // Каталог С сервера, действие `list`. Не-редактору сервер отвечает 403 — тогда
+  // список остаётся пустым, и отсек настроек у него всё равно не нарисован.
+  async function refreshCatalog(scope, opts) {
+    const s = cat(scope);
+    const force = !!(opts && opts.force);
+    if (s.inflight) return s.inflight;
+    if (s.fetched && !force) return s.list || [];
+    s.inflight = (async () => {
+      const c = cellDesc();
+      const res = await promptsAdmin({ action: 'list' });
+      if (!res || !res.ok || !Array.isArray(res.cells)) {
+        s.fetched = true;
+        return s.list || [];
+      }
+      const ref = c && c.ref;
+      const rows = res.cells.filter((x) => x
+        && ref && x.scope === ref.scope && x.cell === ref.cell
+        && typeof x.slot === 'string' && x.slot
+        && !isDeletedName(x.name));
+      s.fetched = true;
+      // `dirty` считает СЕРВЕР (prompts-admin action:'list' сравнивает текст
+      // черновика с текстом последней версии). Клиенту сравнивать нечем: текста
+      // у него нет ни в одном виде — ни черновика, ни опубликованного.
+      // `published` = null означает «не публиковали ни разу»; сервер в этом
+      // случае и сам ставит dirty=true, но признак «никогда не публиковалась»
+      // нужен отдельно — он читается иначе («ещё не у людей», а не «правка не
+      // уехала»).
+      //
+      // Порядок здесь считается НА КЛИЕНТЕ, и это не противоречие запрету:
+      // запрет — про список, который видит человек. Каталог редактора видит
+      // один человек, и «в каком порядке лежат его черновики» — вопрос его
+      // отсека настроек, а не продукта.
+      s.list = orderCatalog(rows.map((x) => ({
+        id: x.slot,
+        name: typeof x.name === 'string' ? x.name : '',
+        chars: typeof x.chars === 'number' ? x.chars : null,
+        dirty: !!x.dirty,
+        published: !!x.published,
+      })));
+      await mirrorNames(scope, s.list);
+      return s.list;
+    })();
+    try { return await s.inflight; } finally { s.inflight = null; }
+  }
+
+  // Порядок каталога редактора: статические слоты первыми и в своём порядке,
+  // остальные — как отдал каталог (он сортирует по имени слота).
+  function orderCatalog(items) {
     const c = cellDesc();
     const staticIds = (c && c.slots ? c.slots : []).map((s) => s.id);
     const rank = (id) => {
@@ -293,101 +381,12 @@
     return items.slice().sort((a, b) => rank(a.id) - rank(b.id));
   }
 
-  // Прочитать запомненный список (без сети). Пусто → запасная одиночка.
-  async function loadRemembered(scope) {
-    const r = await storageGet([listKey(scope)]);
-    const raw = r[listKey(scope)];
-    if (!Array.isArray(raw) || !raw.length) return null;
-    const clean = raw
-      .filter((p) => p && typeof p.id === 'string' && p.id && !isDeletedName(p.name))
-      .map((p) => ({
-        id: p.id,
-        name: typeof p.name === 'string' ? p.name : '',
-        chars: (typeof p.chars === 'number') ? p.chars : null,
-        dirty: !!p.dirty,
-        published: !!p.published,
-      }));
-    return clean.length ? orderList(clean) : null;
-  }
-
-  async function remember(scope, items) {
-    await storageSet({
-      [listKey(scope)]: items.map((p) => ({
-        id: p.id, name: p.name, chars: p.chars, dirty: !!p.dirty, published: !!p.published,
-      })),
-    });
-  }
-
-  // Синхронное «что показывать прямо сейчас»: то, что уже в памяти, иначе
-  // запасная одиночка. Разметка строится синхронно — ей нужен ответ без await.
-  function current(scope) {
-    const s = slot(scope);
-    if (s.list && s.list.length) return s.list;
-    return fallbackList();
-  }
-
-  // Список без сети: память → запомненный ключ → запасная одиночка.
-  async function list(scope) {
-    const s = slot(scope);
-    if (s.list && s.list.length) return s.list;
-    if (!s.loaded) {
-      s.loaded = (async () => {
-        const remembered = await loadRemembered(scope);
-        if (remembered && !(s.list && s.list.length)) s.list = remembered;
-        return s.list || fallbackList();
-      })();
-    }
-    await s.loaded;
-    return s.list && s.list.length ? s.list : fallbackList();
-  }
-
-  // Список С сервера. Один заход за жизнь окна; `force` — после своей правки.
-  async function refresh(scope, opts) {
-    const s = slot(scope);
-    const force = !!(opts && opts.force);
-    if (s.inflight) return s.inflight;
-    if (s.fetched && !force) return list(scope);
-    s.inflight = (async () => {
-      // До сети — поднять запомненное, чтобы отказ сервера не откатывал показ
-      // к одиночке там, где список уже был.
-      await list(scope);
-      const c = cellDesc();
-      const res = await promptsAdmin({ action: 'list' });
-      if (!res || !res.ok || !Array.isArray(res.cells)) {
-        // 403 / офлайн / нет runtime. НЕ авария: остаёмся на том, что есть, и
-        // помечаем заход состоявшимся — второй раз за окно не ходим.
-        s.fetched = true;
-        return list(scope);
-      }
-      const ref = c && c.ref;
-      const rows = res.cells.filter((x) => x
-        && ref && x.scope === ref.scope && x.cell === ref.cell
-        && typeof x.slot === 'string' && x.slot
-        && !isDeletedName(x.name));
-      s.fetched = true;
-      // Пустой ответ по этой ячейке — не повод стереть список: строки могли не
-      // доехать, а заготовки на экране должны пережить это.
-      if (!rows.length) return list(scope);
-      // `dirty` считает СЕРВЕР (prompts-admin action:'list' сравнивает текст
-      // черновика с текстом последней версии). Клиенту сравнивать нечем: текста
-      // у него нет ни в одном виде — ни черновика, ни опубликованного.
-      // `published` = null означает «не публиковали ни разу»; сервер в этом
-      // случае и сам ставит dirty=true, но признак «никогда не публиковалась»
-      // нужен отдельно — он читается иначе («ещё не у людей», а не «правка не
-      // уехала»).
-      s.list = orderList(rows.map((x) => ({
-        id: x.slot,
-        name: typeof x.name === 'string' ? x.name : '',
-        chars: typeof x.chars === 'number' ? x.chars : null,
-        dirty: !!x.dirty,
-        published: !!x.published,
-      })));
-      await remember(scope, s.list);
-      await mirrorNames(scope, s.list);
-      notify(scope);
-      return s.list;
-    })();
-    try { return await s.inflight; } finally { s.inflight = null; }
+  // Правка заготовки меняет ОБА списка, и обновлять надо оба: каталог — чтобы
+  // строка в настройках стала свежей, публичный — чтобы пилюля появилась или
+  // исчезла. Одного каталога мало: пилюли из него не строятся.
+  async function refreshBoth(scope) {
+    await refreshCatalog(scope, { force: true });
+    await refresh(scope);
   }
 
   // Имена слотов дублируются в ячейку nativePrompts_<scope> — её читают
@@ -508,7 +507,10 @@
       note || 'action preset published',
     );
     if (!res || !res.ok) return { error: (res && (res.error || res.status)) || 'model publish failed' };
-    await refresh(scope, { force: true });
+    // Оба списка: каталог — чтобы погасла точка расхождения, публичный — чтобы
+    // заготовка появилась в ряду у людей. Публикация без второго обновления
+    // выглядела бы как «нажал, и ничего не произошло».
+    await refreshBoth(scope);
     return { ok: true };
   }
 
@@ -520,13 +522,13 @@
     const body = String(text == null ? '' : text);
     const tp = textProblem(body);
     if (tp) return { error: tp };
-    const items = await list(scope);
+    const items = await catalog(scope);
     if (items.length >= MAX_PRESETS) return { error: 'limit' };
     const id = newSlotId(items.map((p) => p.id));
     if (!id) return { error: 'no id' };
     const res = await putDraft(c.ref, id, normName(name), body);
     if (res.error) return res;
-    await refresh(scope, { force: true });
+    await refreshBoth(scope);
     return { ok: true, id };
   }
 
@@ -540,7 +542,7 @@
     if (tp) return { error: tp };
     const res = await putDraft(c.ref, id, normName(name), body);
     if (res.error) return res;
-    await refresh(scope, { force: true });
+    await refreshBoth(scope);
     return { ok: true };
   }
 
@@ -587,24 +589,18 @@
       allowEmpty: true,
     });
     if (!put || !put.ok) return { error: (put && (put.error || put.status)) || 'put failed' };
-    // Убрать из запомненного до перечитки: каталог отдаст строку с меткой, и
-    // фильтр её отбросит, но список на экране должен обновиться сразу.
-    const s = slot(scope);
-    if (s.list) s.list = s.list.filter((p) => p.id !== id);
-    if (s.list) await remember(scope, s.list);
-    // Указатель активной заготовки не должен пережить саму заготовку: висячий
-    // id читают и чип, и отправка, и первый из них его гасит своим гардом, а
-    // вторая — нет. Переставляем на первую оставшуюся.
-    const c2 = cellDesc();
-    if (c2 && c2.activeIdStorageKey) {
-      const cur = await storageGet([c2.activeIdStorageKey]);
-      if (cur[c2.activeIdStorageKey] === id) {
-        const first = (s.list && s.list[0]) || fallbackList()[0];
-        if (first) await storageSet({ [c2.activeIdStorageKey]: first.id });
-      }
-    }
+    // Убрать из обоих списков ДО перечитки: сервер отдаст строку с меткой и
+    // фильтр её отбросит, но экран должен обновиться сразу, а не через сеть.
+    const cs = cat(scope);
+    if (cs.list) cs.list = cs.list.filter((p) => p.id !== id);
+    const ps = pub(scope);
+    if (ps.list) ps.list = ps.list.filter((p) => p.id !== id);
+    // ⚠️ Указателя активной заготовки здесь БОЛЬШЕ НЕ ПЕРЕСТАВЛЯЕМ: ключа
+    // activeNativePromptId_<scope> не существует (2026-09-02). Каждая пилюля
+    // везёт свой слот сама, поэтому висячего указателя, который надо было бы
+    // чинить после удаления, взяться неоткуда.
     notify(scope);
-    await refresh(scope, { force: true });
+    await refreshBoth(scope);
     return { ok: true };
   }
 
@@ -617,15 +613,17 @@
     return res.text;
   }
 
-  // Разрешится ли промпт этой заготовки. Отвечает по тому, что известно ЛОКАЛЬНО
-  // (задание, шаг 6: запрос не должен уходить вовсе):
-  //   - слота нет в текущем списке → нет;
-  //   - каталог отвечал и сказал, что текст пуст → нет;
-  //   - каталог не отвечал (не редактор, офлайн) → да: списка чужих строк у
-  //     нас нет, и запрещать отправку по незнанию хуже, чем разрешить.
+  // Разрешится ли промпт этой заготовки — проверка ДО сети, чтобы ход без
+  // инструкции не уходил вовсе.
+  //
+  // ⚠️ Ветки «каталог не отвечал → разрешаем по незнанию» здесь БОЛЬШЕ НЕТ, и
+  // её отсутствие — часть новой конструкции. Она existовала, пока список у
+  // обычного человека был запасной одиночкой, про которую клиент не знал
+  // ничего. Теперь в публичном списке лежат ТОЛЬКО те слоты, про которые сервер
+  // сказал «опубликовано и текст непустой», а пилюли строятся только из него.
+  // Значит «нет в списке» — это уже не незнание, а факт.
   function resolves(scope, id) {
-    const items = current(scope);
-    const hit = items.find((p) => p.id === id);
+    const hit = current(scope).find((p) => p.id === id);
     if (!hit) return false;
     if (typeof hit.chars === 'number' && hit.chars <= 0) return false;
     return true;
@@ -660,17 +658,11 @@
   // Человеку не нужно знать, какая из половин разошлась, — ему нужно знать, что
   // нажатие «Опубликовать» что-то изменит.
   async function isDirty(scope, id) {
-    const hit = current(scope).find((p) => p.id === id);
+    // КАТАЛОГ, а не публичный список: расхождение — про черновик, и в публичном
+    // списке признаков черновика нет по построению.
+    const hit = (cat(scope).list || []).find((p) => p.id === id);
     if (hit && (hit.dirty || !hit.published)) return true;
     return await modelDirty(scope, id);
-  }
-
-  // Ключ указателя активной заготовки — он же указатель активного слота ячейки.
-  // Один ключ, а не два: отправка уже читает активный слот ячейки
-  // (chat-surface.js readPromptCell), так что чип и отправка не могут разъехаться.
-  function activeIdKey() {
-    const c = cellDesc();
-    return c ? c.activeIdStorageKey : null;
   }
 
   function onChange(fn) {
@@ -678,32 +670,10 @@
     return () => listeners.delete(fn);
   }
 
-  // Правка в соседней вкладке — тот же список. Ключ машинно-локальный, значит
-  // он же и общий для вкладок одной установки.
-  try {
-    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== 'local') return;
-        Object.keys(changes).forEach((k) => {
-          if (k.indexOf('lexActionPresets_') !== 0) return;
-          const scope = k.slice('lexActionPresets_'.length);
-          const s = slot(scope);
-          const next = changes[k].newValue;
-          if (!Array.isArray(next) || !next.length) return;
-          s.list = orderList(next
-            .filter((p) => p && typeof p.id === 'string' && p.id && !isDeletedName(p.name))
-            .map((p) => ({
-              id: p.id,
-              name: p.name || '',
-              chars: (typeof p.chars === 'number') ? p.chars : null,
-              dirty: !!p.dirty,
-              published: !!p.published,
-            })));
-          notify(scope);
-        });
-      });
-    }
-  } catch (_) { /* noop */ }
+  // ⚠️ ЗДЕСЬ СТОЯЛ СЛУШАТЕЛЬ chrome.storage.onChanged, подхватывавший правку
+  // списка из соседней вкладки через запомненный ключ. Ключа больше нет (см.
+  // шапку), поэтому нет и слушателя. Синхронность вкладок теперь даёт сам
+  // источник: каждая вкладка спрашивает сервер на открытии чата.
 
   global.LexActionPresets = {
     configure,
@@ -713,9 +683,12 @@
     DELETED_PREFIX,
     cellDesc,
     labelOf,
+    // Публичный список — ряд пилюль.
     current,
-    list,
     refresh,
+    // Каталог редактора — отсек настроек.
+    catalog,
+    refreshCatalog,
     create,
     update,
     remove,
@@ -728,7 +701,6 @@
     isNativeId,
     nameProblem,
     textProblem,
-    activeIdKey,
     onChange,
   };
 })(typeof window !== 'undefined' ? window : self);
