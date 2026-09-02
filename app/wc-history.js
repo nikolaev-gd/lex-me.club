@@ -1,118 +1,102 @@
-// webchat/wc-history.js — conversations: what counts as one, how they are read
-// from the account, and how they are written back.
+// webchat/wc-history.js — беседы: как читается их список, как открывается одна
+// из них и как в неё дописываются реплики.
 //
-// ⚠️ THIS FILE IS THE SECOND IMPLEMENTATION OF A CONTRACT.
-// The first is chat-history-server.js, which the extension's service worker
-// loads. They must agree, because they read and write the same rows of
-// public.video_chat_turns under the same account — a conversation started in
-// one surface has to open in the other.
+// ── СПИСОК СОБИРАЕТ СЕРВЕР, А НЕ ЭТОТ ФАЙЛ ──────────────────────────────────
+// Раньше здесь лежала вторая реализация договора: файл сам решал, что считать
+// беседой (classifyKey), сам вычитывал ВСЕ реплики аккаунта одним запросом и
+// группировал их в список, сам доставал первую фразу каждой безымянной беседы
+// и держал её в кэше. То же самое, по-своему, делали расширение и айфон — три
+// реализации, которые расходились молча и упирались в предел 1000 строк.
 //
-// It is a copy and not a shared module for one reason: chat-history-server.js
-// reaches for chrome.storage in six places, and this page has no chrome. The
-// alternatives were both worse — injecting a storage adapter means editing
-// background.js (the extension is out of scope for this work), and a
-// `typeof chrome` fallback leaves chrome in this page's dependency graph.
+// Теперь список — одна короткая строка на беседу — приходит из
+// public.list_chats порциями по курсору (supabase/migrations/list_chats_rpc.sql).
+// Ни превью, ни текста реплик в нём нет: поверхностям больше нечего вычислять,
+// а значит и расходиться нечему. Переименование и скрытие ушли туда же — в
+// rename_chat и set_chat_hidden; клиентских прав записи на public.chats нет
+// вовсе, и подделать порядок списка или чужое имя нечем.
 //
-// WHAT KEEPS THE COPY HONEST is not discipline, it is a test: the scenario set
-// creates a conversation in the extension and asserts it appears here, creates
-// one here and asserts it appears there, and — the case that actually catches
-// drift — asserts that an internal thread the extension hides does NOT appear
-// here.
+// ЧТО ОСТАЛОСЬ ЗА ЭТИМ ФАЙЛОМ: ОДНА беседа — её реплики, её ветки заготовок,
+// дозапись в неё — и заведение строки сеанса. Это про содержимое, а не про
+// список, и сервер этого на себя не брал.
 //
-// ── One deliberate divergence: titles and hiding are on the server ──────────
-// The extension computes a conversation's name locally from its first message
-// and keeps its hidden set in chrome.storage. Both are per-device: a name does
-// not survive to a second machine, and a conversation "deleted" in the
-// extension is still listed elsewhere (docs/PLAN-WEB-VERSION.md §13). This
-// surface needs a real rename, so it has real storage for one —
-// public.conversation_meta, added by supabase/migrations/conversation_meta.sql.
-// A stored title wins over the computed one; with no row, both surfaces fall
-// back to the first message and agree.
+// ── Имя беседы ──────────────────────────────────────────────────────────────
+// Имя считается на сервере ОДИН РАЗ и там же хранится (docs/PLAN-CHAT-LIST.md,
+// решение 2). Клиент его не придумывает: он только просит посчитать
+// (`requestTitle`) для тех строк списка, что пришли с `title_pending`.
 (function (global) {
   'use strict';
 
   const TAG = '[wc-history]';
   const A = () => global.LexWebAuth;
 
-  // ── Conversation identity ────────────────────────────────────────────────
+  // ── Ключ беседы ──────────────────────────────────────────────────────────
+  //
+  // ЧТО СЧИТАЕТСЯ беседой, решает база и решает ОДИН РАЗ, при записи реплики
+  // (chats_table.sql: lex_chat_key_kind, lex_chat_parent_key). Здесь этого
+  // разбора больше нет — он и был той второй реализацией. Осталось ровно то,
+  // что нужно, чтобы ОТКРЫТЬ беседу и продолжить её.
 
-  // A conversation started by the main chat. The number after the prefix is
-  // public.sessions.id — the billing session — which is why the key cannot be
-  // minted before the first message.
+  // Беседа, начатая основным чатом. Число после префикса — public.sessions.id,
+  // платёжный сеанс; поэтому ключ нельзя отчеканить раньше первого сообщения.
   const STANDALONE_PREFIX = '__lex_standalone__';
-
-  // Every OTHER '__lex_*' key is internal plumbing: the word popup, the action
-  // buttons, the pronunciation surface. They live in the same table and must
-  // never be listed as conversations.
-  const LEX_PREFIX = '__lex_';
-
-  // A video conversation is a real-looking YouTube id, optionally with a
-  // lesson suffix. Kept as a shape test and not as a catch-all: when this was
-  // `return 'video'` for anything unrecognised, a page-address key became a
-  // "video conversation" and the interface fabricated a youtube.com/watch URL
-  // for it. There is no YouTube on this surface, so nothing here CREATES such a
-  // key — but the extension does, under the same account, and this page lists
-  // what it finds.
-  const VIDEO_KEY_RE = /^[A-Za-z0-9_-]{11}(?:__\d+)?$/;
-
-  // 'standalone' | 'video' | null (do not list)
-  function classifyKey(id) {
-    if (typeof id !== 'string' || !id) return null;
-    if (id.indexOf(STANDALONE_PREFIX) === 0) return 'standalone';
-    if (id.indexOf(LEX_PREFIX) === 0) return null;
-    if (VIDEO_KEY_RE.test(id)) return 'video';
-    return null;
-  }
-
-  const isListable = (id) => classifyKey(id) !== null;
-
-  // The legacy key with no session number. It collects everything sent before
-  // a session existed (offline, a failed insert, voice before the first typed
-  // turn), so it is a bag, not a conversation, and it is not listed.
-  const isLegacyStandalone = (id) => id === STANDALONE_PREFIX;
 
   const keyForSession = (sessionId) => STANDALONE_PREFIX + sessionId;
 
+  // Номер сеанса из ключа. Читается из САМОГО ключа, а не через разбор вида
+  // беседы: открытая беседа обязана прикрепиться к своему сеансу, иначе
+  // следующее сообщение уедет в новый и лента разорвётся надвое.
   function sessionIdOfKey(id) {
-    if (classifyKey(id) !== 'standalone') return null;
+    if (typeof id !== 'string' || id.indexOf(STANDALONE_PREFIX) !== 0) return null;
     const tail = id.slice(STANDALONE_PREFIX.length);
     return /^\d+$/.test(tail) ? Number(tail) : null;
   }
 
   // ── Чем «занята» беседа: страница или видео ──────────────────────────────
   //
-  // Беседа, начатая в расширении СО СТРАНИЦЫ, — это обычная строка sessions с
-  // `session_kind='page'` и адресом в `page_url`. Беседа по видео опознаётся по
-  // самому ключу (`<videoId>__<sessionId>`), строка сессии для этого не нужна.
+  // ВИД БЕСЕДЫ ПРИХОДИТ СТРОКОЙ СПИСКА, а не выводится здесь из формы ключа.
+  // Раньше выводился — и это было опасно ровно тем, чем опасен любой
+  // догадывающийся классификатор: ключ, не похожий ни на что знакомое,
+  // объявлялся видео, и интерфейс сочинял для него адрес youtube.com/watch.
+  // `hint` — это `kind` и `attachment_url` из list_chats, то есть ответ
+  // сервера. Подсказки нет — привязки нет тоже: беседа без строки в списке
+  // только что заведена, и привязки у неё физически ещё не бывает.
   //
-  // Читается по требованию — только для ОТКРЫТОЙ беседы, а не для всего
-  // списка: список строится из ходов одним запросом, и добавлять к нему запрос
-  // на каждую строку значило бы платить сетью за полоску, которую видно у
-  // одной беседы из ста.
-  async function attachmentOf(key) {
-    const kind = classifyKey(key);
+  // Строка сеанса читается ТОЛЬКО ради заголовка страницы: адрес уже пришёл со
+  // списком, а названия в нём нет. Это один запрос на ОТКРЫТУЮ беседу, а не на
+  // каждую строку списка, — та цена, из-за которой список уехал на сервер,
+  // здесь не платится.
+  async function attachmentOf(key, hint) {
+    const kind = hint && hint.kind;
     if (kind === 'video') {
       const videoId = String(key).slice(0, 11);
-      return { kind: 'video', videoId, url: 'https://www.youtube.com/watch?v=' + videoId, title: '' };
+      return {
+        kind: 'video',
+        videoId,
+        url: (hint && hint.url) || 'https://www.youtube.com/watch?v=' + videoId,
+        title: '',
+      };
     }
+    if (kind !== 'page') return null;
     const sid = sessionIdOfKey(key);
-    if (sid == null) return null;
-    const rows = await get('/rest/v1/sessions?select=session_kind,page_url,page_url_full,page_title&id=eq.' + encodeURIComponent(sid));
-    const row = Array.isArray(rows) ? rows[0] : null;
-    if (!row || !row.page_url) return null;
+    const fallback = (hint && hint.url) ? { kind: 'page', url: hint.url, title: '' } : null;
+    if (sid == null) return fallback;
+    let row = null;
+    try {
+      const rows = await get('/rest/v1/sessions?select=page_url,page_url_full,page_title&id=eq.'
+        + encodeURIComponent(sid));
+      row = Array.isArray(rows) ? rows[0] : null;
+    } catch (_) {
+      // Заголовок не прочитался — показываем адрес, который уже есть. Полоска
+      // без названия лучше отсутствующей полоски.
+      return fallback;
+    }
     // Ссылка ведёт по ПОЛНОМУ адресу (page_url_full.sql). `page_url`
     // нормализован — он ключ поиска, и у приложения, адресующего документ
     // после '#', указывает на само приложение, а не на документ: беседа про
     // письмо уводила бы в ящик. У бесед до той миграции полного адреса нет.
-    return { kind: 'page', url: row.page_url_full || row.page_url, title: row.page_title || '' };
-  }
-
-  // A turn the interface planted to give the model context, not something the
-  // person said. It must never become a conversation's name.
-  const SEED_MARKERS = ['[lex-context]', '[lex-page]', '[lex-transcript]', '[lex-seed]'];
-  function isSeedContent(text) {
-    const s = String(text || '').trimStart();
-    return SEED_MARKERS.some((m) => s.indexOf(m) === 0);
+    const url = (row && (row.page_url_full || row.page_url)) || (hint && hint.url) || '';
+    if (!url) return null;
+    return { kind: 'page', url, title: (row && row.page_title) || '' };
   }
 
   // ── REST ─────────────────────────────────────────────────────────────────
@@ -272,131 +256,88 @@
     return id;
   }
 
-  // ── conversation_meta: the name and the hidden mark ──────────────────────
-
-  async function readMeta() {
-    const account = accountId();
-    if (!account) return {};
-    const rows = await get('/rest/v1/conversation_meta?select=video_id,title,hidden_at'
-      + '&account_id=eq.' + encodeURIComponent(account));
-    const out = {};
-    (rows || []).forEach((r) => { out[r.video_id] = r; });
-    return out;
-  }
-
-  function upsertMeta(videoId, patch) {
-    const account = accountId();
-    if (!account) throw new Error('upsertMeta: not signed in');
-    // merge-duplicates on the primary key, so renaming an already-hidden
-    // conversation does not silently unhide it and vice versa.
-    return post('/rest/v1/conversation_meta?on_conflict=account_id,video_id',
-      [Object.assign({ account_id: account, video_id: videoId, updated_at: new Date().toISOString() }, patch)],
-      'resolution=merge-duplicates,return=minimal');
-  }
-
-  const rename = (videoId, title) => upsertMeta(videoId, { title: title === '' ? null : title });
-  const hide = (videoId) => upsertMeta(videoId, { hidden_at: new Date().toISOString() });
-  const unhide = (videoId) => upsertMeta(videoId, { hidden_at: null });
-
-  // ── The list ─────────────────────────────────────────────────────────────
-  // Two passes, and they are deliberately NOT awaited together.
+  // ── Список, переименование, скрытие — всё это делает сервер ──────────────
   //
-  // Pass 1 (`list`) asks for no message text at all — only the columns needed
-  // to group rows into conversations and sort them. It is one request and it is
-  // what the sidebar paints from.
+  // ПОЧЕМУ ФУНКЦИЯ БАЗЫ, А НЕ ЧТЕНИЕ ТАБЛИЦЫ. Постраничности нужен ПОСТРОЧНЫЙ
+  // разбор пары (last_at, id); PostgREST умеет только поколоночные условия, а
+  // на совпадающих `last_at` это просто неверно — обход либо зациклится, либо
+  // проглотит пачку строк. И предел порции обязан ставить сервер, а не клиент.
   //
-  // Pass 2 (`fillPreviews`) fetches a first-human-turn for the conversations
-  // that have no stored name, and it is a separate call so the interface can
-  // paint before it runs. That ordering is the whole point: on an account with
-  // 73 conversations the preview pass takes seconds, and folding it into
-  // `list` left the sidebar empty for all of them — the data was there and the
-  // reader could not see it.
-  // Имя с номером: в кэше лежат уже НАЗВАННЫЕ беседы, и правка правила, по
-  // которому имя строится, обязана их пересчитать. Иначе беседа, названная по
-  // старому правилу, останется с ним навсегда — а именно это и случилось бы с
-  // именами вида `Word: "…" Context: "…"` ниже.
-  const PREVIEW_CACHE_KEY = 'wcPreviewCache2';
-  const PREVIEW_PAGE = 30;
+  // КУРСОР НЕПРОЗРАЧЕН: клиент возвращает пару последней отданной строки как
+  // есть и не разбирает её. Номер страницы здесь не годится — беседа,
+  // получившая новую реплику, прыгает наверх, и вторая страница повторила бы
+  // строку первой.
+  const LIST_PAGE = 30;
 
-  async function list() {
-    const rows = await get('/rest/v1/video_chat_turns'
-      + '?select=video_id,role,authored_at,created_at,deleted_at&order=created_at.asc');
-
-    const byId = new Map();
-    (rows || []).forEach((r) => {
-      const id = r.video_id;
-      if (!isListable(id) || isLegacyStandalone(id)) return;
-      if (r.deleted_at) return;
-      let e = byId.get(id);
-      if (!e) { e = { id, kind: classifyKey(id), turnCount: 0, lastAt: 0 }; byId.set(id, e); }
-      e.turnCount++;
-      const t = Date.parse(r.authored_at || r.created_at || 0) || 0;
-      if (t > e.lastAt) e.lastAt = t;
-    });
-
-    const meta = await readMeta();
-    const cache = await WcStore.one(PREVIEW_CACHE_KEY, {});
-
-    return Array.from(byId.values())
-      .filter((e) => !(meta[e.id] && meta[e.id].hidden_at))
-      .sort((a, b) => b.lastAt - a.lastAt)
-      .map((e) => {
-        const m = meta[e.id] || {};
-        return {
-          id: e.id,
-          kind: e.kind,
-          title: m.title || '',
-          preview: cache[e.id] || '',
-          updatedAt: e.lastAt,
-          turnCount: e.turnCount,
-        };
-      });
-  }
-
-  // Fills in the names of unnamed conversations, top of the list first, and
-  // reports back as each batch lands so the sidebar can repaint progressively.
-  // Cached in the page's own store, so this happens once per conversation ever
-  // rather than on every load.
-  async function fillPreviews(items, onBatch) {
-    const cache = await WcStore.one(PREVIEW_CACHE_KEY, {});
-    const need = items.slice(0, PREVIEW_PAGE)
-      .filter((e) => !e.title && !e.preview && cache[e.id] === undefined);
-    if (!need.length) return items;
-
-    // Six at a time: thirty parallel requests to PostgREST on a cold load is a
-    // burst for no benefit, and one at a time would take too long to watch.
-    for (let i = 0; i < need.length; i += 6) {
-      const slice = need.slice(i, i + 6);
-      await Promise.all(slice.map(async (e) => {
-        try { cache[e.id] = await firstHumanTurn(e.id); } catch (_) { cache[e.id] = ''; }
-        e.preview = cache[e.id];
-      }));
-      if (onBatch) { try { onBatch(items); } catch (_) { /* a bad painter ≠ no data */ } }
+  async function listChats(cursor) {
+    const body = { p_limit: LIST_PAGE };
+    if (cursor && cursor.lastAt) {
+      body.p_cursor_last_at = cursor.lastAt;
+      body.p_cursor_id = cursor.cursorId;
     }
-    await WcStore.set({ [PREVIEW_CACHE_KEY]: cache });
-    return items;
+    const rows = (await post('/rest/v1/rpc/list_chats', body)) || [];
+    const items = rows.map((r) => ({
+      id: r.chat_key,
+      kind: r.kind,
+      title: r.title || '',
+      // Признак, а не пустая строка: заглушку надо рисовать ИМЕННО как
+      // заглушку, иначе она станет именем, которого человек не выбирал.
+      titlePending: !!r.title_pending,
+      attachmentUrl: r.attachment_url || '',
+      updatedAt: Date.parse(r.last_at) || 0,
+      turnCount: r.turn_count || 0,
+    }));
+    const tail = rows[rows.length - 1];
+    return {
+      items,
+      cursor: tail ? { lastAt: tail.last_at, cursorId: tail.cursor_id } : null,
+      // «Пришло меньше, чем просили» — единственный честный признак конца.
+      // Поэтому предел передаётся ЯВНО: положись мы на умолчание сервера,
+      // сравнивать было бы не с чем, и прокрутка дёргала бы сервер без конца.
+      done: rows.length < LIST_PAGE,
+    };
   }
 
-  // The earliest user turn that is not a context seed. Asked with limit=4 and
-  // filtered here rather than limit=1: the first row is often the seed the
-  // interface planted, and a conversation named "[lex-context] …" is a bug the
-  // reader sees.
-  async function firstHumanTurn(videoId) {
-    const rows = await get('/rest/v1/video_chat_turns?select=content,authored_at'
-      + '&video_id=eq.' + encodeURIComponent(videoId)
-      + '&role=eq.user&deleted_at=is.null&order=authored_at.asc&limit=4');
-    const hit = (rows || []).find((r) => r.content && !isSeedContent(r.content));
-    if (!hit) return '';
-    // Скрытая часть хода со словами снимается ДО обрезки, а не после: она
-    // длиннее ста двадцати знаков сама по себе, и беседа называлась бы
-    // `Word: "welcome" Context: "Wel…` — то есть служебной строкой вместо
-    // вопроса человека. Правило общее с лентой и с расширением
-    // (LexWordPick.stripHiddenPickPrefix): имя беседы и её первый пузырь
-    // обязаны показывать одно и то же.
-    const visible = global.LexWordPick
-      ? global.LexWordPick.stripHiddenPickPrefix(String(hit.content))
-      : String(hit.content);
-    return visible.replace(/\s+/g, ' ').trim().slice(0, 120);
+  // Пустая строка сбрасывает название (сервер кладёт NULL). Длину режет тоже
+  // сервер — 200 знаков; решать это не клиенту.
+  const renameChat = (chatKey, title) =>
+    post('/rest/v1/rpc/rename_chat', { p_chat_key: chatKey, p_title: title });
+
+  // Скрытие, а не удаление: строки в public.video_chat_turns не трогаются
+  // никогда. И оно теперь ОБЩЕЕ для всех устройств, а не своё у каждого, —
+  // беседа, убранная здесь, исчезает и в расширении, и на телефоне.
+  const setChatHidden = (chatKey, hidden) =>
+    post('/rest/v1/rpc/set_chat_hidden', { p_chat_key: chatKey, p_hidden: !!hidden });
+
+  // ── Попросить сервер придумать имя ───────────────────────────────────────
+  //
+  // Ленивый путь: безымянная беседа получает имя при первом показе в шторке.
+  // Считает его llm-proxy — там же, где гейт баланса, цена из public.models и
+  // строка в public.calls. Клиент имён не придумывает и мимо гейта не платит:
+  // это ровно то, что решение 3 забирает у трёх поверхностей.
+  //
+  // ⚠ ОТКАЗ НЕ ИМЕЕТ ПРАВА РОНЯТЬ СПИСОК. Это ОТДЕЛЬНЫЙ запрос, не часть
+  // list_chats, поэтому мёртвый поставщик стоит серой заглушки, а не пустой
+  // шторки. Отсюда ни одного `throw`: любая беда — это `null`, то есть
+  // «имени пока нет», и список продолжает жить.
+  async function requestTitle(chatKey) {
+    const token = await A().validToken();
+    if (!token) return null;
+    try {
+      const resp = await fetch(A().supabaseUrl() + '/functions/v1/llm-proxy/title', {
+        method: 'POST',
+        headers: {
+          apikey: A().anonKey(),
+          Authorization: 'Bearer ' + token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ chatKey }),
+      });
+      if (!resp.ok) return null;
+      return await resp.json();
+    } catch (_) {
+      return null;
+    }
   }
 
   // ── One conversation ─────────────────────────────────────────────────────
@@ -414,7 +355,14 @@
   // Время авторства идёт НАРУЖУ вместе с репликой — оно нужно тому, кто сшивает
   // урок с ветками заготовок в одну ленту (wc-backend.js). Внутри одного ключа
   // порядок задаёт сам запрос, между ключами задать его нечем, кроме этого поля.
-  const keepRow = (r) => !r.deleted_at && !(r.role === 'user' && isSeedContent(r.content));
+  // Фильтр СИДОВ снят вместе с ними. Он искал реплики, начинающиеся с
+  // '[lex-context]' / '[lex-page]' / '[lex-transcript]' / '[lex-seed]', —
+  // а на этой поверхности их не пишет никто (проверено grep'ом по webchat/ и
+  // web/: строки встречались только в самом фильтре). В облаке сидов тоже нет
+  // ни одного (docs/PLAN-CHAT-LIST.md §Д). То есть фильтр работал против
+  // пустоты; сервер его к себе намеренно не взял, и держать его здесь значило
+  // бы оставить кусок той самой второй реализации.
+  const keepRow = (r) => !r.deleted_at;
   const toTurn = (r) => ({
     role: r.role,
     text: r.content || '',
@@ -500,36 +448,19 @@
       : 'u' + Date.now() + Math.floor(Math.random() * 1e6);
   }
 
-  // Dropping a preview when a conversation is renamed or gains its first turn
-  // keeps the cache from outliving the thing it describes.
-  async function forgetPreview(videoId) {
-    const cache = await WcStore.one(PREVIEW_CACHE_KEY, {});
-    if (cache[videoId] === undefined) return;
-    delete cache[videoId];
-    await WcStore.set({ [PREVIEW_CACHE_KEY]: cache });
-  }
-
   global.WcHistory = {
     STANDALONE_PREFIX,
-    VIDEO_KEY_RE,
-    classifyKey,
-    isListable,
-    isLegacyStandalone,
-    isSeedContent,
     keyForSession,
     sessionIdOfKey,
     attachmentOf,
     createSession,
-    list,
-    fillPreviews,
+    listChats,
+    renameChat,
+    setChatHidden,
+    requestTitle,
     turns,
     actionBranchTurns,
     push,
-    rename,
-    hide,
-    unhide,
-    readMeta,
-    forgetPreview,
     newUid,
     TAG,
   };

@@ -317,11 +317,17 @@
   // `untitled` is deliberately reported separately: the fallback is a display
   // convenience, NOT a name. Renaming an unnamed conversation must open an
   // EMPTY field, not one pre-filled with a sentence the person never chose.
+  //
+  // ЗАПАСНОЙ ТЕКСТ БОЛЬШЕ НЕ ПЕРВАЯ ФРАЗА БЕСЕДЫ, и не по недосмотру: строка
+  // списка приходит с сервера БЕЗ содержимого переписки (docs/PLAN-CHAT-LIST.md,
+  // решение 5), то есть подставлять сюда нечего и незачем — фразу пришлось бы
+  // выпрашивать отдельным запросом на каждую строку, ровно тем, от чего
+  // уходили. Заглушка временная: имя считается на сервере и доезжает следом
+  // (WC_FILL_TITLES), после чего строка перерисовывается.
   function conversationTitle(item) {
     const t = ((item && item.title) || '').trim();
     if (t) return { text: t, untitled: false };
-    const p = ((item && item.preview) || '').trim().replace(/\s+/g, ' ');
-    return { text: p ? p.slice(0, 60) : 'Untitled', untitled: true };
+    return { text: 'Untitled', untitled: true };
   }
 
   function fmtMoney(usd) {

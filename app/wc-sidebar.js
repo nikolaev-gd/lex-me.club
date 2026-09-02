@@ -5,10 +5,14 @@
 // per-row menu holds it too, because an inline editor with no visible entry
 // point is not discoverable and is unreachable without a pointer.
 //
-// A conversation with no title shows its first message instead of an empty
-// row. That is a display fallback, NOT a title: renaming an untitled
-// conversation must start from an empty field, not from a sentence the person
-// never chose.
+// Имя беседы приходит с сервера и считается там один раз. Пока его нет,
+// строка показывает нейтральную заглушку и перерисовывается, когда имя
+// доедет. Первой фразой беседы заглушка быть не может: в строке списка нет
+// содержимого переписки вовсе (docs/PLAN-CHAT-LIST.md, решение 5).
+//
+// СПИСОК ПРИХОДИТ ПОРЦИЯМИ. Дотянул до низа — просим следующую. Порог берётся
+// с запасом в пол-экрана, чтобы следующая порция успевала приехать до того,
+// как человек упрётся в конец.
 (function (global) {
   'use strict';
 
@@ -19,6 +23,8 @@
   let items = [];
   let activeId = null;
   let renamingId = null;
+  let listError = null;   // список не прочитался — это НЕ пустой список
+  let listDone = false;   // порций больше нет (или дозагрузка остановлена отказом)
 
   const DAY = 86400e3;
   function groupOf(ts) {
@@ -120,9 +126,24 @@
     ]);
   }
 
+  // Отказ сети — ОТДЕЛЬНОЕ состояние от пустого списка, и это не педантизм:
+  // «No chats yet.» на месте не прочитанного списка — сообщение о том, что у
+  // человека нет бесед, то есть неправда о его собственных данных, и повторить
+  // попытку ему нечем. Поэтому у отказа своя строка и своя кнопка.
+  function errorRow(partial) {
+    return el('.wc-convs-error', {}, [
+      el('div', { text: partial ? 'Could not load more chats.' : 'Could not load your chats.' }),
+      el('button.wc-convs-retry', {
+        type: 'button',
+        text: 'Retry',
+        onclick: () => { if (hooks.onRetry) hooks.onRetry(); },
+      }),
+    ]);
+  }
+
   function render() {
     if (!items.length) {
-      elList.replaceChildren(el('.wc-convs-empty', { text: 'No chats yet.' }));
+      elList.replaceChildren(listError ? errorRow(false) : el('.wc-convs-empty', { text: 'No chats yet.' }));
       return;
     }
     const nodes = [];
@@ -132,7 +153,24 @@
       if (g !== lastGroup) { nodes.push(el('.wc-convs-group', { text: g })); lastGroup = g; }
       nodes.push(row(it));
     });
+    // Часть списка пришла, а продолжение отвалилось: показанное остаётся на
+    // месте, а обрыв назван словами внизу — молча оборванный список выглядел
+    // бы как конец списка.
+    if (listError) nodes.push(errorRow(true));
     elList.replaceChildren(...nodes);
+  }
+
+  // ── Дозагрузка по прокрутке ───────────────────────────────────────────────
+  //
+  // ⚠ ТРИ УСЛОВИЯ, И КАЖДОЕ ОБЯЗАТЕЛЬНО. `listDone` — список кончился (его же
+  // ставит отказ, чтобы прокрутка не долбила упавший сервер). `hooks.onLoadMore`
+  // сам держит замок «один запрос за раз»: событие прокрутки приходит на каждый
+  // кадр, и без замка быстрый мах послал бы пять запросов с одним курсором.
+  // Порог в пол-экрана — чтобы порция успевала приехать до упора в конец.
+  function onScroll() {
+    if (listDone || !hooks.onLoadMore) return;
+    const gap = elList.scrollHeight - elList.scrollTop - elList.clientHeight;
+    if (gap < elList.clientHeight * 0.5) hooks.onLoadMore();
   }
 
   // ── Жест ─────────────────────────────────────────────────────────────────
@@ -226,6 +264,7 @@
     init(h) {
       hooks = h;
       elList = document.getElementById('wc-convs');
+      elList.addEventListener('scroll', onScroll, { passive: true });
       elSidebar = document.getElementById('wc-sidebar');
       elRoot = document.getElementById('wc-root');
       elScrim = document.getElementById('wc-scrim');
@@ -240,10 +279,14 @@
       elScrim.addEventListener('click', () => WcSidebar.toggle(false));
     },
 
-    setItems(next, active) {
+    setItems(next, active, meta) {
       items = (next || []).slice();
       activeId = active === undefined ? activeId : active;
+      if (meta) { listError = meta.error || null; listDone = !!meta.done; }
       render();
+      // Порция пришла, а список всё ещё короче окна — значит прокрутке нечем
+      // сработать, и следующая порция не придёт никогда. Спрашиваем сами.
+      if (!listDone && elList && elList.scrollHeight <= elList.clientHeight) onScroll();
     },
 
     setActive(id) {

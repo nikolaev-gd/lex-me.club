@@ -10,7 +10,9 @@
 // ── The message contract ─────────────────────────────────────────────────────
 // Asked (WcBus.call):
 //   WC_ACCOUNT_STATE      → {signedIn, email, balanceUsd, status}
-//   WC_LIST_CONVERSATIONS → {ok, items:[{id, title, updatedAt, preview}]}
+//   WC_LIST_CONVERSATIONS {cursor?} → {ok, items:[{id, kind, title, titlePending,
+//                            attachmentUrl, updatedAt, turnCount}], cursor, done}
+//   WC_FILL_TITLES        {items} → {ok}   (просит сервер назвать безымянные)
 //   WC_LOAD_CONVERSATION  {id} → {ok, turns:[{role, text, uid, images}]}
 //   WC_RENAME_CONVERSATION{id, title} → {ok}
 //   WC_DELETE_CONVERSATION{id} → {ok}
@@ -25,7 +27,7 @@
 //   STREAM_CHUNK {requestId, text, _debug_model?}
 //   STREAM_DONE  {requestId, inputTokens, outputTokens, inputCost, outputCost, …}
 //   STREAM_ERROR {requestId, error}
-//   WC_BALANCE_CHANGED / WC_CONVERSATIONS_CHANGED
+//   WC_BALANCE_CHANGED / WC_CONVERSATIONS_CHANGED / WC_TITLES_FILLED
 (function (global) {
   'use strict';
 
@@ -321,14 +323,47 @@
     };
   });
 
-  WcBus.on('WC_LIST_CONVERSATIONS', async () => ({ ok: true, items: await WcHistory.list() }));
+  // Порция списка. Курсор приходит от интерфейса и уходит обратно как есть —
+  // здесь его не разбирают (см. listChats в wc-history.js).
+  WcBus.on('WC_LIST_CONVERSATIONS', async (m) => {
+    const r = await WcHistory.listChats(m && m.cursor);
+    return { ok: true, items: r.items, cursor: r.cursor, done: r.done };
+  });
 
-  // Names for the unnamed, asked for separately so the sidebar can paint from
-  // the cheap pass first. Each batch broadcasts, and the interface repaints.
-  WcBus.on('WC_FILL_PREVIEWS', async (m) => {
-    await WcHistory.fillPreviews(m.items || [], (items) => {
-      WcBus.broadcast({ type: 'WC_PREVIEWS_FILLED', items });
-    });
+  // ── Имена для безымянных ──────────────────────────────────────────────────
+  //
+  // Второй проход, и он НАМЕРЕННО отдельный от первого: список рисуется, как
+  // только пришла порция, а имена доезжают потом и перерисовывают строки. Так
+  // же было устроено дозаполнение превью, и по той же причине — на аккаунте с
+  // сотней бесед ожидание имён оставило бы шторку пустой на все эти секунды.
+  //
+  // ⚠ КАЖДЫЙ КЛЮЧ СПРАШИВАЕТСЯ НЕ БОЛЬШЕ ОДНОГО РАЗА ЗА ЗАГРУЗКУ СТРАНИЦЫ.
+  // Предохранитель из трёх попыток на сервере стережёт ДЕНЬГИ, а не число
+  // запросов: ответы 'busy' / 'exhausted' / 'no_source' / 'gate' денег не
+  // стоят и попытку не жгут, поэтому без этой памяти каждая перерисовка
+  // шторки посылала бы их заново — и так до бесконечности.
+  const titleAsked = new Set();
+
+  WcBus.on('WC_FILL_TITLES', async (m) => {
+    const need = (m.items || []).filter((it) => it && it.id && it.titlePending && !titleAsked.has(it.id));
+    if (!need.length) return { ok: true };
+    need.forEach((it) => titleAsked.add(it.id));
+
+    // По шесть за раз: тридцать одновременных вызовов модели — это всплеск без
+    // выигрыша, а по одному слишком долго смотреть.
+    for (let i = 0; i < need.length; i += 6) {
+      const slice = need.slice(i, i + 6);
+      const done = [];
+      await Promise.all(slice.map(async (it) => {
+        const r = await WcHistory.requestTitle(it.id);
+        // `null` — беда сети или поставщика; 'done'/'titled' — имя есть. Всё
+        // остальное ('busy', 'exhausted', 'gate', …) значит «пока нет», и
+        // строка остаётся с заглушкой.
+        const title = (r && r.title) ? String(r.title) : '';
+        if (title) done.push({ id: it.id, title });
+      }));
+      if (done.length) WcBus.broadcast({ type: 'WC_TITLES_FILLED', titles: done });
+    }
     return { ok: true };
   });
 
@@ -390,15 +425,21 @@
   });
 
   WcBus.on('WC_RENAME_CONVERSATION', async (m) => {
-    await WcHistory.rename(m.id, String(m.title || '').slice(0, 120));
+    // Своей обрезки у этого обработчика нет: предел ставит сервер (rename_chat,
+    // 200 знаков). Поле ввода в шторке при этом не пускает больше 120 — то есть
+    // серверный предел на нашем пути недостижим и работает как страховка от
+    // чужого клиента, а не как то, что видит человек здесь.
+    // Пустая строка — это «сбросить имя», и она обязана доехать пустой.
+    await WcHistory.renameChat(m.id, String(m.title || ''));
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true };
   });
 
   // Hiding, not deleting — the same rule as everywhere else in Lex. The rows in
   // public.video_chat_turns are never touched; that table keeps everything.
+  // Отметка теперь на СЕРВЕРЕ, то есть скрытие видно на всех устройствах сразу.
   WcBus.on('WC_DELETE_CONVERSATION', async (m) => {
-    await WcHistory.hide(m.id);
+    await WcHistory.setChatHidden(m.id, true);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true };
   });
@@ -774,12 +815,11 @@
       // он был отвечен — не сохранено нигде.
       if (answer) buf.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
       try {
-        // Ход заготовки ложится в СВОЮ ветку. Название беседы и полоска в
-        // «Недавних» при этом не меняются: ветка не беседа, в список она не
-        // идёт (WcHistory.classifyKey отбрасывает всё '__lex_*'), и трогать
-        // подпись беседы ходом, которого в ней не видно, было бы враньём.
+        // Ход заготовки ложится в СВОЮ ветку. Название беседы при этом не
+        // меняется: ветка не беседа, в список она не идёт (триггер базы
+        // сворачивает '__lex_action__…' в родителя), и трогать подпись беседы
+        // ходом, которого в ней не видно, было бы враньём.
         await WcHistory.push(writeKey, rows);
-        if (!branchKey) await WcHistory.forgetPreview(convId);
         WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
       } catch (err) {
         console.warn(TAG, 'turn not written to the account:', err && err.message);
@@ -828,7 +868,9 @@
   // К чему привязана беседа — страница или видео. null, если ни к чему.
   WcBus.on('WC_ATTACHMENT', async (m) => {
     if (!m || !m.id) return null;
-    return WcHistory.attachmentOf(m.id);
+    // Вид и адрес приходят СТРОКОЙ СПИСКА (list_chats), а не выводятся из формы
+    // ключа: догадка здесь однажды уже сочиняла youtube-адрес для страницы.
+    return WcHistory.attachmentOf(m.id, m.hint || null);
   });
 
   // ── «Заново» ──────────────────────────────────────────────────────────────
@@ -895,7 +937,6 @@
       return { role: t.role, text: t.text, uid, authoredAt: new Date().toISOString() };
     });
     await WcHistory.push(m.conversationId, rows);
-    await WcHistory.forgetPreview(m.conversationId);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true, appended: rows.length };
   });
@@ -975,8 +1016,15 @@
     return { ok: resp.ok, paid: !!(resp.ok && j && j.paid) };
   });
 
+  // Выход уносит с этого устройства ВСЁ, что связано с аккаунтом: беседы и их
+  // кэши, картинки сообщений, настройки, адоптированное с сервера. Иначе
+  // следующий вошедший видит чужое — ровно то, что и происходило.
+  // Пропуск снимается ПЕРВЫМ: чистка не зависит от сети, а вот запрос на выход
+  // из GoTrue — да, и упасть он не должен оставить страницу и с данными, и без
+  // выхода.
   WcBus.on('WC_SIGN_OUT', async () => {
     await A.signOut();
+    try { await WcWipe.run('sign out'); } catch (err) { console.warn(TAG, 'wipe:', err && err.message); }
     sessionId = null;
     setOpen(null, []);
     return { ok: true };

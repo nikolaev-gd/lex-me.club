@@ -569,6 +569,29 @@ button { font: inherit; color: inherit; }
 
 .wc-convs-empty { padding: 18px 10px; color: var(--fg-faint); font-size: 13px; }
 
+/* Список не прочитался. Намеренно НЕ похоже на «бесед нет»: пустой список —
+   правда об аккаунте, а это — «мы не знаем», и у человека должна быть кнопка. */
+.wc-convs-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 10px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.wc-convs-retry {
+  padding: 5px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wc-convs-retry:hover { background: var(--bg-hover); }
+
 /* ── Строка аккаунта: низ шторки, единственный вход ─────────────────────────
  * Пополнение и сумма на виду, за ними — настройки и выход (внутри листа).
  * До этого те же три вещи открывались из шапки, из меню кружка и из настроек

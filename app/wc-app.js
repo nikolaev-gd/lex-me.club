@@ -28,6 +28,16 @@
   const state = {
     conversationId: null,    // null = a new, not yet sent conversation
     conversations: [],
+    // Курсор следующей порции списка. null со `convsDone: false` — «ещё не
+    // читали»; null со `convsDone: true` — «список кончился».
+    convsCursor: null,
+    convsDone: false,
+    convsLoading: false,
+    // Список не прочитался. ОТДЕЛЬНОЕ состояние от пустого списка: пустой
+    // список — это правда про аккаунт, а отказ сети — это «мы не знаем», и
+    // рисовать по нему «бесед нет» значит врать человеку про его собственные
+    // беседы.
+    convsError: null,
     account: { signedIn: false },
     requestId: null,
   };
@@ -50,25 +60,68 @@
     WcHeader.setAccount(state.account);
   }
 
-  async function refreshConversations() {
+  // ── Список бесед: порциями, а не целиком ──────────────────────────────────
+  //
+  // `reset` (умолчание) — перечитать с первой порции: так открывается страница
+  // и так же отвечаем на WC_CONVERSATIONS_CHANGED. Именно ПЕРЕЧИТАТЬ, а не
+  // дописать: беседа, получившая новую реплику, прыгает наверх, и дописывание
+  // оставило бы её на старом месте вторым экземпляром.
+  //
+  // Без `reset` — дозагрузка следующей порции по прокрутке.
+  async function loadConversations(reset) {
+    // Один запрос за раз. Без этого быстрая прокрутка посылает пять
+    // перекрывающихся запросов с одним и тем же курсором — и в списке
+    // появляются повторы.
+    if (state.convsLoading) return;
+    if (!reset && (state.convsDone || !state.convsCursor)) return;
+    state.convsLoading = true;
     try {
-      const r = await WcBus.call('WC_LIST_CONVERSATIONS');
-      state.conversations = (r && r.ok && r.items) ? r.items : [];
+      const r = await WcBus.call('WC_LIST_CONVERSATIONS', { cursor: reset ? null : state.convsCursor });
+      const items = (r && r.ok && r.items) ? r.items : [];
+      if (reset) {
+        state.conversations = items;
+      } else {
+        // Сервер отдаёт строго убывающую пару (last_at, id), но беседа могла
+        // прыгнуть наверх между двумя запросами — тогда она приедет дважды.
+        // Ключ у беседы один, поэтому повтор виден и отбрасывается здесь.
+        const have = new Set(state.conversations.map((c) => c.id));
+        state.conversations = state.conversations.concat(items.filter((it) => !have.has(it.id)));
+      }
+      state.convsCursor = (r && r.cursor) || null;
+      // Конец — это ЛИБО слово сервера, ЛИБО отсутствие курсора. Без второго
+      // условия пустая порция оставила бы прокрутку дёргать сервер вечно.
+      state.convsDone = !!(r && r.done) || !state.convsCursor;
+      state.convsError = null;
     } catch (err) {
       console.warn('[wc] conversations:', err && err.message);
-      toast('Could not load your chats', { error: true });
-      state.conversations = [];
+      // Порция не пришла. Уже показанное НЕ стираем: половина списка лучше,
+      // чем пустая шторка. А вот сказать, что случилось, обязаны — иначе
+      // человек видит молчаливо оборванный список.
+      state.convsError = String((err && err.message) || err);
+      if (reset) state.conversations = [];
+      // Прокрутка не должна долбить сервер после отказа; кнопка «Retry» в
+      // шторке зовёт loadConversations заново.
+      state.convsDone = true;
+    } finally {
+      state.convsLoading = false;
     }
-    WcSidebar.setItems(state.conversations, state.conversationId);
+
+    WcSidebar.setItems(state.conversations, state.conversationId, {
+      error: state.convsError,
+      done: state.convsDone,
+    });
     syncTitle();
 
-    // Names for the unnamed arrive after the list is already on screen — see
-    // the two-pass note in wc-history.js. Not awaited: the sidebar is usable
-    // the moment the cheap pass lands, and waiting for the names would put the
-    // whole list behind them.
-    WcBus.call('WC_FILL_PREVIEWS', { items: state.conversations })
-      .catch((err) => console.warn('[wc] previews:', err && err.message));
+    // Имена для безымянных доезжают ПОСЛЕ того, как список уже на экране —
+    // см. врезку про два прохода в wc-backend.js. Не ждём их: шторка годна с
+    // той секунды, как пришла порция, а ожидание имён убрало бы с экрана весь
+    // список ради подписей к нему.
+    WcBus.call('WC_FILL_TITLES', { items: state.conversations })
+      .catch((err) => console.warn('[wc] titles:', err && err.message));
   }
+
+  const refreshConversations = () => loadConversations(true);
+  const loadMoreConversations = () => loadConversations(false);
 
   function currentItem() {
     return state.conversations.find((c) => c.id === state.conversationId) || null;
@@ -238,8 +291,12 @@
     pageBarFor = want;
     if (!want) { attachedPage = null; return; }
     let att = null;
+    // Вид беседы и адрес её контента берём из СТРОКИ СПИСКА — сервер уже их
+    // прислал. Своего разбора ключа у страницы больше нет.
+    const it = currentItem();
+    const hint = it ? { kind: it.kind, url: it.attachmentUrl } : null;
     try {
-      att = await WcBus.call('WC_ATTACHMENT', { id: want });
+      att = await WcBus.call('WC_ATTACHMENT', { id: want, hint });
     } catch (err) {
       console.warn('[wc] attachment:', err && err.message);
     }
@@ -829,6 +886,21 @@
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
 
+    // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
+    // Единственная точка входа в приложение: сюда приходят и форма, и
+    // регистрация, и возврат от Google, и уже лежавший пропуск. Значит, «вошёл
+    // другим, ни разу не выйдя» ловится здесь наравне с обычным входом — не
+    // полагаемся на то, что человек нажмёт «Выйти».
+    let wiped = false;
+    try {
+      const s = WcAuth.session();
+      wiped = await WcWipe.resetIfAccountChanged(s && s.user && s.user.id);
+    } catch (err) { console.warn('[wc] account switch check:', err && err.message); }
+    // Оформление и размер текста boot() применил ДО этой проверки — значит, из
+    // настроек прошлого человека. Перечитать после чистки, иначе его тема
+    // осталась бы на экране до перезагрузки страницы.
+    if (wiped) { try { await WcSettings.applyStored(); } catch (_) { /* noop */ } }
+
     // The curated defaults the owner publishes from the extension — models,
     // prompts, knobs. Adopted BEFORE the first question can be asked, so a turn
     // never goes out on a default this page was about to replace.
@@ -893,6 +965,8 @@
       onRename: renameConversation,
       onDelete: deleteConversation,
       onToggle: onSidebarToggle,
+      onLoadMore: loadMoreConversations,
+      onRetry: refreshConversations,
     });
     await WcComposer.init({
       onSend: send,
@@ -937,9 +1011,16 @@
           WcComposer.setStreaming(false);
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
-      } else if (msg.type === 'WC_PREVIEWS_FILLED') {
-        state.conversations = msg.items;
-        WcSidebar.setItems(state.conversations, state.conversationId);
+      } else if (msg.type === 'WC_TITLES_FILLED') {
+        // Приходят ТОЛЬКО имена, по ключу беседы, — не список целиком.
+        // Прислали бы список, и он затёр бы порции, догруженные прокруткой,
+        // пока считались имена.
+        const byId = new Map((msg.titles || []).map((t) => [t.id, t.title]));
+        state.conversations = state.conversations.map((c) =>
+          (byId.has(c.id) ? Object.assign({}, c, { title: byId.get(c.id), titlePending: false }) : c));
+        WcSidebar.setItems(state.conversations, state.conversationId,
+          { error: state.convsError, done: state.convsDone });
+        syncTitle();
       } else if (msg.type === 'WC_CONVERSATIONS_CHANGED') {
         refreshConversations();
       } else if (msg.type === 'WC_BALANCE_CHANGED') {

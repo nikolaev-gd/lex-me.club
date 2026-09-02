@@ -116,6 +116,19 @@
       }).then(() => { deliver(changesFor(items), true); });
     },
 
+    // Все имена, что сейчас лежат в базе. Нужен ровно одному вызывателю —
+    // чистке при смене человека (wc-wipe.js): она перечисляет НЕ то, что стирает,
+    // а то, что переживает, и без списка наличного второй половины вопроса не
+    // задать.
+    keys() {
+      return openDb().then((db) => new Promise((resolve, reject) => {
+        const t = db.transaction(STORE, 'readonly');
+        const r = t.objectStore(STORE).getAllKeys();
+        r.onsuccess = () => resolve(Array.from(r.result || []).map(String));
+        t.onerror = () => reject(t.error);
+      }));
+    },
+
     remove(keys) {
       const list = normalizeKeys(keys);
       return tx('readwrite', (st) => { list.forEach((k) => st.delete(k)); })
