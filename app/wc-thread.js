@@ -246,8 +246,12 @@
           // Ход, от которого после этого ничего не осталось, — служебная
           // инструкция выключенного лексического попапа, а не реплика
           // человека. Пустой пузырь на её месте читался бы как «он ничего не
-          // сказал».
-          if (global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
+          // сказал». Но картинка без слов — законный вопрос (см.
+          // ImageAttachment на iOS), и её дропать нельзя вместе с пустым
+          // текстом: без этой оговорки такой ход пропадал из ленты целиком —
+          // ни пузыря, ни картинки.
+          const hasImage = Array.isArray(t.images) && t.images.length > 0;
+          if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
           elTurns.append(userTurn(visible, t.images, { action: !!t.branchKey }));
         } else {
           const { turn } = assistantTurn(t.text);
