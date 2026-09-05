@@ -760,6 +760,56 @@
     el.classList.toggle('is-error', !!isError);
   }
 
+  // ── Gate views: sign-in / email confirmation / password recovery ────────────
+  // Three views share the one card; only one shows at a time.
+  const CODE_TTL_MS = 60 * 60 * 1000;   // mailer_otp_exp = 1 hour
+  const PENDING_EMAIL_KEY = 'lexPendingConfirmEmail';
+  const PENDING_SENT_KEY = 'lexPendingConfirmSentAt';
+  let confirmEmail = '';
+  let codeSentAt = 0;
+  let resendTimer = null;
+
+  function gateShowView(which) {
+    const map = { auth: 'wc-view-auth', confirm: 'wc-view-confirm', recover: 'wc-view-recover' };
+    Object.keys(map).forEach((k) => {
+      const el = document.getElementById(map[k]);
+      if (el) el.hidden = (k !== which);
+    });
+    gateStatus('');
+  }
+
+  function rememberPending(email) {
+    confirmEmail = email;
+    codeSentAt = Date.now();
+    try {
+      localStorage.setItem(PENDING_EMAIL_KEY, email);
+      localStorage.setItem(PENDING_SENT_KEY, String(codeSentAt));
+    } catch (_) { /* private mode */ }
+  }
+  function clearPending() {
+    confirmEmail = '';
+    codeSentAt = 0;
+    try { localStorage.removeItem(PENDING_EMAIL_KEY); localStorage.removeItem(PENDING_SENT_KEY); } catch (_) {}
+  }
+  // The server answers "wrong code" and "expired code" the same way, so which
+  // message to show is decided here, by how old the code is.
+  function codeErrorText() {
+    const age = codeSentAt ? (Date.now() - codeSentAt) : 0;
+    return age >= CODE_TTL_MS ? 'That code has expired. Request a new one.' : 'That code is wrong. Check it and try again.';
+  }
+  function isUnconfirmedError(err) {
+    return /email.?not.?confirmed|email_not_confirmed/i.test(String((err && err.message) || err || ''));
+  }
+  function showConfirmView(email) {
+    confirmEmail = email;
+    gateShowView('confirm');
+    const codeEl = document.getElementById('wc-confirm-code');
+    if (codeEl) codeEl.value = '';
+    const hint = document.getElementById('wc-confirm-hint');
+    if (hint) hint.textContent = 'We sent a code to ' + email + '. Enter it to finish creating your account.';
+    try { codeEl.focus(); } catch (_) {}
+  }
+
   // Скелет первой загрузки снимается ровно тогда, когда решено, ЧТО показать —
   // форму входа или приложение. Раньше в этот промежуток был белый экран.
   //
@@ -836,19 +886,26 @@
     shellPageReady();
     document.getElementById('wc-gate').hidden = false;
     document.getElementById('wc-root').hidden = true;
+    gateShowView('auth');
   }
 
   function wireGate() {
     const email = () => document.getElementById('wc-email').value.trim();
     const password = () => document.getElementById('wc-password').value;
 
-    async function attempt(label, fn) {
+    async function attempt(label, fn, isSignup) {
       if (!email() || !password()) { gateStatus('Enter your email and password.', true); return; }
       gateStatus(label);
       try {
-        await fn(email(), password());
+        const r = await fn(email(), password());
+        // Registration with email confirmation on: go to the code screen, not
+        // the chat. The server already mailed a code.
+        if (isSignup && r && r.needsConfirm) { rememberPending(email()); showConfirmView(email()); return; }
         await enterApp();
       } catch (err) {
+        // An unconfirmed account can't sign in — route to the code screen and
+        // get a fresh code on its way, instead of showing "wrong password".
+        if (isUnconfirmedError(err)) { showConfirmView(email()); doResendConfirm(true); return; }
         gateStatus(gateErrorText(err), true);
       }
     }
@@ -858,7 +915,7 @@
       attempt('Signing in…', (a, b) => WcAuth.signIn(a, b));
     });
     document.getElementById('wc-signup').addEventListener('click', () =>
-      attempt('Creating your account…', (a, b) => WcAuth.signUp(a, b)));
+      attempt('Creating your account…', (a, b) => WcAuth.signUp(a, b), true));
     // В браузере это уход по адресу и сюда управление уже не вернётся. В
     // приложении открывается системный лист входа, и вернуться он обязан —
     // в том числе когда человек нажал «Отмена».
@@ -884,6 +941,118 @@
       if (r.cancelled) { gateStatus(''); return; }
       gateStatus('Google sign-in did not go through: ' + (r.error || 'unknown'), true);
     });
+
+    // ── Email confirmation view ───────────────────────────────────────────────
+    async function doConfirm() {
+      const code = document.getElementById('wc-confirm-code').value.trim();
+      if (!code) { gateStatus('Enter the code from the email.', true); return; }
+      gateStatus('Confirming…');
+      try {
+        await WcAuth.confirmSignup(confirmEmail, code);
+        clearPending();
+        await enterApp();
+      } catch (err) {
+        // Wrong or expired — same server answer, decided by age. The field is
+        // NOT cleared, so a typo can be fixed without retyping.
+        try { if (typeof lexLog === 'function') lexLog('[wc-app] confirm failed:', String((err && err.message) || err)); } catch (_) {}
+        gateStatus(codeErrorText(), true);
+      }
+    }
+
+    async function doResendConfirm(silent) {
+      if (!confirmEmail) return;
+      if (!silent) gateStatus('Sending…');
+      try {
+        await WcAuth.resendConfirm(confirmEmail);
+        rememberPending(confirmEmail);
+        gateStatus('A new code is on its way to ' + confirmEmail + '.');
+        startResendCooldown();
+      } catch (err) {
+        gateStatus(gateErrorText(err), true);
+      }
+    }
+
+    function startResendCooldown() {
+      const btn = document.getElementById('wc-confirm-resend');
+      if (resendTimer) { clearInterval(resendTimer); resendTimer = null; }
+      const until = Date.now() + 30 * 1000;
+      btn.disabled = true;
+      const tick = () => {
+        const left = Math.ceil((until - Date.now()) / 1000);
+        if (left <= 0) { clearInterval(resendTimer); resendTimer = null; btn.disabled = false; btn.textContent = 'Resend code'; return; }
+        btn.textContent = 'Resend code (' + left + ')';
+      };
+      tick();
+      resendTimer = setInterval(tick, 1000);
+    }
+
+    document.getElementById('wc-confirm-form').addEventListener('submit', (e) => { e.preventDefault(); doConfirm(); });
+    document.getElementById('wc-confirm-resend').addEventListener('click', () => doResendConfirm(false));
+    document.getElementById('wc-confirm-back').addEventListener('click', () => { clearPending(); gateShowView('auth'); });
+
+    // ── Password recovery view ────────────────────────────────────────────────
+    function resetRecoverView() {
+      document.getElementById('wc-recover-step2').hidden = true;
+      document.getElementById('wc-recover-send').hidden = false;
+      document.getElementById('wc-recover-email').readOnly = false;
+      document.getElementById('wc-recover-code').value = '';
+      document.getElementById('wc-recover-password').value = '';
+      document.getElementById('wc-recover-hint').textContent = 'Enter your email — we’ll send you a code.';
+    }
+
+    async function doSendRecover() {
+      const em = document.getElementById('wc-recover-email').value.trim();
+      if (!em) { gateStatus('Enter your email.', true); return; }
+      gateStatus('Sending…');
+      try {
+        await WcAuth.recoverRequest(em);
+        codeSentAt = Date.now();
+        document.getElementById('wc-recover-email').readOnly = true;
+        document.getElementById('wc-recover-send').hidden = true;
+        document.getElementById('wc-recover-step2').hidden = false;
+        document.getElementById('wc-recover-hint').textContent = 'We sent a code to ' + em + '. Enter it below with a new password.';
+        gateStatus('');
+        try { document.getElementById('wc-recover-code').focus(); } catch (_) {}
+      } catch (err) {
+        gateStatus(gateErrorText(err), true);
+      }
+    }
+
+    async function doRecoverReset() {
+      const em = document.getElementById('wc-recover-email').value.trim();
+      const code = document.getElementById('wc-recover-code').value.trim();
+      const pw = document.getElementById('wc-recover-password').value;
+      if (!code || !pw) { gateStatus('Enter the code and a new password.', true); return; }
+      if (pw.length < 6) { gateStatus('The password is too short — use at least 6 characters.', true); return; }
+      gateStatus('Saving…');
+      try {
+        await WcAuth.recoverConfirm(em, code, pw);
+        clearPending();
+        await enterApp();
+      } catch (err) {
+        const raw = String((err && err.message) || err || '');
+        if (/weak_password|at least \d|password is too short|should be at least/i.test(raw)) {
+          gateStatus('The password is too short — use at least 6 characters.', true);
+        } else if (/same_password|different from (the old|your)/i.test(raw)) {
+          gateStatus('Choose a password different from your current one.', true);
+        } else {
+          gateStatus(codeErrorText(), true);
+        }
+      }
+    }
+
+    document.getElementById('wc-forgot').addEventListener('click', () => {
+      resetRecoverView();
+      document.getElementById('wc-recover-email').value = email(); // carry the typed email over
+      gateShowView('recover');
+      try { document.getElementById('wc-recover-email').focus(); } catch (_) {}
+    });
+    document.getElementById('wc-recover-back').addEventListener('click', () => gateShowView('auth'));
+    document.getElementById('wc-recover-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!document.getElementById('wc-recover-step2').hidden) doRecoverReset(); else doSendRecover();
+    });
+    document.getElementById('wc-recover-submit').addEventListener('click', () => doRecoverReset());
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────────
@@ -1046,7 +1215,16 @@
     WcAuth.adoptRedirectSession();
 
     const token = await WcAuth.validToken();
-    if (!token) { showGate(); return; }
+    if (!token) {
+      showGate();
+      // If a confirmation was left pending (Create account, then the page was
+      // closed on the code screen), come back to that screen, not the sign-in card.
+      try {
+        const pe = localStorage.getItem(PENDING_EMAIL_KEY);
+        if (pe) { codeSentAt = Number(localStorage.getItem(PENDING_SENT_KEY)) || 0; showConfirmView(pe); }
+      } catch (_) { /* private mode */ }
+      return;
+    }
     // The fragment carries no user object, so fetch it once. Failure is not
     // fatal — the token is valid either way, the account row just renders
     // without an address until the next load.

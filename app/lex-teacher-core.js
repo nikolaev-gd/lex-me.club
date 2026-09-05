@@ -490,7 +490,7 @@
       return t;
     }
 
-    async function callOpenAIStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onRequestBody, signal, effort, knobs, modelId, proxy }) {
+    async function callOpenAIStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, signal, effort, knobs, modelId, proxy }) {
       const apiKey = proxy ? null : await getApiKey();
       if (!proxy && !apiKey) throw new Error('OpenAI API key not set. Open extension settings.');
 
@@ -574,6 +574,14 @@
           try {
             const d = JSON.parse(data);
             onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
+            // и токены. Отдельного запроса за ней нет.
+            onProxyTimings?.({
+              prepMs: d.serverPrepMs,
+              modelMs: d.serverModelMs,
+              sendMs: d.serverSendMs,
+              providerMs: d.providerProcessingMs,
+            });
             overflowFrame = !!(d && d.contextOverflow);
           } catch { /* frame parse failure → fall back to local computeCost */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
@@ -781,7 +789,7 @@
 
     async function callOpenAIResponsesStream({
       model, systemPrompt, userMessage, messages, previousResponseId,
-      onChunk, onModel, onUsage, onBilled, onResponseId, onServerTiming, onRequestBody, onResponseMeta, onRawFrame, signal, effort,
+      onChunk, onModel, onUsage, onBilled, onProxyTimings, onResponseId, onRequestBody, onResponseMeta, onRawFrame, signal, effort,
       conversation, videoId, knobs, modelId, __diagMark, proxy,
     }) {
       const apiKey = proxy ? null : await getApiKey();
@@ -919,6 +927,14 @@
           try {
             const d = JSON.parse(data);
             onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
+            // и токены. Отдельного запроса за ней нет.
+            onProxyTimings?.({
+              prepMs: d.serverPrepMs,
+              modelMs: d.serverModelMs,
+              sendMs: d.serverSendMs,
+              providerMs: d.providerProcessingMs,
+            });
             overflowFrame = !!(d && d.contextOverflow);
           } catch { /* frame parse failure → fall back to local computeCost */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
@@ -973,18 +989,6 @@
               output: usage.output_tokens ?? null,
             });
           }
-          // 1.5.13 server-side processing time. created_at + completed_at are
-          // UNIX seconds — the diff is whole seconds (no sub-second precision
-          // from OpenAI). Short answers will report 0s; that is the actual
-          // resolution OpenAI publishes here.
-          const createdAt = parsed.response?.created_at;
-          const completedAt = parsed.response?.completed_at;
-          if (typeof createdAt === 'number' && typeof completedAt === 'number') {
-            // DIAG: log raw integer-second diff to detect quantisation noise
-            // separately from the *1000 conversion.
-            __diagMark?.(`openai:created_at=${createdAt} completed_at=${completedAt} diff_sec=${completedAt - createdAt}`);
-            onServerTiming?.((completedAt - createdAt) * 1000);
-          }
           // Late onResponseId / onModel safety nets — usually already fired
           // on response.created, but some streams have surfaced the id only
           // here in early Responses API rollouts.
@@ -1027,7 +1031,7 @@
       } catch (e) { /* log collection must never break the call */ }
     }
 
-    async function callAnthropicStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onServerTiming, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
+    async function callAnthropicStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
       // `!proxy &&` — как у соседних адаптеров (OpenAI, Google). Ключ читается
       // ТОЛЬКО в прямой ветке ниже (`x-api-key`); на прокси-пути его ставит
       // сервер. Без этого условия любой host, который провайдерских ключей не
@@ -1176,15 +1180,6 @@
         const errText = await response.text();
         throw new Error(`Anthropic ${response.status}: ${errText.substring(0, 200)}`);
       }
-      // 1.5.13: Anthropic returns server-side processing time as the
-      // `x-envoy-upstream-service-time` HTTP header (milliseconds, integer).
-      // Not in the public docs but consistently present on every response.
-      const envoyTimeStr = response.headers.get('x-envoy-upstream-service-time');
-      if (envoyTimeStr) {
-        const ms = parseInt(envoyTimeStr, 10);
-        if (Number.isFinite(ms)) onServerTiming?.(ms);
-      }
-
       let modelEmitted = false;
       // Anthropic exposes three DISJOINT input counters (verified against
       // platform.claude.com/docs/.../prompt-caching, 2026-05-07):
@@ -1215,6 +1210,14 @@
           try {
             const d = JSON.parse(data);
             onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
+            // и токены. Отдельного запроса за ней нет.
+            onProxyTimings?.({
+              prepMs: d.serverPrepMs,
+              modelMs: d.serverModelMs,
+              sendMs: d.serverSendMs,
+              providerMs: d.providerProcessingMs,
+            });
             overflowFrame = !!(d && d.contextOverflow);
           } catch { /* frame parse failure → fall back to local computeCost */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
@@ -1287,20 +1290,7 @@
       } catch (e) { /* log collection must never break the call */ }
     }
 
-    // 1.5.13: parse Google's `server-timing` HTTP header into milliseconds.
-    // Format examples seen live: `gfet4t7; dur=657`, `name; dur=123, other; dur=45`.
-    // We pick the first `dur=NNN` we see (single Google upstream metric).
-    function emitGoogleServerTiming(response, onServerTiming) {
-      if (!onServerTiming) return;
-      const header = response.headers.get('server-timing');
-      if (!header) return;
-      const m = header.match(/dur=([\d.]+)/);
-      if (!m) return;
-      const ms = parseFloat(m[1]);
-      if (Number.isFinite(ms)) onServerTiming(ms);
-    }
-
-    async function callGoogleStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onServerTiming, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel, knobs, modelId, __diagMark, proxy }) {
+    async function callGoogleStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel, knobs, modelId, __diagMark, proxy }) {
       if (!proxy && !GOOGLE_API_KEY) throw new Error('Google API key not set.');
 
       const url = `${GOOGLE_URL_TMPL}${model}:streamGenerateContent?alt=sse&key=${GOOGLE_API_KEY}`;
@@ -1368,12 +1358,6 @@
         const errText = await response.text();
         throw new Error(`Google ${response.status}: ${errText.substring(0, 200)}`);
       }
-      // 1.5.13: Gemini returns W3C Server-Timing header (`server-timing:
-      // gfet4t7; dur=657`). Parse the `dur=` token in milliseconds.
-      emitGoogleServerTiming(response, onServerTiming);
-      // DIAG: log raw header value (not just parsed)
-      const rawServerTiming = response.headers.get('server-timing');
-      if (rawServerTiming) __diagMark?.(`google:raw_server-timing="${rawServerTiming}"`);
 
       let modelEmitted = false;
       let lastUsage = null;
@@ -1393,6 +1377,14 @@
           try {
             const d = JSON.parse(data);
             onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
+            // и токены. Отдельного запроса за ней нет.
+            onProxyTimings?.({
+              prepMs: d.serverPrepMs,
+              modelMs: d.serverModelMs,
+              sendMs: d.serverSendMs,
+              providerMs: d.providerProcessingMs,
+            });
             overflowFrame = !!(d && d.contextOverflow);
           } catch { /* frame parse failure → fall back to local computeCost */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
@@ -1494,7 +1486,7 @@
 
     async function callGoogleInteractionsStream({
       model, systemInstruction, input, previousInteractionId,
-      onChunk, onModel, onUsage, onResponseId, onServerTiming, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel,
+      onChunk, onModel, onUsage, onResponseId, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel,
       knobs, modelId, __diagMark, proxy,
     }) {
       // ⚠️ THE ONLY ADAPTER HERE THAT COULD GO AROUND THE SERVER.
@@ -1574,8 +1566,6 @@
         err.responseBody = errText;
         throw err;
       }
-      // 1.5.13: same `server-timing` header as streamGenerateContent.
-      emitGoogleServerTiming(response, onServerTiming);
 
       let modelEmitted = false;
       let responseIdEmitted = false;
@@ -1933,10 +1923,17 @@
       if (useProxy && bucketForProxy !== 'standalone' && typeof tabId === 'number') {
         await ensureSessionForTab(tabId);
       }
+      // Метка хода. Придумывается ДО запроса, уезжает на сервер в конверте и
+      // ложится в строку журнала вызовов. Нужна ровно для одного: чтобы лента
+      // потом нашла эту строку и дописала в неё своё время «нажал → увидел
+      // первую букву», которого в момент записи строки ещё не существует.
+      const turnRef = (typeof crypto !== 'undefined' && crypto.randomUUID)
+        ? crypto.randomUUID() : null;
       const proxy = useProxy ? {
         kind: proxyKind,
         token: proxyToken,
         meta: {
+          turnRef,
           // Surface-aware resolve (P3 fix; was a raw sessionIdByTab read). 'standalone'
           // → standaloneSessionIdByTab, everything else → the tab's video session. The
           // old raw read misattributed a superchat call on a video tab to the video
@@ -2050,11 +2047,17 @@
       // direct/non-proxy path → fall back to local raw computeCost.
       let billedInputCost = null;
       let billedOutputCost = null;
-      // 1.5.13: server-side processing time reported by the provider, in
-      // milliseconds. Anthropic / Gemini ship a precise value via HTTP header;
-      // OpenAI Responses computes it from response.completed (whole seconds).
-      // null = adapter didn't report (e.g. legacy Chat Completions path).
-      let server_ms = null;
+      // Разбивка времени по часам СЕРВЕРА. Приезжает завершающим кадром прокси
+      // (onProxyTimings ниже) — тем же, что несёт цену и токены. На прямом,
+      // непрокси-пути этих чисел нет и быть не может: сервера в нём нет.
+      //   srv_prep_ms  — запрос дошёл до сервера → ушёл провайдеру;
+      //   srv_model_ms — ушёл провайдеру → первый кусок ответа;
+      //   srv_send_ms  — первый кусок от провайдера → отдан браузеру;
+      //   provider_processing_ms — цифра самого провайдера (только OpenAI).
+      let srv_prep_ms = null;
+      let srv_model_ms = null;
+      let srv_send_ms = null;
+      let provider_processing_ms = null;
       let responseText = '';
       let actualModelStr = entry.apiModel;
       let streamResponseId = null;
@@ -2121,7 +2124,7 @@
             rawFrames: lastIoRawFrames,
             responseId: streamResponseId,
             actualModel: actualModelStr,
-            timingMs: server_ms,
+            timingMs: srv_model_ms,
           }));
         } catch (e) { /* log collection must never break the call */ }
         if (clickId != null) {
@@ -2136,9 +2139,9 @@
             requestedAt,
             ttft_ms,
             total_ms,
-            // 1.5.13: provider-reported server-side processing time. null when
-            // the adapter doesn't expose it (Chat Completions legacy, voice/PTT).
-            server_ms,
+            // Время модели по часам сервера (от ухода запроса провайдеру до
+            // первого куска ответа). null на непрокси-пути.
+            server_ms: srv_model_ms,
             tokens_in,
             tokens_cached_in,
             tokens_cache_creation,
@@ -2218,14 +2221,6 @@
                 tokens_out,
               );
               const cost_usd = cost ? Number(cost.inputCost || 0) + Number(cost.outputCost || 0) : null;
-              // network_ms = local-side latency (network round-trip + extension
-              // overhead). Computable only when both ttft_ms and server_ms are
-              // present; greatest(0, …) guards against the rare case where the
-              // server-reported number lands marginally above ttft_ms (e.g.
-              // OpenAI's whole-second resolution rounding).
-              const network_ms = (ttft_ms != null && server_ms != null)
-                ? Math.max(0, ttft_ms - server_ms)
-                : null;
               // The one door (recordAnyCall): callType is the mandatory,
               // registry-checked activity id; surface + actionId are declared here;
               // the rest of the row is `columns`. Teacher popup text turn → 'tutor';
@@ -2255,8 +2250,11 @@
                 output_text: responseText || null,
                 ttft_ms,
                 total_ms,
-                network_ms,
-                server_ms,
+                // Разностей ПО РАЗНЫМ ЧАСАМ здесь больше нет. Эта строка пишется
+                // только на прямом пути (без нашего сервера), где серверных
+                // отметок не существует вовсе.
+                network_ms: null,
+                server_ms: null,
                 input_tokens: tokens_in,
                 cached_input_tokens: tokens_cached_in,
                 cache_creation_tokens: tokens_cache_creation,
@@ -2364,14 +2362,15 @@
           streamResponseId = id;
           emit(tabId, { type: 'STREAM_RESPONSE_ID', responseId: id, requestId });
         },
-        // 1.5.13: server-side processing time. Anthropic/Gemini fire this on
-        // the very first byte (header arrival); OpenAI Responses fires it on
-        // response.completed.
-        onServerTiming: (ms) => {
-          if (typeof ms === 'number' && Number.isFinite(ms)) {
-            server_ms = ms;
-            diagMark('onServerTiming');
-          }
+        // Разбивка времени по часам сервера из завершающего кадра прокси.
+        onProxyTimings: (t) => {
+          if (!t) return;
+          const num = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0) ? Math.round(v) : null;
+          srv_prep_ms = num(t.prepMs);
+          srv_model_ms = num(t.modelMs);
+          srv_send_ms = num(t.sendMs);
+          provider_processing_ms = num(t.providerMs);
+          diagMark('onProxyTimings');
         },
       };
 
@@ -2455,7 +2454,7 @@
                 ttft_ms = null;
                 tokens_in = null;
                 tokens_out = null;
-                server_ms = null;
+                srv_prep_ms = null; srv_model_ms = null; srv_send_ms = null; provider_processing_ms = null;
                 responseText = '';
                 streamResponseId = null;
                 continue; // retry once with the now-ensured session
@@ -2501,7 +2500,7 @@
             ttft_ms = null;
             tokens_in = null;
             tokens_out = null;
-            server_ms = null;
+            srv_prep_ms = null; srv_model_ms = null; srv_send_ms = null; provider_processing_ms = null;
             responseText = '';
             streamResponseId = null;
             await runAdapterWithGate(null);
@@ -2513,16 +2512,13 @@
           // by videoThreads.turns, persisted client-side in chat-surface.js
           // finalize(). Voice still persists via the APPEND_CONVERSATION_ITEMS
           // handler (unchanged).
-          // 1.5.15: pill now shows time-until-first-token only. ttft_ms was
-          // set on the first text chunk inside adapterCallbacks.onChunk;
-          // serverMs is what the provider self-reported. network = ttft_ms -
-          // serverMs (the round-trip to the model's first byte). Anything
-          // that happens AFTER the first token (more chunks, hangover,
-          // post-stream mirror) is no longer in the pill.
+          // Чип под ответом собирается НЕ здесь: три серверных числа уходят
+          // отсюда как есть, а целое и «сеть с браузером» считает сама лента —
+          // по своим часам и своей отметке о нарисованной букве.
           const totalMs = Date.now() - requestedAt;
           diagMark('before_STREAM_DONE');
           lexLog('[lex-timing-diag]', JSON.stringify({
-            ...__diag, totalMs, server_ms, ttft_ms, lastChunkAtMs,
+            ...__diag, totalMs, srv_prep_ms, srv_model_ms, srv_send_ms, provider_processing_ms, ttft_ms, lastChunkAtMs,
           }));
           // 1.5.16: cost pill payload — pre-computed in SW so the content
           // script doesn't need a copy of MODEL_PRICING. cost = null when
@@ -2552,7 +2548,13 @@
           emit(tabId, {
             type: 'STREAM_DONE', requestId, clickId,
             ttftMs: ttft_ms,
-            serverMs: server_ms,
+            // Разбивка по часам сервера + метка хода, по которой лента потом
+            // дошлёт своё число в ту же строку журнала вызовов.
+            serverPrepMs: srv_prep_ms,
+            serverModelMs: srv_model_ms,
+            serverSendMs: srv_send_ms,
+            providerProcessingMs: provider_processing_ms,
+            turnRef,
             inputTokens: tokens_in,
             cachedInputTokens: tokens_cached_in,
             cacheCreationTokens: tokens_cache_creation,

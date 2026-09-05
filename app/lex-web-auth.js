@@ -91,9 +91,12 @@
     return s;
   }
 
-  // Registration goes through our own edge function, not GoTrue /signup: it
-  // sets email_confirm inside, so there is no confirmation mail and no pending
-  // state. Same endpoint and same two error strings the extension surfaces.
+  // Registration goes through our own edge function, not GoTrue /signup. With
+  // email confirmation on, the function creates the account UNCONFIRMED and
+  // mails a code, answering { needsConfirm:true } with no session. We hand that
+  // flag back so the gate shows the "enter the code" screen. An older server
+  // that auto-confirmed returns no flag → sign in immediately, as before.
+  // Same endpoint and same two error strings the extension surfaces.
   async function signUp(email, password) {
     const resp = await fetch(URL_BASE + '/functions/v1/signup', {
       method: 'POST',
@@ -104,7 +107,59 @@
     if (resp.status === 409 || json.error === 'EMAIL_TAKEN') throw new Error('EMAIL_TAKEN');
     if (resp.status === 429) throw new Error('RATE_LIMITED');
     if (!resp.ok) throw new Error(json.error || ('HTTP ' + resp.status));
-    return signIn(email, password);
+    if (json && json.needsConfirm) return { needsConfirm: true };
+    await signIn(email, password);
+    return { needsConfirm: false };
+  }
+
+  // Confirm the email by code (type:'signup'). Success returns a live session
+  // (the account is now confirmed) → the person is signed in.
+  async function confirmSignup(email, token) {
+    const json = await gotrue('/verify', { type: 'signup', email, token });
+    const s = fromToken(json);
+    if (!s.access_token) throw new Error('VERIFY_NO_SESSION');
+    write(s);
+    return s;
+  }
+
+  // Re-mail the confirmation code. 200 even for an already-confirmed address.
+  async function resendConfirm(email) {
+    await gotrue('/resend', { type: 'signup', email });
+    return true;
+  }
+
+  // ── Password recovery (code-based) ──────────────────────────────────────────
+  // Step 1 — request a reset code. GoTrue answers 200 for an unknown address
+  // too (anti-enumeration): a code arrives only if the account exists.
+  async function recoverRequest(email) {
+    await gotrue('/recover', { email });
+    return true;
+  }
+
+  // PUT /auth/v1/user under a bearer — gotrue() is POST-only, so a direct fetch.
+  async function updatePassword(accessToken, password) {
+    const resp = await fetch(URL_BASE + '/auth/v1/user', {
+      method: 'PUT',
+      headers: { apikey: KEY, 'Content-Type': 'application/json', Authorization: 'Bearer ' + accessToken },
+      body: JSON.stringify({ password }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(json.msg || json.error_description || json.error_code
+        || json.error || json.message || ('HTTP ' + resp.status));
+    }
+    return json;
+  }
+
+  // Step 2 — verify the code (→ recovery session) and set the new password under
+  // it. The session is kept, so the person is signed in under the new password.
+  async function recoverConfirm(email, token, password) {
+    const json = await gotrue('/verify', { type: 'recovery', email, token });
+    const s = fromToken(json);
+    if (!s.access_token) throw new Error('VERIFY_NO_SESSION');
+    await updatePassword(s.access_token, password);
+    write(s);
+    return s;
   }
 
   // Схема возврата нативной оболочки. Должна совпадать с
@@ -259,6 +314,10 @@
     session: read,
     signIn,
     signUp,
+    confirmSignup,
+    resendConfirm,
+    recoverRequest,
+    recoverConfirm,
     signInWithGoogle,
     adoptRedirectSession,
     adoptFragment,

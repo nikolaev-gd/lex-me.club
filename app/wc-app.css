@@ -422,6 +422,29 @@ button { font: inherit; color: inherit; }
 .wc-gate-status { min-height: 20px; margin-top: 12px; font-size: 13px; color: var(--fg-muted); }
 .wc-gate-status.is-error { color: var(--danger); }
 
+/* Dim text link under the buttons — "Forgot password?" / "← Back to sign in".
+   No box, just text; matches the extension gate's .linklike. */
+.wc-gate-link {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wc-gate-link:hover { color: var(--fg); text-decoration: underline; }
+
+/* Hint line above the code/email field on the confirm and recovery views. */
+.wc-gate-hint { margin: 0 0 9px; color: var(--fg-muted); font-size: 13px; line-height: 1.4; }
+
+/* Recovery step 2 (code + new password) stacks like the form it lives in. */
+#wc-recover-step2 { display: grid; gap: 9px; }
+#wc-recover-step2[hidden] { display: none; }
+
 /* ── Shell ───────────────────────────────────────────────────────────────── */
 
 .wc-root { display: flex; height: 100%; }
