@@ -15,6 +15,12 @@
 // the legacy named MODEL_REGISTRY ids + preprocess presets. New models
 // do NOT need registryEntries — the UI drives them via synthetic
 // `provider:apiModel:effort` ids.
+//
+// ⚠️ ПРАВИЛО (2026-09-07): заменяя или добавляя модель, сверь её настройки —
+// ступени размышления, принимаемые ручки, цену — с ДОКУМЕНТАЦИЕЙ ПРОВАЙДЕРА
+// и впиши модель И сюда, И в серверную таблицу `public.models`, одним
+// коммитом. Клиентской строки мало: сервер (`llm-proxy`) роутит и считает
+// деньги по своей таблице, и модель без строки там не оплачивается.
 // ─────────────────────────────────────────────────────────────────────
 //
 // Descriptor fields:
@@ -268,34 +274,39 @@
 
     // ── Google · text ────────────────────────────────────────────────
     {
-      // Gemini 3.7 Flash — added 2026-08-25, the visible Google default.
-      // Prices from ai.google.dev/gemini-api/docs/pricing, checked 2026-08-25:
+      // Gemini 3.8 Flash — added 2026-09-07, the visible Google default.
+      // Supersedes 3.7 Flash (hidden below), which Google's model list marks
+      // as superseded by this one.
+      // Prices from ai.google.dev/gemini-api/docs/pricing, checked 2026-09-07:
       // 0.75 / 0.075 / 3.75 is INTRODUCTORY "through December 31, 2026";
       // 1.50 / 0.15 / 7.50 from 2027-01-01. Re-check on that date — the
       // Supabase public.models row has to move with it, that table is what
       // the server debits by.
       //
       // ⚠ thinkingLevel: low / medium (default) / high — 'minimal' does NOT
-      // exist on this model (docs/thinking, checked 2026-08-25). This is the
-      // one place 3.7 Flash differs from every other Flash in this file, and
-      // it is why the model was ADDED rather than 3.5 Flash renamed: the
-      // subtitle-cleanup preset preprocess-gemini-35f-min pins thinkingLevel
-      // 'minimal', which would have become a 400 on the cleanup path only.
+      // exist on this model (docs/thinking, checked 2026-09-07: setting it
+      // returns a validation error), same shape as 3.7 Flash before it.
+      // Thinking cannot be turned off at all on Gemini 3.x, so there is no
+      // 'none' tier either.
+      apiModel: 'gemini-3.8-flash', provider: 'google', type: 'text', label: '3.8 Flash',
+      vision: true,
+      efforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+      pricing: { input: 0.75, cachedInput: 0.075, output: 3.75 },
+      // temperature / seed гасит база PROVIDER_TEXT_KNOBS.google — своего
+      // knobQuirks этой модели не нужно (см. комментарий у матрицы).
+    },
+    {
+      // Hidden 2026-09-07 — superseded by 3.8 Flash. Kept in the registry
+      // (not deleted) so historical telemetry rows referencing it stay valid
+      // and so anyone whose stored settings still name it keeps routing.
+      hidden: true,
+      // Prices as of 2026-08-25 (introductory through 2026-12-31).
       apiModel: 'gemini-3.7-flash', provider: 'google', type: 'text', label: '3.7 Flash',
       vision: true,
       efforts: ['low', 'medium', 'high'],
       defaultEffort: 'medium',
       pricing: { input: 0.75, cachedInput: 0.075, output: 3.75 },
-      // Google's migration page for 3.7 Flash: "Strip temperature, top_p, and
-      // top_k from generation configs." Enforced here rather than in the
-      // adapter — callGoogleStream now asks textKnobSupported, the same
-      // registry-driven gate the Anthropic path already uses.
-      //   seed: Google's docs say nothing about it either way for 3.7 Flash.
-      // Turned off as a precaution, not on a documented requirement — the
-      // knob is a dev-only debugging aid, and an unknown-parameter 400 on the
-      // main chat path costs more than the knob is worth. Flip to true if it
-      // is ever confirmed accepted.
-      knobQuirks: { temperature: false, seed: false },
     },
     {
       // Gemini 3.5 Flash-Lite — added 2026-08-25, the cheap Google tier
@@ -401,26 +412,46 @@
 
     // ── Anthropic · text ─────────────────────────────────────────────
     {
-      // Claude Fable 5 — added 2026-08-25. Anthropic's most capable widely
-      // released model. Pricing checked 2026-08-25 on the official pricing
-      // page: 10 / 1 (cache hit) / 12.50 (5m cache write) / 50.
+      // Claude Fable 5.1 — added 2026-09-07, released 2026-09-01. Supersedes
+      // Fable 5 (hidden below), which Anthropic's model list moved to
+      // "legacy models (still available)".
+      // Pricing checked 2026-09-07 on the model page: 10 / 0.25 (cache read) /
+      // 12.50 (5m cache write) / 50. Same input+output price as Fable 5; the
+      // CACHE READ is what changed — a quarter of Fable 5's rate (2.5% of the
+      // input price instead of 10%). The Supabase public.models row carries
+      // the same numbers; the server debits by that table, not this one.
       //
-      // ⚠ Thinking cannot be turned off on this model — it is always on, and
-      // an explicit thinking:{type:'disabled'} returns 400. Lex never sends
-      // `disabled` (it only ever ADDS thinking:{type:'adaptive'}), so no
+      // ⚠ Thinking cannot be turned off on this model — «Adaptive (always
+      // on)», and an explicit thinking:{type:'disabled'} returns 400. Lex never
+      // sends `disabled` (it only ever ADDS thinking:{type:'adaptive'}), so no
       // adapter change is needed for that. What DOES matter is max_tokens:
       // reasoning tokens count against it, and callAnthropicStream's default
       // is 1024 unless it knows thinking is running. Hence thinkingAlwaysOn
       // below — it is the flag that adapter reads.
+      //   Effort: all five levels, API default `high` (docs/effort, checked
+      // 2026-09-07). Lex keeps `high` here to match the provider's own default.
+      apiModel: 'claude-fable-5-1', provider: 'anthropic', type: 'text', label: 'Fable 5.1',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+      thinkingAlwaysOn: true,
+      pricing: { input: 10.00, cachedInput: 0.25, cacheCreation: 12.50, output: 50.00 },
+      // Sampling params (temperature/top_p/top_k) are not accepted on models
+      // this recent — same as Opus 5 and Sonnet 5.
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Hidden 2026-09-07 — superseded by Fable 5.1 (same input/output price,
+      // dearer cache reads). Kept in the registry (not deleted) so historical
+      // telemetry rows referencing it stay valid and so anyone whose stored
+      // settings still name it keeps routing.
+      hidden: true,
       apiModel: 'claude-fable-5', provider: 'anthropic', type: 'text', label: 'Fable 5',
       vision: true,
       efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'high',
       thinkingAlwaysOn: true,
       pricing: { input: 10.00, cachedInput: 1.00, cacheCreation: 12.50, output: 50.00 },
-      // Sampling params (temperature/top_p/top_k) are removed from the API on
-      // this model — rejected regardless of thinking state, same as Opus 4.8
-      // and Sonnet 5.
       knobQuirks: { temperature: false },
     },
     {
@@ -527,20 +558,13 @@
       pricing: { input: 2.00, cachedInput: 0.20, cacheCreation: 2.50, output: 10.00 },
       knobQuirks: { temperature: false },
     },
-    {
-      // Haiku does not accept output_config.effort and has no adaptive thinking.
-      apiModel: 'claude-haiku-4-5-20251001', provider: 'anthropic', type: 'text', label: 'Haiku 4.5',
-      vision: true,
-      efforts: ['none'],
-      defaultEffort: 'none',
-      pricing: { input: 1.00, cachedInput: 0.10, cacheCreation: 1.25, output: 5.00 },
-      registryEntries: [
-        { id: 'haiku-4-5', fields: { effort: null, thinkingSupported: false } },
-        // Subtitle-cleanup preset. fields:{} — Haiku takes no effort, no
-        // thinking; preprocess is a mechanical JSON task.
-        { id: 'preprocess-haiku-4-5', fields: {}, preprocess: true },
-      ],
-    },
+    // Claude Haiku 4.5 — УДАЛЕНА ИЗ ПРОДУКТА 2026-09-07 (решение владельца:
+    // Anthropic её давно не обновляет). Снята и отсюда, и из серверной
+    // public.models тем же коммитом. Единственной ссылкой на неё оставалась
+    // модель УДАЛЁННОЙ заготовки действий на сервере — та ссылка снята вместе
+    // с моделью. Это единственная модель, которую мы не «скрыли», а удалили:
+    // скрытые остаются ради исторической телеметрии и роутинга сохранённых
+    // настроек, а здесь владелец потребовал убрать совсем.
 
     // ── Hidden text models — pricing/compat only, not shown in the bar ──
     {
@@ -848,9 +872,23 @@
   //   'openaiReasoning'   — temperature ok only when reasoning is off
   //                         (effort none / minimal / empty)
   //   'anthropicThinking' — temperature ok only when adaptive thinking is off
+  // google.temperature / google.seed ВЫКЛЮЧЕНЫ базой (решение владельца
+  // 2026-09-07). Причина — прямое предписание Google для всего семейства
+  // Gemini 3.x: «Remove these parameters from all requests» про temperature /
+  // top_p / top_k («no longer recommended for all Gemini 3.x models»,
+  // ai.google.dev, сверено 2026-09-07) — модели настроены на свои значения по
+  // умолчанию, и подкрутка их только портит. Про `seed` Google не пишет ни
+  // да, ни нет, поэтому он гасится вместе с ними: ручка сугубо отладочная, а
+  // 400 на непонятый параметр в основном чате стоит дороже неё.
+  //   Гасится ЗДЕСЬ, одной строкой на поставщика, а не knobQuirks'ами на
+  // каждой модели: в реестре все Google-модели — 3.x (плюс скрытая 2.5), и три
+  // одинаковых копии одного правила разъехались бы на первой же новой модели
+  // (ровно это и случилось: у 3.7 Flash ручки были погашены, у 3.5 Flash-Lite
+  // и 3.1 Pro — нет). Появится Gemini, который sampling принимает, — ему
+  // knobQuirks с `true`, база остаётся строгой.
   const PROVIDER_TEXT_KNOBS = {
     openai:    { temperature: 'openaiReasoning', maxTokens: true, seed: false, verbosity: true,  serviceTier: true  },
-    google:    { temperature: true,              maxTokens: true, seed: true,  verbosity: false, serviceTier: false },
+    google:    { temperature: false,             maxTokens: true, seed: false, verbosity: false, serviceTier: false },
     anthropic: { temperature: true,              maxTokens: true, seed: false, verbosity: false, serviceTier: false },
   };
 
