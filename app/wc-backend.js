@@ -199,7 +199,7 @@
     'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel',
     // Диктовка (микрофон у поля ввода) — не голосовая сессия, но ячейка та же
     // по устройству: одно имя модели, читается тем же способом.
-    'knobDictationModel',
+    'knobDictationModel', 'knobDictationLanguage', 'knobDictationPrompt',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -235,6 +235,8 @@
       voiceTranscriptionLanguage: tk('knobVoiceTranscriptionLanguage'),
       voiceTranscriptionPrompt: tk('knobVoiceTranscriptionPrompt'),
       dictationModel: tk('knobDictationModel'),
+      dictationLanguage: tk('knobDictationLanguage'),
+      dictationPrompt: tk('knobDictationPrompt'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -682,6 +684,11 @@
     // случилось однажды с прошитым 'gpt-4o-mini-transcribe'.
     const knobs = await readKnobs().catch(() => ({}));
     const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
+    // Язык и подсказка — те же две ручки полосы «Диктовка». 'auto' и пустая
+    // подсказка не отправляются: у обоих полей «не задано» выражается
+    // отсутствием, а не пустой строкой.
+    const dictLang = (knobs && knobs.dictationLanguage) || 'en';
+    const dictPrompt = (knobs && knobs.dictationPrompt) || '';
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
@@ -700,6 +707,8 @@
     const form = new FormData();
     form.append('file', new File([bytes], 'recording.' + ext, { type: base }));
     form.append('model', apiModel);
+    if (dictLang && dictLang !== 'auto') form.append('language', dictLang);
+    if (dictPrompt) form.append('prompt', dictPrompt);
     form.append('response_format', 'json');
     // The session is whatever conversation is already open — NOT a fresh one.
     // Minting a session here would give a brand-new empty chat a row before a

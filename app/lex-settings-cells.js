@@ -193,6 +193,8 @@
     // нет, а сверять их незачем: значение чинится на чтении
     // (LexModelRegistry.normalizeDictationModel).
     knobDictationModel: 'gpt-transcribe',
+    knobDictationLanguage: 'en',                       // language у v1/audio/transcriptions
+    knobDictationPrompt: '',                           // prompt у v1/audio/transcriptions
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms
