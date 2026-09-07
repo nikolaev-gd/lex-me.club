@@ -678,13 +678,16 @@
     {
       id: 'gpt-4o-mini-transcribe', apiModel: 'gpt-4o-mini-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o mini Transcribe',
-      dictation: true,
+      // Пометки `dictation` НЕТ (решение владельца 2026-09-07): в списке
+      // диктовки этой модели быть не должно. Запись остаётся ради цены —
+      // ею считаются уже сделанные вызовы и расшифровка видео без субтитров,
+      // которая по-прежнему ходит на неё.
       pricing: { audioHour: 0.18 },
     },
     {
       id: 'gpt-4o-transcribe', apiModel: 'gpt-4o-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o Transcribe',
-      dictation: true,
+      // Тоже без `dictation` — см. соседнюю запись.
       pricing: { audioHour: 0.36 },
     },
   ];

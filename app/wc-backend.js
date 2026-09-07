@@ -675,14 +675,13 @@
     // Модель диктовки — ручка настроек ('Диктовка' в разделе Transcription),
     // одна на все поверхности. Своего окна настроек у страницы нет: значение
     // приезжает опубликованным набором владельца, как и остальные ручки.
-    // Пусто/незнакомое имя → дефолт, чтобы запись не улетала в 400.
-    const DICTATION_FALLBACK = 'gpt-transcribe';
-    const DICTATION_ALLOWED = new Set([
-      'gpt-transcribe', 'whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe',
-    ]);
+    //
+    // Ни списка допустимых имён, ни запасного имени здесь НЕТ намеренно: и то
+    // и другое живёт в реестре моделей, а страница его грузит (index.html) —
+    // своя копия разошлась бы с ним на первой же смене модели, что уже
+    // случилось однажды с прошитым 'gpt-4o-mini-transcribe'.
     const knobs = await readKnobs().catch(() => ({}));
-    const wanted = knobs && knobs.dictationModel;
-    const apiModel = DICTATION_ALLOWED.has(wanted) ? wanted : DICTATION_FALLBACK;
+    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
