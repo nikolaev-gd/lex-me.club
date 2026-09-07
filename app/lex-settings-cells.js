@@ -183,7 +183,7 @@
     // Каждая ложится в конкретное поле session.update (applyVoiceKnobsToSession).
     knobVoiceMaxResponseTokens: '',                    // session.max_response_output_tokens
     knobVoiceNoiseReduction: 'off',                    // audio.input.noise_reduction.type ('off'|'near_field'|'far_field')
-    knobVoiceTranscriptionModel: 'gpt-4o-mini-transcribe', // audio.input.transcription.model
+    knobVoiceTranscriptionModel: 'gpt-transcribe',      // audio.input.transcription.model
     knobVoiceTranscriptionLanguage: 'en',              // audio.input.transcription.language
     knobVoiceTranscriptionPrompt: '',                  // audio.input.transcription.prompt
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold

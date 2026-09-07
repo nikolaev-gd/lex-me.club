@@ -68,8 +68,17 @@
 
     // Режим вне полосы (out_of_band) новый чат не поддерживает: он гасит
     // встроенную расшифровку, а именно из неё здесь строятся пузыри.
+    // Снятые с продажи распознаватели чинятся на месте — тем же перечнем,
+    // что в chat-knobs.js (RETIRED_TRANSCRIPTION_MODELS). У страницы нет
+    // редактора настроек: она берёт опубликованный набор владельца, и пока
+    // тот не переопубликован, в нём может лежать старое имя.
+    const RETIRED = {
+      'gpt-4o-mini-transcribe-2025-12-15': 'gpt-transcribe',
+      'gpt-4o-mini-transcribe': 'gpt-transcribe',
+      'gpt-4o-transcribe': 'gpt-transcribe',
+    };
     const transcription = {
-      model: k.voiceTranscriptionModel || 'gpt-4o-mini-transcribe',
+      model: RETIRED[k.voiceTranscriptionModel] || k.voiceTranscriptionModel || 'gpt-transcribe',
     };
     // Язык НЕ прибивается к 'en'. Ученик русскоязычный и вправе спросить
     // учителя по-русски; жёсткий английский превратил бы такую фразу в кашу.
