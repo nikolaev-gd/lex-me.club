@@ -186,6 +186,13 @@
     knobVoiceTranscriptionModel: 'gpt-transcribe',      // audio.input.transcription.model
     knobVoiceTranscriptionLanguage: 'en',              // audio.input.transcription.language
     knobVoiceTranscriptionPrompt: '',                  // audio.input.transcription.prompt
+    // ── Диктовка (микрофон у поля ввода) ──
+    // Не голосовая сессия: это отдельный вызов v1/audio/transcriptions через
+    // llm-proxy. Дефолт — та же строка, что отдаёт реестр (dictationDefault);
+    // здесь она записана явно, потому что ячейки читаются и там, где реестра
+    // нет, а сверять их незачем: значение чинится на чтении
+    // (LexModelRegistry.normalizeDictationModel).
+    knobDictationModel: 'gpt-transcribe',
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms

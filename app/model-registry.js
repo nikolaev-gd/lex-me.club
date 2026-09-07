@@ -650,23 +650,41 @@
     {
       id: 'whisper-1', apiModel: 'whisper-1', provider: 'openai', type: 'asr',
       label: 'OpenAI whisper-1', role: 'fallback',
+      // Одна запись служит двум делам: запасная распознавалка субтитров (role)
+      // и один из вариантов диктовки (dictation). Разные потребители читают
+      // разные поля одной строки — второй копии модели заводить не нужно.
+      dictation: true,
       pricing: { audioHour: 0.36 },
     },
 
     // ── ASR — voice dictation (mic → text into the chat box). Not a
     // caption fallback — separate from the whisper chain above. Billed
     // per audio-hour via computeAsrCost, from OpenAI's published
-    // per-minute estimates ($0.003/min mini, $0.006/min full).
-    // gpt-4o-mini-transcribe is the dictation default.
+    // per-minute estimates ($0.0045/min gpt-transcribe, $0.003/min mini,
+    // $0.006/min full).
+    //
+    // gpt-transcribe is the dictation default since 2026-09-07. It goes out
+    // over v1/audio/transcriptions with the SERVER key, and that key's project
+    // does have the model — checked through the real dictation path, not
+    // assumed. (A personal key from another project answers model_not_found
+    // for it, which is what made the first reading of this look like "no
+    // access": access is per project, and the client never uses that key.)
+    {
+      id: 'gpt-transcribe', apiModel: 'gpt-transcribe',
+      provider: 'openai', type: 'asr', label: 'GPT Transcribe',
+      dictation: true, dictationDefault: true,
+      pricing: { audioHour: 0.27 },
+    },
     {
       id: 'gpt-4o-mini-transcribe', apiModel: 'gpt-4o-mini-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o mini Transcribe',
-      dictationDefault: true,
+      dictation: true,
       pricing: { audioHour: 0.18 },
     },
     {
       id: 'gpt-4o-transcribe', apiModel: 'gpt-4o-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o Transcribe',
+      dictation: true,
       pricing: { audioHour: 0.36 },
     },
   ];
@@ -756,6 +774,39 @@
       if (m.type === 'voice') out[modelId(m)] = m.provider;
     }
     return out;
+  }
+
+  // Список для выпадашки «Диктовка» в настройках: asr-записи, помеченные
+  // `dictation`. Порядок — как в LEX_MODELS, то есть в реестре, а не в разметке
+  // окна: список моделей заводится в одном месте, и окно его только рисует.
+  // Возвращает [{ apiModel, label, audioHour }] — цена едет вместе с моделью,
+  // чтобы подпись могла показать её, не заглядывая во второй справочник.
+  function dictationModelOptions() {
+    const out = [];
+    for (const m of LEX_MODELS) {
+      if (m.type !== 'asr' || !m.dictation) continue;
+      out.push({
+        apiModel: m.apiModel,
+        label: m.label,
+        audioHour: (m.pricing && typeof m.pricing.audioHour === 'number') ? m.pricing.audioHour : null,
+      });
+    }
+    return out;
+  }
+
+  // Хранимое значение → имя модели, которую и правда можно послать.
+  //
+  // Возврат ВСЕГДА валиден: неизвестное, снятое или пустое значение приводится
+  // к дефолту, а не отдаётся как есть. Так ведёт себя вся эта ручка целиком —
+  // ячейка настроек переживает и опубликованный набор со старым именем, и
+  // модель, убранную из реестра завтра; иначе диктовка молча уходила бы в
+  // 400 на каждом нажатии микрофона, а человек видел бы «расшифровка не
+  // прошла» без причины.
+  function normalizeDictationModel(stored) {
+    const fallback = buildDefaultDictationModel();
+    if (!stored || typeof stored !== 'string') return fallback;
+    const hit = dictationModelOptions().find((o) => o.apiModel === stored);
+    return hit ? hit.apiModel : fallback;
   }
 
   // dictation.js default transcription model — the asr entry flagged
@@ -1209,6 +1260,8 @@
     voiceModelApi: buildVoiceModelApi(),
     voiceModelProvider: buildVoiceModelProvider(),
     defaultDictationModel: buildDefaultDictationModel(),
+    dictationModelOptions,
+    normalizeDictationModel,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),

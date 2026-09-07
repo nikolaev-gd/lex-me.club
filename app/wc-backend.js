@@ -197,6 +197,9 @@
     'knobVoiceIdleDisconnectSec', 'knobVoiceLongSessions', 'knobVoiceOutputLanguage',
     'knobVoiceTranscriptionModel', 'knobVoiceTranscriptionLanguage', 'knobVoiceTranscriptionPrompt',
     'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel',
+    // Диктовка (микрофон у поля ввода) — не голосовая сессия, но ячейка та же
+    // по устройству: одно имя модели, читается тем же способом.
+    'knobDictationModel',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -231,6 +234,7 @@
       voiceTranscriptionModel: tk('knobVoiceTranscriptionModel'),
       voiceTranscriptionLanguage: tk('knobVoiceTranscriptionLanguage'),
       voiceTranscriptionPrompt: tk('knobVoiceTranscriptionPrompt'),
+      dictationModel: tk('knobDictationModel'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -668,7 +672,17 @@
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const mime = m.mimeType || 'audio/webm';
-    const apiModel = 'gpt-4o-mini-transcribe';
+    // Модель диктовки — ручка настроек ('Диктовка' в разделе Transcription),
+    // одна на все поверхности. Своего окна настроек у страницы нет: значение
+    // приезжает опубликованным набором владельца, как и остальные ручки.
+    // Пусто/незнакомое имя → дефолт, чтобы запись не улетала в 400.
+    const DICTATION_FALLBACK = 'gpt-transcribe';
+    const DICTATION_ALLOWED = new Set([
+      'gpt-transcribe', 'whisper-1', 'gpt-4o-mini-transcribe', 'gpt-4o-transcribe',
+    ]);
+    const knobs = await readKnobs().catch(() => ({}));
+    const wanted = knobs && knobs.dictationModel;
+    const apiModel = DICTATION_ALLOWED.has(wanted) ? wanted : DICTATION_FALLBACK;
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
