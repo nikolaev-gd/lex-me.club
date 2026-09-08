@@ -158,6 +158,14 @@
   let chunks = [];
   let recStartedAt = 0;
   let transcribing = false;
+  let recAutoStopTimer = null;
+  // Пороги и потолок записи — общие на все поверхности, из реестра моделей
+  // (LexModelRegistry.dictationCapture). Своих чисел у страницы больше нет:
+  // раньше здесь стояли 350 мс «слишком коротко» против 300 в расширении и
+  // отсутствие потолка против минуты у него, и один микрофон вёл себя
+  // по-разному в зависимости от того, где его нажали.
+  const CAPTURE_FALLBACK = { minDurationMs: 300, minBlobBytes: 1000, maxDurationMs: 60000, defaultLanguage: 'en' };
+  const capture = () => (global.LexModelRegistry && global.LexModelRegistry.dictationCapture) || CAPTURE_FALLBACK;
 
   function autoGrow() {
     elInput.style.height = 'auto';
@@ -263,12 +271,14 @@
       // microphone that stays open shows a recording dot for as long as the
       // transcription takes, which reads as "still listening".
       stream.getTracks().forEach((t) => t.stop());
+      if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
       const durationMs = Date.now() - recStartedAt;
       const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'audio/webm' });
       chunks = [];
       recorder = null;
       elMic.classList.remove('is-recording');
-      if (!blob.size || durationMs < 350) { syncButton(); return; }
+      const cap = capture();
+      if (blob.size < cap.minBlobBytes || durationMs < cap.minDurationMs) { syncButton(); return; }
       await transcribe(blob, durationMs);
     };
     recorder.start();
@@ -276,17 +286,72 @@
     elMic.title = 'Stop dictating';
     elMic.setAttribute('aria-label', elMic.title);
     WcHaptics.tap();
+    // Потолок записи. Микрофон, забытый включённым, платит за каждую минуту
+    // тишины — поэтому он выключается сам и говорит почему, ровно как в
+    // расширении.
+    const maxMs = capture().maxDurationMs;
+    if (maxMs > 0) {
+      recAutoStopTimer = setTimeout(() => {
+        if (recorder && recorder.state !== 'inactive') {
+          stopRecording();
+          toast('Recording stopped: the limit is ' + Math.round(maxMs / 1000) + ' seconds.');
+        }
+      }, maxMs);
+    }
   }
 
   function stopRecording() {
+    if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
   }
 
+  // Растущий кусок держится ЗА СВОИМ ОТРЕЗКОМ, а не «дописывается в конец»:
+  // человек может печатать, пока идёт расшифровка. Пока поле выглядит ровно
+  // так, как мы его оставили, — переписываем; тронули — рост прекращается, и
+  // готовый текст в конце просто дописывается. Тихо затирать чужой набор
+  // нельзя. Та же механика, теми же словами, что в dictation.js.
+  function makeGrower() {
+    let base = null;
+    let lastWritten = null;
+    let alive = true;
+    const compose = (b, t) => (b.trim().length === 0 ? t : b.replace(/\s*$/, '') + ' ' + t);
+    const put = (v, focus) => {
+      elInput.value = v;
+      autoGrow();
+      syncButton();
+      if (focus) elInput.focus();
+      try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
+    };
+    return {
+      push(sofar) {
+        if (!alive) return;
+        if (base === null) base = elInput.value || '';
+        else if (elInput.value !== lastWritten) { alive = false; return; }
+        lastWritten = compose(base, sofar);
+        put(lastWritten, false);
+      },
+      finish(text) {
+        if (!alive || base === null || elInput.value !== lastWritten) return false;
+        put(compose(base, text), true);
+        return true;
+      },
+    };
+  }
+
   async function transcribe(blob, durationMs) {
     transcribing = true;
     elMic.classList.add('is-busy');
+    const requestId = (global.crypto && global.crypto.randomUUID)
+      ? global.crypto.randomUUID() : String(Date.now()) + Math.random();
+    const grower = makeGrower();
+    // Подписка заводится ДО отправки и снимается в любом исходе: иначе она
+    // пережила бы свой запрос и дописывала бы в поле чужие куски.
+    const unsub = WcBus.subscribe((msg) => {
+      if (!msg || msg.type !== 'WC_DICTATE_DELTA' || msg.requestId !== requestId) return;
+      if (typeof msg.textSoFar === 'string' && msg.textSoFar) grower.push(msg.textSoFar);
+    });
     try {
       const base64 = await new Promise((resolve, reject) => {
         const r = new FileReader();
@@ -294,21 +359,25 @@
         r.onerror = () => reject(new Error('read failed'));
         r.readAsDataURL(blob);
       });
-      const r = await WcBus.call('WC_DICTATE', { base64, mimeType: blob.type, durationMs });
+      const r = await WcBus.call('WC_DICTATE', { base64, mimeType: blob.type, durationMs, requestId });
       const text = (r && r.text || '').trim();
       if (!text) { toast('Nothing was recognised'); return; }
       // Appended, not replaced: dictating into a half-typed message must not
-      // throw away what is already there.
-      const cur = elInput.value;
-      elInput.value = cur ? (cur.replace(/\s*$/, '') + ' ' + text) : text;
-      autoGrow();
-      syncButton();
-      elInput.focus();
-      // The caret goes to the end, or the next keystroke lands mid-sentence.
-      try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
+      // throw away what is already there. Рос текст — переписываем свой же
+      // отрезок набело; не рос — обычное дописывание.
+      if (!grower.finish(text)) {
+        const cur = elInput.value;
+        elInput.value = cur ? (cur.replace(/\s*$/, '') + ' ' + text) : text;
+        autoGrow();
+        syncButton();
+        elInput.focus();
+        // The caret goes to the end, or the next keystroke lands mid-sentence.
+        try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
+      }
     } catch (err) {
       toast('Could not transcribe: ' + ((err && err.message) || err), { error: true });
     } finally {
+      unsub();
       transcribing = false;
       elMic.classList.remove('is-busy');
     }

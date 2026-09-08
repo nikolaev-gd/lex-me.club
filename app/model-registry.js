@@ -822,6 +822,67 @@
     return null;
   }
 
+  // ── Микрофон диктовки: ОДИН набор чисел на все поверхности ───────────────
+  //
+  // Эти четыре значения раньше стояли отдельными копиями в каждом куске кода,
+  // который умеет записывать звук, — и копии разошлись: расширение обрывало
+  // запись на минуте, страница не обрывала никогда; порог «слишком коротко»
+  // был 300 мс в расширении, 350 на странице и 300 на айфоне; язык при пустой
+  // настройке был 'en' в двух местах и «не отправлять вовсе» на айфоне.
+  // Человек при этом видит ОДИН микрофон, и вести себя он обязан одинаково.
+  //
+  // Здесь их дом. Этот файл грузится и content-скриптами расширения
+  // (manifest.json), и страницей (webchat/index.html) — то есть расширение,
+  // веб и оболочка macOS читают буквально одни и те же числа. У айфона
+  // физически другой язык, и там стоит зеркало (ios/Lex/Lex/Config.swift),
+  // за расхождением которого следит dev-tools/check-dictation-parity-ios.mjs.
+  //
+  // Формат записи (webm у браузеров, m4a у айфона) сюда НЕ входит: он
+  // определяется тем, что умеет записывать сама платформа, и общим быть не
+  // может.
+  const DICTATION_CAPTURE = {
+    // Ниже этого — считаем промахом по кнопке и молча не расшифровываем.
+    minDurationMs: 300,
+    // Тот же промах, но по размеру: пустой контейнер без звука.
+    minBlobBytes: 1000,
+    // Жёсткий потолок записи: микрофон выключается сам и говорит почему.
+    maxDurationMs: 60000,
+    // Язык, когда ручка «Язык» пуста. Пустая строка означала бы «поле не
+    // отправлять», а это другое поведение — см. dictationRequestFields.
+    defaultLanguage: 'en',
+  };
+
+  // Какие поля распознавалка ПРИНИМАЕТ. Замерено живыми запросами через наш
+  // серверный путь 2026-09-08, не взято из документации:
+  //   • gpt-transcribe: `languages` (повторяющееся поле, голые двухбуквенные
+  //     коды) — а старое `language` вместе с ним запрещено самим провайдером
+  //     («The 'language' and 'languages' parameters cannot be used together»);
+  //     `keywords` (повторяющееся поле) — единственное, что решительно меняет
+  //     результат; `prompt` как ОПИСАНИЕ записи (приказы игнорирует);
+  //     `stream=true` — настоящий поток с завершающим кадром.
+  //   • whisper-1: только старое `language` и `prompt`. На `languages` и
+  //     `keywords` отвечает 400 invalid_parameter, на `stream=true` отвечает
+  //     обычным JSON без потока.
+  // Окно настроек рисует ровно те поля, которые здесь `true`: ручка, которой
+  // у модели нет, не показывается вовсе.
+  const DICTATION_FIELDS = {
+    'gpt-transcribe': { languages: true, language: false, keywords: true, prompt: true, stream: true },
+    'whisper-1':      { languages: false, language: true, keywords: false, prompt: true, stream: false },
+  };
+  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false };
+
+  // Незнакомое имя модели получает пустой набор, а не набор дефолтной модели:
+  // послать поле, которого у модели нет, значит получить 400 на каждом
+  // нажатии микрофона, и человек увидит «расшифровка не прошла» без причины.
+  function dictationRequestFields(apiModel) {
+    return DICTATION_FIELDS[String(apiModel || '')] || DICTATION_FIELDS_NONE;
+  }
+
+  // Список кодов языка, из которого выбирают обе ручки — одиночная (whisper-1)
+  // и множественная (gpt-transcribe). Один список, чтобы «en» в одном месте не
+  // соседствовал с «en-US» в другом: провайдер коды с регионом отвергает (400).
+  const DICTATION_LANGUAGES = ['en', 'ru', 'es', 'de', 'fr', 'it', 'pt', 'zh', 'ja', 'ko'];
+
   // background.js text-API-routing Sets. Deliberately NOT filtered by
   // `hidden` — hidden only controls bar visibility (see textModelOptionsHtml /
   // providerApiModels / apiModelLabel below, which DO filter it). Routing
@@ -1265,6 +1326,10 @@
     defaultDictationModel: buildDefaultDictationModel(),
     dictationModelOptions,
     normalizeDictationModel,
+    // Микрофон: одни числа и одна карта полей на все поверхности.
+    dictationCapture: DICTATION_CAPTURE,
+    dictationRequestFields,
+    dictationLanguages: DICTATION_LANGUAGES,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),

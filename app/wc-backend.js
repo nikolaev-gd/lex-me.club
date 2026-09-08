@@ -199,7 +199,8 @@
     'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel',
     // Диктовка (микрофон у поля ввода) — не голосовая сессия, но ячейка та же
     // по устройству: одно имя модели, читается тем же способом.
-    'knobDictationModel', 'knobDictationLanguage', 'knobDictationPrompt',
+    'knobDictationModel', 'knobDictationLanguage', 'knobDictationLanguages',
+    'knobDictationPrompt', 'knobDictationKeywords', 'knobDictationStream',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -236,7 +237,10 @@
       voiceTranscriptionPrompt: tk('knobVoiceTranscriptionPrompt'),
       dictationModel: tk('knobDictationModel'),
       dictationLanguage: tk('knobDictationLanguage'),
+      dictationLanguages: tk('knobDictationLanguages'),
       dictationPrompt: tk('knobDictationPrompt'),
+      dictationKeywords: tk('knobDictationKeywords'),
+      dictationStream: tk('knobDictationStream'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -684,11 +688,22 @@
     // случилось однажды с прошитым 'gpt-4o-mini-transcribe'.
     const knobs = await readKnobs().catch(() => ({}));
     const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
-    // Язык и подсказка — те же две ручки полосы «Диктовка». 'auto' и пустая
-    // подсказка не отправляются: у обоих полей «не задано» выражается
-    // отсутствием, а не пустой строкой.
-    const dictLang = (knobs && knobs.dictationLanguage) || 'en';
-    const dictPrompt = (knobs && knobs.dictationPrompt) || '';
+    // Остальные ручки полосы «Диктовка». Что из них модель ПРИНИМАЕТ —
+    // решает реестр (dictationRequestFields), а не эта страница: послать полю
+    // распознавалку, которая его не знает, значит получить 400 на каждом
+    // нажатии микрофона (whisper-1 так отвечает и на `languages`, и на
+    // `keywords`). «Не задано» везде выражается отсутствием поля, а не пустой
+    // строкой; язык по умолчанию — общий, из того же реестра.
+    const REG = global.LexModelRegistry;
+    const fields = REG.dictationRequestFields(apiModel);
+    const splitList = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const dictLang = fields.language
+      ? ((knobs && knobs.dictationLanguage) || REG.dictationCapture.defaultLanguage)
+      : null;
+    const dictLangs = fields.languages ? splitList(knobs && knobs.dictationLanguages) : [];
+    const dictPrompt = fields.prompt ? ((knobs && knobs.dictationPrompt) || '') : '';
+    const dictKeywords = fields.keywords ? splitList(knobs && knobs.dictationKeywords) : [];
+    const wantStream = !!(fields.stream && knobs && knobs.dictationStream);
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
@@ -708,8 +723,14 @@
     form.append('file', new File([bytes], 'recording.' + ext, { type: base }));
     form.append('model', apiModel);
     if (dictLang && dictLang !== 'auto') form.append('language', dictLang);
+    // Множественное поле ЗАМЕНЯЕТ одиночное: прислать оба — 400 от провайдера.
+    // Разводит их карта полей выше, здесь остаётся только форма записи —
+    // повторяющееся поле с голыми двухбуквенными кодами.
+    dictLangs.forEach((code) => { if (code && code !== 'auto') form.append('languages', code); });
     if (dictPrompt) form.append('prompt', dictPrompt);
+    dictKeywords.forEach((w) => form.append('keywords', w));
     form.append('response_format', 'json');
+    if (wantStream) form.append('stream', 'true');
     // The session is whatever conversation is already open — NOT a fresh one.
     // Minting a session here would give a brand-new empty chat a row before a
     // single message had been sent, which is the one thing the key rule
@@ -730,6 +751,40 @@
     }));
 
     const resp = await core.proxyFetchMultipart('openai-asr', form, token);
+    // Рост текста: сервер отдаёт поток провайдера и в конце свой кадр с ценой.
+    // Куски уезжают в интерфейс через шину — тем же способом, каким туда
+    // попадает ответ учителя, — а вернувшееся значение остаётся авторитетом:
+    // провайдер по ходу потока правит уже сказанное.
+    if (wantStream && /text\/event-stream/i.test(resp.headers.get('content-type') || '')) {
+      let text = '';
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const parts = buf.split(/\r?\n\r?\n/);
+        buf = parts.pop() || '';
+        for (const part of parts) {
+          let evName = null;
+          const dataLines = [];
+          for (const line of part.split(/\r?\n/)) {
+            if (line.startsWith('event:')) evName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+          }
+          const data = dataLines.join('\n');
+          if (!data || data === '[DONE]' || evName === 'lex_proxy_done') continue;
+          let j; try { j = JSON.parse(data); } catch (_) { continue; }
+          if (j.type === 'transcript.text.delta' && typeof j.delta === 'string') text += j.delta;
+          else if (j.type === 'transcript.text.done' && typeof j.text === 'string') text = j.text;
+          else continue;
+          WcBus.broadcast({ type: 'WC_DICTATE_DELTA', requestId: m.requestId || null, textSoFar: text });
+        }
+      }
+      WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
+      return { ok: true, text: text.trim() };
+    }
     const bodyText = await resp.text();
     if (!resp.ok) {
       // 402 is "no money", not "could not hear you" — say the one the reader
