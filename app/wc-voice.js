@@ -220,6 +220,34 @@
       .catch((e) => { warn('voice-cmd threw:', e && e.message); return null; });
   }
 
+  // ── Пульс присутствия ──────────────────────────────────────────────────────
+  // Единственное, из чего сервер узнаёт, что человек всё ещё на линии. Без него
+  // потеря связи посреди разговора серверу не видна вовсе: слушатель сидит между
+  // сервером и OpenAI и о странице ничего не знает, а OpenAI о пропавшем
+  // собеседнике молчит и замечает его сам только через ~29 с. Замер до пульса —
+  // строка разговора закрывалась через 36-38 с, и всё это время следующее
+  // нажатие упиралось в собственное «занято».
+  //
+  // Раз в 3 с при пороге 10 с на сервере: три пропущенных удара. Заводится СРАЗУ
+  // по получении call_id, а не когда разговор «пошёл», — срок на сервере
+  // взводится ПЕРВЫМ ударом, и дыра между ним и вторым не должна быть длиннее
+  // порога.
+  const PRESENCE_BEAT_MS = 3000;
+  let presenceTimer = null;
+  function startPresenceBeat() {
+    if (presenceTimer || !callId) return;
+    const beat = () => {
+      if (closed || !callId) return;
+      post('/functions/v1/voice-cmd', { callId, ping: true })
+        .catch(() => { /* пропущенный удар — не беда, следующий через 3 с */ });
+    };
+    beat();
+    presenceTimer = setInterval(beat, PRESENCE_BEAT_MS);
+  }
+  function stopPresenceBeat() {
+    if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+  }
+
   // ── What the reader sees while talking ───────────────────────────────────
   //
   // ⚠️ EVERY TRANSCRIPT IS KEYED BY item_id. This used to be two flat strings
@@ -632,6 +660,7 @@
       callId = r.json.callId;
       startedAt = Date.now();
       closed = false;
+      startPresenceBeat();
       if (hooks.onStage) hooks.onStage('negotiating');
       await pc.setRemoteDescription({ type: 'answer', sdp: r.json.answerSdp });
 
@@ -730,6 +759,7 @@
 
   async function teardown() {
     closed = true;
+    stopPresenceBeat();
     clearTimeout(firstTurn.timer);
     firstTurn.timer = null;
     firstTurn.armed = false;
