@@ -235,12 +235,20 @@
 
     const requestId = nextRequestId();
     state.requestId = requestId;
+    // Номер операции — метка ОДНОГО нажатия. Из него считаются уиды обеих
+    // реплик, и ровно то же правило применяет сервер: потому в базе на пузырь
+    // одна строка, а не две. requestId рядом на эту роль не годится — он живёт
+    // только внутри страницы и до сервера не доезжает вовсе.
+    const opId = global.LexTurnId.newOpId();
+    const pressedAt = Date.now();
     WcThread.beginAssistant(requestId, { action: !!mode });
     WcComposer.setStreaming(true, requestId);
 
     try {
       const r = await WcBus.call('WC_SEND', {
         requestId,
+        opId,
+        pressedAt,
         conversationId: state.conversationId,
         // Со скрытой частью — учителю нужен отрывок, в котором стоят выбранные
         // слова. Она же ложится в беседу: повтор хода и следующие реплики

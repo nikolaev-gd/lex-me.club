@@ -792,12 +792,27 @@
     const slot = prompt.activeChatPromptId || 'chatB1';
     const knobs = await readKnobs();
 
-    const userUid = m.assistantUid ? m.userUid : WcHistory.newUid();
+    // Уиды пары. Обычная отправка считает их из номера операции — из того же
+    // числа и по тому же правилу их считает сервер, поэтому строка в базе на
+    // пузырь получается одна, а не две.
+    //
+    // «Заново» по-прежнему ПЕРЕИСПОЛЬЗУЕТ прежние уиды (m.assistantUid) и
+    // переписывает строку на месте. Снять это — работа следующего захода: без
+    // пометки «заменено» свежие уиды дали бы вторую пару, и переоткрытая
+    // беседа показывала бы вопрос дважды.
+    const opId = (!m.assistantUid && m.opId) ? String(m.opId) : null;
+    const userUid = m.assistantUid ? m.userUid : (opId ? global.LexTurnId.userTurnUid(opId) : WcHistory.newUid());
     // Чеканится ЗАРАНЕЕ, а не в момент записи: «заново» переписывает ответ под
     // тем же uid (upsert on_conflict merge-duplicates), то есть заменяет
     // строку, а не добавляет вторую.
-    const assistantUid = m.assistantUid || WcHistory.newUid();
-    const authoredAt = new Date().toISOString();
+    const assistantUid = m.assistantUid || (opId ? global.LexTurnId.assistantTurnUid(opId) : WcHistory.newUid());
+    // Время авторства пары. У хода с номером операции оно берётся от НАЖАТИЯ и
+    // разводится на миллисекунду: порядок ленты держится на authored_at, а при
+    // равной метке тайбрейк идёт по уиду, где ':a' меньше ':u' — ответ встал бы
+    // перед вопросом. Без номера (переспрос) остаётся прежнее поведение.
+    const opAt = opId ? global.LexTurnId.turnAuthoredAt(m.pressedAt) : null;
+    const authoredAt = opAt ? new Date(opAt.userAt).toISOString() : new Date().toISOString();
+    const answerAuthoredAt = opAt ? new Date(opAt.assistantAt).toISOString() : null;
     const attachment = (m.images && m.images[0]) || null;
 
     if (attachment && !global.LexModelRegistry.visionSupported(modelId)) {
@@ -866,7 +881,7 @@
         role: 'user', text: m.text, uid: userUid, authoredAt,
         ...(srvPath ? { attachments: [{ kind: 'image', path: srvPath, mime: attachment.mime, width: attachment.width, height: attachment.height }] } : {}),
       }];
-      if (answer) rows.push({ role: 'assistant', text: answer, uid: assistantUid, authoredAt: new Date().toISOString() });
+      if (answer) rows.push({ role: 'assistant', text: answer, uid: assistantUid, authoredAt: answerAuthoredAt || new Date().toISOString() });
       // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
       // под модель нет, и заводить её ради «заново» — миграция рядом с
       // деньгами ради удобства. Следствие честное и записано в журнале: повтор
@@ -914,6 +929,17 @@
         surface: 'standalone',
         source: 'webchat',
         turnIndex: buf.length - 1,
+        // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
+        // самому. chatKey — writeKey, то есть ключ, под которым строки реально
+        // ложатся: у хода заготовки это ключ ВЕТКИ, а не родителя (в
+        // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).
+        // Пустой opId («заново») значит «этот ход сервер не ведёт».
+        ...(opId ? {
+          opId,
+          chatKey: writeKey,
+          act: 'send',
+          authoredAt,
+        } : {}),
       },
       convId,
       knobs
