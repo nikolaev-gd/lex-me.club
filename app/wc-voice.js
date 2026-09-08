@@ -38,6 +38,11 @@
   'use strict';
 
   const TAG = '[wc-voice]';
+  // Имена кадров транспорта голосовой сессии — из общего модуля
+  // (lex-voice-events.js), а не своей строкой. Своя строка здесь уже
+  // расходилась: имя с приставкой `response.` не совпадает ни с чем и не
+  // даёт ошибки — ветка просто молча не срабатывает.
+  const VoiceEvents = global.LexVoiceEvents;
   const A = () => global.LexWebAuth;
   const SCOPE = 'shorts-main';
 
@@ -332,14 +337,21 @@
         break;
       }
 
-      case 'response.output_audio_buffer.started':
+      case VoiceEvents.OUTPUT_AUDIO_STARTED:
         // The teacher's voice actually started coming out of the speaker. This
         // is the moment the first-turn microphone guard is waiting for.
+        //
+        // Имя кадра берётся из общего модуля, а не пишется здесь: своей
+        // копией оно тут и разъехалось. Стояла лишняя приставка `response.`,
+        // которой у кадров транспорта нет, — и ветка не срабатывала ни разу.
+        // Замерено на живом звонке: пара приходит без приставки, и её вторая
+        // половина, `.stopped` ниже, была написана верно — поэтому половина
+        // пары работала, а половина нет.
         firstTurn.heardAudio = true;
         if (hooks.onTeacherSpeaking) hooks.onTeacherSpeaking(true);
         break;
 
-      case 'output_audio_buffer.stopped':
+      case VoiceEvents.OUTPUT_AUDIO_STOPPED:
         if (hooks.onTeacherSpeaking) hooks.onTeacherSpeaking(false);
         releaseFirstTurnGuard('teacher-finished');
         break;
