@@ -78,6 +78,10 @@
   // it is recorded here and the outgoing failure is translated back into a
   // normal ending on the way out.
   const stoppedByUser = new Set();
+  // Ходы, которые ведёт сервер: requestId → номер операции. Нужен «стопу»: он
+  // сообщает серверу, сколько знаков ответа человек успел увидеть, а адресуется
+  // это номером операции. Запись живёт ровно от заголовка ответа до конца хода.
+  const serverOps = new Map();
 
   const core = LexTeacherCore.create({
     TAG,
@@ -378,7 +382,11 @@
   });
 
   WcBus.on('WC_LOAD_CONVERSATION', async (m) => {
-    const turns = await WcHistory.turns(m.id);
+    // Урок и его ветки заготовок приходят ОДНОЙ выдачей: что показывать и какие
+    // ключи принадлежат этой беседе, решает сервер (list_turns). Разложить их
+    // обратно надвое обязаны мы — см. врезку про ленту и контекст ниже.
+    const conv = await WcHistory.conversation(m.id);
+    const turns = conv.lesson;
     // Пути в бакете приезжают вместе с репликой, ключи блобов лежат здесь.
     // Берём и то и другое: ключ — быстрая местная дорожка, путь — то, что
     // работает на другом устройстве и после повторного входа.
@@ -417,15 +425,7 @@
     // уходит наружу и живёт только на экране. Положи мы сшитое в openTurns —
     // учитель со следующего же вопроса увидел бы всё, что человек говорил
     // заготовкам, и изоляция кончилась бы молча, без единой ошибки.
-    let branchTurns = [];
-    try {
-      const prefix = global.LexActionBranch.actionBranchPrefixOf(m.id);
-      if (prefix) branchTurns = await WcHistory.actionBranchTurns(prefix);
-    } catch (err) {
-      // Ветки не прочитались — показываем один урок. Это хуже полного, но
-      // лучше пустого экрана.
-      console.warn(TAG, 'action branches not read:', err && err.message);
-    }
+    const branchTurns = conv.branches;
     const byBranch = {};
     branchTurns.forEach((t) => {
       (byBranch[t.branchKey] || (byBranch[t.branchKey] = [])).push(t);
@@ -549,7 +549,7 @@
   async function branchBuffer(branchKey) {
     if (openBranches.has(branchKey)) return openBranches.get(branchKey);
     let loaded = [];
-    try { loaded = normalizeTurns(await WcHistory.turns(branchKey)); } catch (err) {
+    try { loaded = normalizeTurns((await WcHistory.conversation(branchKey)).lesson); } catch (err) {
       console.warn(TAG, 'action branch not read:', err && err.message);
     }
     // Пока читали, тот же ключ мог завести параллельный вызов — берём тот, что
@@ -828,7 +828,7 @@
       setOpen(convId, []);
     } else if (openId !== convId) {
       // Opened from history in another tab, or the page reloaded mid-thread.
-      setOpen(convId, await WcHistory.turns(convId));
+      setOpen(convId, (await WcHistory.conversation(convId)).lesson);
     }
 
     // ── Куда ляжет этот ход ──────────────────────────────────────────────
@@ -847,24 +847,24 @@
     const slot = prompt.activeChatPromptId || 'chatB1';
     const knobs = await readKnobs();
 
-    // Уиды пары. Обычная отправка считает их из номера операции — из того же
-    // числа и по тому же правилу их считает сервер, поэтому строка в базе на
+    // Уиды пары. И отправка, и «заново» считают их из номера операции — из того
+    // же числа и по тому же правилу их считает сервер, поэтому строка в базе на
     // пузырь получается одна, а не две.
-    //
-    // «Заново» по-прежнему ПЕРЕИСПОЛЬЗУЕТ прежние уиды (m.assistantUid) и
-    // переписывает строку на месте. Снять это — работа следующего захода: без
-    // пометки «заменено» свежие уиды дали бы вторую пару, и переоткрытая
-    // беседа показывала бы вопрос дважды.
-    const opId = (!m.assistantUid && m.opId) ? String(m.opId) : null;
-    const userUid = m.assistantUid ? m.userUid : (opId ? global.LexTurnId.userTurnUid(opId) : WcHistory.newUid());
-    // Чеканится ЗАРАНЕЕ, а не в момент записи: «заново» переписывает ответ под
-    // тем же uid (upsert on_conflict merge-duplicates), то есть заменяет
-    // строку, а не добавляет вторую.
-    const assistantUid = m.assistantUid || (opId ? global.LexTurnId.assistantTurnUid(opId) : WcHistory.newUid());
+    const isRegen = m.act === 'regen';
+    const opId = m.opId ? String(m.opId) : null;
+    // Вопрос при переспросе НЕ трогается: он тот же, и уид у него тот же.
+    const userUid = isRegen ? m.userUid : (opId ? global.LexTurnId.userTurnUid(opId) : WcHistory.newUid());
+    // Два уида нового ответа, и какой из них пойдёт в базу, решится ПОЗЖЕ —
+    // когда придёт заголовок ответа и станет известно, ведёт ли сервер этот ход
+    // (см. запись ниже). Раньше знать нельзя, а решение существенное: свежий
+    // уид на обычном аккаунте оставил бы прежний ответ в базе непомеченным, и
+    // переоткрытая беседа показала бы два ответа на один вопрос.
+    const newAssistantUid = opId ? global.LexTurnId.assistantTurnUid(opId) : WcHistory.newUid();
+    const assistantUid = isRegen ? (m.assistantUid || newAssistantUid) : newAssistantUid;
     // Время авторства пары. У хода с номером операции оно берётся от НАЖАТИЯ и
     // разводится на миллисекунду: порядок ленты держится на authored_at, а при
     // равной метке тайбрейк идёт по уиду, где ':a' меньше ':u' — ответ встал бы
-    // перед вопросом. Без номера (переспрос) остаётся прежнее поведение.
+    // перед вопросом.
     const opAt = opId ? global.LexTurnId.turnAuthoredAt(m.pressedAt) : null;
     const authoredAt = opAt ? new Date(opAt.userAt).toISOString() : new Date().toISOString();
     const answerAuthoredAt = opAt ? new Date(opAt.assistantAt).toISOString() : null;
@@ -908,10 +908,19 @@
     // Collect the answer as it streams so it can be written back on DONE. The
     // subscription is torn down by the terminal event, never left behind.
     let answer = '';
+    // Ведёт ли сервер этот ход. Приходит заголовком ответа, то есть РАНЬШЕ
+    // первого куска, — см. proxyFetch в lex-teacher-core.js.
+    let serverTurn = false;
     const unsubscribe = WcBus.subscribe(async (msg) => {
       if (msg.requestId !== m.requestId) return;
+      if (msg.type === 'STREAM_SERVER_TURN') {
+        serverTurn = !!msg.serverTurn;
+        if (serverTurn && msg.opId) serverOps.set(m.requestId, String(msg.opId));
+        return;
+      }
       if (msg.type === 'STREAM_CHUNK' && msg.text) { answer += msg.text; return; }
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
+      serverOps.delete(m.requestId);
       unsubscribe();
       // A partial answer is kept: the provider produced those tokens and the
       // account was billed for them, so throwing them away would be throwing
@@ -932,17 +941,34 @@
           }
         } catch (_) { /* сообщение всё равно отправлено */ }
       }
-      const rows = [{
+      // ⚠ ЧТО ИМЕННО ПИШЕТСЯ ПРИ «ЗАНОВО» — РЕШАЕТСЯ ЗДЕСЬ, И ЭТО ДВЕ РАЗНЫЕ
+      // ЗАПИСИ.
+      //
+      // Ход вёл сервер: он уже написал новый ответ своим уидом и пометил
+      // прежний заменённым. Нам писать нечего и НЕЛЬЗЯ — вопрос трогать не
+      // надо (он тот же, с тем же временем авторства), а ответ у сервера
+      // точнее нашего: на «стопе» он урезан по числу увиденных знаков.
+      //
+      // Ход вёл не сервер (обычный аккаунт, «заново» без номера операции): всё
+      // как раньше, до знака — прежние уиды и перезапись строк на месте.
+      // Свежий уид здесь оставил бы прежний ответ в базе непомеченным, и
+      // переоткрытая беседа показала бы два ответа на один вопрос.
+      const serverLedRegen = isRegen && serverTurn;
+      const writeAssistantUid = serverLedRegen ? newAssistantUid : assistantUid;
+      const rows = serverLedRegen ? [] : [{
         role: 'user', text: m.text, uid: userUid, authoredAt,
         ...(srvPath ? { attachments: [{ kind: 'image', path: srvPath, mime: attachment.mime, width: attachment.width, height: attachment.height }] } : {}),
       }];
-      if (answer) rows.push({ role: 'assistant', text: answer, uid: assistantUid, authoredAt: answerAuthoredAt || new Date().toISOString() });
+      if (answer && !serverLedRegen) rows.push({ role: 'assistant', text: answer, uid: writeAssistantUid, authoredAt: answerAuthoredAt || new Date().toISOString() });
       // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
       // под модель нет, и заводить её ради «заново» — миграция рядом с
       // деньгами ради удобства. Следствие честное и записано в журнале: повтор
       // хода, ПЕРЕЖИВШЕГО перезагрузку, идёт текущей моделью, потому что чем
       // он был отвечен — не сохранено нигде.
-      if (answer) buf.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
+      if (answer) buf.push({ role: 'assistant', text: answer, uid: writeAssistantUid, model: modelId });
+      // Серверный переспрос: писать нечего, но лента и список бесед всё равно
+      // изменились — сообщаем об этом, как и обычный ход.
+      if (!rows.length) { WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' }); return; }
       try {
         // Ход заготовки ложится в СВОЮ ветку. Название беседы при этом не
         // меняется: ветка не беседа, в список она не идёт (триггер базы
@@ -988,12 +1014,16 @@
         // самому. chatKey — writeKey, то есть ключ, под которым строки реально
         // ложатся: у хода заготовки это ключ ВЕТКИ, а не родителя (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).
-        // Пустой opId («заново») значит «этот ход сервер не ведёт».
+        // Пустой opId значит «этот ход сервер не ведёт».
         ...(opId ? {
           opId,
           chatKey: writeKey,
-          act: 'send',
+          act: isRegen ? 'regen' : 'send',
           authoredAt,
+          // Какой ответ заменяет «заново». Без него сервер переспрос не ведёт:
+          // «последняя реплика учителя» — не тот же ответ, когда открыто второе
+          // устройство.
+          ...(isRegen && m.replacesUid ? { replacesUid: String(m.replacesUid) } : {}),
         } : {}),
       },
       convId,
@@ -1044,6 +1074,13 @@
     // Вопрос тоже выкидываем: runSend положит его обратно сам.
     openTurns.pop();
 
+    // «Заново» уезжает на сервер СВОИМ номером операции и уидом заменяемого
+    // ответа. Из номера считается уид нового ответа — тот же, что заведёт
+    // сервер. Прежний уид тоже едет: без него ход остаётся клиентским (сервер
+    // «заново» без него не ведёт), и тогда всё работает ровно как раньше —
+    // прежние уиды, перезапись строк на месте.
+    const opId = (global.LexTurnId && assistantUid) ? global.LexTurnId.newOpId() : null;
+
     return runSend({
       requestId: m.requestId,
       conversationId: openId,
@@ -1053,6 +1090,10 @@
       modelOverride,
       userUid,
       assistantUid,
+      act: 'regen',
+      opId,
+      pressedAt: Date.now(),
+      replacesUid: assistantUid,
     });
   });
 
@@ -1071,10 +1112,21 @@
   WcBus.on('WC_APPEND_TURNS', async (m) => {
     if (!m.conversationId || !Array.isArray(m.turns) || !m.turns.length) return { ok: false };
     if (openId !== m.conversationId) setOpen(m.conversationId, openTurns);
-    const rows = m.turns.map((t) => {
-      const uid = WcHistory.newUid();
+    // ⚠️ УИД БЕРЁТСЯ У ПОСТАВЩИКА, а метки времени РАЗВОДЯТСЯ.
+    //
+    // Уид 'voice:<item_id>' приходит от ленты (wc-app.js): то же правило
+    // применяет серверный слушатель, поэтому две записи об одной реплике
+    // сходятся в одну строку, а не двоятся.
+    //
+    // Время у всех реплик пачки было одно и то же — момент записи. Порядок
+    // ленты держится на нём, а при равной метке тайбрейк идёт по уиду, который
+    // у голосовых реплик случаен: ответ учителя вставал бы над вопросом
+    // человека через раз. Разводим на миллисекунду по порядку в пачке.
+    const flushedAt = Date.now();
+    const rows = m.turns.map((t, i) => {
+      const uid = t.uid ? String(t.uid) : WcHistory.newUid();
       openTurns.push({ role: t.role, text: t.text, uid });
-      return { role: t.role, text: t.text, uid, authoredAt: new Date().toISOString() };
+      return { role: t.role, text: t.text, uid, authoredAt: new Date(flushedAt + i).toISOString() };
     });
     await WcHistory.push(m.conversationId, rows);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
@@ -1087,6 +1139,18 @@
     // Marked BEFORE the abort: the abort is what produces the error, and a
     // mark set afterwards would lose the race with it.
     stoppedByUser.add(m.requestId);
+    // СКОЛЬКО ЗНАКОВ ЧЕЛОВЕК УСПЕЛ УВИДЕТЬ — отдельным стуком, до обрыва.
+    // Текста не шлём: ответ у сервера уже есть, мы сообщаем только длину. У
+    // страницы печатающего буфера нет, поэтому увиденное — это весь пришедший
+    // текст, и его длину считает лента (WcThread.seenChars).
+    //
+    // Только для хода, который ведёт сервер: на обычном аккаунте строки
+    // операции нет, и вызов всё равно ничего бы не сделал.
+    const stopOpId = serverOps.get(m.requestId) || null;
+    if (stopOpId && Number.isFinite(Number(m.seenChars))) {
+      WcHistory.reportStopped(stopOpId, Math.max(0, Math.round(Number(m.seenChars))))
+        .catch((err) => console.warn(TAG, 'stop not reported:', err && err.message));
+    }
     entry.abort(new DOMException('Stopped by user', 'AbortError'));
     return { ok: true };
   });

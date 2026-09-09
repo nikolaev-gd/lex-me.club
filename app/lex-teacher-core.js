@@ -173,6 +173,14 @@
         },
         body: JSON.stringify({ meta: proxy.meta || {}, providerRequestBody: providerBody }),
         signal,
+      }).then((resp) => {
+        // Заголовки ответа наверх — ОДНОЙ точкой на все четыре адаптера. Ради
+        // 'x-lex-server-turn': ведёт ли сервер этот ход. Ответ нужен раньше
+        // конца потока (человек может нажать «стоп» в первую секунду, и
+        // завершающего кадра тогда не будет вовсе), поэтому не кадром, а
+        // заголовком.
+        try { if (proxy && typeof proxy.onHeaders === 'function') proxy.onHeaders(resp.headers); } catch (_) {}
+        return resp;
       });
     }
 
@@ -2034,8 +2042,30 @@
           // now(), но тогда его строка и строка приложения разошлись бы по
           // authored_at на время дороги, а порядок ленты держится именно на нём.
           authoredAt: (chatOptions && chatOptions.authoredAt) || null,
+          // Какой ответ человек заменяет. «Последняя реплика учителя» — не тот
+          // же ответ, когда открыто второе устройство; кто заменяется, знает
+          // нажавший. Без него сервер «заново» не ведёт вовсе.
+          replacesUid: (chatOptions && chatOptions.replacesUid) || null,
         },
       } : null;
+      // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)
+      // и уезжает наверх отдельным событием — раньше первого куска и раньше
+      // любого завершающего кадра. Поверхность решает по нему, что делать со
+      // своей копией переписки после «заново» и стучаться ли числом увиденного
+      // после «стопа».
+      if (proxy) {
+        proxy.onHeaders = (h) => {
+          let led = false;
+          try { led = String(h && h.get && h.get('x-lex-server-turn')) === '1'; } catch (_) {}
+          emit(tabId, {
+            type: 'STREAM_SERVER_TURN',
+            requestId,
+            serverTurn: led,
+            opId: (proxy.meta && proxy.meta.opId) || null,
+            chatKey: (proxy.meta && proxy.meta.chatKey) || null,
+          });
+        };
+      }
       // Caller passes the chained id from the previous successful turn on the
       // same (modelId, promptId) pair; null on first turn or when the cache
       // entry doesn't have one yet.

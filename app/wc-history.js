@@ -303,6 +303,13 @@
   const renameChat = (chatKey, title) =>
     post('/rest/v1/rpc/rename_chat', { p_chat_key: chatKey, p_title: title });
 
+  // «Человек нажал стоп, увидел столько-то знаков» — первая створка двери для
+  // команд (docs/PLAN-SERVER-HISTORY.md §3). Уезжает ОДНО ЧИСЛО и номер
+  // операции; текста не шлём — ответ у сервера уже есть. Ход, который сервер не
+  // вёл, строки операции не имеет, и вызов молча ничего не делает.
+  const reportStopped = (opId, seenChars) =>
+    post('/rest/v1/rpc/lex_turn_stopped', { p_op_id: opId, p_seen_chars: seenChars });
+
   // Скрытие, а не удаление: строки в public.video_chat_turns не трогаются
   // никогда. И оно теперь ОБЩЕЕ для всех устройств, а не своё у каждого, —
   // беседа, убранная здесь, исчезает и в расширении, и на телефоне.
@@ -341,28 +348,38 @@
   }
 
   // ── One conversation ─────────────────────────────────────────────────────
-  // Ordered by authored_at then turn_uid — NOT by seq. The client stopped
-  // writing seq (its NOT NULL was dropped in a migration), so ordering by it
-  // would put every recent turn in an arbitrary place.
-  async function turns(videoId) {
-    const rows = await get('/rest/v1/video_chat_turns'
-      + '?select=role,content,turn_uid,authored_at,created_at,deleted_at,attachments'
-      + '&video_id=eq.' + encodeURIComponent(videoId)
-      + '&order=authored_at.asc,turn_uid.asc');
-    return (rows || []).filter(keepRow).map(toTurn);
+  //
+  // ЧТО ПОКАЗАТЬ, РЕШАЕТ СЕРВЕР. Прямого запроса к video_chat_turns здесь
+  // больше нет: снятое, заменённое переспросом и ещё пустое отсеивает list_turns,
+  // один раз на все поверхности. Страница ничего не фильтрует.
+  //
+  // Ходы заготовок приходят той же выдачей: «какие ключи принадлежат этой
+  // беседе» — тоже правило показа, и жило оно двумя копиями клиентского кода
+  // (actionBranchBelongsTo здесь и в расширении). У каждой строки свой chat_key,
+  // поэтому разложить их обратно на урок и ветки страница по-прежнему может — и
+  // обязана: лента и контекст расходятся намеренно (см. wc-backend.js).
+  //
+  // Порядок задаёт сервер: authored_at, затем turn_uid. Не seq — клиент её не
+  // пишет с тех пор, как с колонки сняли NOT NULL.
+  //
+  // Возвращает { lesson, branches } — обе половины уже в виде реплик ленты.
+  async function conversation(chatKey) {
+    const out = await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey });
+    const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
+    const lesson = [];
+    const branches = [];
+    for (const r of rows) {
+      const key = r && r.chat_key;
+      if (!key) continue;
+      if (key === chatKey) lesson.push(toTurn(r));
+      else branches.push(Object.assign(toTurn(r), { branchKey: key }));
+    }
+    return { lesson, branches };
   }
 
   // Время авторства идёт НАРУЖУ вместе с репликой — оно нужно тому, кто сшивает
   // урок с ветками заготовок в одну ленту (wc-backend.js). Внутри одного ключа
   // порядок задаёт сам запрос, между ключами задать его нечем, кроме этого поля.
-  // Фильтр СИДОВ снят вместе с ними. Он искал реплики, начинающиеся с
-  // '[lex-context]' / '[lex-page]' / '[lex-transcript]' / '[lex-seed]', —
-  // а на этой поверхности их не пишет никто (проверено grep'ом по webchat/ и
-  // web/: строки встречались только в самом фильтре). В облаке сидов тоже нет
-  // ни одного (docs/PLAN-CHAT-LIST.md §Д). То есть фильтр работал против
-  // пустоты; сервер его к себе намеренно не взял, и держать его здесь значило
-  // бы оставить кусок той самой второй реализации.
-  const keepRow = (r) => !r.deleted_at;
   const toTurn = (r) => ({
     role: r.role,
     text: r.content || '',
@@ -373,35 +390,6 @@
     // устройстве не значит ничего.
     attachments: Array.isArray(r.attachments) ? r.attachments : null,
   });
-
-  // ── Переписки ЗАГОТОВОК одного чата ──────────────────────────────────────
-  //
-  // Ход через заготовку живёт своей веткой — ключ '__lex_action__<чат>__<слот>'
-  // (lex-action-branch.js). Веток у чата столько, сколько заготовок в нём
-  // трогали, и вперёд их список неизвестен: перечисляем ХРАНИЛИЩЕ, а не список
-  // заготовок — ровно так же, как расширение (chat-surface.js
-  // actionBranchPrefixOfChat). Удалённая заготовка от этого не уносит с собой
-  // сказанное, и свежезагруженной странице не нужно дожидаться каталога.
-  //
-  // ⚠️ ОТБОР ИДЁТ В ДВА ШАГА, И ВТОРОЙ ОБЯЗАТЕЛЕН. В SQL LIKE подчёркивание —
-  // это подстановочный знак «любой один символ», а в нашем префиксе их девять.
-  // Значит запрос отбирает ШИРЕ, чем надо, и сузить его до точного совпадения
-  // здесь нечем (ESCAPE PostgREST не даёт). Поэтому запрос только сокращает
-  // выборку, а решает — actionBranchBelongsTo: тот же самый разбор, каким
-  // расширение решает, чья это ветка. Без него в ленту чата попали бы ходы
-  // ДРУГОГО чата, чей ключ отличается только знаком препинания.
-  async function actionBranchTurns(prefix) {
-    if (typeof prefix !== 'string' || !prefix) return [];
-    const rows = await get('/rest/v1/video_chat_turns'
-      + '?select=video_id,role,content,turn_uid,authored_at,created_at,deleted_at,attachments'
-      + '&video_id=like.' + encodeURIComponent(prefix + '*')
-      + '&order=authored_at.asc,turn_uid.asc');
-    const AB = global.LexActionBranch;
-    return (rows || [])
-      .filter((r) => AB.actionBranchBelongsTo(r.video_id, prefix))
-      .filter(keepRow)
-      .map((r) => Object.assign(toTurn(r), { branchKey: r.video_id }));
-  }
 
   // ── Writing turns back ───────────────────────────────────────────────────
   // Same row shape and same conflict target as the extension, which is what
@@ -468,8 +456,8 @@
     renameChat,
     setChatHidden,
     requestTitle,
-    turns,
-    actionBranchTurns,
+    conversation,
+    reportStopped,
     push,
     newUid,
     TAG,

@@ -351,7 +351,11 @@
 
   function stopStream() {
     if (!state.requestId) return;
-    WcBus.call('WC_STOP', { requestId: state.requestId })
+    // Вместе с «стопом» уезжает ЧИСЛО: сколько знаков ответа человек успел
+    // увидеть. Считается ДО обрыва — после него лента уже закрыта и спрашивать
+    // будет не у чего.
+    const seenChars = WcThread.seenChars(state.requestId);
+    WcBus.call('WC_STOP', { requestId: state.requestId, seenChars })
       .catch((err) => console.warn('[wc] stop:', err && err.message));
   }
 
@@ -477,7 +481,10 @@
       const flushed = [];
       said.forEach((v, k) => {
         if (v.saved || !v.text) return;
-        turns.push({ role: v.role, text: v.text });
+        // Уид реплики — из идентификатора поставщика, а не случайный. То же
+        // правило применяет серверный слушатель (он видит ровно эти события),
+        // поэтому запись сервера и запись страницы попадают в ОДНУ строку.
+        turns.push({ role: v.role, text: v.text, uid: 'voice:' + k });
         flushed.push(k);
       });
       if (!turns.length) return;
