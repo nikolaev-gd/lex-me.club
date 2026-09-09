@@ -1,5 +1,5 @@
 // webchat/wc-history.js — беседы: как читается их список, как открывается одна
-// из них и как в неё дописываются реплики.
+// из них и что о её реплике страница ещё имеет право сказать серверу.
 //
 // ── СПИСОК СОБИРАЕТ СЕРВЕР, А НЕ ЭТОТ ФАЙЛ ──────────────────────────────────
 // Раньше здесь лежала вторая реализация договора: файл сам решал, что считать
@@ -15,9 +15,12 @@
 // rename_chat и set_chat_hidden; клиентских прав записи на public.chats нет
 // вовсе, и подделать порядок списка или чужое имя нечем.
 //
-// ЧТО ОСТАЛОСЬ ЗА ЭТИМ ФАЙЛОМ: ОДНА беседа — её реплики, её ветки заготовок,
-// дозапись в неё — и заведение строки сеанса. Это про содержимое, а не про
-// список, и сервер этого на себя не брал.
+// ЧТО ОСТАЛОСЬ ЗА ЭТИМ ФАЙЛОМ: ОДНА беседа — её реплики и ветки заготовок на
+// чтение, две команды по ней («стоп», «приложил картинку») — и заведение
+// строки сеанса. Сами реплики страница НЕ ПИШЕТ (шаг 9
+// docs/PLAN-SERVER-HISTORY.md): вопрос и ответ заводит и наполняет llm-proxy
+// по ходу ответа, голосовые реплики — слушатель voice-watch, а права писать в
+// таблицу реплик у приложения нет вовсе — прямая запись отвечает «нет прав».
 //
 // ── Имя беседы ──────────────────────────────────────────────────────────────
 // Имя считается на сервере ОДИН РАЗ и там же хранится (docs/PLAN-CHAT-LIST.md,
@@ -391,42 +394,39 @@
     attachments: Array.isArray(r.attachments) ? r.attachments : null,
   });
 
-  // ── Writing turns back ───────────────────────────────────────────────────
-  // Same row shape and same conflict target as the extension, which is what
-  // makes a turn written here visible there. `seq` is deliberately absent: the
-  // new client does not write it and the column's NOT NULL was dropped for
-  // exactly this.
-  const BATCH = 100;
-
-  async function push(videoId, rows) {
-    const account = accountId();
-    if (!account || !rows.length) return { ok: false };
-    const deviceId = await deviceIdOnce();
-    // `attachments` стоит в КАЖДОЙ строке пачки, в том числе как null:
-    // PostgREST берёт список колонок из ПЕРВОГО объекта массива, и без ключа у
-    // первой реплики колонка не попала бы в запрос вовсе — путь второй молча не
-    // доехал бы. Та же оговорка стоит в chat-history-server.js, потому что это
-    // вторая реализация того же договора.
-    const payload = rows.map((t) => ({
-      account_id: account,
-      video_id: videoId,
-      turn_uid: t.uid,
-      authored_at: t.authoredAt || new Date().toISOString(),
-      device_id: deviceId,
-      role: t.role,
-      content: t.text,
-      attachments: (Array.isArray(t.attachments) && t.attachments.length) ? t.attachments : null,
-    }));
-    for (let i = 0; i < payload.length; i += BATCH) {
-      await post('/rest/v1/video_chat_turns?on_conflict=account_id,video_id,turn_uid',
-        payload.slice(i, i + BATCH), 'resolution=merge-duplicates,return=minimal');
-    }
-    return { ok: true, pushed: payload.length };
+  // ── Что страница ещё говорит серверу о реплике ───────────────────────────
+  //
+  // Реплики пишет сервер, и второй копии этого договора здесь нет: раньше тут
+  // лежал upsert той же формы, что в расширении, и вместе с ним — вторая
+  // реализация того, «что считается ходом». Осталась ОДНА вещь, которой сервер
+  // не знает: путь картинки в бакете. Файл уходит в attach-upload мимо
+  // llm-proxy, путь возвращается странице, и она докладывает его командой
+  // attach_to_turn на строку вопроса — ту же, что завёл сервер (уид считается
+  // из номера операции одинаково здесь и там). Форма — та же, что у
+  // lex_turn_stopped: команда о действии человека, а не запись строки.
+  //
+  // `true` — строка нашлась и вложения легли; `false` — строки на сервере нет
+  // (ход оборвали раньше, чем сервер завёл реплики). Строку команда НЕ
+  // заводит: пустой вопрос с картинкой на отказе поставщика показал бы беседу
+  // в списке без единого хода. Пустой список снимает вложения.
+  //
+  // PostgREST отдаёт скалярный результат функции голым значением в теле, и
+  // rest() разбирает его как JSON, — поэтому сравнение именно с `true`, а не
+  // с «непустым ответом»: `false` в теле — тоже непустой ответ.
+  async function attach(chatKey, uid, attachments) {
+    const list = (Array.isArray(attachments) && attachments.length) ? attachments : [];
+    const out = await post('/rest/v1/rpc/attach_to_turn', {
+      p_chat_key: chatKey, p_turn_uid: uid, p_attachments: list,
+    });
+    return out === true;
   }
 
-  // A stable id for this browser, minted once. The extension keeps the same
-  // notion under 'user_id'; the column exists so a turn can be traced to where
-  // it was typed.
+  // Устойчивый номер ЭТОГО браузера, отчеканенный один раз. Подписывает
+  // единственную строку, которую страница ещё заводит сама, — sessions.user_id
+  // (см. createSession): «этот сеанс завели здесь», а не на телефоне. Реплик он
+  // больше не подписывает: их пишет сервер, а колонку device_id не заполняет
+  // никто (chat_turns_client_writes_revoked.sql). Расширение держит то же
+  // понятие под ключом 'user_id' (user-id.js).
   let deviceIdCache = null;
   async function deviceIdOnce() {
     if (deviceIdCache) return deviceIdCache;
@@ -458,7 +458,7 @@
     requestTitle,
     conversation,
     reportStopped,
-    push,
+    attach,
     newUid,
     TAG,
   };

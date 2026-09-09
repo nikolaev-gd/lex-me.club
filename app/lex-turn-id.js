@@ -53,5 +53,18 @@
     return { userAt: base, assistantAt: base + 1 };
   }
 
-  global.LexTurnId = { newOpId, userTurnUid, assistantTurnUid, turnAuthoredAt };
+  // Строка, которую ЗАВОДИТ СЕРВЕР, узнаётся по форме уида: <opId>:u / <opId>:a
+  // у текстового хода (lex_turn_begin), voice:<item_id> у реплики разговора
+  // (lex_voice_turn). Приложение реплик больше не пишет (шаг 9 схемы), и это
+  // единственное, что ему нужно знать о строке: есть ли она на сервере вообще.
+  // Есть — можно доложить путь вложения (attach_to_turn) и снять обмен
+  // (hide_turns); нет (случайный uuid — ход, который сервер не вёл: правка
+  // вопроса без номера операции, листалка вариантов, голос на Gemini) — на
+  // сервере такой реплики нет и стучаться некуда.
+  function isServerTurnUid(uid) {
+    const s = typeof uid === 'string' ? uid : '';
+    return /:[ua]$/.test(s) || s.indexOf('voice:') === 0;
+  }
+
+  global.LexTurnId = { newOpId, userTurnUid, assistantTurnUid, turnAuthoredAt, isServerTurnUid };
 })(typeof self !== 'undefined' ? self : this);

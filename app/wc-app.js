@@ -147,6 +147,12 @@
       if (!ok) return;
       stopStream();
     }
+    // Уход из беседы (решение владельца 2026-09-09, docs/spec/30-voice.md):
+    // открыли ДРУГУЮ беседу — живой разговор кончился, микрофон закрыт. Именно
+    // другую: повторный выбор той же строки уходом не считается. Дожидаемся ДО
+    // загрузки: stop() дописывает последний обмен в память беседы, и лента
+    // новой не должна рисоваться поверх ещё живого разговора.
+    if (id !== state.conversationId) await endVoiceOnLeave('open-chat');
     let r;
     try {
       r = await WcBus.call('WC_LOAD_CONVERSATION', { id });
@@ -163,8 +169,12 @@
     syncAttachment();
   }
 
-  function newConversation() {
+  async function newConversation() {
     if (WcThread.isStreaming()) stopStream();
+    // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же
+    // решение, что в openConversation). Карандаш во время звонка спрятан, но
+    // сюда же ведёт удаление открытой беседы из панели (deleteConversation).
+    await endVoiceOnLeave('new-chat');
     state.conversationId = null;
     WcThread.clear();
     WcSidebar.setActive(null);
@@ -377,11 +387,32 @@
       toast('Could not delete: ' + (err && err.message), { error: true });
       return;
     }
-    if (state.conversationId === id) newConversation();
+    if (state.conversationId === id) await newConversation();
     await refreshConversations();
   }
 
   // ── Voice ─────────────────────────────────────────────────────────────────
+  // Уход из БЕСЕДЫ заканчивает живой разговор (решение владельца 2026-09-09,
+  // docs/spec/30-voice.md): открыли другую беседу, завели новую — микрофон
+  // закрыт, учитель замолчал. Одна точка на оба случая; делает ровно то, что
+  // крестик экрана звонка (hooks.onEnd ниже): вид уходит по нажатию, а не по
+  // ответу сервера, потом дожидаемся stop() — «вернулся» значит «шлюз свободен
+  // и последний обмен лёг в память беседы». Единственный законный способ
+  // погасить голос — WcVoice.stop(); teardown напрямую не зовём. Без живого
+  // разговора — холостой ход; повторный stop() внутри WcVoice тоже холостой.
+  // Уход из ПРИЛОЖЕНИЯ (вкладка, выход из аккаунта) — не отсюда, см. signOut.
+  async function endVoiceOnLeave(reason) {
+    if (!(WcVoice.active || WcVoice.connecting)) return;
+    WcVoiceScreen.close();
+    WcComposer.setVoiceActive(false);
+    WcHeader.setVoiceActive(false);
+    await WcVoice.stop({ reason });
+  }
+  // Концы разговора, которые выбрал сам человек: крестик и уход из беседы.
+  // О них onDisconnected не сообщает — плашка нужна концам, которых человек
+  // не нажимал (сервер, сеть, деньги).
+  const VOICE_END_BY_READER = new Set(['manual', 'open-chat', 'new-chat']);
+
   // The mic button is a toggle over one live session. Everything the reader
   // hears and says lands in the same thread as typing, through the same
   // bubbles — a spoken conversation is a conversation, not a separate mode
@@ -460,15 +491,24 @@
 
     // What has been said so far, KEYED BY item_id and in the order the server
     // opened the items — a Map keeps insertion order, which is what makes the
-    // saved transcript match what was on screen.
+    // remembered transcript match what was on screen.
     //
-    // WHY A FLUSH AND NOT JUST "SAVE ON response.done". Hanging up right after
-    // the teacher finishes speaking is the NORMAL way to end a voice
-    // conversation, and response.done arrives after the last audio — so saving
-    // only there loses the final exchange every time somebody stops when they
-    // are done. Measured, not guessed: a session whose money the server had
-    // already billed ($0.0176 in balance_ledger) left zero turns in the
-    // conversation. The extension has a settle window for the same reason.
+    // КТО ЧТО ПИШЕТ (с 2026-09-09, docs/PLAN-SERVER-HISTORY.md шаг 8). Реплики
+    // разговора в таблицу кладёт СЕРВЕРНЫЙ СЛУШАТЕЛЬ — он видит те же события
+    // и живёт дольше вкладки. flushExchange ниже таблицу не трогает:
+    // WC_APPEND_TURNS кормит только память открытой беседы (openTurns в
+    // wc-backend.js), из которой собирается контекст СЛЕДУЮЩЕГО текстового
+    // вопроса, — иначе после звонка учитель отвечал бы, не помня, о чём только
+    // что говорили вслух, пока беседу не перезагрузят с сервера.
+    //
+    // WHY A FLUSH AND NOT JUST "REMEMBER ON response.done". Hanging up right
+    // after the teacher finishes speaking is the NORMAL way to end a voice
+    // conversation, and response.done arrives after the last audio — so
+    // remembering only there loses the final exchange from the context every
+    // time somebody stops when they are done. The same gap once lost the turns
+    // from the table itself, back when this function wrote it (measured:
+    // $0.0176 billed in balance_ledger, zero turns saved). The extension has a
+    // settle window for the same reason.
     const said = new Map();   // itemId → { role, text, saved }
 
     function note(itemId, role, text) {
@@ -483,7 +523,8 @@
         if (v.saved || !v.text) return;
         // Уид реплики — из идентификатора поставщика, а не случайный. То же
         // правило применяет серверный слушатель (он видит ровно эти события),
-        // поэтому запись сервера и запись страницы попадают в ОДНУ строку.
+        // поэтому реплика в памяти беседы и строка, которую записал сервер, —
+        // одна и та же, а не две при следующей загрузке беседы.
         turns.push({ role: v.role, text: v.text, uid: 'voice:' + k });
         flushed.push(k);
       });
@@ -495,7 +536,7 @@
       try {
         await WcBus.call('WC_APPEND_TURNS', { conversationId: convId, turns });
       } catch (err) {
-        console.warn('[wc] voice turn not saved:', err && err.message);
+        console.warn('[wc] voice turn not kept in memory:', err && err.message);
         flushed.forEach((k) => { const v = said.get(k); if (v) v.saved = false; });
       }
     }
@@ -558,7 +599,7 @@
             WcHeader.setVoiceActive(false);
             WcThread.endVoice();
             await flushExchange();
-            if (reason && reason !== 'manual') toast('Conversation ended: ' + reason);
+            if (reason && !VOICE_END_BY_READER.has(reason)) toast('Conversation ended: ' + reason);
             // The debit is made by the server-side listener after the call
             // closes, so ask for the balance twice, like a text turn does.
             refreshAccount();
@@ -1256,6 +1297,8 @@
   });
 
   async function signOut() {
+    // TODO: выход из аккаунта — уход из ПРИЛОЖЕНИЯ, не из беседы; живой голос
+    // здесь рвёт reload без отчёта о конце. Вне задачи 2026-09-09, не трогать.
     try { await WcBus.call('WC_SIGN_OUT'); } catch (_) {}
     global.location.reload();
   }

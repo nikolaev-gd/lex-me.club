@@ -469,7 +469,9 @@
   // хода: пока картинка в этом браузере, показ мгновенный и без сети. Путь в
   // бакете живёт НА СЕРВЕРЕ, в колонке `attachments` той же реплики: он и
   // делает так, что переписка, открытая на другом устройстве или после
-  // повторного входа, показывает ту же картинку.
+  // повторного входа, показывает ту же картинку. Кладёт его туда страница —
+  // командой attach_to_turn (WcHistory.attach), и это ЕДИНСТВЕННОЕ, что она о
+  // реплике докладывает: саму реплику пишет сервер.
   const TURN_IMAGES_KEY = 'wcTurnImages';
 
   async function rememberTurnImage(uid, att, path) {
@@ -506,11 +508,15 @@
           if (up && (up.reason === 'quota' || up.reason === 'auth' || up.reason === 'offline')) break;
           continue;
         }
+        // Путь докладывается на строку, которую сервер уже завёл: реплика
+        // пришла из list_turns, значит, она там есть. Местная отметка о пути
+        // ставится ТОЛЬКО после того, как сервер его принял: поставленная до
+        // отказа, она вывела бы реплику из добора навсегда — с картинкой,
+        // которой на сервере так и нет.
+        const landed = await WcHistory.attach(convId, t.uid,
+          [{ kind: 'image', path: up.path, mime: ref.mime, width: ref.width, height: ref.height }]);
+        if (!landed) continue;
         await rememberTurnImage(t.uid, ref, up.path);
-        await WcHistory.push(convId, [{
-          role: t.role, text: t.text, uid: t.uid, authoredAt: t.authoredAt,
-          attachments: [{ kind: 'image', path: up.path, mime: ref.mime, width: ref.width, height: ref.height }],
-        }]);
         done += 1;
       }
     } catch (_) { /* добор — не обязанность, показ уже состоялся */ }
@@ -914,8 +920,10 @@
     // здесь. Ветка выводится ПОСЛЕ чеканки ключа чата: до неё ключа ещё нет, и
     // ветка привязалась бы к пустому месту.
     const branchKey = native ? global.LexActionBranch.actionBranchKeyOf(convId, native.slot) : null;
-    // Куда пишем строки в базу и из чего собираем контекст для модели. Для
-    // обычного хода это переписка урока, для хода заготовки — только её ветка.
+    // Под каким ключом сервер ведёт строки этого хода (chatKey в meta ниже) и
+    // на какой ключ докладывается путь картинки; из того же буфера собирается
+    // контекст для модели. Для обычного хода это переписка урока, для хода
+    // заготовки — только её ветка.
     const writeKey = branchKey || convId;
     const buf = branchKey ? await branchBuffer(branchKey) : openTurns;
 
@@ -924,26 +932,28 @@
     const knobs = await readKnobs();
 
     // Уиды пары. И отправка, и «заново» считают их из номера операции — из того
-    // же числа и по тому же правилу их считает сервер, поэтому строка в базе на
-    // пузырь получается одна, а не две.
+    // же числа и по тому же правилу их считает сервер, который эти строки и
+    // пишет. Странице уиды нужны для ПАМЯТИ: под ними ход лежит в буфере
+    // контекста, и оттуда их берёт следующее «заново» (replacesUid), — поэтому
+    // в памяти обязан лежать тот же уид, что и в базе.
     const isRegen = m.act === 'regen';
     const opId = m.opId ? String(m.opId) : null;
     // Вопрос при переспросе НЕ трогается: он тот же, и уид у него тот же.
     const userUid = isRegen ? m.userUid : (opId ? global.LexTurnId.userTurnUid(opId) : WcHistory.newUid());
-    // Два уида нового ответа, и какой из них пойдёт в базу, решится ПОЗЖЕ —
-    // когда придёт заголовок ответа и станет известно, ведёт ли сервер этот ход
-    // (см. запись ниже). Раньше знать нельзя, а решение существенное: свежий
-    // уид на обычном аккаунте оставил бы прежний ответ в базе непомеченным, и
-    // переоткрытая беседа показала бы два ответа на один вопрос.
-    const newAssistantUid = opId ? global.LexTurnId.assistantTurnUid(opId) : WcHistory.newUid();
-    const assistantUid = isRegen ? (m.assistantUid || newAssistantUid) : newAssistantUid;
-    // Время авторства пары. У хода с номером операции оно берётся от НАЖАТИЯ и
-    // разводится на миллисекунду: порядок ленты держится на authored_at, а при
-    // равной метке тайбрейк идёт по уиду, где ':a' меньше ':u' — ответ встал бы
-    // перед вопросом.
+    // Ответ при переспросе — НОВЫЙ, со своим уидом: сервер заводит новую
+    // строку, а прежнюю помечает заменённой. Оставь мы в памяти уид прежнего
+    // ответа, следующее «заново» попросило бы заменить строку, которая уже
+    // заменена. Без номера операции сервер ход не ведёт, строки не будет
+    // нигде, и уид живёт только в памяти — тогда при переспросе он прежний.
+    const assistantUid = opId
+      ? global.LexTurnId.assistantTurnUid(opId)
+      : ((isRegen && m.assistantUid) || WcHistory.newUid());
+    // Время авторства вопроса — от НАЖАТИЯ, и оно уезжает серверу в meta;
+    // время ответа считает сам сервер (lex_turn_begin), разводя пару по тому
+    // же правилу, что turnAuthoredAt: при равной метке тайбрейк по уиду
+    // поставил бы ':a' перед ':u' — ответ над вопросом.
     const opAt = opId ? global.LexTurnId.turnAuthoredAt(m.pressedAt) : null;
     const authoredAt = opAt ? new Date(opAt.userAt).toISOString() : new Date().toISOString();
-    const answerAuthoredAt = opAt ? new Date(opAt.assistantAt).toISOString() : null;
     const attachment = (m.images && m.images[0]) || null;
 
     if (attachment && !global.LexModelRegistry.visionSupported(modelId)) {
@@ -981,17 +991,19 @@
       uploading = WcAttach.upload(attachment.key, writeKey);
     }
 
-    // Collect the answer as it streams so it can be written back on DONE. The
-    // subscription is torn down by the terminal event, never left behind.
+    // Ответ копится по ходу потока ради ПАМЯТИ: на DONE он ляжет в буфер
+    // контекста, и следующий вопрос понесёт его без похода за ним. Строку в
+    // аккаунте наполняет сервер из того же потока. Подписка снимается
+    // завершающим событием и никогда не остаётся висеть.
     let answer = '';
-    // Ведёт ли сервер этот ход. Приходит заголовком ответа, то есть РАНЬШЕ
-    // первого куска, — см. proxyFetch в lex-teacher-core.js.
-    let serverTurn = false;
     const unsubscribe = WcBus.subscribe(async (msg) => {
       if (msg.requestId !== m.requestId) return;
+      // Ведёт ли сервер этот ход — заголовок ответа, то есть РАНЬШЕ первого
+      // куска (proxyFetch в lex-teacher-core.js). Нужен ровно одному месту:
+      // «стопу», который докладывает число увиденных знаков по номеру
+      // операции. На то, что ляжет в память и на экран, он не влияет.
       if (msg.type === 'STREAM_SERVER_TURN') {
-        serverTurn = !!msg.serverTurn;
-        if (serverTurn && msg.opId) serverOps.set(m.requestId, String(msg.opId));
+        if (msg.serverTurn && msg.opId) serverOps.set(m.requestId, String(msg.opId));
         return;
       }
       if (msg.type === 'STREAM_CHUNK' && msg.text) { answer += msg.text; return; }
@@ -1001,71 +1013,54 @@
       // A partial answer is kept: the provider produced those tokens and the
       // account was billed for them, so throwing them away would be throwing
       // away something already paid for.
-      // Отказ загрузки не отменяет ничего: сообщение уже ушло, ответ уже есть.
-      // Максимум, что теряется, — картинка останется только в этом браузере.
-      let srvPath = null;
-      if (uploading) {
-        try {
-          const up = await uploading;
-          if (up && up.ok && up.path) {
-            srvPath = up.path;
-            await rememberTurnImage(userUid, attachment, srvPath);
-          } else {
-            WcUI.toast(up && up.reason === 'quota'
-              ? 'Картинка осталась только на этом устройстве: место для файлов закончилось.'
-              : 'Картинка осталась только на этом устройстве: не удалось сохранить её на сервере.');
-          }
-        } catch (_) { /* сообщение всё равно отправлено */ }
-      }
-      // ⚠ ЧТО ИМЕННО ПИШЕТСЯ ПРИ «ЗАНОВО» — РЕШАЕТСЯ ЗДЕСЬ, И ЭТО ДВЕ РАЗНЫЕ
-      // ЗАПИСИ.
       //
-      // Ход вёл сервер: он уже написал новый ответ своим уидом и пометил
-      // прежний заменённым. Нам писать нечего и НЕЛЬЗЯ — вопрос трогать не
-      // надо (он тот же, с тем же временем авторства), а ответ у сервера
-      // точнее нашего: на «стопе» он урезан по числу увиденных знаков.
+      // В базу отсюда не пишется НИЧЕГО — ни вопрос, ни ответ. Обе строки
+      // завёл и наполнил сервер по ходу того же потока; при «заново» он же
+      // написал новый ответ своим уидом и пометил прежний заменённым; на
+      // «стопе» урезал по числу увиденных знаков (WC_STOP ниже). Здесь
+      // остаётся только ПАМЯТЬ — буфер контекста для следующего вопроса.
       //
-      // Ход вёл не сервер (обычный аккаунт, «заново» без номера операции): всё
-      // как раньше, до знака — прежние уиды и перезапись строк на месте.
-      // Свежий уид здесь оставил бы прежний ответ в базе непомеченным, и
-      // переоткрытая беседа показала бы два ответа на один вопрос.
-      const serverLedRegen = isRegen && serverTurn;
-      const writeAssistantUid = serverLedRegen ? newAssistantUid : assistantUid;
-      // ⚠ ПРИ «ЗАНОВО» ВОПРОС НЕ ПИШЕТСЯ ВОВСЕ, ни в одной из двух веток.
+      // modelId рядом с ходом — ТОЛЬКО в памяти: строку пишет сервер, и модели
+      // в ней нет (list_turns её не отдаёт). Следствие честное и записано в
+      // журнале: повтор хода, ПЕРЕЖИВШЕГО перезагрузку, идёт текущей моделью,
+      // потому что чем он был отвечен — не сохранено нигде.
+      if (answer) buf.push({ role: 'assistant', text: answer, uid: assistantUid, model: modelId });
+      // Шторка бесед обновляется ВСЕГДА, как только поток закрыт: список ведёт
+      // сервер, и у него беседа уже изменилась (новая строка списка, свежее
+      // время последней реплики) — ждать картинку ниже ей незачем. Ход
+      // заготовки списка не меняет (триггер базы сворачивает '__lex_action__…'
+      // в родителя), и это тоже решает сервер, а не страница.
+      WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
+      // Картинка — единственное, что страница о реплике докладывает. Пути в
+      // бакете сервер не знает (файл ушёл в attach-upload мимо него), и путь
+      // едет командой на строку вопроса — ту же, что завёл сервер.
       //
-      // Он уже лежит в беседе — с тем же уидом, с тем же текстом; писать заново
-      // нечего, а переписать есть что: время авторства. Раньше оно тут и
-      // переписывалось на «сейчас», и это было терпимо, пока рядом той же
-      // строкой переписывался ответ. Стоит ответу не написаться (человек нажал
-      // «стоп» до первого слова — тогда `answer` пуст), и вопрос уезжает ОДИН,
-      // вперёд собственного ответа: в переоткрытой беседе ответ встаёт НАД
-      // вопросом. Поймано живьём 09.09.2026.
-      const rows = isRegen ? [] : [{
-        role: 'user', text: m.text, uid: userUid, authoredAt,
-        ...(srvPath ? { attachments: [{ kind: 'image', path: srvPath, mime: attachment.mime, width: attachment.width, height: attachment.height }] } : {}),
-      }];
-      // Ответ пишем только там, где его не написал сервер: у серверного
-      // переспроса его текст точнее нашего (на «стопе» он урезан по числу
-      // увиденных знаков).
-      if (answer && !serverLedRegen) rows.push({ role: 'assistant', text: answer, uid: writeAssistantUid, authoredAt: answerAuthoredAt || new Date().toISOString() });
-      // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
-      // под модель нет, и заводить её ради «заново» — миграция рядом с
-      // деньгами ради удобства. Следствие честное и записано в журнале: повтор
-      // хода, ПЕРЕЖИВШЕГО перезагрузку, идёт текущей моделью, потому что чем
-      // он был отвечен — не сохранено нигде.
-      if (answer) buf.push({ role: 'assistant', text: answer, uid: writeAssistantUid, model: modelId });
-      // Серверный переспрос: писать нечего, но лента и список бесед всё равно
-      // изменились — сообщаем об этом, как и обычный ход.
-      if (!rows.length) { WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' }); return; }
+      // Отказ на любом шаге не отменяет ничего: сообщение уже ушло, ответ уже
+      // на экране. Максимум, что теряется, — картинка останется только в этом
+      // браузере. Местная отметка о пути ставится только после того, как
+      // сервер его принял, — по той же причине, что в backfillTurnImages:
+      // поставленная раньше, она вывела бы реплику из добора.
+      if (!uploading) return;
       try {
-        // Ход заготовки ложится в СВОЮ ветку. Название беседы при этом не
-        // меняется: ветка не беседа, в список она не идёт (триггер базы
-        // сворачивает '__lex_action__…' в родителя), и трогать подпись беседы
-        // ходом, которого в ней не видно, было бы враньём.
-        await WcHistory.push(writeKey, rows);
-        WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
+        const up = await uploading;
+        if (!(up && up.ok && up.path)) {
+          WcUI.toast(up && up.reason === 'quota'
+            ? 'Картинка осталась только на этом устройстве: место для файлов закончилось.'
+            : 'Картинка осталась только на этом устройстве: не удалось сохранить её на сервере.');
+          return;
+        }
+        const landed = await WcHistory.attach(writeKey, userUid,
+          [{ kind: 'image', path: up.path, mime: attachment.mime, width: attachment.width, height: attachment.height }]);
+        if (!landed) {
+          // Строки нет — сервер этот ход не завёл (ход без номера операции или
+          // оборван до того, как поставщик принял запрос). Тогда и вопроса в
+          // беседе нет, и прикладывать путь не к чему.
+          console.warn(TAG, 'picture path not attached: the server has no row for this turn');
+          return;
+        }
+        await rememberTurnImage(userUid, attachment, up.path);
       } catch (err) {
-        console.warn(TAG, 'turn not written to the account:', err && err.message);
+        console.warn(TAG, 'picture path not reported:', err && err.message);
       }
     });
 
@@ -1195,30 +1190,25 @@
     return { ok: id != null, sessionId: id, conversationId: id != null ? WcHistory.keyForSession(id) : null };
   });
 
-  // A spoken turn is a turn. It goes to the same table with the same shape, so
-  // the extension lists a voice conversation exactly as it lists a typed one.
+  // Голосовая реплика — тоже реплика, но в базу её кладёт не страница, а
+  // слушатель voice-watch на сервере (docs/PLAN-SERVER-HISTORY.md §6): он сам
+  // получает расшифровку от поставщика и пишет её под уидом 'voice:<item_id>'.
+  // Здесь пачка ложится ТОЛЬКО В ПАМЯТЬ — в контекст следующего текстового
+  // вопроса, чтобы учитель помнил, о чём только что говорили, не дожидаясь,
+  // пока слушатель допишет, а страница перечитает беседу.
   WcBus.on('WC_APPEND_TURNS', async (m) => {
     if (!m.conversationId || !Array.isArray(m.turns) || !m.turns.length) return { ok: false };
     if (openId !== m.conversationId) setOpen(m.conversationId, openTurns);
-    // ⚠️ УИД БЕРЁТСЯ У ПОСТАВЩИКА, а метки времени РАЗВОДЯТСЯ.
-    //
-    // Уид 'voice:<item_id>' приходит от ленты (wc-app.js): то же правило
-    // применяет серверный слушатель, поэтому две записи об одной реплике
-    // сходятся в одну строку, а не двоятся.
-    //
-    // Время у всех реплик пачки было одно и то же — момент записи. Порядок
-    // ленты держится на нём, а при равной метке тайбрейк идёт по уиду, который
-    // у голосовых реплик случаен: ответ учителя вставал бы над вопросом
-    // человека через раз. Разводим на миллисекунду по порядку в пачке.
-    const flushedAt = Date.now();
-    const rows = m.turns.map((t, i) => {
-      const uid = t.uid ? String(t.uid) : WcHistory.newUid();
-      openTurns.push({ role: t.role, text: t.text, uid });
-      return { role: t.role, text: t.text, uid, authoredAt: new Date(flushedAt + i).toISOString() };
-    });
-    await WcHistory.push(m.conversationId, rows);
+    // Уид — тот же 'voice:<item_id>', что у ленты (wc-app.js) и у слушателя:
+    // по нему реплика в памяти и строка на сервере — одна и та же, а не две.
+    for (const t of m.turns) {
+      openTurns.push({ role: t.role, text: t.text, uid: t.uid ? String(t.uid) : WcHistory.newUid() });
+    }
+    // Список бесед ведёт сервер. Слушатель мог ещё не дописать, но сообщить
+    // сейчас дешевле, чем оставить беседу в шторке без свежего времени до
+    // следующего события.
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
-    return { ok: true, appended: rows.length };
+    return { ok: true, appended: m.turns.length };
   });
 
   WcBus.on('WC_STOP', async (m) => {
