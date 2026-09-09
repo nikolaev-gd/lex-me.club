@@ -199,6 +199,9 @@
     knobDictationKeywords: '',                         // keywords у gpt-transcribe: «worktree,Lex» → повторяющееся поле
     knobDictationStream: false,                        // stream=true: текст растёт в поле ввода по ходу расшифровки
     knobDictationDelay: '',                            // delay у gpt-live-transcribe: насколько копить звук перед показом куска
+    knobDictationMode: 'verbatim',                     // mode у gemini-3.5-transcribe: дословно (по умолчанию) или причёсанно
+    knobDictationTimestamps: false,                    // timestamp_granularities:['word'] — только дословный режим, только без словаря
+    knobDictationDiarization: false,                   // diarization_mode:'speaker' — те же два условия
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms

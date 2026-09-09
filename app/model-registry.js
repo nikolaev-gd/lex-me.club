@@ -709,6 +709,25 @@
       // Тоже без `dictation` — см. соседнюю запись.
       pricing: { audioHour: 0.36 },
     },
+    {
+      // Распознавалка Google. Единственная здесь, у которой ЕДИНИЦА УЧЁТА не
+      // час звука, а ТОКЕН, — поэтому у неё нет `audioHour` и есть две
+      // токеновые ставки. Час звука вывести можно ($2 × 25 ток/с × 3600 / 1e6
+      // = $0.18/ч на вход плюс выходной текст), но записывать сюда выведенное
+      // число значило бы завести третью цену, которая разойдётся с первыми
+      // двумя, как только Google поменяет любую из них. Считает всё равно
+      // сервер по строке public.models — здесь запасные числа на случай, когда
+      // строку прочитать не удалось.
+      //
+      // Живёт НЕ на v1/audio/transcriptions: своих настроек расшифровки тот
+      // путь у неё не принимает вовсе («Unknown name "transcriptionConfig"»,
+      // замерено 2026-09-09). Её дом — Interactions API, и туда её ведёт
+      // сервер; звук по-прежнему уезжает одним файлом после кнопки.
+      id: 'gemini-3.5-transcribe', apiModel: 'gemini-3.5-transcribe',
+      provider: 'google', type: 'asr', label: 'Gemini 3.5 Transcribe',
+      dictation: true,
+      pricing: { audioInputMTok: 2.00, outputMTok: 12.00 },
+    },
   ];
 
   // ── Derivation ─────────────────────────────────────────────────────
@@ -890,12 +909,23 @@
   //     контекста, прежде чем выдать кусок. «Рост текста» у неё НЕ ручка:
   //     текст у неё растёт всегда, это и есть модель; выключателя такому
   //     поведению не существует, поэтому полосы в окне нет.
+  //   • gemini-3.5-transcribe: `language_codes` (и с регионом, и голые коды —
+  //     принимает оба), `custom_vocabulary` (правит имена так же решительно,
+  //     как `keywords` у OpenAI: «Zbigniew Wrtrien» → «Zbigniew Wartrian»),
+  //     `mode` (дословно / причёсанно), а внутри дословного режима — отметки
+  //     времени по словам и разделение говорящих. Полей «Описание записи» и
+  //     «Рост текста» у неё НЕТ: `prompt` и `context` она отвергает как
+  //     несуществующие, на инструкцию разработчика отвечает «Developer
+  //     instruction is not enabled for this model», а текстовая часть рядом со
+  //     звуком принимается и на результат не влияет ни на символ (сверено на
+  //     одной записи 2026-09-09).
   const DICTATION_FIELDS = {
-    'gpt-transcribe':      { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false },
-    'gpt-live-transcribe': { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true },
-    'whisper-1':           { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false },
+    'gpt-transcribe':        { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false, mode: false, timestamps: false, diarization: false },
+    'gpt-live-transcribe':   { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true, mode: false, timestamps: false, diarization: false },
+    'whisper-1':             { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false, mode: false, timestamps: false, diarization: false },
+    'gemini-3.5-transcribe': { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: true, diarization: true },
   };
-  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false };
+  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false, mode: false, timestamps: false, diarization: false };
 
   // Незнакомое имя модели получает пустой набор, а не набор дефолтной модели:
   // послать поле, которого у модели нет, значит получить 400 на каждом
@@ -915,6 +945,57 @@
   // подлежит; пустое значение означает «не отправлять поле» и оставляет
   // выбор провайдеру.
   const DICTATION_DELAYS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+  // Дословно или причёсанно. Дословный режим оставляет речь как она есть —
+  // слова-паразиты, повторы, оборванные слова, ошибки говорящего; причёсанный
+  // всё это убирает и правит грамматику. Имена значений задаёт провайдер,
+  // поэтому переводу они не подлежат; подписи к ним — в i18n.
+  const DICTATION_MODES = ['verbatim', 'smart'];
+  const DICTATION_MODE_DEFAULT = 'verbatim';
+
+  // ── Что с чем нельзя включать вместе ─────────────────────────────────────
+  //
+  // У Google часть настроек взаимно исключается, и это не наше предпочтение, а
+  // отказ сервера: он отвечает 400 и расшифровки не будет вовсе. Замерено
+  // живыми запросами 2026-09-09, все четыре случая:
+  //   • «Точные слова» × «Отметки времени» → «custom_vocabulary is
+  //     incompatible with timestamps»;
+  //   • «Точные слова» × «Разделение говорящих» → «... incompatible with
+  //     diarization»;
+  //   • причёсанный режим × «Отметки времени» → поля в этом режиме не
+  //     существует;
+  //   • причёсанный режим × «Разделение говорящих» → то же.
+  //
+  // Победитель всегда один и тот же, и выбран он не жребием: «Точные слова» —
+  // единственная из трёх настроек, которая на диктовку в поле ввода реально
+  // влияет (имена и термины), а отметки времени и разделение говорящих
+  // приезжают отдельными пометками рядом с текстом, и в поле ввода из них не
+  // попадает ничего. Поэтому гаснут они, а не словарь.
+  //
+  // Эта же функция решает, что УЕДЕТ в запрос, а не только что погаснет в
+  // окне: погашенная ручка хранимого значения не стирает, и без такого же
+  // отсева на отправке сохранённая галочка добралась бы до провайдера и
+  // вернула 400 — то самое сочетание, которое человек собрать не должен.
+  const DICTATION_CONFLICTS = {
+    'gemini-3.5-transcribe': [
+      { off: ['timestamps', 'diarization'], when: (v) => !!v.keywords,          reason: 'knob.inert.dictationVocab' },
+      { off: ['timestamps', 'diarization'], when: (v) => v.mode === 'smart',    reason: 'knob.inert.dictationSmart' },
+    ],
+  };
+
+  // Кто из ручек сейчас погашен и почему. Вход — сырые значения ручек
+  // (`keywords` строкой или списком, `mode`, `timestamps`, `diarization`);
+  // выход — { имяРучки: ключ-причина } только для погашенных.
+  function dictationInertKnobs(apiModel, values) {
+    const rules = DICTATION_CONFLICTS[String(apiModel || '')] || [];
+    const v = values || {};
+    const out = {};
+    for (const rule of rules) {
+      if (!rule.when(v)) continue;
+      for (const name of rule.off) if (!out[name]) out[name] = rule.reason;
+    }
+    return out;
+  }
 
   // Растёт ли текст У САМОЙ МОДЕЛИ. Это НЕ ручка «Рост текста»: та включает
   // поток у распознавалки, которая умеет и так и так, а здесь — свойство
@@ -1376,6 +1457,9 @@
     dictationCapture: DICTATION_CAPTURE,
     dictationRequestFields,
     dictationLanguages: DICTATION_LANGUAGES,
+    dictationModes: DICTATION_MODES,
+    dictationModeDefault: DICTATION_MODE_DEFAULT,
+    dictationInertKnobs,
     dictationDelays: DICTATION_DELAYS,
     isLiveDictationModel,
     openaiTextApiModels: buildTextApiModelSet('openai'),

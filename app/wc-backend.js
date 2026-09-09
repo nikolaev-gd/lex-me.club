@@ -205,6 +205,7 @@
     // по устройству: одно имя модели, читается тем же способом.
     'knobDictationModel', 'knobDictationLanguage', 'knobDictationLanguages',
     'knobDictationPrompt', 'knobDictationKeywords', 'knobDictationStream', 'knobDictationDelay',
+    'knobDictationMode', 'knobDictationTimestamps', 'knobDictationDiarization',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -246,6 +247,9 @@
       dictationKeywords: tk('knobDictationKeywords'),
       dictationStream: tk('knobDictationStream'),
       dictationDelay: tk('knobDictationDelay'),
+      dictationMode: tk('knobDictationMode'),
+      dictationTimestamps: tk('knobDictationTimestamps'),
+      dictationDiarization: tk('knobDictationDiarization'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -786,6 +790,19 @@
     const dictPrompt = fields.prompt ? ((knobs && knobs.dictationPrompt) || '') : '';
     const dictKeywords = fields.keywords ? splitList(knobs && knobs.dictationKeywords) : [];
     const wantStream = !!(fields.stream && knobs && knobs.dictationStream);
+    // Поля Google. Отсев несовместимых сочетаний — тот же, что гасит их в окне
+    // настроек расширения: правило одно, живёт в реестре, и страница его
+    // читает вместо того, чтобы переписывать заново.
+    const dictMode = fields.mode
+      ? ((knobs && knobs.dictationMode) || REG.dictationModeDefault) : '';
+    const dictInert = REG.dictationInertKnobs(apiModel, {
+      keywords: knobs && knobs.dictationKeywords,
+      mode: dictMode || REG.dictationModeDefault,
+      timestamps: knobs && knobs.dictationTimestamps,
+      diarization: knobs && knobs.dictationDiarization,
+    });
+    const dictTimestamps = !!(fields.timestamps && knobs && knobs.dictationTimestamps && !dictInert.timestamps);
+    const dictDiarization = !!(fields.diarization && knobs && knobs.dictationDiarization && !dictInert.diarization);
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
@@ -813,6 +830,9 @@
     dictKeywords.forEach((w) => form.append('keywords', w));
     form.append('response_format', 'json');
     if (wantStream) form.append('stream', 'true');
+    if (dictMode) form.append('mode', dictMode);
+    if (dictTimestamps) form.append('timestamps', 'true');
+    if (dictDiarization) form.append('diarization', 'true');
     // The session is whatever conversation is already open — NOT a fresh one.
     // Minting a session here would give a brand-new empty chat a row before a
     // single message had been sent, which is the one thing the key rule
@@ -821,7 +841,9 @@
       sessionId,
       callType: 'dictation',
       surface: 'standalone',
-      modelInternalId: 'openai:' + apiModel,
+      // Строку в базе, по которой считается цена, называет сервер: он же
+      // выбирает поставщика по имени модели, а распознавалок теперь две разных
+      // фирмы. Прошитый здесь префикс назвал бы Google строкой OpenAI.
       pageType: 'text',
       // Строка в balance_ledger получает ref вида `<call_type>:<videoId>`, и с
       // null здесь она читалась как «dictation:» — списание, привязанное ни к
@@ -832,7 +854,9 @@
       durationMs: m.durationMs,
     }));
 
-    const resp = await core.proxyFetchMultipart('openai-asr', form, token);
+    // Под-путь назван по действию человека: за ним и OpenAI, и Google, а
+    // выбирает между ними сервер по имени модели.
+    const resp = await core.proxyFetchMultipart('dictation', form, token);
     // Рост текста: сервер отдаёт поток провайдера и в конце свой кадр с ценой.
     // Куски уезжают в интерфейс через шину — тем же способом, каким туда
     // попадает ответ учителя, — а вернувшееся значение остаётся авторитетом:
