@@ -1112,6 +1112,11 @@
         }),
         promptId: native ? native.promptId : slot,
         pageType: 'text',
+        // МАТЕРИАЛ УРОКА. Ключ, по форме которого сервер решает, что за материал
+        // у беседы. Именно writeKey, а не convId: у хода заготовки материала не
+        // бывает, и ветка обязана назваться веткой. Поле уезжает всегда — в том
+        // числе на путях, где номера операции нет.
+        materialKey: writeKey,
         messages,
         text: m.text,
         surface: 'standalone',
