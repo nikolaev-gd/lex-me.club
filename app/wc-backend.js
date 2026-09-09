@@ -204,7 +204,7 @@
     // Диктовка (микрофон у поля ввода) — не голосовая сессия, но ячейка та же
     // по устройству: одно имя модели, читается тем же способом.
     'knobDictationModel', 'knobDictationLanguage', 'knobDictationLanguages',
-    'knobDictationPrompt', 'knobDictationKeywords', 'knobDictationStream',
+    'knobDictationPrompt', 'knobDictationKeywords', 'knobDictationStream', 'knobDictationDelay',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -245,6 +245,7 @@
       dictationPrompt: tk('knobDictationPrompt'),
       dictationKeywords: tk('knobDictationKeywords'),
       dictationStream: tk('knobDictationStream'),
+      dictationDelay: tk('knobDictationDelay'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -670,6 +671,81 @@
   // the OpenAI key, prices the call from public.models.audio_hour, writes the
   // `dictation` row and debits the balance — so there is nothing to bill on
   // this side and nothing to write.
+  // ── Живая диктовка ────────────────────────────────────────────────────────
+  //
+  // Тот же сервер и тот же разговор, что у расширения (`dictation-live`),
+  // ТОЛЬКО без воркера посередине: держать сокет здесь некому, кроме самой
+  // страницы. Всё, что решает, — на сервере; тут открыть, переложить, закрыть.
+  //
+  // Живых сессий может быть несколько (микрофон в чате и микрофон где-то ещё),
+  // поэтому карта по requestId, а не одна переменная.
+  const liveDictations = new Map();
+
+  WcBus.on('LEX_DICTATION_LIVE_START', async (m) => {
+    const token = await A.validToken();
+    if (!token) return { ok: false, __gate: 'login' };
+    const requestId = m.requestId;
+    const base = String(A.supabaseUrl() || '').replace(/^http/, 'ws');
+    const ws = new WebSocket(base + '/functions/v1/dictation-live');
+    const entry = { ws, finish: null };
+    liveDictations.set(requestId, entry);
+    return await new Promise((resolve) => {
+      const giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 12000);
+      ws.onopen = () => { ws.send(JSON.stringify({ type: 'start', token, config: m.config || {} })); };
+      ws.onmessage = (ev) => {
+        let j; try { j = JSON.parse(ev.data); } catch (_) { return; }
+        if (j.type === 'ready') { clearTimeout(giveUp); resolve({ ok: true }); return; }
+        if (j.type === 'delta') {
+          WcBus.broadcast({ type: 'LEX_DICTATION_LIVE_DELTA', requestId, textSoFar: j.textSoFar });
+          return;
+        }
+        if (j.type === 'error') {
+          clearTimeout(giveUp);
+          resolve({ ok: false, error: j.message || j.stage, status: j.status });
+          WcBus.broadcast({ type: 'LEX_DICTATION_LIVE_ERROR', requestId, message: j.message, status: j.status });
+          return;
+        }
+        if (j.type === 'final') {
+          clearTimeout(giveUp);
+          // Диктовка стоит денег — баланс на экране устарел.
+          WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
+          if (entry.finish) { const f = entry.finish; entry.finish = null; f({ ok: true, text: j.text || '', billedUsd: j.billedCostUsd }); }
+          resolve({ ok: true });
+        }
+      };
+      ws.onerror = () => { clearTimeout(giveUp); resolve({ ok: false, error: 'socket error' }); };
+      ws.onclose = () => {
+        clearTimeout(giveUp);
+        liveDictations.delete(requestId);
+        if (entry.finish) { const f = entry.finish; entry.finish = null; f({ ok: false, error: 'closed' }); }
+        resolve({ ok: false, error: 'closed' });
+      };
+    });
+  });
+
+  WcBus.on('LEX_DICTATION_LIVE_AUDIO', (m) => {
+    const e = liveDictations.get(m.requestId);
+    if (e && e.ws && e.ws.readyState === WebSocket.OPEN) {
+      try { e.ws.send(JSON.stringify({ type: 'audio', b64: m.b64 })); } catch (_) {}
+    }
+    return { ok: true };
+  });
+
+  const finishLive = (verb) => async (m) => {
+    const e = liveDictations.get(m.requestId);
+    if (!e || !e.ws || e.ws.readyState !== WebSocket.OPEN) return { ok: false, error: 'no live session' };
+    const answer = await new Promise((resolve) => {
+      e.finish = resolve;
+      try { e.ws.send(JSON.stringify({ type: verb })); } catch (_) { resolve({ ok: false, error: 'send failed' }); }
+      setTimeout(() => { if (e.finish) { e.finish = null; resolve({ ok: false, error: 'timeout' }); } }, 15000);
+    });
+    try { e.ws.close(); } catch (_) {}
+    liveDictations.delete(m.requestId);
+    return answer;
+  };
+  WcBus.on('LEX_DICTATION_LIVE_STOP', finishLive('stop'));
+  WcBus.on('LEX_DICTATION_LIVE_ABORT', finishLive('abort'));
+
   WcBus.on('WC_DICTATE', async (m) => {
     const token = await A.validToken();
     if (!token) throw new Error('Sign in to dictate.');

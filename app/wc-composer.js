@@ -155,6 +155,9 @@
 
   // ── Recording (dictation) ────────────────────────────────────────────────
   let recorder = null;
+  // Живая диктовка. Рядом с recorder, а не вместо: распознавалок две породы, и
+  // выбор между ними — ручка настроек, которую человек меняет на ходу.
+  let live = null;
   let chunks = [];
   let recStartedAt = 0;
   let transcribing = false;
@@ -248,12 +251,126 @@
   }
 
   // ── Dictation ────────────────────────────────────────────────────────────
+  // ── Живая диктовка ───────────────────────────────────────────────────────
+  //
+  // Та же кнопка, та же строка состояния, тот же потолок записи, то же поле
+  // ввода. Отличие ровно одно: звук уходит во время речи, и текст растёт по
+  // ходу. Всё, что решает (модель, поля запроса, цена, строка расхода), живёт
+  // на сервере — здесь только микрофон и поле.
+  async function startLive(stream, knobs) {
+    const grower = makeGrower();
+    let finished = false;
+    const requestId = (global.crypto && global.crypto.randomUUID)
+      ? global.crypto.randomUUID() : String(Date.now()) + Math.random();
+    live = global.LexDictationLive.create({
+      transport: {
+        call: (type, payload) => WcBus.call(type, payload).catch(() => null),
+        subscribe: (fn) => WcBus.subscribe(fn),
+      },
+      // Кнопка краснеет в тот же миг, с которого пишется звук, а не когда
+      // встала связь: между ними секунда-две, и всё это время человек говорит
+      // в погашенную кнопку.
+      onCaptureStart: () => {
+        recStartedAt = Date.now();
+        elMic.classList.add('is-recording');
+        elMic.title = 'Stop dictating';
+        elMic.setAttribute('aria-label', elMic.title);
+        WcHaptics.tap();
+        const maxMs = capture().maxDurationMs;
+        if (maxMs > 0) {
+          recAutoStopTimer = setTimeout(() => {
+            if (live) { stopRecording(); toast('Recording stopped: the limit is ' + Math.round(maxMs / 1000) + ' seconds.'); }
+          }, maxMs);
+        }
+      },
+      onDelta: (textSoFar) => { if (textSoFar) grower.push(textSoFar); },
+      onError: (msg, info) => {
+        if (finished) return;
+        if (info && info.status === 402) { toast('Not enough balance for dictation.', { error: true }); return; }
+        toast('Could not transcribe: ' + msg, { error: true });
+      },
+    });
+    const splitList = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
+    // Завершение описано ДО старта: кнопка горит с первого кадра звука, значит
+    // второе нажатие может прийти, пока связь ещё встаёт.
+    live.__finish = async (wantText) => {
+      if (finished) return;
+      finished = true;
+      if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
+      transcribing = true;
+      elMic.classList.add('is-busy');
+      elMic.classList.remove('is-recording');
+      elMic.title = 'Dictate';
+      elMic.setAttribute('aria-label', elMic.title);
+      // Связь ещё не встала — расшифровывать нечего и ошибки не было: человек
+      // передумал. Бросаем молча; расход за уже переданное досчитает сервер.
+      const want = wantText && !!(live && live.isReady && live.isReady());
+      const res = want ? await live.stop() : (live.abort(), null);
+      live = null;
+      stream.getTracks().forEach((t) => t.stop());
+      transcribing = false;
+      elMic.classList.remove('is-busy');
+      syncButton();
+      if (!want) return;
+      if (!res || !res.ok) { toast('Could not transcribe', { error: true }); return; }
+      const text = (res.text || '').trim();
+      if (!text) { toast('Nothing was recognised'); return; }
+      if (!grower.finish(text)) {
+        const cur = elInput.value;
+        elInput.value = cur ? (cur.replace(/\s*$/, '') + ' ' + text) : text;
+        autoGrow();
+        syncButton();
+        elInput.focus();
+        try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
+      }
+    };
+    const started = await live.start(stream, {
+      model: global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel),
+      languages: splitList(knobs && knobs.dictationLanguages),
+      prompt: (knobs && knobs.dictationPrompt) || '',
+      keywords: splitList(knobs && knobs.dictationKeywords),
+      delay: (knobs && knobs.dictationDelay) || '',
+      surface: 'standalone',
+      pageType: 'text',
+      requestId,
+    });
+    if (!started) {
+      if (!finished) {
+        live = null;
+        stream.getTracks().forEach((t) => t.stop());
+        elMic.classList.remove('is-recording');
+        elMic.title = 'Dictate';
+        elMic.setAttribute('aria-label', elMic.title);
+        syncButton();
+      }
+    }
+  }
+
   async function startRecording() {
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
       toast('No microphone: ' + ((err && err.message) || err), { error: true });
+      return;
+    }
+    // Какая распознавалка выбрана — решает та же ручка, что и в расширении.
+    // Живая не пишет файл вовсе, поэтому MediaRecorder ниже ей не нужен.
+    let knobs = {};
+    try { knobs = await global.WcBackend.readKnobs(); } catch (_) { /* дефолт реестра рабочий */ }
+    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
+    if (global.LexModelRegistry.isLiveDictationModel(apiModel)) {
+      // Файловый путь живой распознавалке не подходит вовсе: обычная ручка
+      // расшифровки отвечает ей «Invalid URL». Поэтому не откатываемся к
+      // записи файла молча, а говорим человеку. Случай не выдуманный: вкладка,
+      // открытая ещё до выкладки, живого модуля не содержит — и молчаливый
+      // откат отправлял бы заведомо мёртвый запрос на каждое нажатие.
+      if (!global.LexDictationLive) {
+        stream.getTracks().forEach((t) => t.stop());
+        toast('Live dictation is not loaded here — reload the page', { error: true });
+        return;
+      }
+      await startLive(stream, knobs);
       return;
     }
     try {
@@ -302,6 +419,9 @@
 
   function stopRecording() {
     if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
+    // Живая сессия заканчивается по-своему: файла нет, и «остановить запись»
+    // значит «дать серверу договорить с провайдером и вернуть итог».
+    if (live && live.__finish) { live.__finish(true); return; }
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
@@ -480,7 +600,7 @@
 
       elMic.addEventListener('click', () => {
         if (transcribing) return;
-        if (recorder) stopRecording();
+        if (recorder || live) stopRecording();
         else startRecording();
       });
 

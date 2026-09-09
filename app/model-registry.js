@@ -676,6 +676,25 @@
       pricing: { audioHour: 0.27 },
     },
     {
+      // Живая диктовка. Единственная распознавалка здесь, которая НЕ живёт на
+      // v1/audio/transcriptions: она отвечает туда «Invalid URL» (замерено
+      // 2026-09-09) и работает только сессией `type:'transcription'` в
+      // Realtime. Поэтому её звук едет не файлом после кнопки, а потоком во
+      // время речи, через свою серверную функцию `dictation-live`.
+      //
+      // ЦЕНА СЧИТАЕТСЯ ОТ ДРУГОГО. У остальных строк здесь audio_hour умножается
+      // на длину ЗАПИСИ; у этой — на длину ЖИВОЙ СЕССИИ, то есть на время, что
+      // соединение с провайдером было открыто, включая паузы и молчание. Само
+      // число выведено из прайса ($0.017/мин × 60 = $1.02/час, «Realtime audio
+      // duration», сверено 2026-09-09) — единица у OpenAI минута, у нас час,
+      // как у всей колонки. Авторитет всё равно у строки public.models, эта —
+      // запасная.
+      id: 'gpt-live-transcribe', apiModel: 'gpt-live-transcribe',
+      provider: 'openai', type: 'asr', label: 'GPT Live Transcribe',
+      dictation: true, live: true,
+      pricing: { audioHour: 1.02 },
+    },
+    {
       id: 'gpt-4o-mini-transcribe', apiModel: 'gpt-4o-mini-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o mini Transcribe',
       // Пометки `dictation` НЕТ (решение владельца 2026-09-07): в списке
@@ -865,11 +884,18 @@
   //     обычным JSON без потока.
   // Окно настроек рисует ровно те поля, которые здесь `true`: ручка, которой
   // у модели нет, не показывается вовсе.
+  //   • gpt-live-transcribe: `languages` (тот же запрет на пару с одиночным —
+  //     провайдер сам переписывает `language:'en'` в `languages:['en']`),
+  //     `keywords`, `prompt` и СВОЁ поле `delay` — насколько модель ждёт
+  //     контекста, прежде чем выдать кусок. «Рост текста» у неё НЕ ручка:
+  //     текст у неё растёт всегда, это и есть модель; выключателя такому
+  //     поведению не существует, поэтому полосы в окне нет.
   const DICTATION_FIELDS = {
-    'gpt-transcribe': { languages: true, language: false, keywords: true, prompt: true, stream: true },
-    'whisper-1':      { languages: false, language: true, keywords: false, prompt: true, stream: false },
+    'gpt-transcribe':      { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false },
+    'gpt-live-transcribe': { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true },
+    'whisper-1':           { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false },
   };
-  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false };
+  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false };
 
   // Незнакомое имя модели получает пустой набор, а не набор дефолтной модели:
   // послать поле, которого у модели нет, значит получить 400 на каждом
@@ -882,6 +908,26 @@
   // и множественная (gpt-transcribe). Один список, чтобы «en» в одном месте не
   // соседствовал с «en-US» в другом: провайдер коды с регионом отвергает (400).
   const DICTATION_LANGUAGES = ['en', 'ru', 'es', 'de', 'fr', 'it', 'pt', 'zh', 'ja', 'ko'];
+
+  // Насколько живая распознавалка копит звук, прежде чем показать кусок. Чем
+  // выше — тем позже появляется текст и тем он точнее. Пять ступеней и их
+  // имена задаёт провайдер, поэтому список именно такой и переводу не
+  // подлежит; пустое значение означает «не отправлять поле» и оставляет
+  // выбор провайдеру.
+  const DICTATION_DELAYS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
+
+  // Растёт ли текст У САМОЙ МОДЕЛИ. Это НЕ ручка «Рост текста»: та включает
+  // поток у распознавалки, которая умеет и так и так, а здесь — свойство
+  // модели, которого нельзя выключить. Разводить их обязательно: микрофон
+  // спрашивает «показывать ли растущий текст», и ответ «да» приходит из двух
+  // разных мест — из ручки у gpt-transcribe и отсюда у живой.
+  function isLiveDictationModel(apiModel) {
+    const name = String(apiModel || '');
+    for (const m of LEX_MODELS) {
+      if (m.type === 'asr' && m.apiModel === name) return !!m.live;
+    }
+    return false;
+  }
 
   // background.js text-API-routing Sets. Deliberately NOT filtered by
   // `hidden` — hidden only controls bar visibility (see textModelOptionsHtml /
@@ -1330,6 +1376,8 @@
     dictationCapture: DICTATION_CAPTURE,
     dictationRequestFields,
     dictationLanguages: DICTATION_LANGUAGES,
+    dictationDelays: DICTATION_DELAYS,
+    isLiveDictationModel,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),
