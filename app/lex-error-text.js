@@ -43,6 +43,7 @@
     'topup.errAmount': 'Enter an amount between ${min} and ${max}.',
     'topup.errProvider': 'Could not start the payment. Nothing was charged — please try again.',
     'err.prompt.notPublished': 'This preset has not been published yet — the teacher has no instructions. You were not charged.',
+    'err.chat.conversationReset': 'This conversation was reset — reopen it to continue. You were not charged.',
     'err.provider.busy': 'The service is overloaded right now. Please try again in a minute.',
     'err.provider.generic': 'The answer did not come through. Please try again.',
   };
@@ -166,6 +167,21 @@
     return t('err.prompt.notPublished');
   }
 
+  // ── 5. Разговор сброшен ───────────────────────────────────────────────────
+  //
+  // Разработчик стёр данные по ролику или странице (content-reset), а этот
+  // разговор остался открытым здесь. Сервер отказал ДО денег; маркер ставит
+  // `lex-teacher-core.js` (LEX_CONVERSATION_RESET), сверившись с базой. Как и
+  // у промпта, отдельным текстом: это не сбой, а состояние, и лечится оно
+  // одним действием человека — открыть разговор заново.
+  function isConversationReset(raw) {
+    return str(raw).includes('LEX_CONVERSATION_RESET');
+  }
+
+  function conversationReset() {
+    return t('err.chat.conversationReset');
+  }
+
   global.LexErrorText = Object.freeze({
     auth,
     topup,
@@ -174,5 +190,7 @@
     providerStatus,
     isPromptMissing,
     promptMissing,
+    isConversationReset,
+    conversationReset,
   });
 })(typeof self !== 'undefined' ? self : globalThis);

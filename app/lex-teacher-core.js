@@ -271,6 +271,48 @@
       return e;
     }
 
+    // ── «Разговор сброшен» ─────────────────────────────────────────────────
+    // Разработчик стёр данные по ролику или странице (content-reset), и заход
+    // этого разговора помечен сброшенным (sessions.reset_at). lex_precall
+    // отвечает причиной session_reset ДО денег; llm-proxy незнакомую причину
+    // сводит к 403 + stage 'billing' + «not entitled» — тем же ответом, что у
+    // любой неизвестной причины. Поэтому ответ — только повод, а подтверждение
+    // спрашивается у базы по номеру захода из конверта (строка своя, RLS её
+    // отдаёт). Подтвердилось — маркер, который поверхность рисует человеческой
+    // строкой (chat-surface.js / wc-thread.js через lex-error-text.js); нет —
+    // прежний общий текст, как было. Повтора с новым заходом тут нет
+    // намеренно: ключ разговора несёт номер сброшенного захода, и запись в
+    // него сторож базы всё равно отвергнет — уже после похода к модели.
+    async function lexConversationResetError(response, proxy) {
+      if (!response || response.status !== 403 || !proxy || !proxy.token) return null;
+      const sid = proxy.meta && proxy.meta.sessionId;
+      if (sid == null) return null;
+      // Стадию читаем из ТЕЛА, а не только из заголовка: странице
+      // lex-me.club/app заголовок x-lex-proxy-stage не виден (CORS отдаёт ей
+      // лишь content-type и content-length — сверено 2026-09-09), а в теле
+      // сервер повторяет ту же пару {error, stage}.
+      let body = '';
+      try { body = await response.clone().text(); } catch (_) { body = ''; }
+      let parsed = null;
+      try { parsed = JSON.parse(body); } catch (_) { parsed = null; }
+      const headerStage = (response.headers && typeof response.headers.get === 'function')
+        ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
+      const stage = headerStage || String((parsed && parsed.stage) || '');
+      if (stage !== 'billing') return null;
+      if (!/not entitled/.test(body)) return null;
+      try {
+        const r = await fetch(
+          `${lexSbUrl()}/rest/v1/sessions?select=reset_at&id=eq.${encodeURIComponent(String(sid))}&limit=1`,
+          { headers: { apikey: lexAnonKey(), Authorization: `Bearer ${proxy.token}` } });
+        if (!r.ok) return null;
+        const rows = await r.json().catch(() => []);
+        if (!Array.isArray(rows) || !rows[0] || !rows[0].reset_at) return null;
+      } catch (_) { return null; }
+      const e = new Error('LEX_CONVERSATION_RESET');
+      e.lexConversationReset = true;
+      return e;
+    }
+
     // Wave 2a: multipart variant for the audio kinds (ASR / SpeechAce). The caller
     // builds the exact provider FormData and appends a `meta` field (JSON string);
     // the proxy forwards everything except `meta` to the provider with a server-held
@@ -563,6 +605,8 @@
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
         if (noSess) throw noSess;
+        const resetErr = await lexConversationResetError(response, proxy);
+        if (resetErr) throw resetErr;
         const errText = await response.text();
         throw new Error(`OpenAI ${response.status}: ${errText.substring(0, 200)}`);
       }
@@ -903,6 +947,8 @@
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
         if (noSess) throw noSess;
+        const resetErr = await lexConversationResetError(response, proxy);
+        if (resetErr) throw resetErr;
         const errText = await response.text();
         // Bubble up the raw status + body — the dispatcher inspects this to
         // decide whether to retry without previous_response_id (e.g. the
@@ -1185,6 +1231,8 @@
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
         if (noSess) throw noSess;
+        const resetErr = await lexConversationResetError(response, proxy);
+        if (resetErr) throw resetErr;
         const errText = await response.text();
         throw new Error(`Anthropic ${response.status}: ${errText.substring(0, 200)}`);
       }
@@ -1363,6 +1411,8 @@
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
         if (noSess) throw noSess;
+        const resetErr = await lexConversationResetError(response, proxy);
+        if (resetErr) throw resetErr;
         const errText = await response.text();
         throw new Error(`Google ${response.status}: ${errText.substring(0, 200)}`);
       }
@@ -2526,6 +2576,15 @@
               const e = new Error('LEX_NO_SESSION');
               e.lexNoSession = true;
               throw e;
+            }
+            // Разговор сброшен на сервере — память вкладки и локальная копия
+            // ключа устарели; расширение их снимает (background.js
+            // lexForgetResetConversation), а поверхность запирает отправку.
+            // На странице lex-me.club/app функции нет, и это правильно: там
+            // заход помнится в самой странице, и забыть его значило бы
+            // завести новый под старый ключ.
+            if (err && err.lexConversationReset && typeof lexForgetResetConversation === 'function') {
+              try { await lexForgetResetConversation(videoId, tabId); } catch (_) { /* noop */ }
             }
             throw err;
           }
