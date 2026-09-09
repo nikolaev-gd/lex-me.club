@@ -955,10 +955,22 @@
       // переоткрытая беседа показала бы два ответа на один вопрос.
       const serverLedRegen = isRegen && serverTurn;
       const writeAssistantUid = serverLedRegen ? newAssistantUid : assistantUid;
-      const rows = serverLedRegen ? [] : [{
+      // ⚠ ПРИ «ЗАНОВО» ВОПРОС НЕ ПИШЕТСЯ ВОВСЕ, ни в одной из двух веток.
+      //
+      // Он уже лежит в беседе — с тем же уидом, с тем же текстом; писать заново
+      // нечего, а переписать есть что: время авторства. Раньше оно тут и
+      // переписывалось на «сейчас», и это было терпимо, пока рядом той же
+      // строкой переписывался ответ. Стоит ответу не написаться (человек нажал
+      // «стоп» до первого слова — тогда `answer` пуст), и вопрос уезжает ОДИН,
+      // вперёд собственного ответа: в переоткрытой беседе ответ встаёт НАД
+      // вопросом. Поймано живьём 09.09.2026.
+      const rows = isRegen ? [] : [{
         role: 'user', text: m.text, uid: userUid, authoredAt,
         ...(srvPath ? { attachments: [{ kind: 'image', path: srvPath, mime: attachment.mime, width: attachment.width, height: attachment.height }] } : {}),
       }];
+      // Ответ пишем только там, где его не написал сервер: у серверного
+      // переспроса его текст точнее нашего (на «стопе» он урезан по числу
+      // увиденных знаков).
       if (answer && !serverLedRegen) rows.push({ role: 'assistant', text: answer, uid: writeAssistantUid, authoredAt: answerAuthoredAt || new Date().toISOString() });
       // modelId рядом с ходом — ТОЛЬКО в памяти. В `video_chat_turns` колонки
       // под модель нет, и заводить её ради «заново» — миграция рядом с
