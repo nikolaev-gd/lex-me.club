@@ -623,7 +623,7 @@
             WcHeader.setVoiceActive(false);
             WcThread.endVoice();
             await flushExchange();
-            if (reason && !VOICE_END_BY_READER.has(reason)) toast('Conversation ended: ' + reason);
+            if (reason && !VOICE_END_BY_READER.has(reason)) toast(WcVoice.endedText(reason));
             // The debit is made by the server-side listener after the call
             // closes, so ask for the balance twice, like a text turn does.
             refreshAccount();

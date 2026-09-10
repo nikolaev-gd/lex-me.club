@@ -92,6 +92,49 @@
     no_listener: 'The server could not open the billing session — try again.',
   };
 
+  // Why a conversation ended without the reader ending it, in words — one line
+  // per reason the server sends with lex.session.ended (voice-watch and
+  // voice-reaper), plus the one this page detects itself. The reason itself is
+  // a machine word and never reaches the screen. Both languages live here; the
+  // page has no language switch yet and speaks English everywhere, so `en` is
+  // what it shows today. Ends the reader chose (the cross, leaving the chat)
+  // stay silent — VOICE_END_BY_READER in wc-app.js.
+  const ENDED_TEXT = {
+    time_cap: {
+      en: 'The conversation reached its time limit.',
+      ru: 'Разговор закончился: вышло отведённое на него время.',
+    },
+    silence: {
+      en: 'The conversation ended after a long silence.',
+      ru: 'Разговор закончился: долго было тихо.',
+    },
+    client_gone: {
+      en: 'The conversation ended: the connection was lost.',
+      ru: 'Разговор закончился: пропала связь.',
+    },
+    budget_cap: {
+      en: 'The conversation ended: your balance ran out.',
+      ru: 'Разговор закончился: на балансе кончились деньги.',
+    },
+    listener_lost: {
+      en: 'The conversation was cut off on the server. Press to start again.',
+      ru: 'Разговор оборвался на сервере. Нажмите, чтобы начать заново.',
+    },
+    'connection-failed': {
+      en: 'The conversation ended: the connection failed.',
+      ru: 'Разговор закончился: связь не удалось удержать.',
+    },
+    // Anything else — a reason added on the server later, or none at all.
+    other: {
+      en: 'The conversation has ended.',
+      ru: 'Разговор закончился.',
+    },
+  };
+  function endedText(reason, lang) {
+    const row = Object.prototype.hasOwnProperty.call(ENDED_TEXT, reason) ? ENDED_TEXT[reason] : ENDED_TEXT.other;
+    return row[lang === 'ru' ? 'ru' : 'en'];
+  }
+
   async function post(path, body) {
     const token = await A().validToken();
     if (!token) { const e = new Error(GATE_TEXT.login); e.gate = 'login'; throw e; }
@@ -807,6 +850,11 @@
     // and flipping it would light up controls there that have no handlers
     // behind them. See the journal, decision 0.4.
     available: true,
+
+    // The line the reader sees when a conversation ended without them ending
+    // it (server hung up, link failed) — see ENDED_TEXT. The reason itself is
+    // a machine word and never goes on screen.
+    endedText(reason) { return endedText(reason, 'en'); },
 
     get active() { return !closed; },
     get connecting() { return connecting; },
