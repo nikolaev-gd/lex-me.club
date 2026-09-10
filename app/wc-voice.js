@@ -51,12 +51,19 @@
   const DEFAULT_VOICE_MODEL = 'gpt-realtime-mini';
 
   const log = (...a) => { if (global.lexDebug && global.lexDebug.enabled) console.log(TAG, ...a); };
+
+  // Как берётся микрофон разговора — и на старте, и заново, когда дорожка
+  // кончилась (lex-mic-watch.js). Одно место, чтобы новая дорожка не
+  // оказалась с другой обработкой звука, чем первая.
+  const MIC_AUDIO = { echoCancellation: true, autoGainControl: false, noiseSuppression: false };
   const warn = (...a) => console.warn(TAG, ...a);
 
   let pc = null;
   let audioEl = null;
   let localStream = null;
   let micTrack = null;
+  // Слежка «микрофон отобрали» (lex-mic-watch.js) за дорожкой разговора.
+  let micWatch = null;
   let eventsWs = null;
   let eventsHb = null;
   let eventsSeen = null;
@@ -123,6 +130,11 @@
     'connection-failed': {
       en: 'The conversation ended: the connection failed.',
       ru: 'Разговор закончился: связь не удалось удержать.',
+    },
+    // Detected by this page: another app took the microphone (lex-mic-watch.js).
+    mic_lost: {
+      en: 'The conversation ended: another app took the microphone.',
+      ru: 'Разговор закончился: микрофон забрало другое приложение.',
     },
     // Anything else — a reason added on the server later, or none at all.
     other: {
@@ -292,7 +304,18 @@
       everyMs: PRESENCE_BEAT_MS,
       beat: () => {
         if (closed || !callId) return;
-        return post('/functions/v1/voice-cmd', { callId, ping: true });
+        const beatId = callId;
+        return post('/functions/v1/voice-cmd', { callId: beatId, ping: true }).then((r) => {
+          // 404 — у сервера этого разговора больше нет. Запасной путь к
+          // событию lex.session.ended: широковещание не повторяется, и если в
+          // миг отбоя канал событий переподключался, страница иначе узнала бы
+          // о конце только когда WebRTC сам сочтёт связь потерянной — через
+          // десятки секунд и с чужой причиной. Причину сервер кладёт в ответ.
+          if (r && r.status === 404 && !closed && callId === beatId) {
+            log('presence beat: 404 — the server has no live conversation', r.json && r.json.reason);
+            stop({ reason: (r.json && r.json.reason) || 'server-ended' });
+          }
+        });
       },
     });
   }
@@ -601,9 +624,7 @@
       if (sessionId == null) throw new Error('could not create a session for the conversation');
 
       // Mic first: a refused microphone should stop us before any server work.
-      localStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, autoGainControl: false, noiseSuppression: false },
-      });
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, MIC_AUDIO) });
       micTrack = localStream.getAudioTracks()[0];
       if (!micTrack) throw new Error('the microphone yielded no track');
       // Held from the very first frame, before the track is even attached to
@@ -638,6 +659,29 @@
         if (hooks.onRemoteStream) hooks.onRemoteStream(e.streams[0]);
       };
       pc.addTrack(micTrack, localStream);
+
+      // Микрофон отобрало другое приложение — трубка сразу, человеку
+      // говорится почему (ENDED_TEXT.mic_lost). Признаки, подмена дорожки при
+      // смене наушников и почему не по тишине — в lex-mic-watch.js.
+      micWatch = global.LexMicWatch.watch(micTrack, {
+        reacquire: () => navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, MIC_AUDIO) }),
+        onReplaced: async (stream, track) => {
+          const sender = pc && pc.getSenders().find((s) => s.track === micTrack);
+          if (!sender) throw new Error('no audio sender');
+          // Выключенный человеком (или «держи и говори») микрофон остаётся
+          // выключенным и на новой дорожке.
+          track.enabled = micTrack ? micTrack.enabled : !userMuted;
+          await sender.replaceTrack(track);
+          try { if (localStream) localStream.getTracks().forEach((t) => t.stop()); } catch (_) {}
+          localStream = stream;
+          micTrack = track;
+        },
+        onLost: (kind, detail) => {
+          warn('microphone lost:', kind, detail ? JSON.stringify(detail) : '');
+          stop({ reason: 'mic_lost' });
+        },
+        log,
+      });
 
       // NO createDataChannel — see the header. An m=application line in the
       // offer is refused by the broker.
@@ -819,6 +863,9 @@
   async function teardown() {
     closed = true;
     stopPresenceBeat();
+    // Слежку — до того, как дорожки гасятся здесь же: свой stop() события
+    // 'ended' не даёт, но и ловить после сноса нечего.
+    if (micWatch) { micWatch.stop(); micWatch = null; }
     clearTimeout(firstTurn.timer);
     firstTurn.timer = null;
     firstTurn.armed = false;

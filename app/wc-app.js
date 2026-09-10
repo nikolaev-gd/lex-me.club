@@ -435,7 +435,10 @@
   // Концы разговора, которые выбрал сам человек: крестик и уход из беседы.
   // О них onDisconnected не сообщает — плашка нужна концам, которых человек
   // не нажимал (сервер, сеть, деньги).
-  const VOICE_END_BY_READER = new Set(['manual', 'open-chat', 'new-chat']);
+  // 'window-closed' — программа для Мака закрыла или спрятала окно, а
+  // крестика разговора на странице не нашла (WebHost.stopVoice): это уход из
+  // приложения, надпись в спрятанное окно ни к чему.
+  const VOICE_END_BY_READER = new Set(['manual', 'open-chat', 'new-chat', 'window-closed']);
 
   // The mic button is a toggle over one live session. Everything the reader
   // hears and says lands in the same thread as typing, through the same
