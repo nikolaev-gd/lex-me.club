@@ -280,20 +280,24 @@
   // по получении call_id, а не когда разговор «пошёл», — срок на сервере
   // взводится ПЕРВЫМ ударом, и дыра между ним и вторым не должна быть длиннее
   // порога.
+  //
+  // Сам таймер — общий LexPulse (lex-pulse.js, тот же, что у расширения):
+  // первый удар сразу, дальше по расписанию, упавший удар пульс не гасит.
+  // Здесь — только частота и то, что и куда несёт удар.
   const PRESENCE_BEAT_MS = 3000;
-  let presenceTimer = null;
+  let presence = null;
   function startPresenceBeat() {
-    if (presenceTimer || !callId) return;
-    const beat = () => {
-      if (closed || !callId) return;
-      post('/functions/v1/voice-cmd', { callId, ping: true })
-        .catch(() => { /* пропущенный удар — не беда, следующий через 3 с */ });
-    };
-    beat();
-    presenceTimer = setInterval(beat, PRESENCE_BEAT_MS);
+    if (presence || !callId) return;
+    presence = global.LexPulse.start({
+      everyMs: PRESENCE_BEAT_MS,
+      beat: () => {
+        if (closed || !callId) return;
+        return post('/functions/v1/voice-cmd', { callId, ping: true });
+      },
+    });
   }
   function stopPresenceBeat() {
-    if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+    if (presence) { presence.stop(); presence = null; }
   }
 
   // ── What the reader sees while talking ───────────────────────────────────
