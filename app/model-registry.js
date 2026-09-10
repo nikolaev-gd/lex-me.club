@@ -692,6 +692,11 @@
       id: 'gpt-live-transcribe', apiModel: 'gpt-live-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT Live Transcribe',
       dictation: true, live: true,
+      // Частота звука — свойство МОДЕЛИ, а не общая константа: у каждой живой
+      // распознавалки свой нижний предел, и провайдер отвергает всю настройку
+      // сессии целиком, если частота не та. Ниже 24000 этот отвечает
+      // «Expected a value >= 24000» (замерено 2026-09-09).
+      sampleRate: 24000,
       pricing: { audioHour: 1.02 },
     },
     {
@@ -727,6 +732,28 @@
       provider: 'google', type: 'asr', label: 'Gemini 3.5 Transcribe',
       dictation: true,
       pricing: { audioInputMTok: 2.00, outputMTok: 12.00 },
+    },
+    {
+      // Живая распознавалка Google. Живёт сессией BidiGenerateContent на
+      // generativelanguage.googleapis.com — тот же дом, что у голосового
+      // разговора Google, но своя модель и своя форма настройки. Ключ едет в
+      // адресе, а не заголовком.
+      //
+      // РАСХОД ЭТА МОДЕЛЬ НЕ ПРИСЫЛАЕТ ВОВСЕ — ни секунд, ни токенов, ни в
+      // одном кадре сессии (проверено тремя сессиями по 68 секунд, включая
+      // ожидание закрытия сервером, 2026-09-10). Поэтому единственная во всём
+      // реестре, у кого цена СЧИТАЕТСЯ НАМИ, а не берётся у поставщика: сервер
+      // переводит секунды речи и знаки расшифровки в токены по коэффициентам
+      // из таблицы моделей и умножает на ставки. Отсюда `costEstimated` — по
+      // нему окно настроек показывает человеку, что число приблизительное.
+      //
+      // Цены на 2026-09-10: $3.50 за миллион входных токенов, $21.00 за
+      // миллион выходных. Здесь они запасные, авторитет у строки public.models.
+      id: 'gemini-3.5-transcribe-live', apiModel: 'gemini-3.5-transcribe-live',
+      provider: 'google', type: 'asr', label: 'Gemini 3.5 Transcribe Live',
+      dictation: true, live: true, costEstimated: true,
+      sampleRate: 24000,
+      pricing: { audioInputMTok: 3.50, outputMTok: 21.00 },
     },
   ];
 
@@ -888,6 +915,15 @@
     // Язык, когда ручка «Язык» пуста. Пустая строка означала бы «поле не
     // отправлять», а это другое поведение — см. dictationRequestFields.
     defaultLanguage: 'en',
+    // Потолок ЖИВОЙ диктовки — свой: десять минут, одинаково для всех, без
+    // деления по типу аккаунта (решение владельца 2026-09-10). Это единственный
+    // потолок длительности у живой сессии — своего у сервера нет. У обычной
+    // диктовки остаётся минута выше: её звук уезжает одним файлом после кнопки.
+    liveMaxDurationMs: 600000,
+    // Пульс «на связи» живой диктовки: отдельный короткий кадр раз в 3 с. Сервер
+    // закрывает сессию, если пульса не было 10 с; звук пульсом не считается.
+    // Схема и числа те же, что у голосового разговора.
+    livePresenceBeatMs: 3000,
   };
 
   // Какие поля распознавалка ПРИНИМАЕТ. Замерено живыми запросами через наш
@@ -919,13 +955,20 @@
   //     instruction is not enabled for this model», а текстовая часть рядом со
   //     звуком принимается и на результат не влияет ни на символ (сверено на
   //     одной записи 2026-09-09).
+  //   • gemini-3.5-transcribe-live: `languages`, `keywords` и `mode` — те же
+  //     три, что у её файловой сестры, минус отметки времени и разделение
+  //     говорящих: живая сессия их не отдаёт вовсе. Плюс своё поле `liveText`
+  //     — показывать ли человеку промежуточные догадки распознавалки или
+  //     только законченные куски. Оно наше, а не провайдерское: провайдер
+  //     присылает и то и другое всегда, а решает, что показать, сервер.
   const DICTATION_FIELDS = {
-    'gpt-transcribe':        { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false, mode: false, timestamps: false, diarization: false },
-    'gpt-live-transcribe':   { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true, mode: false, timestamps: false, diarization: false },
-    'whisper-1':             { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false, mode: false, timestamps: false, diarization: false },
-    'gemini-3.5-transcribe': { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: true, diarization: true },
+    'gpt-transcribe':             { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false, mode: false, timestamps: false, diarization: false, liveText: false },
+    'gpt-live-transcribe':        { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true, mode: false, timestamps: false, diarization: false, liveText: false },
+    'whisper-1':                  { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false, mode: false, timestamps: false, diarization: false, liveText: false },
+    'gemini-3.5-transcribe':      { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: true, diarization: true, liveText: false },
+    'gemini-3.5-transcribe-live': { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: false, diarization: false, liveText: true },
   };
-  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false, mode: false, timestamps: false, diarization: false };
+  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false, mode: false, timestamps: false, diarization: false, liveText: false };
 
   // Незнакомое имя модели получает пустой набор, а не набор дефолтной модели:
   // послать поле, которого у модели нет, значит получить 400 на каждом
@@ -952,6 +995,15 @@
   // поэтому переводу они не подлежат; подписи к ним — в i18n.
   const DICTATION_MODES = ['verbatim', 'smart'];
   const DICTATION_MODE_DEFAULT = 'verbatim';
+
+  // Как живой текст появляется в поле ввода. `streaming` — сразу по ходу речи,
+  // слова могут переписываться, пока фраза не договорена; `settled` — только
+  // законченными кусками, ничего не дёргается. Значения наши, а не
+  // провайдерские: распознавалка присылает и промежуточные догадки, и
+  // законченные куски всегда, а решает, что из этого доходит до человека,
+  // сервер — приложение ничего не прячет само.
+  const DICTATION_LIVE_TEXT = ['streaming', 'settled'];
+  const DICTATION_LIVE_TEXT_DEFAULT = 'streaming';
 
   // ── Что с чем нельзя включать вместе ─────────────────────────────────────
   //
@@ -1006,6 +1058,76 @@
     const name = String(apiModel || '');
     for (const m of LEX_MODELS) {
       if (m.type === 'asr' && m.apiModel === name) return !!m.live;
+    }
+    return false;
+  }
+
+  // ── Что уедет в запрос: одно правило на все поверхности ─────────────────
+  //
+  // Раньше набор полей собирался в трёх местах отдельно, и они разошлись:
+  // расширение гоняло значения через карту полей и правила несовместимости, а
+  // страница на живом пути не звала ни то ни другое — складывала кадр начала
+  // руками списком имён. Из-за этого «Режим расшифровки» со страницы не уезжал
+  // на сервер вовсе, и заметить это было нечем: у единственной живой
+  // распознавалки того времени такого поля не было.
+  //
+  // Вход — сырые значения ручек короткими именами (те же, что отдаёт
+  // getChatKnobs); выход — готовый набор, где поле, которого у этой
+  // распознавалки нет, пусто, а несовместимое сброшено. Пустое значение
+  // сервер отбрасывает сам.
+  function dictationOutgoing(apiModel, values) {
+    const v = values || {};
+    const fields = dictationRequestFields(apiModel);
+    const inert = dictationInertKnobs(apiModel, {
+      keywords: v.keywords,
+      mode: v.mode || DICTATION_MODE_DEFAULT,
+      timestamps: v.timestamps,
+      diarization: v.diarization,
+    });
+    const list = (raw) => (Array.isArray(raw) ? raw : String(raw || '').split(','))
+      .map((x) => String(x).trim()).filter((x) => x && x !== 'auto');
+    return {
+      // Одиночный язык: 'auto' и пусто означают «не отправлять поле».
+      language: fields.language ? (v.language || DICTATION_CAPTURE.defaultLanguage) : null,
+      languages: fields.languages ? list(v.languages) : [],
+      prompt: fields.prompt ? String(v.prompt || '') : '',
+      keywords: fields.keywords ? list(v.keywords) : [],
+      stream: !!(fields.stream && v.stream),
+      delay: fields.delay ? String(v.delay || '') : '',
+      // Пустое хранимое значение означает не «не отправлять», а дефолт:
+      // дословный режим и есть обещанное поведение, и молчать о нём нельзя.
+      mode: fields.mode ? (v.mode || DICTATION_MODE_DEFAULT) : '',
+      timestamps: !!(fields.timestamps && v.timestamps && !inert.timestamps),
+      diarization: !!(fields.diarization && v.diarization && !inert.diarization),
+      liveText: fields.liveText ? (v.liveText || DICTATION_LIVE_TEXT_DEFAULT) : '',
+    };
+  }
+
+  // Частота звука, которую требует эта распознавалка. Раньше число 24000
+  // стояло тремя независимыми копиями — в браузерном модуле, на сервере и в
+  // зеркале айфона — и ни к какой модели привязано не было; вторая живая
+  // распознавалка сделала бы это расхождением, которое нигде не видно. Теперь
+  // источник один: свойство записи. Модель без своего числа получает 24000 —
+  // это не догадка, а то, что все живые распознавалки продукта требуют
+  // сегодня; своя цифра у записи перебивает общее.
+  const DICTATION_SAMPLE_RATE_DEFAULT = 24000;
+  function dictationSampleRate(apiModel) {
+    const name = String(apiModel || '');
+    for (const m of LEX_MODELS) {
+      if (m.type === 'asr' && m.apiModel === name && typeof m.sampleRate === 'number') return m.sampleRate;
+    }
+    return DICTATION_SAMPLE_RATE_DEFAULT;
+  }
+
+  // Считаем ли цену этой распознавалки САМИ. `true` значит: поставщик расхода
+  // не присылает, сервер переводит секунды и знаки в токены по коэффициентам и
+  // умножает на ставки — то есть число приблизительное, и человеку об этом
+  // говорится прямо в окне настроек. `false` — цена посчитана по тому, что
+  // назвал сам поставщик.
+  function isEstimatedCostModel(apiModel) {
+    const name = String(apiModel || '');
+    for (const m of LEX_MODELS) {
+      if (m.type === 'asr' && m.apiModel === name) return !!m.costEstimated;
     }
     return false;
   }
@@ -1461,7 +1583,12 @@
     dictationModeDefault: DICTATION_MODE_DEFAULT,
     dictationInertKnobs,
     dictationDelays: DICTATION_DELAYS,
+    dictationLiveTexts: DICTATION_LIVE_TEXT,
+    dictationLiveTextDefault: DICTATION_LIVE_TEXT_DEFAULT,
+    dictationSampleRate,
+    dictationOutgoing,
     isLiveDictationModel,
+    isEstimatedCostModel,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),

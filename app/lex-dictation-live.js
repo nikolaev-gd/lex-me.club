@@ -28,12 +28,24 @@
 (function (global) {
   'use strict';
 
-  // Провайдер принимает PCM 16 бит, моно, и НЕ НИЖЕ 24 кГц: на 16 000 он
-  // отвечает «Expected a value >= 24000» и отвергает всю настройку сессии
-  // целиком — то есть сессия остаётся с чужими значениями по умолчанию и
-  // молча не распознаёт ничего (замерено 2026-09-09). Число проверено, а не
-  // взято из документации, и снижать его нельзя.
-  const SAMPLE_RATE = 24000;
+  // Частота звука — свойство РАСПОЗНАВАЛКИ, а не этого файла. Каждая живая
+  // распознавалка требует свою и отвергает всю настройку сессии целиком, если
+  // частота не та: OpenAI на 16 000 отвечает «Expected a value >= 24000», и
+  // сессия молча не распознаёт ничего (замерено 2026-09-09). Раньше число 24000
+  // стояло здесь константой, а ещё двумя копиями — на сервере и в зеркале
+  // айфона, — и ни к одной модели привязано не было; вторая живая
+  // распознавалка сделала бы это расхождением, которое нигде не видно.
+  // Источник теперь один — запись модели в реестре; здесь остаётся запасное
+  // число на случай, когда реестра рядом нет.
+  const SAMPLE_RATE_FALLBACK = 24000;
+  function sampleRateFor(apiModel) {
+    const R = global.LexModelRegistry;
+    if (R && typeof R.dictationSampleRate === 'function') {
+      const v = R.dictationSampleRate(apiModel);
+      if (typeof v === 'number' && v > 0) return v;
+    }
+    return SAMPLE_RATE_FALLBACK;
+  }
   // Сколько отсчётов набирается перед отправкой. 4096 при 24 кГц — это ~170 мс
   // звука в сообщении: достаточно редко, чтобы не топить шину сообщениями, и
   // достаточно часто, чтобы текст рос без рывков.
@@ -41,8 +53,10 @@
   // Потолок на звук, накопленный ДО того, как сервер сказал «готов». Обычно
   // это доли секунды, но если сервер не отвечает вовсе — память расти не
   // должна. Десять секунд с запасом покрывают самое медленное подключение из
-  // замеренных.
-  const PREBUFFER_MAX_FRAMES = Math.ceil((10 * SAMPLE_RATE) / FRAME_SAMPLES);
+  // замеренных; считается от частоты той распознавалки, которую выбрали.
+  function prebufferMaxFrames(rate) {
+    return Math.ceil((10 * rate) / FRAME_SAMPLES);
+  }
 
   // Float32 [-1, 1] → PCM16 little-endian. Обрезка по краям обязательна:
   // микрофон отдаёт значения чуть за единицу, и без неё они переполняют
@@ -98,6 +112,7 @@
     let unsub = null;
     let prebuffer = [];
     let prebufferDropped = 0;
+    let beatTimer = null;
 
     function newRequestId() {
       return (global.crypto && global.crypto.randomUUID)
@@ -112,7 +127,30 @@
       try { transport.call('LEX_DICTATION_LIVE_AUDIO', { requestId, b64 }); } catch (_) { /* noop */ }
     }
 
+    // Пульс «на связи». Отдельный короткий кадр раз в несколько секунд, пока
+    // сессия открыта: по нему сервер знает, что человек ещё здесь. Звук
+    // пульсом не считается — поток может идти и из брошенной вкладки. Шлёт его
+    // именно этот модуль, а не фон и не страница-хозяин: закрылась вкладка с
+    // микрофоном — пульс прекращается сам, и сервер закрывает сессию.
+    function beatMs() {
+      const R = global.LexModelRegistry;
+      const c = R && R.dictationCapture;
+      return (c && c.livePresenceBeatMs) || 3000;
+    }
+    function stopBeat() {
+      if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
+    }
+    function startBeat() {
+      stopBeat();
+      const id = requestId;
+      beatTimer = setInterval(() => {
+        if (!running || requestId !== id) { stopBeat(); return; }
+        try { transport.call('LEX_DICTATION_LIVE_PING', { requestId: id }); } catch (_) { /* noop */ }
+      }, beatMs());
+    }
+
     function teardownAudio() {
+      stopBeat();
       try { if (processor) { processor.onaudioprocess = null; processor.disconnect(); } } catch (_) {}
       try { if (source) source.disconnect(); } catch (_) {}
       try { if (sink) sink.disconnect(); } catch (_) {}
@@ -152,12 +190,14 @@
       // встаёт не мгновенно, и всё сказанное в это время должно не потеряться,
       // а подождать в очереди. Замеряли путь через WebRTC — там сказанное в
       // первые полторы-три секунды пропадает совсем, потому что буфера нет.
+      const rate = sampleRateFor(config && config.model);
+      const prebufferMax = prebufferMaxFrames(rate);
       try {
-        ctx = new (global.AudioContext || global.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        ctx = new (global.AudioContext || global.webkitAudioContext)({ sampleRate: rate });
         // Аппаратура может не дать запрошенную частоту. Тогда пересчитывать
         // пришлось бы нам, а этого мы не умеем — честнее отказаться сразу.
-        if (Math.abs(ctx.sampleRate - SAMPLE_RATE) > 1) {
-          throw new Error('audio context refused ' + SAMPLE_RATE + ' Hz (got ' + ctx.sampleRate + ')');
+        if (Math.abs(ctx.sampleRate - rate) > 1) {
+          throw new Error('audio context refused ' + rate + ' Hz (got ' + ctx.sampleRate + ')');
         }
         source = ctx.createMediaStreamSource(stream);
         // ScriptProcessorNode, а не AudioWorklet, и это осознанно. Worklet
@@ -172,7 +212,7 @@
           if (!running || requestId !== myId) return;
           const b64 = toBase64(toPcm16(e.inputBuffer.getChannelData(0)));
           if (ready) { sendAudio(b64); return; }
-          if (prebuffer.length >= PREBUFFER_MAX_FRAMES) { prebufferDropped++; return; }
+          if (prebuffer.length >= prebufferMax) { prebufferDropped++; return; }
           prebuffer.push(b64);
         };
         source.connect(processor);
@@ -230,6 +270,7 @@
       }
 
       ready = true;
+      startBeat();
       if (prebufferDropped > 0) {
         console.warn(TAG, `dropped ${prebufferDropped} prebuffered frame(s) — server took too long to accept audio`);
       }
@@ -247,6 +288,7 @@
       if (!running) return null;
       const myId = requestId;
       running = false;
+      stopBeat();
       stopCapture();
       let res = null;
       try {
@@ -266,6 +308,7 @@
       if (!running) { stopListening(); teardownAudio(); return; }
       const myId = requestId;
       running = false;
+      stopBeat();
       stopCapture();
       try { transport.call('LEX_DICTATION_LIVE_ABORT', { requestId: myId }); } catch (_) {}
       stopListening();
@@ -285,5 +328,7 @@
     };
   }
 
-  global.LexDictationLive = { create, SAMPLE_RATE };
+  // sampleRateFor наружу — чтобы поверхность могла спросить частоту той
+  // распознавалки, которую выбрали, и не держать своей копии числа.
+  global.LexDictationLive = { create, sampleRateFor };
 })(typeof self !== 'undefined' ? self : globalThis);

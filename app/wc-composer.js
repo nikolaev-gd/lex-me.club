@@ -158,16 +158,18 @@
   // Живая диктовка. Рядом с recorder, а не вместо: распознавалок две породы, и
   // выбор между ними — ручка настроек, которую человек меняет на ходу.
   let live = null;
-  let chunks = [];
   let recStartedAt = 0;
-  let transcribing = false;
   let recAutoStopTimer = null;
   // Пороги и потолок записи — общие на все поверхности, из реестра моделей
   // (LexModelRegistry.dictationCapture). Своих чисел у страницы больше нет:
   // раньше здесь стояли 350 мс «слишком коротко» против 300 в расширении и
   // отсутствие потолка против минуты у него, и один микрофон вёл себя
   // по-разному в зависимости от того, где его нажали.
-  const CAPTURE_FALLBACK = { minDurationMs: 300, minBlobBytes: 1000, maxDurationMs: 60000, defaultLanguage: 'en' };
+  const CAPTURE_FALLBACK = { minDurationMs: 300, minBlobBytes: 1000, maxDurationMs: 60000, liveMaxDurationMs: 600000, defaultLanguage: 'en' };
+  // «10 minutes», а не «600 seconds»: потолок живой диктовки — минуты.
+  const limitLabel = (ms) => (ms >= 60000 && ms % 60000 === 0)
+    ? (ms / 60000) + (ms === 60000 ? ' minute' : ' minutes')
+    : Math.round(ms / 1000) + ' seconds';
   const capture = () => (global.LexModelRegistry && global.LexModelRegistry.dictationCapture) || CAPTURE_FALLBACK;
 
   function autoGrow() {
@@ -260,8 +262,10 @@
   async function startLive(stream, knobs) {
     const grower = makeGrower();
     let finished = false;
-    const requestId = (global.crypto && global.crypto.randomUUID)
-      ? global.crypto.randomUUID() : String(Date.now()) + Math.random();
+    // Своего номера сессии здесь не чеканим: его чеканит сам модуль живой
+    // диктовки и им же метит все свои сообщения. Здешний был мёртвым — уезжал
+    // внутри набора настроек, где его никто не читал, и при разборе журнала
+    // подсовывал не тот номер.
     live = global.LexDictationLive.create({
       transport: {
         call: (type, payload) => WcBus.call(type, payload).catch(() => null),
@@ -276,10 +280,11 @@
         elMic.title = 'Stop dictating';
         elMic.setAttribute('aria-label', elMic.title);
         WcHaptics.tap();
-        const maxMs = capture().maxDurationMs;
+        // У живой диктовки свой потолок — десять минут, у файловой минута.
+        const maxMs = capture().liveMaxDurationMs || capture().maxDurationMs;
         if (maxMs > 0) {
           recAutoStopTimer = setTimeout(() => {
-            if (live) { stopRecording(); toast('Recording stopped: the limit is ' + Math.round(maxMs / 1000) + ' seconds.'); }
+            if (live) { stopRecording(); toast('Recording stopped: the limit is ' + limitLabel(maxMs) + '.'); }
           }, maxMs);
         }
       },
@@ -290,26 +295,30 @@
         toast('Could not transcribe: ' + msg, { error: true });
       },
     });
-    const splitList = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
+    // Эта сессия — своя переменная, а не общая `live`: после «стоп» общая
+    // освобождается сразу, и новое нажатие начинает новую сессию, пока эта
+    // ещё договаривает с сервером.
+    const me = live;
     // Завершение описано ДО старта: кнопка горит с первого кадра звука, значит
     // второе нажатие может прийти, пока связь ещё встаёт.
     live.__finish = async (wantText) => {
       if (finished) return;
       finished = true;
       if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
-      transcribing = true;
-      elMic.classList.add('is-busy');
+      // Кнопка гаснет в миг нажатия и больше не меняется: всё, что осталось
+      // серверу, он доделывает молча. Никакого «занята».
+      if (live === me) live = null;
       elMic.classList.remove('is-recording');
       elMic.title = 'Dictate';
       elMic.setAttribute('aria-label', elMic.title);
       // Связь ещё не встала — расшифровывать нечего и ошибки не было: человек
       // передумал. Бросаем молча; расход за уже переданное досчитает сервер.
-      const want = wantText && !!(live && live.isReady && live.isReady());
-      const res = want ? await live.stop() : (live.abort(), null);
-      live = null;
+      const want = wantText && !!(me && me.isReady && me.isReady());
+      // stop() глушит звук сразу, до всякой сети; микрофон отдаём тут же, а не
+      // после ответа, — иначе точка записи горела бы над погасшей кнопкой.
+      const pending = want ? me.stop() : (me.abort(), null);
       stream.getTracks().forEach((t) => t.stop());
-      transcribing = false;
-      elMic.classList.remove('is-busy');
+      const res = pending ? await pending : null;
       syncButton();
       if (!want) return;
       if (!res || !res.ok) { toast('Could not transcribe', { error: true }); return; }
@@ -324,19 +333,21 @@
         try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
       }
     };
-    const started = await live.start(stream, {
-      model: global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel),
-      languages: splitList(knobs && knobs.dictationLanguages),
-      prompt: (knobs && knobs.dictationPrompt) || '',
-      keywords: splitList(knobs && knobs.dictationKeywords),
-      delay: (knobs && knobs.dictationDelay) || '',
+    // Поля распознавалки собирает РЕЕСТР, а не этот файл. Раньше здесь стоял
+    // список имён руками, и он молча отставал: карту полей живой путь страницы
+    // не звал вовсе, поэтому «Режим расшифровки» отсюда не уезжал на сервер
+    // никогда. Теперь правило одно на все поверхности — какое поле у этой
+    // распознавалки есть и какое сейчас несовместимо с соседним.
+    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
+    const outgoing = global.LexModelRegistry.dictationOutgoing(apiModel, knobs || {});
+    const started = await live.start(stream, Object.assign({}, outgoing, {
+      model: apiModel,
       surface: 'standalone',
       pageType: 'text',
-      requestId,
-    });
+    }));
     if (!started) {
       if (!finished) {
-        live = null;
+        if (live === me) live = null;
         stream.getTracks().forEach((t) => t.stop());
         elMic.classList.remove('is-recording');
         elMic.title = 'Dictate';
@@ -373,32 +384,33 @@
       await startLive(stream, knobs);
       return;
     }
+    let rec;
     try {
-      recorder = new MediaRecorder(stream);
+      rec = new MediaRecorder(stream);
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop());
       toast('This browser cannot record audio', { error: true });
       return;
     }
-    chunks = [];
-    recStartedAt = Date.now();
-    recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-    recorder.onstop = async () => {
+    recorder = rec;
+    // Куски и начало — свои у каждой записи: пока одна отправляется на
+    // расшифровку, следующая уже может писаться, и общий массив они бы делили.
+    const myChunks = [];
+    const myStartedAt = Date.now();
+    recStartedAt = myStartedAt;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) myChunks.push(e.data); };
+    rec.onstop = async () => {
       // The tracks are released before the network call, not after: a
       // microphone that stays open shows a recording dot for as long as the
       // transcription takes, which reads as "still listening".
       stream.getTracks().forEach((t) => t.stop());
-      if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
-      const durationMs = Date.now() - recStartedAt;
-      const blob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'audio/webm' });
-      chunks = [];
-      recorder = null;
-      elMic.classList.remove('is-recording');
+      const durationMs = Date.now() - myStartedAt;
+      const blob = new Blob(myChunks, { type: rec.mimeType || 'audio/webm' });
       const cap = capture();
       if (blob.size < cap.minBlobBytes || durationMs < cap.minDurationMs) { syncButton(); return; }
       await transcribe(blob, durationMs);
     };
-    recorder.start();
+    rec.start();
     elMic.classList.add('is-recording');
     elMic.title = 'Stop dictating';
     elMic.setAttribute('aria-label', elMic.title);
@@ -409,7 +421,7 @@
     const maxMs = capture().maxDurationMs;
     if (maxMs > 0) {
       recAutoStopTimer = setTimeout(() => {
-        if (recorder && recorder.state !== 'inactive') {
+        if (recorder === rec && rec.state !== 'inactive') {
           stopRecording();
           toast('Recording stopped: the limit is ' + Math.round(maxMs / 1000) + ' seconds.');
         }
@@ -422,7 +434,12 @@
     // Живая сессия заканчивается по-своему: файла нет, и «остановить запись»
     // значит «дать серверу договорить с провайдером и вернуть итог».
     if (live && live.__finish) { live.__finish(true); return; }
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
+    // Кнопка гаснет в миг нажатия, а запись отпускается сразу: следующее
+    // нажатие начинает новую, пока эта ещё уходит на расшифровку.
+    const r = recorder;
+    recorder = null;
+    elMic.classList.remove('is-recording');
+    if (r && r.state !== 'inactive') r.stop();
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
   }
@@ -430,11 +447,13 @@
   // Растущий кусок держится ЗА СВОИМ ОТРЕЗКОМ, а не «дописывается в конец»:
   // человек может печатать, пока идёт расшифровка. Пока поле выглядит ровно
   // так, как мы его оставили, — переписываем; тронули — рост прекращается, и
-  // готовый текст в конце просто дописывается. Тихо затирать чужой набор
-  // нельзя. Та же механика, теми же словами, что в dictation.js.
+  // готовый текст встаёт на место выросшего куска, а если того в поле уже нет —
+  // дописывается. Тихо затирать чужой набор нельзя. Та же механика, теми же
+  // словами, что в dictation.js.
   function makeGrower() {
     let base = null;
     let lastWritten = null;
+    let lastSofar = null; // сам выросший кусок, без того, что было до него
     let alive = true;
     const compose = (b, t) => (b.trim().length === 0 ? t : b.replace(/\s*$/, '') + ' ' + t);
     const put = (v, focus) => {
@@ -450,19 +469,30 @@
         if (base === null) base = elInput.value || '';
         else if (elInput.value !== lastWritten) { alive = false; return; }
         lastWritten = compose(base, sofar);
+        lastSofar = sofar;
         put(lastWritten, false);
       },
+      // Поле трогали — итог всё равно встаёт НА МЕСТО выросшего куска, если тот
+      // стоит в поле; иначе текст оказывался бы в поле дважды. Дописать в конец
+      // можно, только когда выросшего куска там больше нет. Та же правка, что в
+      // dictation.js и на айфоне.
       finish(text) {
-        if (!alive || base === null || elInput.value !== lastWritten) return false;
-        put(compose(base, text), true);
+        if (base === null) return false;
+        if (alive && elInput.value === lastWritten) {
+          put(compose(base, text), true);
+          return true;
+        }
+        const at = lastSofar ? elInput.value.lastIndexOf(lastSofar) : -1;
+        if (at < 0) return false;
+        put(elInput.value.slice(0, at) + text + elInput.value.slice(at + lastSofar.length), true);
         return true;
       },
     };
   }
 
   async function transcribe(blob, durationMs) {
-    transcribing = true;
-    elMic.classList.add('is-busy');
+    // Кнопку не трогает: запись кончилась на «стоп», и доезжающий текст —
+    // забота сервера и поля, а не кнопки.
     const requestId = (global.crypto && global.crypto.randomUUID)
       ? global.crypto.randomUUID() : String(Date.now()) + Math.random();
     const grower = makeGrower();
@@ -498,8 +528,6 @@
       toast('Could not transcribe: ' + ((err && err.message) || err), { error: true });
     } finally {
       unsub();
-      transcribing = false;
-      elMic.classList.remove('is-busy');
     }
   }
 
@@ -598,8 +626,11 @@
         menu(e.currentTarget, items);
       });
 
+      // Кнопка показывает намерение человека, а не состояние соединения:
+      // нажал — горит, нажал ещё раз — погасла. Промежуточного «занята» у неё
+      // нет, и расшифровка, которая ещё доезжает с прошлого нажатия, новое
+      // нажатие не блокирует — она доделывается сама и дописывает свой текст.
       elMic.addEventListener('click', () => {
-        if (transcribing) return;
         if (recorder || live) stopRecording();
         else startRecording();
       });

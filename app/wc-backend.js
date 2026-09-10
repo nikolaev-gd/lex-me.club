@@ -740,6 +740,14 @@
     }
     return { ok: true };
   });
+  // Пульс «на связи» живой диктовки — тот же, что в расширении.
+  WcBus.on('LEX_DICTATION_LIVE_PING', (m) => {
+    const e = liveDictations.get(m.requestId);
+    if (e && e.ws && e.ws.readyState === WebSocket.OPEN) {
+      try { e.ws.send(JSON.stringify({ type: 'ping' })); } catch (_) {}
+    }
+    return { ok: true };
+  });
 
   const finishLive = (verb) => async (m) => {
     const e = liveDictations.get(m.requestId);

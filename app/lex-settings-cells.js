@@ -202,6 +202,7 @@
     knobDictationMode: 'verbatim',                     // mode у gemini-3.5-transcribe: дословно (по умолчанию) или причёсанно
     knobDictationTimestamps: false,                    // timestamp_granularities:['word'] — только дословный режим, только без словаря
     knobDictationDiarization: false,                   // diarization_mode:'speaker' — те же два условия
+    knobDictationLiveText: 'streaming',                // живая диктовка Google: текст по ходу речи или готовыми кусками
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms
