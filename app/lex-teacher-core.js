@@ -41,7 +41,7 @@
 
   if (global.LexTeacherCore) return;
 
-  const REQUIRED = ["TAG", "LXT", "emit", "keepAlive", "hasSecrets", "inflightStreams", "lastClickByTab", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "DEFAULT_API_KEY", "getApiKey", "lexSbUrl", "lexAnonKey", "OPENAI_URL", "OPENAI_RESPONSES_URL", "OPENAI_CONVERSATIONS_URL", "ANTHROPIC_URL", "GOOGLE_URL_TMPL", "GOOGLE_INTERACTIONS_URL", "MODEL_REGISTRY", "authValidToken", "getActiveChatPrompt", "upsertPrompt", "addWordClick", "updateWordClick", "recordAnyCall", "logTextCallRequest", "logTextCallResponse", "buildIoResponse", "computeCost", "extractEffectiveCallParams", "lexNotifyBalanceMaybeChanged", "logContextTrace", "resolvePageType", "resolveCallSessionId", "ensureSessionForTab", "ensureStandaloneSessionForTab", "forgetSessionId", "forgetStandaloneSessionId", "extractRealVideoId"];
+  const REQUIRED = ["TAG", "LXT", "emit", "keepAlive", "hasSecrets", "inflightStreams", "lastClickByTab", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "DEFAULT_API_KEY", "getApiKey", "lexSbUrl", "lexAnonKey", "OPENAI_URL", "OPENAI_RESPONSES_URL", "OPENAI_CONVERSATIONS_URL", "ANTHROPIC_URL", "GOOGLE_URL_TMPL", "GOOGLE_INTERACTIONS_URL", "MODEL_REGISTRY", "authValidToken", "getActiveChatPrompt", "upsertPrompt", "addWordClick", "updateWordClick", "recordAnyCall", "logTextCallRequest", "logTextCallResponse", "buildIoResponse", "extractEffectiveCallParams", "lexNotifyBalanceMaybeChanged", "logContextTrace", "resolvePageType", "resolveCallSessionId", "ensureSessionForTab", "ensureStandaloneSessionForTab", "forgetSessionId", "forgetStandaloneSessionId", "extractRealVideoId"];
 
   function create(deps) {
     const missing = REQUIRED.filter((n) => deps[n] === undefined);
@@ -83,7 +83,6 @@
       logTextCallRequest,
       logTextCallResponse,
       buildIoResponse,
-      computeCost,
       extractEffectiveCallParams,
       lexNotifyBalanceMaybeChanged,
       logContextTrace,
@@ -111,7 +110,6 @@
       'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano',
     ]);
     const OPENAI_TEXT_API_MODELS = global.LexModelRegistry.openaiTextApiModels;
-    const MODEL_PRICING = global.LexModelRegistry.pricing;
     const GOOGLE_TEXT_API_MODELS = global.LexModelRegistry.googleTextApiModels;
     const USES_GOOGLE_INTERACTIONS = global.LexModelRegistry.googleInteractions;
 
@@ -268,6 +266,28 @@
       if (stage !== 'prompt') return null;
       const e = new Error('LEX_PROMPT_MISSING');
       e.lexPromptMissing = true;
+      return e;
+    }
+
+    // ── «У модели нет цены» ─────────────────────────────────────────────────
+    // llm-proxy отвечает 424 + stage 'pricing', когда у выбранной модели нет
+    // строки цены (или в ней пусто): вызов к поставщику не ушёл, денег не
+    // взяли (решение владельца 2026-09-11 — такая модель просто недоступна).
+    // Маркер несёт текст отказа сервера — в нём имя модели, его показывает
+    // поверхность в скобках (lex-error-text.js). Стадию читаем и из тела:
+    // странице lex-me.club/app заголовок стадии не виден (CORS).
+    async function lexModelUnpricedError(response) {
+      if (!response || response.status !== 424) return null;
+      let body = '';
+      try { body = await response.clone().text(); } catch (_) { body = ''; }
+      let parsed = null;
+      try { parsed = JSON.parse(body); } catch (_) { parsed = null; }
+      const headerStage = (response.headers && typeof response.headers.get === 'function')
+        ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
+      const stage = headerStage || String((parsed && parsed.stage) || '');
+      if (stage !== 'pricing') return null;
+      const e = new Error(`LEX_MODEL_UNPRICED ${String((parsed && parsed.error) || '')}`.trim());
+      e.lexModelUnpriced = true;
       return e;
     }
 
@@ -601,6 +621,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const unpriced = await lexModelUnpricedError(response);
+        if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -635,7 +657,7 @@
               providerMs: d.providerProcessingMs,
             });
             overflowFrame = !!(d && d.contextOverflow);
-          } catch { /* frame parse failure → fall back to local computeCost */ }
+          } catch { /* frame parse failure → no server price, the pill shows '$?' */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
           return;
         }
@@ -943,6 +965,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const unpriced = await lexModelUnpricedError(response);
+        if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -990,7 +1014,7 @@
               providerMs: d.providerProcessingMs,
             });
             overflowFrame = !!(d && d.contextOverflow);
-          } catch { /* frame parse failure → fall back to local computeCost */ }
+          } catch { /* frame parse failure → no server price, the pill shows '$?' */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
           return;
         }
@@ -1227,6 +1251,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const unpriced = await lexModelUnpricedError(response);
+        if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1275,7 +1301,7 @@
               providerMs: d.providerProcessingMs,
             });
             overflowFrame = !!(d && d.contextOverflow);
-          } catch { /* frame parse failure → fall back to local computeCost */ }
+          } catch { /* frame parse failure → no server price, the pill shows '$?' */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
           return;
         }
@@ -1407,6 +1433,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const unpriced = await lexModelUnpricedError(response);
+        if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1444,7 +1472,7 @@
               providerMs: d.providerProcessingMs,
             });
             overflowFrame = !!(d && d.contextOverflow);
-          } catch { /* frame parse failure → fall back to local computeCost */ }
+          } catch { /* frame parse failure → no server price, the pill shows '$?' */ }
           if (overflowFrame) throwIfContextOverflow({ contextOverflow: true });
           return;
         }
@@ -2180,8 +2208,8 @@
       let tokens_out = null;
       // Server-authoritative marked-up display price (raw × price_multiplier),
       // captured from the proxy's lex_proxy_done frame via onBilled. When present,
-      // STREAM_DONE shows THESE (so the pill == the balance debit); null on the
-      // direct/non-proxy path → fall back to local raw computeCost.
+      // STREAM_DONE shows THESE (so the pill == the balance debit); null → '$?'
+      // (prices live only on the server — there is no local fallback).
       let billedInputCost = null;
       let billedOutputCost = null;
       // Разбивка времени по часам СЕРВЕРА. Приезжает завершающим кадром прокси
@@ -2350,14 +2378,9 @@
                     : (chatOptions.messages?.[chatOptions.messages.length - 1]?.content ?? ''))
                 : (userMessage || '');
               const eff = extractEffectiveCallParams(entry, knobs, resolvedModelId);
-              const cost = computeCost(
-                entry.apiModel,
-                tokens_in,
-                tokens_cached_in,
-                tokens_cache_creation,
-                tokens_out,
-              );
-              const cost_usd = cost ? Number(cost.inputCost || 0) + Number(cost.outputCost || 0) : null;
+              // Цены только на сервере (2026-09-11): у приложения своей
+              // арифметики нет, и строка этого пути уходит без цены.
+              const cost_usd = null;
               // The one door (recordAnyCall): callType is the mandatory,
               // registry-checked activity id; surface + actionId are declared here;
               // the rest of the row is `columns`. Teacher popup text turn → 'tutor';
@@ -2666,31 +2689,14 @@
           lexLog('[lex-timing-diag]', JSON.stringify({
             ...__diag, totalMs, srv_prep_ms, srv_model_ms, srv_send_ms, provider_processing_ms, ttft_ms, lastChunkAtMs,
           }));
-          // 1.5.16: cost pill payload — pre-computed in SW so the content
-          // script doesn't need a copy of MODEL_PRICING. cost = null when
-          // apiModel is missing from the table → UI renders '$?'. Raw token
-          // counts forwarded too in case future UI wants tooltips with the
-          // breakdown.
-          // Use the canonical registry apiModel as the pricing key, NOT the
-          // server-echoed actualModelStr. OpenAI echoes a dated variant
-          // (e.g. gpt-5.5-2026-04-23) that is absent from MODEL_PRICING by
-          // design — pricing is keyed by registry name (per spec: "у одной
-          // apiModel несколько внутренних ID, цена одна").
-          const cost = computeCost(
-            entry.apiModel,
-            tokens_in,
-            tokens_cached_in,
-            tokens_cache_creation,
-            tokens_out
-          );
-          // Prefer the server's marked-up split (billed*) — that's what the balance
-          // is charged, so the pill matches the debit. Local computeCost (raw, no
-          // multiplier) is only the fallback for the direct/non-proxy path, which
-          // isn't billed anyway. `billed*` are already the full displayed values
-          // (input under the question, output under the answer); their sum == debit.
-          const useBilled = billedInputCost != null || billedOutputCost != null;
-          const dispInputCost = useBilled ? billedInputCost : (cost ? cost.inputCost : null);
-          const dispOutputCost = useBilled ? billedOutputCost : (cost ? cost.outputCost : null);
+          // Цена под ответом — ТОЛЬКО серверная: billed* (себестоимость ×
+          // наценка = ровно то, что ушло с баланса; вопрос и ответ раздельно).
+          // Своей таблицы цен у приложения нет (2026-09-11: цены только на
+          // сервере, расчёт в одном месте). Сервер цены не прислал — плашка
+          // «$?», а не число из местной таблицы: местное число однажды уже
+          // прятало модель, за которую с баланса не снималось ничего.
+          const dispInputCost = billedInputCost;
+          const dispOutputCost = billedOutputCost;
           emit(tabId, {
             type: 'STREAM_DONE', requestId, clickId,
             ttftMs: ttft_ms,

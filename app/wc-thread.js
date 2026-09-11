@@ -370,14 +370,20 @@
       // Разговор сброшен разработчиком, пока был открыт здесь (content-reset):
       // сервер отказал до денег, писать в него больше некуда — открыть заново.
       // Текст тот же, что в расширении, из общего модуля.
-      const conversationReset = !gate && !promptMissing
+      // У модели нет цены — сервер отказал до провайдера (424 + stage
+      // 'pricing'), денег не взяли. Текст с именем модели — из общего модуля.
+      const modelUnpriced = !gate && !promptMissing
+        && typeof LexErrorText.isModelUnpriced === 'function' && LexErrorText.isModelUnpriced(text);
+      if (modelUnpriced) lexLog('[wc-thread] model unpriced:', text);
+      const conversationReset = !gate && !promptMissing && !modelUnpriced
         && typeof LexErrorText.isConversationReset === 'function' && LexErrorText.isConversationReset(text);
       if (conversationReset) lexLog('[wc-thread] conversation reset:', text);
 
-      const providerText = !gate && !promptMissing && !conversationReset && LexErrorText.provider(text);
+      const providerText = !gate && !promptMissing && !modelUnpriced && !conversationReset && LexErrorText.provider(text);
       if (providerText) lexLog('[wc-thread] provider error:', text);
       const shown = promptMissing ? LexErrorText.promptMissing()
-        : (conversationReset ? LexErrorText.conversationReset() : (providerText || text));
+        : (modelUnpriced ? LexErrorText.modelUnpriced(text)
+          : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 
       const paint = (turn, bubble) => {
         turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');

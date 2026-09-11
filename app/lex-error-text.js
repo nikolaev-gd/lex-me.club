@@ -43,6 +43,7 @@
     'topup.errAmount': 'Enter an amount between ${min} and ${max}.',
     'topup.errProvider': 'Could not start the payment. Nothing was charged — please try again.',
     'err.prompt.notPublished': 'This preset has not been published yet — the teacher has no instructions. You were not charged.',
+    'err.model.unpriced': 'This model is unavailable right now — pick another one. You were not charged.',
     'err.chat.conversationReset': 'This conversation was reset — reopen it to continue. You were not charged.',
     'err.provider.busy': 'The service is overloaded right now. Please try again in a minute.',
     'err.provider.generic': 'The answer did not come through. Please try again.',
@@ -167,6 +168,36 @@
     return t('err.prompt.notPublished');
   }
 
+  // ── 4а. У модели нет цены ────────────────────────────────────────────────
+  //
+  // Сервер отказал ДО поставщика: у выбранной модели (или распознавалки) нет
+  // строки цены, посчитать ход нечем (решение владельца 2026-09-11 — такая
+  // модель просто недоступна). llm-proxy отвечает 424 + stage 'pricing',
+  // адаптеры `lex-teacher-core.js` ставят маркер `LEX_MODEL_UNPRICED` и
+  // дописывают текст отказа сервера — в нём имя модели. Человеку — что
+  // модель недоступна и денег не взяли; разработчику — какая именно: имя
+  // уходит в скобках в ту же строку, отдельного окна для него нет.
+  function isModelUnpriced(raw) {
+    return str(raw).includes('LEX_MODEL_UNPRICED');
+  }
+
+  // Имя модели из текста отказа («no price: <модель>: <чего нет>»). Имя само
+  // бывает с двоеточием (`openai:gpt-5.6-luna`), но без пробела после него —
+  // поэтому граница имени — первое «: ».
+  function unpricedModelOf(raw) {
+    const s = str(raw);
+    const at = s.indexOf('no price: ');
+    if (at < 0) return '';
+    const rest = s.slice(at + 'no price: '.length);
+    const end = rest.indexOf(': ');
+    return (end > 0 ? rest.slice(0, end) : '').trim();
+  }
+
+  function modelUnpriced(raw) {
+    const model = unpricedModelOf(raw);
+    return model ? `${t('err.model.unpriced')} (${model})` : t('err.model.unpriced');
+  }
+
   // ── 5. Разговор сброшен ───────────────────────────────────────────────────
   //
   // Разработчик стёр данные по ролику или странице (content-reset), а этот
@@ -190,6 +221,8 @@
     providerStatus,
     isPromptMissing,
     promptMissing,
+    isModelUnpriced,
+    modelUnpriced,
     isConversationReset,
     conversationReset,
   });

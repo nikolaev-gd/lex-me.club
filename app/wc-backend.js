@@ -150,8 +150,6 @@
     logTextCallRequest: () => null,
     logTextCallResponse: () => {},
     buildIoResponse: () => null,
-    computeCost: (...args) => (global.LexModelRegistry.computeCost
-      ? global.LexModelRegistry.computeCost(...args) : null),
     extractEffectiveCallParams: () => ({}),
     lexNotifyBalanceMaybeChanged: () => {
       // The debit commits in the edge function's waitUntil, a fraction of a
