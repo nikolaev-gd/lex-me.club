@@ -194,7 +194,7 @@
     // (каталог распознавалок, LexDictationCatalog.normalize).
     knobDictationModel: 'gpt-transcribe',
     knobDictationLanguage: 'en',                       // language у v1/audio/transcriptions (whisper-1)
-    knobDictationLanguages: '',                        // languages у gpt-transcribe: «en,ru» → повторяющееся поле формы
+    knobDictationLanguages: '',                        // languages: ОДИН язык или 'auto' (прежнее «en,ru» сервер читает как auto)
     knobDictationPrompt: '',                           // prompt: ОПИСАНИЕ записи, не приказ
     knobDictationKeywords: '',                         // keywords у gpt-transcribe: «worktree,Lex» → повторяющееся поле
     knobDictationStream: false,                        // stream=true: текст растёт в поле ввода по ходу расшифровки
@@ -203,6 +203,8 @@
     knobDictationTimestamps: false,                    // timestamp_granularities:['word'] — только дословный режим, только без словаря
     knobDictationDiarization: false,                   // diarization_mode:'speaker' — те же два условия
     knobDictationLiveText: 'streaming',                // живая диктовка Google: текст по ходу речи или готовыми кусками
+    knobDictationTimeMarks: 'none',                    // метки времени В ТЕКСТЕ у Microsoft: none | segment | word
+    knobDictationSpeakers: false,                      // «Speaker 1:» в тексте у Microsoft
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms

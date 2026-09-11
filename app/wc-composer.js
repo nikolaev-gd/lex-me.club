@@ -435,7 +435,11 @@
     }
     let rec;
     try {
-      rec = new MediaRecorder(stream);
+      // Распознавалка, которая сжатых файлов не читает (у файловой строки
+      // каталога есть частота), получает WAV — общим куском с расширением
+      // (lex-dictation-wav.js). Остальные — то, что пишет платформа: webm в
+      // Chrome, mp4 в WebKit.
+      rec = route.wavRate ? global.LexDictationWav.create(stream, route.wavRate) : new MediaRecorder(stream);
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop());
       toast('This browser cannot record audio', { error: true });

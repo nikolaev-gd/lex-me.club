@@ -46,7 +46,7 @@
   // Наши имена ручек — те же, что у сервера (DictationField в
   // dictation-fields.ts).
   const FIELD_NAMES = Object.freeze(['language', 'languages', 'keywords', 'prompt', 'stream',
-    'delay', 'mode', 'timestamps', 'diarization', 'liveText']);
+    'delay', 'mode', 'timestamps', 'diarization', 'liveText', 'timeMarks', 'speakers']);
   const NO_FIELDS = Object.freeze(FIELD_NAMES.reduce((o, f) => { o[f] = false; return o; }, {}));
 
   // Порядок — порядок появления строк: новая распознавалка встаёт в конец
@@ -78,8 +78,12 @@
       const have = Array.isArray(r.dictation_fields) ? r.dictation_fields : [];
       const fields = {};
       FIELD_NAMES.forEach((f) => { fields[f] = have.indexOf(f) >= 0; });
+      // Частота несжатого звука, которой распознавалка ждёт от устройства: у
+      // живой — поток на ней, у файловой — WAV на ней (такая распознавалка не
+      // читает webm и m4a, lex-dictation-wav.js); у файловой пусто — обычный
+      // файл MediaRecorder'а.
       list.push(Object.freeze({
-        apiModel, live, sampleRate: live ? rate : null, fields: Object.freeze(fields),
+        apiModel, live, sampleRate: rate > 0 ? rate : null, fields: Object.freeze(fields),
         // Цену этой распознавалки считаем мы, а не поставщик: вычисляемая
         // колонка строки цены (нет часовой ставки, есть коэффициенты пересчёта).
         priceEstimated: r.price_estimated === true,
@@ -220,7 +224,9 @@
     const model = normalize(stored, fallback);
     const e = entry(model);
     if (!e) return { ok: false, error: 'unknown recognizer: ' + model };
-    return { ok: true, model, live: e.live, sampleRate: e.sampleRate };
+    // sampleRate — частота живого потока; wavRate — у файловой, которая
+    // сжатых файлов не читает: писать WAV на этой частоте (lex-dictation-wav.js).
+    return { ok: true, model, live: e.live, sampleRate: e.live ? e.sampleRate : null, wavRate: e.live ? null : e.sampleRate };
   }
 
   global.LexDictationCatalog = Object.freeze({

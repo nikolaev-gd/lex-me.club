@@ -835,6 +835,12 @@
   const DICTATION_LIVE_TEXT = ['streaming', 'settled'];
   const DICTATION_LIVE_TEXT_DEFAULT = 'streaming';
 
+  // Метки времени в тексте у Microsoft: нет, у каждого отрезка, у каждого
+  // слова. Значения — те, что понимает сервер (dictation-fields.ts,
+  // DICTATION_TIME_MARKS), подписи — словарь.
+  const DICTATION_TIME_MARKS = ['none', 'segment', 'word'];
+  const DICTATION_TIME_MARKS_DEFAULT = 'none';
+
   // ── Что с чем нельзя включать вместе ─────────────────────────────────────
   //
   // У Google часть настроек взаимно исключается, и это не наше предпочтение, а
@@ -1267,6 +1273,8 @@
     dictationDelays: DICTATION_DELAYS,
     dictationLiveTexts: DICTATION_LIVE_TEXT,
     dictationLiveTextDefault: DICTATION_LIVE_TEXT_DEFAULT,
+    dictationTimeMarks: DICTATION_TIME_MARKS,
+    dictationTimeMarksDefault: DICTATION_TIME_MARKS_DEFAULT,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),
