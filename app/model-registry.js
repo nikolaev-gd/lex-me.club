@@ -650,10 +650,9 @@
     {
       id: 'whisper-1', apiModel: 'whisper-1', provider: 'openai', type: 'asr',
       label: 'OpenAI whisper-1', role: 'fallback',
-      // Одна запись служит двум делам: запасная распознавалка субтитров (role)
-      // и один из вариантов диктовки (dictation). Разные потребители читают
-      // разные поля одной строки — второй копии модели заводить не нужно.
-      dictation: true,
+      // Запасная распознавалка субтитров (role). В списке диктовки она тоже
+      // есть, но этот список живёт в базе (public.models.dictation, его читает
+      // lex-dictation-catalog.js), а не здесь.
       pricing: { audioHour: 0.36 },
     },
 
@@ -672,7 +671,9 @@
     {
       id: 'gpt-transcribe', apiModel: 'gpt-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT Transcribe',
-      dictation: true, dictationDefault: true,
+      // Умолчание диктовки: имя, когда настройка его не называет или называет
+      // распознавалку, которой в каталоге (строки базы) больше нет.
+      dictationDefault: true,
       pricing: { audioHour: 0.27 },
     },
     {
@@ -691,19 +692,16 @@
       // запасная.
       id: 'gpt-live-transcribe', apiModel: 'gpt-live-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT Live Transcribe',
-      dictation: true, live: true,
-      // Частота звука — свойство МОДЕЛИ, а не общая константа: у каждой живой
-      // распознавалки свой нижний предел, и провайдер отвергает всю настройку
-      // сессии целиком, если частота не та. Ниже 24000 этот отвечает
-      // «Expected a value >= 24000» (замерено 2026-09-09).
-      sampleRate: 24000,
+      // Что она живая и слушает на 24000 Гц (ниже провайдер отвечает «Expected
+      // a value >= 24000», замерено 2026-09-09), знает строка базы
+      // (public.models.dictation, sample_rate_hz) — её читают приложения.
       pricing: { audioHour: 1.02 },
     },
     {
       id: 'gpt-4o-mini-transcribe', apiModel: 'gpt-4o-mini-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o mini Transcribe',
-      // Пометки `dictation` НЕТ (решение владельца 2026-09-07): в списке
-      // диктовки этой модели быть не должно. Запись остаётся ради цены —
+      // В списке диктовки этой модели нет (решение владельца 2026-09-07; у её
+      // строки в базе пуста колонка dictation). Запись остаётся ради цены —
       // ею считаются уже сделанные вызовы и расшифровка видео без субтитров,
       // которая по-прежнему ходит на неё.
       pricing: { audioHour: 0.18 },
@@ -711,7 +709,7 @@
     {
       id: 'gpt-4o-transcribe', apiModel: 'gpt-4o-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT-4o Transcribe',
-      // Тоже без `dictation` — см. соседнюю запись.
+      // Тоже не в списке диктовки — см. соседнюю запись.
       pricing: { audioHour: 0.36 },
     },
     {
@@ -730,7 +728,6 @@
       // сервер; звук по-прежнему уезжает одним файлом после кнопки.
       id: 'gemini-3.5-transcribe', apiModel: 'gemini-3.5-transcribe',
       provider: 'google', type: 'asr', label: 'Gemini 3.5 Transcribe',
-      dictation: true,
       pricing: { audioInputMTok: 2.00, outputMTok: 12.00 },
     },
     {
@@ -744,15 +741,14 @@
       // ожидание закрытия сервером, 2026-09-10). Поэтому единственная во всём
       // реестре, у кого цена СЧИТАЕТСЯ НАМИ, а не берётся у поставщика: сервер
       // переводит секунды речи и знаки расшифровки в токены по коэффициентам
-      // из таблицы моделей и умножает на ставки. Отсюда `costEstimated` — по
-      // нему окно настроек показывает человеку, что число приблизительное.
+      // из таблицы моделей и умножает на ставки. Что число приблизительное, окну
+      // настроек говорит сама строка цены: вычисляемая колонка `price_estimated`
+      // (нет часовой ставки, есть коэффициенты), её отдаёт каталог распознавалок.
       //
       // Цены на 2026-09-10: $3.50 за миллион входных токенов, $21.00 за
       // миллион выходных. Здесь они запасные, авторитет у строки public.models.
       id: 'gemini-3.5-transcribe-live', apiModel: 'gemini-3.5-transcribe-live',
       provider: 'google', type: 'asr', label: 'Gemini 3.5 Transcribe Live',
-      dictation: true, live: true, costEstimated: true,
-      sampleRate: 24000,
       pricing: { audioInputMTok: 3.50, outputMTok: 21.00 },
     },
   ];
@@ -844,38 +840,13 @@
     return out;
   }
 
-  // Список для выпадашки «Диктовка» в настройках: asr-записи, помеченные
-  // `dictation`. Порядок — как в LEX_MODELS, то есть в реестре, а не в разметке
-  // окна: список моделей заводится в одном месте, и окно его только рисует.
-  // Возвращает [{ apiModel, label, audioHour }] — цена едет вместе с моделью,
-  // чтобы подпись могла показать её, не заглядывая во второй справочник.
-  function dictationModelOptions() {
-    const out = [];
-    for (const m of LEX_MODELS) {
-      if (m.type !== 'asr' || !m.dictation) continue;
-      out.push({
-        apiModel: m.apiModel,
-        label: m.label,
-        audioHour: (m.pricing && typeof m.pricing.audioHour === 'number') ? m.pricing.audioHour : null,
-      });
-    }
-    return out;
-  }
-
-  // Хранимое значение → имя модели, которую и правда можно послать.
-  //
-  // Возврат ВСЕГДА валиден: неизвестное, снятое или пустое значение приводится
-  // к дефолту, а не отдаётся как есть. Так ведёт себя вся эта ручка целиком —
-  // ячейка настроек переживает и опубликованный набор со старым именем, и
-  // модель, убранную из реестра завтра; иначе диктовка молча уходила бы в
-  // 400 на каждом нажатии микрофона, а человек видел бы «расшифровка не
-  // прошла» без причины.
-  function normalizeDictationModel(stored) {
-    const fallback = buildDefaultDictationModel();
-    if (!stored || typeof stored !== 'string') return fallback;
-    const hit = dictationModelOptions().find((o) => o.apiModel === stored);
-    return hit ? hit.apiModel : fallback;
-  }
+  // Список распознавалок диктовки, путь каждой (живая или файловая) и частота
+  // звука живых — в базе, строками таблицы моделей (колонки dictation,
+  // sample_rate_hz, dictation_fields). Их читает каталог распознавалок
+  // (lex-dictation-catalog.js) на всех браузерных поверхностях, айфон — свой
+  // двойник (DictationCatalog.swift). Раньше этот список жил здесь и в зеркале
+  // айфона, и шестая распознавалка требовала правки всех клиентов; теперь —
+  // правки сервера и строки в базе. Здесь остаётся только умолчание.
 
   // dictation.js default transcription model — the asr entry flagged
   // dictationDefault. Centralizes the model identity so dictation.js
@@ -912,70 +883,25 @@
     minBlobBytes: 1000,
     // Жёсткий потолок записи: микрофон выключается сам и говорит почему.
     maxDurationMs: 60000,
-    // Язык, когда ручка «Язык» пуста. Пустая строка означала бы «поле не
-    // отправлять», а это другое поведение — см. dictationRequestFields.
-    defaultLanguage: 'en',
-    // Потолок ЖИВОЙ диктовки — свой: десять минут, одинаково для всех, без
-    // деления по типу аккаунта (решение владельца 2026-09-10). Это единственный
-    // потолок длительности у живой сессии — своего у сервера нет. У обычной
-    // диктовки остаётся минута выше: её звук уезжает одним файлом после кнопки.
-    liveMaxDurationMs: 600000,
+    // Потолка ЖИВОЙ диктовки здесь нет, и это не пропуск: его ставит сервер
+    // (server_config.dictation_live_max_sec), он же закрывает сессию, упёршись в
+    // него, и сообщает число приложению в кадре «готов». Число на клиенте было
+    // бы вторым, и поднять потолок стало бы нельзя без выкладки всех четырёх
+    // поверхностей. У обычной диктовки остаётся минута выше: её звук уезжает
+    // одним файлом после кнопки, и сервер к записи отношения не имеет.
     // Пульс «на связи» живой диктовки: отдельный короткий кадр раз в 3 с. Сервер
     // закрывает сессию, если пульса не было 10 с; звук пульсом не считается.
     // Схема и числа те же, что у голосового разговора.
     livePresenceBeatMs: 3000,
   };
 
-  // Какие поля распознавалка ПРИНИМАЕТ. Замерено живыми запросами через наш
-  // серверный путь 2026-09-08, не взято из документации:
-  //   • gpt-transcribe: `languages` (повторяющееся поле, голые двухбуквенные
-  //     коды) — а старое `language` вместе с ним запрещено самим провайдером
-  //     («The 'language' and 'languages' parameters cannot be used together»);
-  //     `keywords` (повторяющееся поле) — единственное, что решительно меняет
-  //     результат; `prompt` как ОПИСАНИЕ записи (приказы игнорирует);
-  //     `stream=true` — настоящий поток с завершающим кадром.
-  //   • whisper-1: только старое `language` и `prompt`. На `languages` и
-  //     `keywords` отвечает 400 invalid_parameter, на `stream=true` отвечает
-  //     обычным JSON без потока.
-  // Окно настроек рисует ровно те поля, которые здесь `true`: ручка, которой
-  // у модели нет, не показывается вовсе.
-  //   • gpt-live-transcribe: `languages` (тот же запрет на пару с одиночным —
-  //     провайдер сам переписывает `language:'en'` в `languages:['en']`),
-  //     `keywords`, `prompt` и СВОЁ поле `delay` — насколько модель ждёт
-  //     контекста, прежде чем выдать кусок. «Рост текста» у неё НЕ ручка:
-  //     текст у неё растёт всегда, это и есть модель; выключателя такому
-  //     поведению не существует, поэтому полосы в окне нет.
-  //   • gemini-3.5-transcribe: `language_codes` (и с регионом, и голые коды —
-  //     принимает оба), `custom_vocabulary` (правит имена так же решительно,
-  //     как `keywords` у OpenAI: «Zbigniew Wrtrien» → «Zbigniew Wartrian»),
-  //     `mode` (дословно / причёсанно), а внутри дословного режима — отметки
-  //     времени по словам и разделение говорящих. Полей «Описание записи» и
-  //     «Рост текста» у неё НЕТ: `prompt` и `context` она отвергает как
-  //     несуществующие, на инструкцию разработчика отвечает «Developer
-  //     instruction is not enabled for this model», а текстовая часть рядом со
-  //     звуком принимается и на результат не влияет ни на символ (сверено на
-  //     одной записи 2026-09-09).
-  //   • gemini-3.5-transcribe-live: `languages`, `keywords` и `mode` — те же
-  //     три, что у её файловой сестры, минус отметки времени и разделение
-  //     говорящих: живая сессия их не отдаёт вовсе. Плюс своё поле `liveText`
-  //     — показывать ли человеку промежуточные догадки распознавалки или
-  //     только законченные куски. Оно наше, а не провайдерское: провайдер
-  //     присылает и то и другое всегда, а решает, что показать, сервер.
-  const DICTATION_FIELDS = {
-    'gpt-transcribe':             { languages: true, language: false, keywords: true, prompt: true, stream: true, delay: false, mode: false, timestamps: false, diarization: false, liveText: false },
-    'gpt-live-transcribe':        { languages: true, language: false, keywords: true, prompt: true, stream: false, delay: true, mode: false, timestamps: false, diarization: false, liveText: false },
-    'whisper-1':                  { languages: false, language: true, keywords: false, prompt: true, stream: false, delay: false, mode: false, timestamps: false, diarization: false, liveText: false },
-    'gemini-3.5-transcribe':      { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: true, diarization: true, liveText: false },
-    'gemini-3.5-transcribe-live': { languages: true, language: false, keywords: true, prompt: false, stream: false, delay: false, mode: true, timestamps: false, diarization: false, liveText: true },
-  };
-  const DICTATION_FIELDS_NONE = { languages: false, language: false, keywords: false, prompt: false, stream: false, delay: false, mode: false, timestamps: false, diarization: false, liveText: false };
-
-  // Незнакомое имя модели получает пустой набор, а не набор дефолтной модели:
-  // послать поле, которого у модели нет, значит получить 400 на каждом
-  // нажатии микрофона, и человек увидит «расшифровка не прошла» без причины.
-  function dictationRequestFields(apiModel) {
-    return DICTATION_FIELDS[String(apiModel || '')] || DICTATION_FIELDS_NONE;
-  }
+  // Какие поля распознавалка ПРИНИМАЕТ — тоже строка базы
+  // (public.models.dictation_fields), а не карта здесь: окно настроек прячет
+  // ручки, которых у выбранной модели нет, по каталогу распознавалок
+  // (lex-dictation-catalog.js, fields). Что замерено у каждой из пяти и
+  // почему — рядом с серверным перечнем (supabase/functions/_shared/
+  // dictation-fields.ts); совпадение строк базы с ним стережёт
+  // dev-tools/check-dictation-fields-parity.mjs.
 
   // Список кодов языка, из которого выбирают обе ручки — одиночная (whisper-1)
   // и множественная (gpt-transcribe). Один список, чтобы «en» в одном месте не
@@ -1024,113 +950,44 @@
   // приезжают отдельными пометками рядом с текстом, и в поле ввода из них не
   // попадает ничего. Поэтому гаснут они, а не словарь.
   //
-  // Эта же функция решает, что УЕДЕТ в запрос, а не только что погаснет в
-  // окне: погашенная ручка хранимого значения не стирает, и без такого же
-  // отсева на отправке сохранённая галочка добралась бы до провайдера и
-  // вернула 400 — то самое сочетание, которое человек собрать не должен.
-  const DICTATION_CONFLICTS = {
-    'gemini-3.5-transcribe': [
-      { off: ['timestamps', 'diarization'], when: (v) => !!v.keywords,          reason: 'knob.inert.dictationVocab' },
-      { off: ['timestamps', 'diarization'], when: (v) => v.mode === 'smart',    reason: 'knob.inert.dictationSmart' },
-    ],
-  };
+  // Здесь правило нужно только ОКНУ настроек — погасить ручку. Что уедет в
+  // запрос, решает сервер тем же правилом (dictation-fields.ts, marksAllowed):
+  // погашенная ручка хранимого значения не стирает, и сохранённая галочка
+  // приезжает на сервер, а до провайдера не доходит.
+  // Правило не привязано к модели, как и на сервере (marksAllowed): у какой
+  // распознавалки есть отметки времени и разделение говорящих, решает каталог
+  // (строка базы), и у остальных эти ручки и так спрятаны.
+  const DICTATION_CONFLICTS = [
+    { off: ['timestamps', 'diarization'], when: (v) => !!v.keywords,       reason: 'knob.inert.dictationVocab' },
+    { off: ['timestamps', 'diarization'], when: (v) => v.mode === 'smart', reason: 'knob.inert.dictationSmart' },
+  ];
 
   // Кто из ручек сейчас погашен и почему. Вход — сырые значения ручек
   // (`keywords` строкой или списком, `mode`, `timestamps`, `diarization`);
   // выход — { имяРучки: ключ-причина } только для погашенных.
-  function dictationInertKnobs(apiModel, values) {
-    const rules = DICTATION_CONFLICTS[String(apiModel || '')] || [];
+  function dictationInertKnobs(values) {
     const v = values || {};
     const out = {};
-    for (const rule of rules) {
+    for (const rule of DICTATION_CONFLICTS) {
       if (!rule.when(v)) continue;
       for (const name of rule.off) if (!out[name]) out[name] = rule.reason;
     }
     return out;
   }
 
-  // Растёт ли текст У САМОЙ МОДЕЛИ. Это НЕ ручка «Рост текста»: та включает
-  // поток у распознавалки, которая умеет и так и так, а здесь — свойство
-  // модели, которого нельзя выключить. Разводить их обязательно: микрофон
-  // спрашивает «показывать ли растущий текст», и ответ «да» приходит из двух
-  // разных мест — из ручки у gpt-transcribe и отсюда у живой.
-  function isLiveDictationModel(apiModel) {
-    const name = String(apiModel || '');
-    for (const m of LEX_MODELS) {
-      if (m.type === 'asr' && m.apiModel === name) return !!m.live;
-    }
-    return false;
-  }
+  // Живая ли распознавалка и на какой частоте она слушает — тоже строка базы
+  // (public.models.dictation, sample_rate_hz), её отвечает каталог
+  // распознавалок (isLive, sampleRate). Раньше число 24000 и признак «живая»
+  // стояли здесь и зеркалом на айфоне.
 
-  // ── Что уедет в запрос: одно правило на все поверхности ─────────────────
+  // ── Что уедет в запрос — решает СЕРВЕР ──────────────────────────────────
   //
-  // Раньше набор полей собирался в трёх местах отдельно, и они разошлись:
-  // расширение гоняло значения через карту полей и правила несовместимости, а
-  // страница на живом пути не звала ни то ни другое — складывала кадр начала
-  // руками списком имён. Из-за этого «Режим расшифровки» со страницы не уезжал
-  // на сервер вовсе, и заметить это было нечем: у единственной живой
-  // распознавалки того времени такого поля не было.
-  //
-  // Вход — сырые значения ручек короткими именами (те же, что отдаёт
-  // getChatKnobs); выход — готовый набор, где поле, которого у этой
-  // распознавалки нет, пусто, а несовместимое сброшено. Пустое значение
-  // сервер отбрасывает сам.
-  function dictationOutgoing(apiModel, values) {
-    const v = values || {};
-    const fields = dictationRequestFields(apiModel);
-    const inert = dictationInertKnobs(apiModel, {
-      keywords: v.keywords,
-      mode: v.mode || DICTATION_MODE_DEFAULT,
-      timestamps: v.timestamps,
-      diarization: v.diarization,
-    });
-    const list = (raw) => (Array.isArray(raw) ? raw : String(raw || '').split(','))
-      .map((x) => String(x).trim()).filter((x) => x && x !== 'auto');
-    return {
-      // Одиночный язык: 'auto' и пусто означают «не отправлять поле».
-      language: fields.language ? (v.language || DICTATION_CAPTURE.defaultLanguage) : null,
-      languages: fields.languages ? list(v.languages) : [],
-      prompt: fields.prompt ? String(v.prompt || '') : '',
-      keywords: fields.keywords ? list(v.keywords) : [],
-      stream: !!(fields.stream && v.stream),
-      delay: fields.delay ? String(v.delay || '') : '',
-      // Пустое хранимое значение означает не «не отправлять», а дефолт:
-      // дословный режим и есть обещанное поведение, и молчать о нём нельзя.
-      mode: fields.mode ? (v.mode || DICTATION_MODE_DEFAULT) : '',
-      timestamps: !!(fields.timestamps && v.timestamps && !inert.timestamps),
-      diarization: !!(fields.diarization && v.diarization && !inert.diarization),
-      liveText: fields.liveText ? (v.liveText || DICTATION_LIVE_TEXT_DEFAULT) : '',
-    };
-  }
-
-  // Частота звука, которую требует эта распознавалка. Раньше число 24000
-  // стояло тремя независимыми копиями — в браузерном модуле, на сервере и в
-  // зеркале айфона — и ни к какой модели привязано не было; вторая живая
-  // распознавалка сделала бы это расхождением, которое нигде не видно. Теперь
-  // источник один: свойство записи. Модель без своего числа получает 24000 —
-  // это не догадка, а то, что все живые распознавалки продукта требуют
-  // сегодня; своя цифра у записи перебивает общее.
-  const DICTATION_SAMPLE_RATE_DEFAULT = 24000;
-  function dictationSampleRate(apiModel) {
-    const name = String(apiModel || '');
-    for (const m of LEX_MODELS) {
-      if (m.type === 'asr' && m.apiModel === name && typeof m.sampleRate === 'number') return m.sampleRate;
-    }
-    return DICTATION_SAMPLE_RATE_DEFAULT;
-  }
-
-  // Считаем ли цену этой распознавалки САМИ. `true` значит: поставщик расхода
-  // не присылает, сервер переводит секунды и знаки в токены по коэффициентам и
-  // умножает на ставки — то есть число приблизительное, и человеку об этом
-  // говорится прямо в окне настроек. `false` — цена посчитана по тому, что
-  // назвал сам поставщик.
-  function isEstimatedCostModel(apiModel) {
-    const name = String(apiModel || '');
-    for (const m of LEX_MODELS) {
-      if (m.type === 'asr' && m.apiModel === name) return !!m.costEstimated;
-    }
-    return false;
-  }
+  // Набор полей для распознавалки больше не собирается здесь: приложения шлют
+  // значения ручек как есть (LexSettingsCells.dictationKnobs), а какие поля
+  // модель принимает, умолчания и отсев несовместимого делает одно место на
+  // сервере — supabase/functions/_shared/dictation-fields.ts. Правило
+  // DICTATION_CONFLICTS выше осталось ради окна настроек: оно гасит
+  // несовместимые ручки тем же правилом, каким их отсеивает сервер.
 
   // background.js text-API-routing Sets. Deliberately NOT filtered by
   // `hidden` — hidden only controls bar visibility (see textModelOptionsHtml /
@@ -1585,11 +1442,11 @@
     voiceModelApi: buildVoiceModelApi(),
     voiceModelProvider: buildVoiceModelProvider(),
     defaultDictationModel: buildDefaultDictationModel(),
-    dictationModelOptions,
-    normalizeDictationModel,
-    // Микрофон: одни числа и одна карта полей на все поверхности.
+    // Микрофон: одни числа на все поверхности. Какие распознавалки есть, их
+    // путь, частота и поля — строки базы (lex-dictation-catalog.js); что уедет в
+    // запрос, решает сервер (dictation-fields.ts), строки базы с ним сверяет
+    // dev-tools/check-dictation-fields-parity.mjs.
     dictationCapture: DICTATION_CAPTURE,
-    dictationRequestFields,
     dictationLanguages: DICTATION_LANGUAGES,
     dictationModes: DICTATION_MODES,
     dictationModeDefault: DICTATION_MODE_DEFAULT,
@@ -1597,10 +1454,6 @@
     dictationDelays: DICTATION_DELAYS,
     dictationLiveTexts: DICTATION_LIVE_TEXT,
     dictationLiveTextDefault: DICTATION_LIVE_TEXT_DEFAULT,
-    dictationSampleRate,
-    dictationOutgoing,
-    isLiveDictationModel,
-    isEstimatedCostModel,
     openaiTextApiModels: buildTextApiModelSet('openai'),
     googleTextApiModels: buildTextApiModelSet('google'),
     googleInteractions: buildGoogleInteractions(),

@@ -31,25 +31,24 @@
   // Частота звука — свойство РАСПОЗНАВАЛКИ, а не этого файла. Каждая живая
   // распознавалка требует свою и отвергает всю настройку сессии целиком, если
   // частота не та: OpenAI на 16 000 отвечает «Expected a value >= 24000», и
-  // сессия молча не распознаёт ничего (замерено 2026-09-09). Раньше число 24000
-  // стояло здесь константой, а ещё двумя копиями — на сервере и в зеркале
-  // айфона, — и ни к одной модели привязано не было; вторая живая
-  // распознавалка сделала бы это расхождением, которое нигде не видно.
-  // Источник теперь один — запись модели в реестре; здесь остаётся запасное
-  // число на случай, когда реестра рядом нет.
-  const SAMPLE_RATE_FALLBACK = 24000;
+  // сессия молча не распознаёт ничего (замерено 2026-09-09). Источник —
+  // строка модели в базе (`sample_rate_hz`), её читает каталог
+  // (lex-dictation-catalog.js). Запасного числа здесь нет: снять звук не на той
+  // частоте хуже, чем честно отказаться, — поставщик распознает тишину.
   function sampleRateFor(apiModel) {
-    const R = global.LexModelRegistry;
-    if (R && typeof R.dictationSampleRate === 'function') {
-      const v = R.dictationSampleRate(apiModel);
-      if (typeof v === 'number' && v > 0) return v;
-    }
-    return SAMPLE_RATE_FALLBACK;
+    const C = global.LexDictationCatalog;
+    const v = C && typeof C.sampleRate === 'function' ? C.sampleRate(apiModel) : null;
+    return (typeof v === 'number' && v > 0) ? v : null;
   }
   // Сколько отсчётов набирается перед отправкой. 4096 при 24 кГц — это ~170 мс
   // звука в сообщении: достаточно редко, чтобы не топить шину сообщениями, и
   // достаточно часто, чтобы текст рос без рывков.
   const FRAME_SAMPLES = 4096;
+  // Страховка на связь, которая умерла молча (сеть пропала без закрытия): тогда
+  // не придёт ни кадр конца, ни закрытие сокета, и кнопка горела бы, пока ОС не
+  // сдастся на TCP. Срок — потолок сессии, названный сервером, плюс этот запас на
+  // его итог; своего потолка у поверхности нет.
+  const BACKSTOP_SLACK_MS = 15000;
   // Потолок на звук, накопленный ДО того, как сервер сказал «готов». Обычно
   // это доли секунды, но если сервер не отвечает вовсе — память расти не
   // должна. Десять секунд с запасом покрывают самое медленное подключение из
@@ -91,9 +90,27 @@
   //   onDelta    (textSoFar)      — текст на данный момент, целиком
   //   onError    (message, info)  — отказ; info.status — код, если он был
   //   onCaptureStart ()            — звук пошёл; кнопку зажигать здесь
+  //   onClosing  ({reason, maxDurationMs}) — сервер заканчивает сессию САМ
+  //                                (потолок, сторож, остановка воркера): звук
+  //                                уже снят, кнопку гасить здесь; текст итога
+  //                                придёт следом в onEnded
+  //   onEnded    ({text, reason, maxDurationMs}) — сессии больше нет, а
+  //                                «договорил» человек не нажимал: сервер
+  //                                закончил сам (`text` — его итог) или связь
+  //                                пропала (`reason:'lost'`, текста нет)
   //   logTag     string
   //
-  // returns { start(stream, config), stop(), abort(), isRunning(), isReady() }
+  // returns { start(stream, config), stop(), abort(), isRunning(), isReady(), maxDurationMs() }
+  //
+  // КАК ПОВЕРХНОСТЬ УЗНАЁТ О КОНЦЕ, КОТОРОГО НЕ ПРОСИЛА. Сессию может
+  // закончить не человек: потолок длительности (он на сервере), сторож «на
+  // связи», остановка воркера платформой, уход поставщика, обрыв связи. Раньше
+  // об этом не узнавал никто — фон тихо стирал сессию, кнопка горела минутами,
+  // и только нажатие «стоп» приносило «не удалось распознать». Теперь фон
+  // (страница) говорит вкладке кадром CLOSING, когда сервер предупредил, и
+  // кадром ENDED, когда сессии не стало; а пульс, на который фон отвечает
+  // «такой сессии нет», ловит то, о чём фон сказать не успел (например,
+  // перезапуск воркера расширения).
   function create(options) {
     const opts = options || {};
     const TAG = opts.logTag || '[lex-dictation-live]';
@@ -112,7 +129,33 @@
     let unsub = null;
     let prebuffer = [];
     let prebufferDropped = 0;
-    let beatTimer = null;
+    // Пульс «на связи» этой сессии — ручка общего таймера LexPulse.
+    let presence = null;
+    // Потолок ЭТОЙ сессии — число сервера из кадра «готов». Своего числа у
+    // поверхности нет: потолок ставит сервер.
+    let sessionMaxMs = null;
+    // Человек нажал «договорил», и ответ ещё едет: конец, пришедший в это
+    // время, — это и есть его ответ, отдельным событием он не нужен.
+    let stopping = false;
+    // Сервер сказал «закрываю» — звук уже снят, ждём итог.
+    let closing = false;
+    let ended = false;
+    let backstopTimer = null;
+    function clearBackstop() { if (backstopTimer) { clearTimeout(backstopTimer); backstopTimer = null; } }
+
+    // Сессии больше нет, и «договорил» человек не нажимал.
+    function serverEnded(info) {
+      if (stopping || ended) return;
+      ended = true;
+      clearBackstop();
+      running = false;
+      ready = false;
+      stopListening();
+      teardownAudio();
+      if (typeof opts.onEnded === 'function') {
+        try { opts.onEnded(info); } catch (e) { console.warn(TAG, 'onEnded threw:', e && e.message); }
+      }
+    }
 
     function newRequestId() {
       return (global.crypto && global.crypto.randomUUID)
@@ -132,21 +175,45 @@
     // пульсом не считается — поток может идти и из брошенной вкладки. Шлёт его
     // именно этот модуль, а не фон и не страница-хозяин: закрылась вкладка с
     // микрофоном — пульс прекращается сам, и сервер закрывает сессию.
+    //
+    // Сам таймер — общий LexPulse (lex-pulse.js), тот же, что у голосового
+    // разговора: первый удар сразу, а не через интервал, следующие — по
+    // расписанию, и зависший удар следующих не держит. Своих правил у него нет:
+    // частоту и содержимое удара даём мы. Читается в миг старта, а не при
+    // загрузке файла: на странице lex-pulse.js грузится позже этого файла.
     function beatMs() {
       const R = global.LexModelRegistry;
       const c = R && R.dictationCapture;
       return (c && c.livePresenceBeatMs) || 3000;
     }
     function stopBeat() {
-      if (beatTimer) { clearInterval(beatTimer); beatTimer = null; }
+      if (presence) { presence.stop(); presence = null; }
     }
     function startBeat() {
       stopBeat();
       const id = requestId;
-      beatTimer = setInterval(() => {
-        if (!running || requestId !== id) { stopBeat(); return; }
-        try { transport.call('LEX_DICTATION_LIVE_PING', { requestId: id }); } catch (_) { /* noop */ }
-      }, beatMs());
+      presence = global.LexPulse.start({
+        everyMs: beatMs(),
+        beat: () => {
+          // Гасит пульс тот, кто заканчивает сессию (stopBeat на каждом
+          // выходе); здесь только не шлём лишнего.
+          if (!running || requestId !== id) return;
+          // Ответ на пульс обычно пуст; «такой сессии нет» значит, что связь
+          // уже пропала, а сказать об этом было некому (фон перезапустился,
+          // кадр конца потерялся). Это тот же конец, что и ENDED.
+          let p = null;
+          try { p = transport.call('LEX_DICTATION_LIVE_PING', { requestId: id }); } catch (_) { /* noop */ }
+          if (p && typeof p.then === 'function') {
+            p.then((r) => {
+              // Если сервер успел закончить сам, фон держит его итог и отдаёт его
+              // здесь же — выбросить его значило бы потерять правку последних слов.
+              if (r && r.gone && requestId === id && running) {
+                serverEnded({ text: typeof r.text === 'string' ? r.text : '', reason: r.reason || 'lost', maxDurationMs: sessionMaxMs });
+              }
+            }, () => {});
+          }
+        },
+      });
     }
 
     function teardownAudio() {
@@ -179,6 +246,10 @@
       if (running) return false;
       running = true;
       ready = false;
+      stopping = false;
+      closing = false;
+      ended = false;
+      sessionMaxMs = null;
       prebuffer = [];
       prebufferDropped = 0;
       requestId = newRequestId();
@@ -190,7 +261,20 @@
       // встаёт не мгновенно, и всё сказанное в это время должно не потеряться,
       // а подождать в очереди. Замеряли путь через WebRTC — там сказанное в
       // первые полторы-три секунды пропадает совсем, потому что буфера нет.
+      // Частота — из каталога распознавалок; пульс — общий таймер. Нет того или
+      // другого — отказ до съёма звука и до сервера (микрофон к этому мигу уже
+      // открыт хозяином, он же его и отпустит по `false`), а не посреди
+      // оплачиваемой сессии.
       const rate = sampleRateFor(config && config.model);
+      if (!rate || !global.LexPulse || typeof global.LexPulse.start !== 'function') {
+        running = false;
+        const why = !rate
+          ? 'no sample rate for ' + ((config && config.model) || 'this recognizer')
+          : 'presence pulse (lex-pulse.js) is not loaded';
+        console.error(TAG, why);
+        if (typeof opts.onError === 'function') opts.onError(why, {});
+        return false;
+      }
       const prebufferMax = prebufferMaxFrames(rate);
       try {
         ctx = new (global.AudioContext || global.webkitAudioContext)({ sampleRate: rate });
@@ -248,6 +332,22 @@
           if (typeof msg.textSoFar === 'string' && typeof opts.onDelta === 'function') opts.onDelta(msg.textSoFar);
         } else if (msg.type === 'LEX_DICTATION_LIVE_ERROR') {
           if (typeof opts.onError === 'function') opts.onError(msg.message || '', { status: msg.status });
+        } else if (msg.type === 'LEX_DICTATION_LIVE_CLOSING') {
+          // Сервер заканчивает сам. Звук больше не нужен — снимаем сразу, чтобы
+          // кнопка погасла в этот миг, а не через секунды ожидания итога.
+          if (stopping || closing || ended) return;
+          closing = true;
+          running = false;
+          stopBeat();
+          stopCapture();
+          const max = Number(msg.maxDurationMs) > 0 ? Number(msg.maxDurationMs) : sessionMaxMs;
+          if (typeof opts.onClosing === 'function') {
+            try { opts.onClosing({ reason: msg.reason || '', maxDurationMs: max }); }
+            catch (e) { console.warn(TAG, 'onClosing threw:', e && e.message); }
+          }
+        } else if (msg.type === 'LEX_DICTATION_LIVE_ENDED') {
+          const max = Number(msg.maxDurationMs) > 0 ? Number(msg.maxDurationMs) : sessionMaxMs;
+          serverEnded({ text: typeof msg.text === 'string' ? msg.text : '', reason: msg.reason || 'lost', maxDurationMs: max });
         }
       });
 
@@ -270,7 +370,27 @@
       }
 
       ready = true;
-      startBeat();
+      sessionMaxMs = Number(res.maxDurationMs) > 0 ? Number(res.maxDurationMs) : null;
+      if (sessionMaxMs) {
+        clearBackstop();
+        backstopTimer = setTimeout(() => {
+          backstopTimer = null;
+          if (requestId === myId && !ended && !stopping) {
+            console.warn(TAG, 'no end from the server long after its cap — the connection died silently');
+            serverEnded({ text: '', reason: 'lost', maxDurationMs: sessionMaxMs });
+          }
+        }, sessionMaxMs + BACKSTOP_SLACK_MS);
+      }
+      try { startBeat(); }
+      catch (e) {
+        // Таймер отказал (например, испорченная частота пульса в реестре): без
+        // пульса сервер закроет сессию сам через десять секунд, а платить за них
+        // незачем — бросаем сразу.
+        console.error(TAG, 'presence pulse refused to start:', e && e.message);
+        abort();
+        if (typeof opts.onError === 'function') opts.onError('presence pulse failed', {});
+        return false;
+      }
       if (prebufferDropped > 0) {
         console.warn(TAG, `dropped ${prebufferDropped} prebuffered frame(s) — server took too long to accept audio`);
       }
@@ -288,6 +408,8 @@
       if (!running) return null;
       const myId = requestId;
       running = false;
+      stopping = true;
+      clearBackstop();
       stopBeat();
       stopCapture();
       let res = null;
@@ -305,6 +427,7 @@
     // закрывает соединение с провайдером и записывает расход за уже сказанное
     // — платит человек за то, что произнёс, а не за то, что дождался.
     function abort() {
+      clearBackstop();
       if (!running) { stopListening(); teardownAudio(); return; }
       const myId = requestId;
       running = false;
@@ -325,10 +448,11 @@
       abort,
       isRunning: () => running,
       isReady: () => ready,
+      maxDurationMs: () => sessionMaxMs,
     };
   }
 
-  // sampleRateFor наружу — чтобы поверхность могла спросить частоту той
-  // распознавалки, которую выбрали, и не держать своей копии числа.
+  // sampleRateFor наружу — частота той распознавалки, которую выбрали, из
+  // каталога (строка базы); своей копии числа у поверхности нет.
   global.LexDictationLive = { create, sampleRateFor };
 })(typeof self !== 'undefined' ? self : globalThis);

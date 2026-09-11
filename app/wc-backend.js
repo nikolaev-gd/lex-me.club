@@ -201,14 +201,24 @@
     'knobVoiceIdleDisconnectSec', 'knobVoiceLongSessions', 'knobVoiceOutputLanguage',
     'knobVoiceTranscriptionModel', 'knobVoiceTranscriptionLanguage', 'knobVoiceTranscriptionPrompt',
     'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel',
-    // Диктовка (микрофон у поля ввода) — не голосовая сессия, но ячейка та же
-    // по устройству: одно имя модели, читается тем же способом.
-    'knobDictationModel', 'knobDictationLanguage', 'knobDictationLanguages',
-    'knobDictationPrompt', 'knobDictationKeywords', 'knobDictationStream', 'knobDictationDelay',
-    'knobDictationMode', 'knobDictationTimestamps', 'knobDictationDiarization',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
+
+  // Ручки диктовки — отдельно от остальных и КАК ЕСТЬ: что из них примет
+  // распознавалка, решает сервер (_shared/dictation-fields.ts), один на все
+  // поверхности. Список ручек — ячейки настроек (LexSettingsCells), общие с
+  // расширением; своего перечня имён у страницы нет. Раньше страница отдавала
+  // их «средними» именами (dictationLanguages…), а реестр ждал короткие — и на
+  // живом пути на сервер уезжали одни умолчания.
+  async function readDictationKnobs() {
+    const C = global.LexSettingsCells;
+    const keys = ['knobDictationModel'].concat((C && C.DICTATION_KNOB_KEYS) || []);
+    const res = await WcStore.get(keys.map(scoped));
+    const stored = {};
+    keys.forEach((k) => { stored[k] = res[scoped(k)]; });
+    return { model: stored.knobDictationModel, knobs: (C && C.dictationKnobs) ? C.dictationKnobs(stored) : {} };
+  }
 
   async function readKnobs() {
     const wanted = KNOB_KEYS.map(scoped).concat(['voiceNamesByProvider_' + SCOPE, 'activeVoiceModelId_' + SCOPE]);
@@ -240,16 +250,6 @@
       voiceTranscriptionModel: tk('knobVoiceTranscriptionModel'),
       voiceTranscriptionLanguage: tk('knobVoiceTranscriptionLanguage'),
       voiceTranscriptionPrompt: tk('knobVoiceTranscriptionPrompt'),
-      dictationModel: tk('knobDictationModel'),
-      dictationLanguage: tk('knobDictationLanguage'),
-      dictationLanguages: tk('knobDictationLanguages'),
-      dictationPrompt: tk('knobDictationPrompt'),
-      dictationKeywords: tk('knobDictationKeywords'),
-      dictationStream: tk('knobDictationStream'),
-      dictationDelay: tk('knobDictationDelay'),
-      dictationMode: tk('knobDictationMode'),
-      dictationTimestamps: tk('knobDictationTimestamps'),
-      dictationDiarization: tk('knobDictationDiarization'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
     };
@@ -685,84 +685,30 @@
   //
   // Тот же сервер и тот же разговор, что у расширения (`dictation-live`),
   // ТОЛЬКО без воркера посередине: держать сокет здесь некому, кроме самой
-  // страницы. Всё, что решает, — на сервере; тут открыть, переложить, закрыть.
-  //
-  // Живых сессий может быть несколько (микрофон в чате и микрофон где-то ещё),
-  // поэтому карта по requestId, а не одна переменная.
-  const liveDictations = new Map();
-
-  WcBus.on('LEX_DICTATION_LIVE_START', async (m) => {
-    const token = await A.validToken();
-    if (!token) return { ok: false, __gate: 'login' };
-    const requestId = m.requestId;
-    const base = String(A.supabaseUrl() || '').replace(/^http/, 'ws');
-    const ws = new WebSocket(base + '/functions/v1/dictation-live');
-    const entry = { ws, finish: null };
-    liveDictations.set(requestId, entry);
-    return await new Promise((resolve) => {
-      const giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), 12000);
-      ws.onopen = () => { ws.send(JSON.stringify({ type: 'start', token, config: m.config || {} })); };
-      ws.onmessage = (ev) => {
-        let j; try { j = JSON.parse(ev.data); } catch (_) { return; }
-        if (j.type === 'ready') { clearTimeout(giveUp); resolve({ ok: true }); return; }
-        if (j.type === 'delta') {
-          WcBus.broadcast({ type: 'LEX_DICTATION_LIVE_DELTA', requestId, textSoFar: j.textSoFar });
-          return;
-        }
-        if (j.type === 'error') {
-          clearTimeout(giveUp);
-          resolve({ ok: false, error: j.message || j.stage, status: j.status });
-          WcBus.broadcast({ type: 'LEX_DICTATION_LIVE_ERROR', requestId, message: j.message, status: j.status });
-          return;
-        }
-        if (j.type === 'final') {
-          clearTimeout(giveUp);
-          // Диктовка стоит денег — баланс на экране устарел.
-          WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
-          if (entry.finish) { const f = entry.finish; entry.finish = null; f({ ok: true, text: j.text || '', billedUsd: j.billedCostUsd }); }
-          resolve({ ok: true });
-        }
-      };
-      ws.onerror = () => { clearTimeout(giveUp); resolve({ ok: false, error: 'socket error' }); };
-      ws.onclose = () => {
-        clearTimeout(giveUp);
-        liveDictations.delete(requestId);
-        if (entry.finish) { const f = entry.finish; entry.finish = null; f({ ok: false, error: 'closed' }); }
-        resolve({ ok: false, error: 'closed' });
-      };
-    });
+  // страницы. Реле — общий кусок с воркером расширения
+  // (lex-dictation-relay.js): открыть, переложить, закрыть, прибрать за
+  // неудачным стартом. Здесь только своё: пропуск, адрес и доставка кадров по
+  // шине страницы.
+  const liveRelay = global.LexDictationRelay.create({
+    token: () => A.validToken(),
+    baseUrl: () => A.supabaseUrl(),
+    emit: (_ctx, msg) => WcBus.broadcast(msg),
+    // Диктовка стоит денег — баланс на экране устарел.
+    onFinal: () => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }),
+  });
+  global.LexDictationRelay.TYPES.forEach((type) => {
+    WcBus.on(type, (m) => liveRelay.handle(type, m, {}));
   });
 
-  WcBus.on('LEX_DICTATION_LIVE_AUDIO', (m) => {
-    const e = liveDictations.get(m.requestId);
-    if (e && e.ws && e.ws.readyState === WebSocket.OPEN) {
-      try { e.ws.send(JSON.stringify({ type: 'audio', b64: m.b64 })); } catch (_) {}
-    }
-    return { ok: true };
-  });
-  // Пульс «на связи» живой диктовки — тот же, что в расширении.
-  WcBus.on('LEX_DICTATION_LIVE_PING', (m) => {
-    const e = liveDictations.get(m.requestId);
-    if (e && e.ws && e.ws.readyState === WebSocket.OPEN) {
-      try { e.ws.send(JSON.stringify({ type: 'ping' })); } catch (_) {}
-    }
-    return { ok: true };
-  });
-
-  const finishLive = (verb) => async (m) => {
-    const e = liveDictations.get(m.requestId);
-    if (!e || !e.ws || e.ws.readyState !== WebSocket.OPEN) return { ok: false, error: 'no live session' };
-    const answer = await new Promise((resolve) => {
-      e.finish = resolve;
-      try { e.ws.send(JSON.stringify({ type: verb })); } catch (_) { resolve({ ok: false, error: 'send failed' }); }
-      setTimeout(() => { if (e.finish) { e.finish = null; resolve({ ok: false, error: 'timeout' }); } }, 15000);
-    });
-    try { e.ws.close(); } catch (_) {}
-    liveDictations.delete(m.requestId);
-    return answer;
-  };
-  WcBus.on('LEX_DICTATION_LIVE_STOP', finishLive('stop'));
-  WcBus.on('LEX_DICTATION_LIVE_ABORT', finishLive('abort'));
+  // Каталог распознавалок диктовки — строки public.models
+  // (lex-dictation-catalog.js). Пропуск здесь, поэтому и источник каталога для
+  // микрофона страницы — здесь.
+  global.LexDictationCatalog.setSource(async () => global.LexDictationCatalog.fetchRows({
+    baseUrl: A.supabaseUrl(), apikey: A.anonKey(), token: await A.validToken(),
+  }));
+  // Заранее, при загрузке страницы: на нажатии микрофона каталог тогда уже в
+  // памяти. Не вошёл ещё — не страшно, нажатие прочитает его само.
+  global.LexDictationCatalog.load();
 
   WcBus.on('WC_DICTATE', async (m) => {
     const token = await A.validToken();
@@ -776,41 +722,15 @@
     // одна на все поверхности. Своего окна настроек у страницы нет: значение
     // приезжает опубликованным набором владельца, как и остальные ручки.
     //
-    // Ни списка допустимых имён, ни запасного имени здесь НЕТ намеренно: и то
-    // и другое живёт в реестре моделей, а страница его грузит (index.html) —
-    // своя копия разошлась бы с ним на первой же смене модели, что уже
-    // случилось однажды с прошитым 'gpt-4o-mini-transcribe'.
-    const knobs = await readKnobs().catch(() => ({}));
-    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
-    // Остальные ручки полосы «Диктовка». Что из них модель ПРИНИМАЕТ —
-    // решает реестр (dictationRequestFields), а не эта страница: послать полю
-    // распознавалку, которая его не знает, значит получить 400 на каждом
-    // нажатии микрофона (whisper-1 так отвечает и на `languages`, и на
-    // `keywords`). «Не задано» везде выражается отсутствием поля, а не пустой
-    // строкой; язык по умолчанию — общий, из того же реестра.
-    const REG = global.LexModelRegistry;
-    const fields = REG.dictationRequestFields(apiModel);
-    const splitList = (raw) => String(raw || '').split(',').map((x) => x.trim()).filter(Boolean);
-    const dictLang = fields.language
-      ? ((knobs && knobs.dictationLanguage) || REG.dictationCapture.defaultLanguage)
-      : null;
-    const dictLangs = fields.languages ? splitList(knobs && knobs.dictationLanguages) : [];
-    const dictPrompt = fields.prompt ? ((knobs && knobs.dictationPrompt) || '') : '';
-    const dictKeywords = fields.keywords ? splitList(knobs && knobs.dictationKeywords) : [];
-    const wantStream = !!(fields.stream && knobs && knobs.dictationStream);
-    // Поля Google. Отсев несовместимых сочетаний — тот же, что гасит их в окне
-    // настроек расширения: правило одно, живёт в реестре, и страница его
-    // читает вместо того, чтобы переписывать заново.
-    const dictMode = fields.mode
-      ? ((knobs && knobs.dictationMode) || REG.dictationModeDefault) : '';
-    const dictInert = REG.dictationInertKnobs(apiModel, {
-      keywords: knobs && knobs.dictationKeywords,
-      mode: dictMode || REG.dictationModeDefault,
-      timestamps: knobs && knobs.dictationTimestamps,
-      diarization: knobs && knobs.dictationDiarization,
-    });
-    const dictTimestamps = !!(fields.timestamps && knobs && knobs.dictationTimestamps && !dictInert.timestamps);
-    const dictDiarization = !!(fields.diarization && knobs && knobs.dictationDiarization && !dictInert.diarization);
+    // Ни списка допустимых имён, ни запасного имени здесь НЕТ намеренно:
+    // список — каталог распознавалок в базе (lex-dictation-catalog.js),
+    // запасное имя — реестр моделей. Своя копия разошлась бы с ними на первой
+    // же смене модели, что уже случилось однажды с прошитым
+    // 'gpt-4o-mini-transcribe'.
+    const dict = await readDictationKnobs().catch(() => ({ model: null, knobs: {} }));
+    const apiModel = global.LexDictationCatalog.normalize(dict.model, global.LexModelRegistry.defaultDictationModel);
+    // Остальные ручки полосы «Диктовка» уезжают КАК ЕСТЬ, в meta: что из них
+    // примет распознавалка, умолчания и несовместимые сочетания решает сервер.
 
     // The extension can hardcode `recording.webm` because it only ever records
     // in Chrome. Here the recorder is whatever the platform gives us, and on
@@ -829,18 +749,6 @@
     const form = new FormData();
     form.append('file', new File([bytes], 'recording.' + ext, { type: base }));
     form.append('model', apiModel);
-    if (dictLang && dictLang !== 'auto') form.append('language', dictLang);
-    // Множественное поле ЗАМЕНЯЕТ одиночное: прислать оба — 400 от провайдера.
-    // Разводит их карта полей выше, здесь остаётся только форма записи —
-    // повторяющееся поле с голыми двухбуквенными кодами.
-    dictLangs.forEach((code) => { if (code && code !== 'auto') form.append('languages', code); });
-    if (dictPrompt) form.append('prompt', dictPrompt);
-    dictKeywords.forEach((w) => form.append('keywords', w));
-    form.append('response_format', 'json');
-    if (wantStream) form.append('stream', 'true');
-    if (dictMode) form.append('mode', dictMode);
-    if (dictTimestamps) form.append('timestamps', 'true');
-    if (dictDiarization) form.append('diarization', 'true');
     // The session is whatever conversation is already open — NOT a fresh one.
     // Minting a session here would give a brand-new empty chat a row before a
     // single message had been sent, which is the one thing the key rule
@@ -849,6 +757,10 @@
       sessionId,
       callType: 'dictation',
       surface: 'standalone',
+      // В meta, а не полями формы: meta сервер снимает до пересылки
+      // поставщику (и сервер прошлой версии тоже — незнакомое поле формы
+      // OpenAI встретил бы отказом).
+      knobs: dict.knobs,
       // Строку в базе, по которой считается цена, называет сервер: он же
       // выбирает поставщика по имени модели, а распознавалок теперь две разных
       // фирмы. Прошитый здесь префикс назвал бы Google строкой OpenAI.
@@ -869,7 +781,9 @@
     // Куски уезжают в интерфейс через шину — тем же способом, каким туда
     // попадает ответ учителя, — а вернувшееся значение остаётся авторитетом:
     // провайдер по ходу потока правит уже сказанное.
-    if (wantStream && /text\/event-stream/i.test(resp.headers.get('content-type') || '')) {
+    // Поток включает сервер (ручка «Рост текста» у модели, которая его умеет) —
+    // смотрим на ответ, а не на то, что просили.
+    if (/text\/event-stream/i.test(resp.headers.get('content-type') || '')) {
       let text = '';
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -1353,6 +1267,7 @@
     stubbed: false,
     turnImages,
     readKnobs,
+    readDictationKnobs,
     adoptPublished,
     activeModelId,
     setOpen,

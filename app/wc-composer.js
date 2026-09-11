@@ -159,18 +159,17 @@
   // выбор между ними — ручка настроек, которую человек меняет на ходу.
   let live = null;
   let recStartedAt = 0;
-  let recAutoStopTimer = null;
-  // Пороги и потолок записи — общие на все поверхности, из реестра моделей
-  // (LexModelRegistry.dictationCapture). Своих чисел у страницы больше нет:
-  // раньше здесь стояли 350 мс «слишком коротко» против 300 в расширении и
-  // отсутствие потолка против минуты у него, и один микрофон вёл себя
-  // по-разному в зависимости от того, где его нажали.
-  const CAPTURE_FALLBACK = { minDurationMs: 300, minBlobBytes: 1000, maxDurationMs: 60000, liveMaxDurationMs: 600000, defaultLanguage: 'en' };
-  // «10 minutes», а не «600 seconds»: потолок живой диктовки — минуты.
-  const limitLabel = (ms) => (ms >= 60000 && ms % 60000 === 0)
-    ? (ms / 60000) + (ms === 60000 ? ' minute' : ' minutes')
-    : Math.round(ms / 1000) + ' seconds';
-  const capture = () => (global.LexModelRegistry && global.LexModelRegistry.dictationCapture) || CAPTURE_FALLBACK;
+  // Потолок обычной записи — ручка общего таймера (lex-dictation-limit.js).
+  let recLimit = null;
+  // Пороги, потолок записи и его подпись — одно правило на все браузерные
+  // поверхности (lex-dictation-limit.js): числа из реестра моделей и
+  // единственный запасной набор живут там. Раньше здесь стояли свои: 350 мс
+  // «слишком коротко» против 300 в расширении и отсутствие потолка против
+  // минуты у него, и один микрофон вёл себя по-разному в зависимости от того,
+  // где его нажали.
+  const Limit = global.LexDictationLimit;
+  const capture = () => Limit.capture();
+  const clearRecLimit = () => { if (recLimit) { recLimit.cancel(); recLimit = null; } };
 
   function autoGrow() {
     elInput.style.height = 'auto';
@@ -255,13 +254,50 @@
   // ── Dictation ────────────────────────────────────────────────────────────
   // ── Живая диктовка ───────────────────────────────────────────────────────
   //
-  // Та же кнопка, та же строка состояния, тот же потолок записи, то же поле
-  // ввода. Отличие ровно одно: звук уходит во время речи, и текст растёт по
+  // Та же кнопка, та же строка состояния, то же поле ввода; потолок у живой
+  // ставит сервер и сам заканчивает сессию (endedByServer ниже). Отличие ровно одно: звук уходит во время речи, и текст растёт по
   // ходу. Всё, что решает (модель, поля запроса, цена, строка расхода), живёт
   // на сервере — здесь только микрофон и поле.
-  async function startLive(stream, knobs) {
+  async function startLive(stream, dict) {
     const grower = makeGrower();
     let finished = false;
+    // Сессию закончил сервер, а не человек: потолок (он на сервере), сторож «на
+    // связи», остановка воркера функции, уход поставщика, обрыв связи. Кнопка
+    // гаснет, плашка говорит почему, выросший текст остаётся, итог сервера
+    // встаёт на его место. То же, что в dictation.js, — одно поведение.
+    let closedByServer = false;
+    const micOff = () => {
+      elMic.classList.remove('is-recording');
+      elMic.title = 'Dictate';
+      elMic.setAttribute('aria-label', elMic.title);
+    };
+    function endedByServer(info) {
+      if (finished) return false;
+      finished = true;
+      closedByServer = true;
+      stream.getTracks().forEach((t) => t.stop());
+      // Кнопку и плашку трогает только текущая сессия — сирота молчит.
+      if (live !== me) return true;
+      live = null;
+      micOff();
+      syncButton();
+      if (info && info.reason === 'cap') {
+        const ms = Number(info.maxDurationMs);
+        toast(ms > 0 ? 'Recording stopped: the limit is ' + Limit.label(ms) + '.' : 'Recording stopped: the limit was reached.');
+      } else {
+        toast('Dictation stopped: the connection to the recognizer was lost.', { error: true });
+      }
+      return true;
+    }
+    // Итог конца, объявленного сервером, — строже, чем на «стоп»: человек мог
+    // уже отправить или переписать выросшее — дописывать нельзя, только на
+    // место выросшего; итог старого сервера (без потолка в «готов») не ставим
+    // вовсе — он без последнего отрезка. То же правило, что в dictation.js.
+    function placeServerFinal(text, info) {
+      grower.serverFinal(text, !!(info && Number(info.maxDurationMs) > 0));
+    }
+    // Итог встаёт на место выросшего куска; в конец — только если куска нет.
+    function placeFinal(text) { grower.finish(text); }
     // Своего номера сессии здесь не чеканим: его чеканит сам модуль живой
     // диктовки и им же метит все свои сообщения. Здешний был мёртвым — уезжал
     // внутри набора настроек, где его никто не читал, и при разборе журнала
@@ -280,15 +316,18 @@
         elMic.title = 'Stop dictating';
         elMic.setAttribute('aria-label', elMic.title);
         WcHaptics.tap();
-        // У живой диктовки свой потолок — десять минут, у файловой минута.
-        const maxMs = capture().liveMaxDurationMs || capture().maxDurationMs;
-        if (maxMs > 0) {
-          recAutoStopTimer = setTimeout(() => {
-            if (live) { stopRecording(); toast('Recording stopped: the limit is ' + limitLabel(maxMs) + '.'); }
-          }, maxMs);
-        }
+        // Потолка живой записи здесь нет: его ставит сервер и сам говорит
+        // «закрываю» (onClosing ниже).
       },
       onDelta: (textSoFar) => { if (textSoFar) grower.push(textSoFar); },
+      onClosing: (info) => { endedByServer(info); },
+      onEnded: (info) => {
+        if (!endedByServer(info) && !closedByServer) return;
+        const text = ((info && info.text) || '').trim();
+        // Пустой итог поле не трогает: выросший текст остаётся как есть.
+        if (text) placeServerFinal(text, info);
+        grower.forget();
+      },
       onError: (msg, info) => {
         if (finished) return;
         if (info && info.status === 402) { toast('Not enough balance for dictation.', { error: true }); return; }
@@ -304,7 +343,7 @@
     live.__finish = async (wantText) => {
       if (finished) return;
       finished = true;
-      if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
+      clearRecLimit();
       // Кнопка гаснет в миг нажатия и больше не меняется: всё, что осталось
       // серверу, он доделывает молча. Никакого «занята».
       if (live === me) live = null;
@@ -320,31 +359,24 @@
       stream.getTracks().forEach((t) => t.stop());
       const res = pending ? await pending : null;
       syncButton();
-      if (!want) return;
-      if (!res || !res.ok) { toast('Could not transcribe', { error: true }); return; }
+      if (!want) { grower.forget(); return; }
+      if (!res || !res.ok) { grower.forget(); toast('Could not transcribe', { error: true }); return; }
       const text = (res.text || '').trim();
-      if (!text) { toast('Nothing was recognised'); return; }
-      if (!grower.finish(text)) {
-        const cur = elInput.value;
-        elInput.value = cur ? (cur.replace(/\s*$/, '') + ' ' + text) : text;
-        autoGrow();
-        syncButton();
-        elInput.focus();
-        try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
-      }
+      if (!text) { grower.forget(); toast('Nothing was recognised'); return; }
+      placeFinal(text);
     };
-    // Поля распознавалки собирает РЕЕСТР, а не этот файл. Раньше здесь стоял
-    // список имён руками, и он молча отставал: карту полей живой путь страницы
-    // не звал вовсе, поэтому «Режим расшифровки» отсюда не уезжал на сервер
-    // никогда. Теперь правило одно на все поверхности — какое поле у этой
-    // распознавалки есть и какое сейчас несовместимо с соседним.
-    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
-    const outgoing = global.LexModelRegistry.dictationOutgoing(apiModel, knobs || {});
-    const started = await live.start(stream, Object.assign({}, outgoing, {
+    // Ручки уезжают КАК ЕСТЬ: что из них примет распознавалка, решает сервер
+    // (_shared/dictation-fields.ts), один на все поверхности. Раньше здесь
+    // звался реестр с именами ручек, которых он не понимал, и на сервер
+    // уходили одни умолчания — языки, точные слова, описание, режим терялись.
+    // Имя модели уже проверено каталогом на нажатии (startRecording).
+    const apiModel = dict && dict.model;
+    const started = await live.start(stream, {
       model: apiModel,
+      knobs: (dict && dict.knobs) || {},
       surface: 'standalone',
       pageType: 'text',
-    }));
+    });
     if (!started) {
       if (!finished) {
         if (live === me) live = null;
@@ -358,6 +390,16 @@
   }
 
   async function startRecording() {
+    // Какая распознавалка выбрана и каким путём снимать звук, спрашивается
+    // ПАРАЛЛЕЛЬНО с микрофоном, а не после него: каталог распознавалок (строки
+    // базы, lex-dictation-catalog.js) обычно уже в памяти, а если нет — его
+    // чтение идёт, пока браузер открывает микрофон, и нажатие не ждёт лишнего.
+    const choiceP = (async () => {
+      let dict = { model: null, knobs: {} };
+      try { dict = await global.WcBackend.readDictationKnobs(); } catch (_) { /* умолчания сервера рабочие */ }
+      const route = await global.LexDictationCatalog.route(dict.model, global.LexModelRegistry.defaultDictationModel);
+      return { dict, route };
+    })();
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -367,10 +409,17 @@
     }
     // Какая распознавалка выбрана — решает та же ручка, что и в расширении.
     // Живая не пишет файл вовсе, поэтому MediaRecorder ниже ей не нужен.
-    let knobs = {};
-    try { knobs = await global.WcBackend.readKnobs(); } catch (_) { /* дефолт реестра рабочий */ }
-    const apiModel = global.LexModelRegistry.normalizeDictationModel(knobs && knobs.dictationModel);
-    if (global.LexModelRegistry.isLiveDictationModel(apiModel)) {
+    const choice = await choiceP;
+    const route = choice.route;
+    if (!route.ok) {
+      // Без каталога путь угадывать нельзя: живую распознавалку файлом не
+      // расшифровать, а файловую — сокетом.
+      stream.getTracks().forEach((t) => t.stop());
+      toast(route.gate === 'login' ? 'Sign in to dictate.' : 'Could not load the list of recognizers. Please try again.', { error: true });
+      return;
+    }
+    const dict = { model: route.model, knobs: (choice.dict && choice.dict.knobs) || {} };
+    if (route.live) {
       // Файловый путь живой распознавалке не подходит вовсе: обычная ручка
       // расшифровки отвечает ей «Invalid URL». Поэтому не откатываемся к
       // записи файла молча, а говорим человеку. Случай не выдуманный: вкладка,
@@ -381,7 +430,7 @@
         toast('Live dictation is not loaded here — reload the page', { error: true });
         return;
       }
-      await startLive(stream, knobs);
+      await startLive(stream, dict);
       return;
     }
     let rec;
@@ -415,22 +464,21 @@
     elMic.title = 'Stop dictating';
     elMic.setAttribute('aria-label', elMic.title);
     WcHaptics.tap();
-    // Потолок записи. Микрофон, забытый включённым, платит за каждую минуту
-    // тишины — поэтому он выключается сам и говорит почему, ровно как в
-    // расширении.
-    const maxMs = capture().maxDurationMs;
-    if (maxMs > 0) {
-      recAutoStopTimer = setTimeout(() => {
-        if (recorder === rec && rec.state !== 'inactive') {
-          stopRecording();
-          toast('Recording stopped: the limit is ' + Math.round(maxMs / 1000) + ' seconds.');
-        }
-      }, maxMs);
-    }
+    // Потолок записи — общее правило (lex-dictation-limit.js): микрофон, забытый
+    // включённым, платит за каждую минуту тишины, поэтому запись кончается
+    // сама так же, как по кнопке, и человеку говорится почему.
+    clearRecLimit();
+    recLimit = Limit.arm({
+      isStillMine: () => recorder === rec && rec.state !== 'inactive',
+      onFire: (maxMs) => {
+        stopRecording();
+        toast('Recording stopped: the limit is ' + Limit.label(maxMs) + '.');
+      },
+    });
   }
 
   function stopRecording() {
-    if (recAutoStopTimer) { clearTimeout(recAutoStopTimer); recAutoStopTimer = null; }
+    clearRecLimit();
     // Живая сессия заканчивается по-своему: файла нет, и «остановить запись»
     // значит «дать серверу договорить с провайдером и вернуть итог».
     if (live && live.__finish) { live.__finish(true); return; }
@@ -445,48 +493,35 @@
   }
 
   // Растущий кусок держится ЗА СВОИМ ОТРЕЗКОМ, а не «дописывается в конец»:
-  // человек может печатать, пока идёт расшифровка. Пока поле выглядит ровно
-  // так, как мы его оставили, — переписываем; тронули — рост прекращается, и
-  // готовый текст встаёт на место выросшего куска, а если того в поле уже нет —
-  // дописывается. Тихо затирать чужой набор нельзя. Та же механика, теми же
-  // словами, что в dictation.js.
+  // человек может печатать, пока идёт расшифровка. Правило — общее с
+  // расширением и айфоном, lex-dictation-grow.js: учёт на ПОЛЕ (одно поле ввода
+  // на страницу), каждая запись — его участник; итог прошлой записи, пришедший,
+  // пока растёт новая, рост новой не останавливает. Здесь — только мост к полю.
+  const growField = global.LexDictationGrow.field();
   function makeGrower() {
-    let base = null;
-    let lastWritten = null;
-    let lastSofar = null; // сам выросший кусок, без того, что было до него
-    let alive = true;
-    const compose = (b, t) => (b.trim().length === 0 ? t : b.replace(/\s*$/, '') + ' ' + t);
+    const id = growField.begin();
     const put = (v, focus) => {
       elInput.value = v;
       autoGrow();
       syncButton();
       if (focus) elInput.focus();
+      // Каретка в конец, иначе следующая буква встанет посреди фразы.
       try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
     };
     return {
       push(sofar) {
-        if (!alive) return;
-        if (base === null) base = elInput.value || '';
-        else if (elInput.value !== lastWritten) { alive = false; return; }
-        lastWritten = compose(base, sofar);
-        lastSofar = sofar;
-        put(lastWritten, false);
+        const v = growField.push(id, sofar, elInput.value || '');
+        if (v !== null) put(v, false);
       },
-      // Поле трогали — итог всё равно встаёт НА МЕСТО выросшего куска, если тот
-      // стоит в поле; иначе текст оказывался бы в поле дважды. Дописать в конец
-      // можно, только когда выросшего куска там больше нет. Та же правка, что в
-      // dictation.js и на айфоне.
-      finish(text) {
-        if (base === null) return false;
-        if (alive && elInput.value === lastWritten) {
-          put(compose(base, text), true);
-          return true;
-        }
-        const at = lastSofar ? elInput.value.lastIndexOf(lastSofar) : -1;
-        if (at < 0) return false;
-        put(elInput.value.slice(0, at) + text + elInput.value.slice(at + lastSofar.length), true);
-        return true;
+      // Итог «стоп»: на место выросшего куска, куска нет — в конец.
+      finish(text) { put(growField.finish(id, text, elInput.value || ''), true); },
+      // Итог конца, объявленного сервером: только на место выросшего; старый
+      // сервер без потолка в «готов» — не ставим (см. модуль).
+      serverFinal(text, hasCap) {
+        const v = growField.serverFinal(id, text, elInput.value || '', { hasCap: !!hasCap });
+        if (v !== null) put(v, true);
       },
+      forget() { growField.forget(id); },
     };
   }
 
@@ -512,22 +547,15 @@
       const r = await WcBus.call('WC_DICTATE', { base64, mimeType: blob.type, durationMs, requestId });
       const text = (r && r.text || '').trim();
       if (!text) { toast('Nothing was recognised'); return; }
-      // Appended, not replaced: dictating into a half-typed message must not
-      // throw away what is already there. Рос текст — переписываем свой же
-      // отрезок набело; не рос — обычное дописывание.
-      if (!grower.finish(text)) {
-        const cur = elInput.value;
-        elInput.value = cur ? (cur.replace(/\s*$/, '') + ' ' + text) : text;
-        autoGrow();
-        syncButton();
-        elInput.focus();
-        // The caret goes to the end, or the next keystroke lands mid-sentence.
-        try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
-      }
+      // Не затирает набранное: рос текст — итог встаёт на его место; не рос —
+      // дописывается к набранному через пробел.
+      grower.finish(text);
     } catch (err) {
       toast('Could not transcribe: ' + ((err && err.message) || err), { error: true });
     } finally {
       unsub();
+      // Итога не было (отказ, пустота) — выросшее остаётся как есть.
+      grower.forget();
     }
   }
 

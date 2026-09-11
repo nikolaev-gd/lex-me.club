@@ -191,7 +191,7 @@
     // llm-proxy. Дефолт — та же строка, что отдаёт реестр (dictationDefault);
     // здесь она записана явно, потому что ячейки читаются и там, где реестра
     // нет, а сверять их незачем: значение чинится на чтении
-    // (LexModelRegistry.normalizeDictationModel).
+    // (каталог распознавалок, LexDictationCatalog.normalize).
     knobDictationModel: 'gpt-transcribe',
     knobDictationLanguage: 'en',                       // language у v1/audio/transcriptions (whisper-1)
     knobDictationLanguages: '',                        // languages у gpt-transcribe: «en,ru» → повторяющееся поле формы
@@ -472,6 +472,33 @@
     return Promise.all(jobs);
   }
 
+  // ── Ручки диктовки на провод ─────────────────────────────────────────────
+  //
+  // Приложение шлёт серверу значения ручек диктовки КАК ЕСТЬ — без карты полей,
+  // разбивки списков и умолчаний: что уйдёт распознавалке, решает сервер
+  // (supabase/functions/_shared/dictation-fields.ts), один на все поверхности.
+  // Имя на проводе — ключ без `knobDictation` и без окна:
+  // `knobDictationLiveText_shorts-main` → `liveText`. Отдельного списка имён у
+  // приложения нет: ручки берутся из ячеек выше, новая ручка — новая ячейка.
+  // Модель в набор не входит: она едет своим полем, по ней выбирается путь.
+  const DICTATION_KNOB_PREFIX = 'knobDictation';
+  const DICTATION_KNOB_KEYS = Object.keys(KNOB_DEFAULTS)
+    .filter((k) => k.indexOf(DICTATION_KNOB_PREFIX) === 0 && k !== 'knobDictationModel');
+  function dictationWireName(key) {
+    const rest = String(key).slice(DICTATION_KNOB_PREFIX.length).replace(/_.*$/, '');
+    return rest.charAt(0).toLowerCase() + rest.slice(1);
+  }
+  // stored — { ключ хранилища без окна: значение }. Незаданное не уезжает:
+  // умолчание у сервера то же, что у ячейки.
+  function dictationKnobs(stored) {
+    const out = {};
+    const src = stored || {};
+    DICTATION_KNOB_KEYS.forEach((k) => {
+      if (src[k] !== undefined && src[k] !== null) out[dictationWireName(k)] = src[k];
+    });
+    return out;
+  }
+
   global.LexSettingsCells = {
     SLOT_CELLS,
     STRING_CELLS,
@@ -487,6 +514,9 @@
     SPEECH_RATE_DEFAULT,
     TRANSCRIPTION_PROMPT_1_DEFAULT,
     PRONUNCIATION_TUTOR_PROMPT_DEFAULT,
+    DICTATION_KNOB_KEYS,
+    dictationWireName,
+    dictationKnobs,
     scopedKey,
     cellFor,
     stringCellFor,
