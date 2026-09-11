@@ -1420,7 +1420,10 @@
 
       __diagMark?.('google:body_built');
       const response = proxy
-        ? await proxyFetch({ ...proxy, meta: { ...proxy.meta, google: { path: `${model}:streamGenerateContent?alt=sse` } } }, body, signal)
+        // Адрес модели у Google сервер собирает сам — из метки хода
+        // (meta.modelInternalId), по той же строке, что цену: присланный
+        // отсюда он бы всё равно не читался.
+        ? await proxyFetch(proxy, body, signal)
         : await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
