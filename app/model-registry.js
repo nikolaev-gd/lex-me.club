@@ -1364,12 +1364,24 @@
   // null означает ровно одно: «такой кнопки нет». Либо значения нет вовсе, либо
   // оно называет скрытую модель — и тогда честнее сказать «не выбрана», чем
   // молча чистить не тем, что подсвечено.
-  function normalizePreprocessModelId(stored) {
+  //
+  // opts.keepEffort — оставить ступень из сохранённого значения, если модель её
+  // умеет. Нужно выбору модели на плашке «Обработка субтитров»: там, как и под
+  // ответом учителя, ступень выбирается в подменю, и сводить её к самой дешёвой
+  // значило бы молча чистить не тем, что выбрано. Список в настройках ступеней
+  // не показывает и зовёт без флага — ему нужен id своего пункта.
+  function normalizePreprocessModelId(stored, opts) {
     if (!stored || typeof stored !== 'string') return null;
     const facts = resolveModelFacts(stored);
     if (!facts) return null;
     const hit = preprocessModelOptions().find((o) => o.apiModel === facts.apiModel);
-    return hit ? hit.id : null;
+    if (!hit) return null;
+    const model = MODELS_BY_API[hit.apiModel];
+    if (opts && opts.keepEffort && facts.effort && model
+        && (model.efforts || []).includes(facts.effort)) {
+      return hit.provider + ':' + hit.apiModel + ':' + facts.effort;
+    }
+    return hit.id;
   }
 
   // Размышляет ли модель всегда, что бы мы ни послали. modelId — синтетический
