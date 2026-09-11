@@ -1048,28 +1048,13 @@
     return html;
   }
 
-  // <optgroup>/<option> markup for an ACTION-MODE text-model <select>. Unlike the
-  // bar (textModelOptionsHtml — 2-part id + a separate effort dropdown), each
-  // option value is a FULL synthetic id `provider:apiModel:defaultEffort` (one
-  // control, default effort, like the re-ask menu). A leading option (value="")
-  // = inherit the host surface's model — `inheritLabel` is its i18n string.
-  // Reuses PROVIDER_GROUP_LABEL so action selects can't drift from the main bar.
-  function actionModelOptionsHtml(inheritLabel) {
-    let html = '<option value="">' + esc(inheritLabel != null ? inheritLabel : '') + '</option>';
-    for (const provider of ['openai', 'google', 'anthropic']) {
-      const opts = LEX_MODELS.filter(
-        (m) => m.type === 'text' && !m.hidden && m.provider === provider,
-      );
-      if (!opts.length) continue;
-      html += '<optgroup label="' + esc(PROVIDER_GROUP_LABEL[provider] || provider) + '">';
-      for (const m of opts) {
-        const eff = (m.defaultEffort != null && m.defaultEffort !== '') ? m.defaultEffort : 'none';
-        html += '<option value="' + esc(provider + ':' + m.apiModel + ':' + eff) + '">'
-          + esc(m.label) + '</option>';
-      }
-      html += '</optgroup>';
-    }
-    return html;
+  // Надпись выбранной модели на кнопке выбора модели: «5.6 Terra · medium».
+  // Ступень «none» не пишется — у модели без размышления надпись та же, что в
+  // списке. Одна на все такие кнопки (Text models, Subtitle cleanup, Action
+  // modes), чтобы надписи не разъехались.
+  function modelEffortLabel(apiModel, effort) {
+    const label = labelForModel(apiModel);
+    return (effort && effort !== 'none') ? label + ' · ' + effort : label;
   }
 
   // <option> markup for the voice-model <select> (flat, no optgroup).
@@ -1429,6 +1414,7 @@
   global.LexModelRegistry = {
     models: LEX_MODELS,
     labelForModel,
+    modelEffortLabel,
     modelId,
     // pre-built derived tables (computed once at load)
     modelRegistry: builtModelRegistry,
@@ -1459,7 +1445,6 @@
     googleInteractions: buildGoogleInteractions(),
     // UI <select> markup builders
     textModelOptionsHtml,
-    actionModelOptionsHtml,
     voiceModelOptionsHtml,
     providerGroupLabel: PROVIDER_GROUP_LABEL,
     // knob capability
