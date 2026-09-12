@@ -73,6 +73,8 @@
     // редактора настроек: она берёт опубликованный набор владельца, и пока
     // тот не переопубликован, в нём может лежать старое имя.
     const RETIRED = {
+      // whisper-1 снят целиком (2026-09-12).
+      'whisper-1': 'gpt-transcribe',
       'gpt-4o-mini-transcribe-2025-12-15': 'gpt-transcribe',
       'gpt-4o-mini-transcribe': 'gpt-transcribe',
       'gpt-4o-transcribe': 'gpt-transcribe',

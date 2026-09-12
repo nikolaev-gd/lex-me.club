@@ -193,7 +193,6 @@
     // нет, а сверять их незачем: значение чинится на чтении
     // (каталог распознавалок, LexDictationCatalog.normalize).
     knobDictationModel: 'gpt-transcribe',
-    knobDictationLanguage: 'en',                       // language у v1/audio/transcriptions (whisper-1)
     knobDictationLanguages: '',                        // languages: ОДИН язык или 'auto' (прежнее «en,ru» сервер читает как auto)
     knobDictationPrompt: '',                           // prompt: ОПИСАНИЕ записи, не приказ
     knobDictationKeywords: '',                         // keywords у gpt-transcribe: «worktree,Lex» → повторяющееся поле
@@ -205,6 +204,18 @@
     knobDictationLiveText: 'streaming',                // живая диктовка Google: текст по ходу речи или готовыми кусками
     knobDictationTimeMarks: 'none',                    // метки времени В ТЕКСТЕ у Microsoft: none | segment | word
     knobDictationSpeakers: false,                      // «Speaker 1:» в тексте у Microsoft
+    // ── Расшифровка звука видео (у ролика нет английских субтитров) ──
+    // Блок «Subtitle transcription». Распознавалку, её поля и нарезку выбирает
+    // разработчик и публикует кнопкой блока; всем остальным значения приезжают
+    // опубликованным набором. Ниже — только умолчание ячейки, как у любой ручки.
+    knobSubtitleAsrModel: 'nova-3',                    // имя модели у поставщика (строка базы models.subtitle_asr)
+    knobSubtitleAsrLanguage: 'en',                     // язык речи в ролике
+    knobSubtitleAsrDiarize: true,                      // разделение говорящих (у Deepgram — платная надбавка)
+    knobSubtitleAsrFillerWords: true,                  // слова-паразиты (Deepgram)
+    knobSubtitleAsrKeywords: '',                       // точные слова через запятую (Microsoft)
+    knobSubtitleAsrMode: 'verbatim',                   // дословно / причёсанно (Microsoft)
+    knobSubtitleAsrChunkMinutes: 5,                    // длина куска, минут — одно из SUBTITLE_ASR_CHUNK_MINUTES
+    knobSubtitleAsrParallel: 6,                        // сколько кусков уходит одновременно — одно из SUBTITLE_ASR_PARALLEL
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms
@@ -501,7 +512,44 @@
     return out;
   }
 
+  // ── Ручки расшифровки звука видео на провод ──────────────────────────────
+  //
+  // Та же схема, что у диктовки: значения как есть, раскладку для поставщика
+  // делает сервер (supabase/functions/_shared/subtitle-asr.ts). Модель едет
+  // своим полем, нарезка серверу не нужна вовсе — её делает воркер.
+  const SUBTITLE_ASR_KNOB_PREFIX = 'knobSubtitleAsr';
+  const SUBTITLE_ASR_NOT_WIRED = ['knobSubtitleAsrModel', 'knobSubtitleAsrChunkMinutes', 'knobSubtitleAsrParallel'];
+  const SUBTITLE_ASR_KNOB_KEYS = Object.keys(KNOB_DEFAULTS)
+    .filter((k) => k.indexOf(SUBTITLE_ASR_KNOB_PREFIX) === 0);
+  const SUBTITLE_ASR_WIRE_KEYS = SUBTITLE_ASR_KNOB_KEYS.filter((k) => SUBTITLE_ASR_NOT_WIRED.indexOf(k) < 0);
+  function subtitleAsrWireName(key) {
+    const rest = String(key).slice(SUBTITLE_ASR_KNOB_PREFIX.length).replace(/_.*$/, '');
+    return rest.charAt(0).toLowerCase() + rest.slice(1);
+  }
+  function subtitleAsrKnobs(stored) {
+    const out = {};
+    const src = stored || {};
+    SUBTITLE_ASR_WIRE_KEYS.forEach((k) => {
+      if (src[k] !== undefined && src[k] !== null) out[subtitleAsrWireName(k)] = src[k];
+    });
+    return out;
+  }
+  // Допустимые значения нарезки — ровно то, что предлагает список в окне.
+  // Верх длины куска — 5 минут: столько с нахлёстом проходит через предел веса
+  // запроса к нашей серверной функции (замер — docs/spec/60-server.md,
+  // «Расшифровка звука видео»); у всех трёх поставщиков свой предел выше.
+  // Одновременность — не больше шести: столько платных вызовов на аккаунт
+  // сервер пропускает разом, седьмой получил бы отказ.
+  const SUBTITLE_ASR_CHUNK_MINUTES = [1, 2, 3, 4, 5];
+  const SUBTITLE_ASR_PARALLEL = [1, 2, 3, 4, 5, 6];
+
   global.LexSettingsCells = {
+    SUBTITLE_ASR_KNOB_KEYS,
+    SUBTITLE_ASR_WIRE_KEYS,
+    SUBTITLE_ASR_CHUNK_MINUTES,
+    SUBTITLE_ASR_PARALLEL,
+    subtitleAsrWireName,
+    subtitleAsrKnobs,
     SLOT_CELLS,
     STRING_CELLS,
     KNOB_DEFAULTS,

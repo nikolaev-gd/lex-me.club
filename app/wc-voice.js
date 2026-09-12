@@ -361,7 +361,7 @@
 
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
-        // Open the reader's bubble HERE, not on the transcript. Whisper is
+        // Open the reader's bubble HERE, not on the transcript. The recognizer is
         // slower than the server's voice-activity detector, so the answer
         // starts streaming before the question is transcribed — a bubble
         // created on the transcript lands UNDER the reply it answers. This is

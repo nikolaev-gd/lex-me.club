@@ -45,7 +45,7 @@
 
   // Наши имена ручек — те же, что у сервера (DictationField в
   // dictation-fields.ts).
-  const FIELD_NAMES = Object.freeze(['language', 'languages', 'keywords', 'prompt', 'stream',
+  const FIELD_NAMES = Object.freeze(['languages', 'keywords', 'prompt', 'stream',
     'delay', 'mode', 'timestamps', 'diarization', 'liveText', 'timeMarks', 'speakers']);
   const NO_FIELDS = Object.freeze(FIELD_NAMES.reduce((o, f) => { o[f] = false; return o; }, {}));
 

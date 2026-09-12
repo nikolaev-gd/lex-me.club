@@ -559,24 +559,11 @@
       //   Multilingual is a different tier ($0.0092/min) — the proxy derives the
       // price row from the configured model+language, so the two can't drift.
       id: 'nova-3', apiModel: 'nova-3', provider: 'deepgram', type: 'asr',
-      label: 'Deepgram nova-3', role: 'primary',
-    },
-    {
-      // PARKED — was the primary until v1.100.0, kept for telemetry/pricing
-      // lookups on existing rows and for a one-line switch back.
-      id: 'whisper-large-v3', apiModel: 'whisper-large-v3', provider: 'groq', type: 'asr',
-      label: 'Groq whisper-large-v3', role: 'parked',
-    },
-    {
-      id: 'whisper-1', apiModel: 'whisper-1', provider: 'openai', type: 'asr',
-      label: 'OpenAI whisper-1', role: 'fallback',
-      // Запасная распознавалка субтитров (role). В списке диктовки она тоже
-      // есть, но этот список живёт в базе (public.models.dictation, его читает
-      // lex-dictation-catalog.js), а не здесь.
+      label: 'Deepgram nova-3',
     },
 
     // ── ASR — voice dictation (mic → text into the chat box). Not a
-    // caption fallback — separate from the whisper chain above. Billed
+    // video-audio recognizer — separate from Deepgram above. Billed
     // per audio-hour via computeAsrCost, from OpenAI's published
     // per-minute estimates ($0.0045/min gpt-transcribe, $0.003/min mini,
     // $0.006/min full).
@@ -807,9 +794,9 @@
   // dictation-fields.ts); совпадение строк базы с ним стережёт
   // dev-tools/check-dictation-fields-parity.mjs.
 
-  // Список кодов языка, из которого выбирают обе ручки — одиночная (whisper-1)
-  // и множественная (gpt-transcribe). Один список, чтобы «en» в одном месте не
-  // соседствовал с «en-US» в другом: провайдер коды с регионом отвергает (400).
+  // Список кодов языка, из которого выбирают язык диктовки и язык расшифровки
+  // звука видео. Один список, чтобы «en» в одном месте не соседствовал с «en-US»
+  // в другом: провайдер коды с регионом отвергает (400).
   const DICTATION_LANGUAGES = ['en', 'ru', 'es', 'de', 'fr', 'it', 'pt', 'zh', 'ja', 'ko'];
 
   // Насколько живая распознавалка копит звук, прежде чем показать кусок. Чем
