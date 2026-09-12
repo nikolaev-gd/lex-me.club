@@ -238,13 +238,14 @@
     // Слова, выбранные нажатием в ленте, забираются ЗДЕСЬ — в единственный
     // момент, когда набор перестаёт быть состоянием и становится репликой.
     // Наружу выходят две разные строки: `visible` — то, что человек увидит в
-    // своём пузыре (слова плюс дописанное), `sent` — то же самое со скрытой
-    // частью впереди (отрывок вокруг каждого слова, форма общая с расширением
-    // — LexWordPick.sendPrefix). Набор при этом опустошается: иначе он уехал
-    // бы вторым экземпляром со следующей репликой.
+    // своём пузыре (слова плюс дописанное) и оно же уходит текстом реплики, а
+    // `picks` — места выбранных слов. Строки Word/Context перед текстом ставит
+    // сервер (supabase/functions/_shared/word-pick.ts), одинаково для всех
+    // поверхностей. Набор при этом опустошается: иначе он уехал бы вторым
+    // экземпляром со следующей репликой.
     const turn = global.WcWordPick
       ? WcWordPick.takeTurn(text)
-      : { visible: String(text || '').trim(), sent: String(text || '').trim() };
+      : { visible: String(text || '').trim(), sent: String(text || '').trim(), picks: null };
     if (!turn.visible && !images.length) return;
     // 'native' or nothing. The mode rides with the turn rather than living as
     // page state: it is chosen per message (by which button was pressed), not
@@ -289,6 +290,8 @@
         // обязаны видеть ровно то, что видела модель. В ленте её не показывает
         // ни живой пузырь, ни перечитывание (WcWordPick.visibleText).
         text: turn.sent,
+        // Места выбранных слов; null — слов не выбирали.
+        picks: turn.picks || null,
         images,
         mode,
         slotId,
@@ -1214,10 +1217,13 @@
     // (WcStore, своё в браузере, на Маке и на телефоне); подписка нужна для
     // второй вкладки того же браузера, где переключатель могли тронуть.
     WcWordPick.init({ onChipsChanged: () => WcComposer.refresh() });
-    WcWordPick.setEnabled(await WcStore.one(WcWordPick.STORAGE_KEY, false));
+    // По умолчанию ВКЛЮЧЕНО — как в расширении и на айфоне (решение владельца
+    // 2026-09-06, «tap words is on out of the box»; spec 50-settings). Выключено
+    // только то, что человек выключил сам.
+    WcWordPick.setEnabled(await WcStore.one(WcWordPick.STORAGE_KEY, true) !== false);
     WcStore.subscribe((changes) => {
       if (!changes || !changes[WcWordPick.STORAGE_KEY]) return;
-      WcWordPick.setEnabled(changes[WcWordPick.STORAGE_KEY].newValue === true);
+      WcWordPick.setEnabled(changes[WcWordPick.STORAGE_KEY].newValue !== false);
     });
     WcAttach.init();
     WcSidebar.init({

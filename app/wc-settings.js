@@ -163,7 +163,7 @@
         // браузере не включается на Маке и на телефоне: у каждой оболочки своя
         // IndexedDB, даже когда адрес страницы один и тот же.
         field('Tap words', 'Tap a word in any message to ask about it',
-          toggle(stored[WcWordPick.STORAGE_KEY] === true, (on) => {
+          toggle(stored[WcWordPick.STORAGE_KEY] !== false, (on) => {
             // Применяем СРАЗУ, не дожидаясь записи: лист настроек полупрозрачен
             // и лента под ним видна — человек видит, что произошло, тем же
             // движением.

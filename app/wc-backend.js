@@ -950,6 +950,15 @@
         if (msg.serverTurn && msg.opId) serverOps.set(m.requestId, String(msg.opId));
         return;
       }
+      // Вопрос из выбранных слов в том виде, в каком его собрал сервер и
+      // прочитал учитель. В память беседы ложится он, а не видимый текст:
+      // следующий ход обязан прислать ровно то же начало беседы (кэш у
+      // поставщика) и тот же вопрос. На экране по-прежнему видимый текст.
+      if (msg.type === 'STREAM_USER_TEXT' && msg.userText) {
+        const q = buf.find((t) => t.uid === userUid);
+        if (q) q.text = msg.userText;
+        return;
+      }
       if (msg.type === 'STREAM_CHUNK' && msg.text) { answer += msg.text; return; }
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
       serverOps.delete(m.requestId);
@@ -1039,6 +1048,8 @@
         materialKey: writeKey,
         messages,
         text: m.text,
+        // Места выбранных слов: вопрос из них собирает сервер.
+        ...(m.picks ? { picks: m.picks } : {}),
         surface: 'standalone',
         source: 'webchat',
         turnIndex: buf.length - 1,

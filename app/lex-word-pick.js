@@ -16,34 +16,37 @@
 //   • ряд фишек над строкой ввода (их состав; доставку в своё окно делает
 //     поверхность — окна у поверхностей разные);
 //   • признак источника и замок поверхности.
+//   • предел ряда фишек (не больше трёх строк; мерит поверхность — rowsFor);
+//   • места набора для сервера (sendPicks). Сам вопрос учителю — порядок слов,
+//     отрывок вокруг каждого места, скобки, строки Word/Context — собирает
+//     СЕРВЕР (supabase/functions/_shared/word-pick.ts), один на все поверхности.
 // В адаптере поверхности остаётся её своё:
 //   • как разрезать текст на слова (что подать в renderLine);
-//   • как достать кусок текста вокруг слова (contextBlocks / pick.context);
-//   • что сделать, когда набор ушёл учителю (onSent) — поверхность пишет свои
-//     касания слов в public.word_taps и опустошает набор сама. Модуль только
-//     зовёт владельца (notifySent), потому что знает, чей набор, а поверхность
-//     знает, ЧТО про него записать.
+//   • где лежат её слова: живой текст словами и места набора в нём (placesOf);
+//   • сколько строк займёт её ряд фишек (rowsFor);
+//   • что сделать, когда набор ушёл учителю (onSent) — опустошить набор.
+//     Касания слов для базы знаний ученика пишет сервер.
 //
 // Модуль НЕ ЗНАЕТ про таймкоды, cue и субтитры. Всё, что нужно поверхности для
 // её собственных расчётов, она кладёт в pick.meta — модуль туда не смотрит.
 //
 // Вход от поверхности — описание выбранного слова (pick):
-//   { key, word, source, context, meta }
-//     key     — опознавательный ярлык, по нему снимается выбор (крестик на
-//               фишке и повторное нажатие — одно и то же действие);
-//     word    — само слово, уже очищенное (stripPunctuation);
-//     source  — признак источника: с какой поверхности пришло слово;
-//     context — кусок текста вокруг слова: строка ЛИБО функция. Функция нужна
-//               субтитрам: кусок зависит от состояния страницы и считается в
-//               момент сборки запроса, а не в момент нажатия;
-//     meta    — своё поверхности, модулю непрозрачно;
-//     silent  — необязательный: единица БЕЗ фишки. Кусок из нескольких слов,
-//               выделенный карандашом, уже стоит текстом в поле ввода, поэтому
-//               над полем не показывается и в список Words не входит — но окно
-//               контекста ему считается и склеивается наравне со словами.
+//   { key, word, source, fallback, meta }
+//     key      — опознавательный ярлык МЕСТА слова, по нему снимается выбор
+//                (нажатие на фишку и повторное нажатие по слову — одно и то же
+//                действие). Разные места одного и того же слова — разные ярлыки;
+//     word     — само слово, уже очищенное (stripPunctuation);
+//     source   — признак источника: с какой поверхности пришло слово;
+//     fallback — запасной кусок { words, from, to }: значение ЛИБО функция.
+//                Уходит серверу, когда живого текста с этим словом нет;
+//     meta     — своё поверхности, модулю непрозрачно;
+//     silent   — необязательный: единица БЕЗ фишки. Кусок из нескольких слов,
+//                выделенный карандашом, уже стоит текстом в поле ввода, поэтому
+//                над полем не показывается и в список Words не входит — но его
+//                место уходит серверу наравне со словами.
 //
-// Наружу: add / remove / toggle / clear / text / chips / contextBlocks /
-// sendPrefix, плюс отрисовка строки слов (renderLine) и подсветка.
+// Наружу: add / remove / toggle / clear / text / chips / sendPicks, плюс
+// отрисовка строки слов (renderLine) и подсветка.
 (function (global) {
   'use strict';
 
@@ -92,186 +95,6 @@
     return WORD_CHAR_RE.test(String(text == null ? '' : text));
   }
 
-  // ── Обводка единицы разбора в куске текста ───────────────────────────────
-  //
-  // Кусок текста, который уезжает учителю, печатается СЛОВАМИ ПОТОКА, а слово
-  // потока несёт свою пунктуацию: «Ethiopia.», «(HTML)"», «well-known,». Это
-  // нужно счётчику окна — границу предложения он ищет по хвосту слова. Но
-  // обводить надо не весь кусок, а ту единицу, о которой спрашивают: в строке
-  // `Word` стоит «Ethiopia», и внутри ⟦…⟧ обязано стоять то же самое, иначе
-  // учитель ищет названное и не находит его в скобках буква в букву.
-  //
-  // Поэтому скобка ставится по ядру, а не по краю куска:
-  //   «region of ⟦Ethiopia⟧.», а не «region of ⟦Ethiopia.⟧».
-  // Сам знак препинания при этом НИКУДА не девается — кусок остаётся дословным
-  // текстом страницы, двигается только граница скобки (решение владельца).
-  //
-  // Считаем, а не помечаем флагом: у одного слова скобок может сойтись
-  // несколько (слово выбрано и отдельно, и внутри куска карандаша), и потерять
-  // одну пару значит выпустить в запрос непарные скобки.
-  //
-  // Одна функция на все поверхности — субтитры, три окна чата и чужую
-  // страницу. Пять копий этой строки уже разъезжались бы порознь.
-  function markToken(token, opens, closes) {
-    const raw = String(token == null ? '' : token);
-    const o = Math.max(0, Number(opens) || 0);
-    const c = Math.max(0, Number(closes) || 0);
-    if (!o && !c) return raw;
-    const { lead, core, trail } = splitToken(raw);
-    // Кусок без единой буквы и цифры ядра не имеет — обводим целиком, иначе
-    // скобки схлопнулись бы в пустое место и пара потерялась бы.
-    if (!core) return '⟦'.repeat(o) + raw + '⟧'.repeat(c);
-    return lead + '⟦'.repeat(o) + core + '⟧'.repeat(c) + trail;
-  }
-
-
-  // ── Окно контекста вокруг единицы разбора ────────────────────────────────
-  //
-  // ПЕРЕЕХАЛО СЮДА ИЗ shared.js (2026-08-23) — целиком, буква в букву. Причина
-  // переезда: тот же счёт понадобился странице `lex-me.club/app`, а `shared.js`
-  // туда не подключить (он весь про расширение и `chrome.*`). Копия этих
-  // счётчиков в вебе разъехалась бы с оригиналом молча, и учитель получал бы
-  // отрывки разной ширины на двух поверхностях одного продукта. Дом выбран
-  // этот, потому что склейка уже звала отсюда `markToken`, а сам модуль уже
-  // грузится обеими поверхностями.
-  //
-  // `shared.js` теперь ДЕЛЕГИРУЕТ сюда, не повторяя ни строчки: `VocabShared`
-  // по-прежнему отдаёт те же имена, и ни один читатель расширения не заметил
-  // разницы.
-  //
-  // Собрать отрывок, который Lex посылает учителю про нажатое слово: взять не
-  // меньше minWords слов с каждой стороны, дальше дотянуть каждую сторону до
-  // ближайшей границы предложения, а саму единицу обвести ⟦…⟧ — тогда её место
-  // однозначно даже когда слово в отрывке повторяется. Границу предложения
-  // ищем по самим словам: слово потока несёт свою хвостовую пунктуацию.
-  const LEX_CONTEXT_MIN_WORDS = 10;
-  const LEX_CONTEXT_SENT_END = /[.!?…]/;
-  // Ширина окна считается СЧЁТЧИКАМИ, а строка режется по ним. Выбору
-  // нескольких слов границы нужны затем, что пересекающиеся окна склеиваются по
-  // индексам слов, а не по тексту: склейка текстов не отличила бы «одно и то же
-  // место» от «два раза одинаковый кусок».
-  function takeContextLeftCount(beforeWords, minWords) {
-    let n = 0;
-    for (let i = beforeWords.length - 1; i >= 0; i--) {
-      n++;
-      if (n >= minWords) {
-        if (i === 0 || LEX_CONTEXT_SENT_END.test(beforeWords[i - 1])) break;
-      }
-    }
-    return n;
-  }
-  function takeContextRightCount(afterWords, minWords) {
-    let n = 0;
-    for (let i = 0; i < afterWords.length; i++) {
-      n++;
-      if (n >= minWords && LEX_CONTEXT_SENT_END.test(afterWords[i])) break;
-    }
-    return n;
-  }
-  function takeContextLeft(beforeWords, minWords) {
-    const n = takeContextLeftCount(beforeWords, minWords);
-    return n ? beforeWords.slice(beforeWords.length - n).join(' ') : '';
-  }
-  function takeContextRight(afterWords, minWords) {
-    const n = takeContextRightCount(afterWords, minWords);
-    return n ? afterWords.slice(0, n).join(' ') : '';
-  }
-  function buildWindowedContext(beforeWords, target, afterWords, opts) {
-    const min = (opts && Number.isFinite(opts.minWords)) ? opts.minWords : LEX_CONTEXT_MIN_WORDS;
-    const before = Array.isArray(beforeWords) ? beforeWords.filter(Boolean) : [];
-    const after = Array.isArray(afterWords) ? afterWords.filter(Boolean) : [];
-    const left = takeContextLeft(before, min);
-    const right = takeContextRight(after, min);
-    const mark = '⟦' + String(target == null ? '' : target).trim() + '⟧';
-    return (left ? left + ' ' : '') + mark + (right ? ' ' + right : '');
-  }
-
-  // Границы того же окна, но в индексах: [start, end] включительно внутри
-  // массива `words` (слова в порядке чтения, каждое со своей хвостовой
-  // пунктуацией — граница предложения ищется по ним же). Ширина и правила —
-  // ровно те, по которым buildWindowedContext собирает строку, поэтому окно
-  // одного слова, отрисованное по этим границам, совпадает с его строкой
-  // слово в слово. Возвращает null, если targetIdx вне массива.
-  //
-  // Единица, вокруг которой считается окно, — не обязательно ОДНО слово.
-  // Карандаш над выделением приносит кусок из нескольких слов подряд: на фишки
-  // он не дробится (это сам вопрос человека, а не набор единиц разбора), но
-  // окно ему нужно то же самое — не меньше LEX_CONTEXT_MIN_WORDS в каждую
-  // сторону ОТ ЕГО ГРАНИЦ, дальше до границы предложения. Поэтому счёт живёт в
-  // span-форме, а привычный однословный вызов — её частный случай startIdx ===
-  // endIdx. Второй реализации, второй константы и второго счётчика тут нет
-  // намеренно: разъехавшись, они дали бы два разных окна на одной странице.
-  function windowedContextRangeSpan(words, startIdx, endIdx, opts) {
-    const min = (opts && Number.isFinite(opts.minWords)) ? opts.minWords : LEX_CONTEXT_MIN_WORDS;
-    const list = Array.isArray(words) ? words : [];
-    const a = Number(startIdx);
-    const b = Number(endIdx);
-    if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-    if (a < 0 || b < a || b >= list.length) return null;
-    const left = takeContextLeftCount(list.slice(0, a), min);
-    const right = takeContextRightCount(list.slice(b + 1), min);
-    return { start: a - left, end: b + right };
-  }
-  function windowedContextRange(words, targetIdx, opts) {
-    return windowedContextRangeSpan(words, targetIdx, targetIdx, opts);
-  }
-
-  // Склейка окон в куски текста — чистая часть, без единого обращения к DOM.
-  // `words` — поток слов материала, `ranges` — по одному на выбранную единицу:
-  //   { start, end } — границы её окна в индексах потока;
-  //   { from, to }   — границы САМОЙ единицы внутри окна (у слова from === to,
-  //                    у куска карандаша это несколько слов подряд).
-  // Пересёкшиеся и сошедшиеся ВСТЫК окна печатаются одним куском, каждая
-  // единица внутри обводится ⟦…⟧ — кусок карандаша ОДНОЙ парой скобок на
-  // весь себя, а не по словам.
-  //
-  // Скобки СЧИТАЮТСЯ, а не помечаются флагом: у одного индекса их может
-  // сойтись несколько (слово выбрано и отдельно, и внутри куска карандаша), и
-  // множество молча потеряло бы одну из пар — открывающих стало бы меньше, чем
-  // закрывающих.
-  //
-  // Поверхностей с такой склейкой три: текст чужой страницы (page-word-pick.js
-  // pageContextBlocks), лента чата расширения (chat-surface.js
-  // chatContextBlocks) и лента чата страницы (webchat/wc-word-pick.js).
-  // Разъехавшись, копии дали бы разные скобки на одном и том же наборе.
-  // Проверяется без браузера — dev-tools/test-page-context-span.mjs.
-  function mergeRangesToBlocks(words, ranges) {
-    const list = Array.isArray(words) ? words : [];
-    const rows = (Array.isArray(ranges) ? ranges.slice() : [])
-      .sort((a, b) => (a.start - b.start) || (a.end - b.end));
-    const bump = (map, i) => map.set(i, (map.get(i) || 0) + 1);
-    const merged = [];
-    rows.forEach((r) => {
-      const last = merged[merged.length - 1];
-      if (last && r.start <= last.end + 1) {
-        if (r.end > last.end) last.end = r.end;
-        bump(last.opens, r.from);
-        bump(last.closes, r.to);
-      } else {
-        const m = { start: r.start, end: r.end, opens: new Map(), closes: new Map() };
-        bump(m.opens, r.from);
-        bump(m.closes, r.to);
-        merged.push(m);
-      }
-    });
-    const out = [];
-    merged.forEach((m) => {
-      const parts = [];
-      for (let i = m.start; i <= m.end && i < list.length; i++) {
-        // Скобка обводит ЯДРО слова, знак препинания остаётся снаружи неё:
-        // «⟦food⟧.», а не «⟦food.⟧». Слово потока несёт свою пунктуацию (по ней
-        // счётчик окна ищет границу предложения), а в строке `Word` оно стоит
-        // без неё — и внутри скобок обязано стоять то же самое, иначе учитель
-        // ищет названное и не находит его буква в букву. markToken — прямо
-        // здесь, в этом же файле, рядом со splitToken, который и режет кусок на
-        // «до / слово / после».
-        parts.push(markToken(list[i], m.opens.get(i) || 0, m.closes.get(i) || 0));
-      }
-      if (parts.length) out.push(parts.join(' '));
-    });
-    return out;
-  }
-
   // Исходный кусок текста этого слова — со знаками препинания, как в тексте.
   function tokenOf(span) {
     if (!span) return '';
@@ -281,7 +104,7 @@
 
   // ── Отрисовка строки слов — ОДНА на все поверхности ──────────────────────
   //
-  // tokens: [{ text, startMs?, cueIdx?, br? }] — куски в порядке чтения.
+  // tokens: [{ text, startMs?, cueIdx?, place?, br? }] — куски в порядке чтения.
   // Поверхность отвечает только за то, как она их набрала; правила ниже общие:
   //
   //   • между кусками — РОВНО ОДИН пробел, и это настоящий текстовый узел, а
@@ -329,6 +152,11 @@
       }
       const ms = Number(tok.startMs);
       if (Number.isFinite(ms)) span.dataset.startMs = String(ms);
+      // Место слова в тексте, которое поверхность посчитала сама (у субтитров —
+      // «кусок + номер слова в куске»). Модуль его не толкует, только кладёт на
+      // спан: по нему поверхность опознаёт слово, когда одно и то же место
+      // живёт двумя копиями.
+      if (tok.place != null && tok.place !== '') span.dataset.lexPlace = String(tok.place);
       lineEl.appendChild(span);
       if (trail) lineEl.appendChild(document.createTextNode(trail));
     }
@@ -414,10 +242,70 @@
     return a.length - b.length;
   }
 
-  function sortedPicks() {
-    const rows = picks.map((p, i) => ({ p, i, o: orderKeyOf(p) }));
+  function sortedPicks(list) {
+    const rows = (list || picks).map((p, i) => ({ p, i, o: orderKeyOf(p) }));
     rows.sort((x, y) => cmpOrder(x.o, y.o) || (x.i - y.i));
     return rows.map((r) => r.p);
+  }
+
+  // ── Предел ряда фишек ────────────────────────────────────────────────────
+  //
+  // Фишки занимают не больше MAX_CHIP_ROWS строк над полем ввода. Прокрутки
+  // внутри ряда нет, поэтому слово, с которым ряд не поместился бы, просто не
+  // добавляется: ни подсветки, ни фишки. Убрать слово можно всегда — предел
+  // стоит только на добавлении.
+  //
+  // Правило одно на все поверхности и живёт здесь; мерит ряд поверхность,
+  // потому что ряд у каждой свой (adapter.rowsFor(labels) → сколько строк
+  // займут фишки с такими подписями при нынешней ширине, либо null — «не знаю»,
+  // тогда слово добавляется). Сузилось окно и уже выбранные фишки заняли
+  // больше трёх строк — они остаются все (решение владельца 2026-09-12), а
+  // новые не добавляются, пока ряд снова не влезет.
+  const MAX_CHIP_ROWS = 3;
+
+  function fitsChipRows(item) {
+    const ad = adapterFor(item.source);
+    if (!ad || typeof ad.rowsFor !== 'function') return true;
+    const labels = sortedPicks(picks.concat([item])).filter((p) => !p.silent).map((p) => p.word);
+    let rows = null;
+    try { rows = ad.rowsFor(labels); } catch (e) {
+      console.warn(TAG, 'rowsFor failed:', e && e.message);
+      return true;
+    }
+    return !(Number.isFinite(rows) && rows > MAX_CHIP_ROWS);
+  }
+
+  // Сколько строк займёт ряд фишек с такими подписями — общий замер для
+  // поверхностей, у которых ряд нарисован в DOM. Пробный ряд ставится туда же,
+  // где стоит настоящий (parent + перед refNode), с теми же классами, поэтому
+  // ширина и перенос у него ровно те же; снимается в том же проходе скрипта, и
+  // браузер его не рисует. Родитель не показан (ширина ноль) — null.
+  function measureChipRows(parent, refNode, cls, labels) {
+    if (!parent || typeof document === 'undefined') return null;
+    const probe = document.createElement('div');
+    probe.className = cls.strip;
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.visibility = 'hidden';
+    probe.hidden = false;
+    (Array.isArray(labels) ? labels : []).forEach((label) => {
+      const chip = document.createElement('span');
+      chip.className = cls.chip;
+      const text = document.createElement('span');
+      text.className = cls.label;
+      text.textContent = String(label);
+      chip.appendChild(text);
+      probe.appendChild(chip);
+    });
+    parent.insertBefore(probe, refNode && refNode.parentNode === parent ? refNode : null);
+    const width = probe.offsetWidth;
+    let rows = 0;
+    let lastTop = null;
+    for (let i = 0; i < probe.children.length; i++) {
+      const top = probe.children[i].offsetTop;
+      if (lastTop === null || top > lastTop + 1) { rows++; lastTop = top; }
+    }
+    probe.remove();
+    return width ? rows : null;
   }
 
   // ── Замок поверхности ────────────────────────────────────────────────────
@@ -444,9 +332,10 @@
       // нескольких слов: сам кусок уже стоит текстом в поле ввода (это вопрос
       // человека, а не единица разбора), поэтому над полем он не повторяется и
       // в список Words не входит. В наборе он лежит ради ОДНОГО — чтобы его
-      // окно контекста считалось и склеивалось наравне с окнами выбранных слов.
+      // место ушло серверу наравне с выбранными словами (строка Selection и
+      // своя пара скобок в отрывке).
       silent: !!pick.silent,
-      context: pick.context,
+      fallback: pick.fallback,
       meta: pick.meta || null,
     };
   }
@@ -463,6 +352,10 @@
       return false;
     }
     if (pickKeys.has(item.key)) return false;
+    if (!item.silent && !fitsChipRows(item)) {
+      lexPickLog('слово «' + item.word + '» не добавлено: ряд фишек занял бы больше ' + MAX_CHIP_ROWS + ' строк');
+      return false;
+    }
     picks.push(item);
     pickKeys.add(item.key);
     lastSource = item.source;
@@ -513,8 +406,8 @@
   // ── Откуда взят набор ────────────────────────────────────────────────────
   //
   // ОДНО место на весь Lex, где этот вопрос решается. Читателей два, и им
-  // нужна разная подробность: скрытая часть хода (sendPrefix ниже) сводит
-  // ответ к трём значениям для учителя, а колонка `calls.source`
+  // нужна разная подробность: сервер, собирая вопрос, сводит ответ к трём
+  // значениям для учителя (строка Source), а колонка `calls.source`
   // (lex-word-to-chat.js) пишет подробный. Свод — там, где он нужен; сам
   // ответ — здесь, иначе две реализации разошлись бы и учитель с телеметрией
   // рассказывали бы про один ход разное.
@@ -611,47 +504,17 @@
   }
 
   // ── Что уходит учителю ───────────────────────────────────────────────────
-
-  // Кусок текста вокруг одного слова. Строка — как есть; функция — вызывается
-  // здесь, в момент сборки запроса (субтитрам нужен поздний расчёт).
-  function contextOf(pick) {
-    const c = pick && pick.context;
-    if (typeof c === 'function') {
-      try { return String(c() || ''); } catch (e) {
-        console.warn(TAG, 'context() failed:', e && e.message);
-        return '';
-      }
-    }
-    return c == null ? '' : String(c);
-  }
-
-  // Блоки контекста на весь набор. Поверхность, которая умеет сшивать
-  // пересекающиеся куски в один (у субтитров окна двух рядом стоящих слов
-  // перекрываются, и печатать текст дважды нельзя), отдаёт готовые блоки сама.
-  // Остальным хватает куска на слово; повторы отбрасываются.
-  function contextBlocks() {
-    const list = sortedPicks();
-    if (!list.length) return [];
-    const ad = adapterFor(list[0].source);
-    if (ad && typeof ad.contextBlocks === 'function') {
-      try {
-        const blocks = ad.contextBlocks(list);
-        if (Array.isArray(blocks)) return blocks;
-      } catch (e) {
-        console.warn(TAG, 'contextBlocks failed:', e && e.message);
-      }
-    }
-    const out = [];
-    list.forEach((p) => {
-      const t = contextOf(p);
-      if (t && out.indexOf(t) < 0) out.push(t);
-    });
-    return out;
-  }
+  //
+  // С 2026-09-12 вопрос учителю собирает СЕРВЕР (supabase/functions/_shared/
+  // word-pick.ts): порядок слов, отрывок вокруг каждого места, скобки ⟦…⟧ и
+  // строки Word/Selection/Context/Source. Поверхность отдаёт ему три вещи —
+  // куски текста словами, выбранные места в них и откуда взят набор
+  // (sendPicks ниже). Своего счёта отрывка у поверхностей больше нет: до этого
+  // он жил здесь и в пяти адаптерах, а айфон не считал его вовсе.
 
   // Единицы набора, у которых есть фишка: всё, кроме silent. Через них идут и
-  // строка слов, и полоска фишек, и список Words — то есть весь путь «что
-  // человек выбрал», в котором молчаливому куску делать нечего.
+  // строка слов, и полоска фишек — то есть весь путь «что человек выбрал», в
+  // котором молчаливому куску делать нечего.
   function chipPicks() {
     return sortedPicks().filter((p) => !p.silent);
   }
@@ -664,76 +527,147 @@
   }
 
   // Фишки над строкой ввода — по одной на выбранное слово. Ярлык тот же, что у
-  // набора: по нему крестик снимает слово, не отличаясь от повторного нажатия.
+  // набора: нажатие на фишку снимает слово по нему, не отличаясь от повторного
+  // нажатия по самому слову. Крестика у фишки слова нет ни на одной поверхности.
   function chips() {
     return chipPicks().map((p) => ({ key: p.key, label: p.word }));
   }
 
-  // Служебная часть, которую человек в поле не видит: она уходит учителю
-  // отдельным скрытым префиксом. Форма для одного слова — прежняя дословно,
-  // чтобы разбор одиночного нажатия не поменялся; для набора те же два поля во
-  // множественном числе.
-  function sendPrefix() {
+  // Сколько слов текста брать по обе стороны от выбранных мест. Кусок уходит
+  // на сервер не целиком (расшифровка часового ролика — тысячи слов на каждый
+  // ход), а окрестностью мест; окно учителя (не меньше десяти слов в сторону и
+  // дальше до границы предложения) укладывается в неё с большим запасом. Места,
+  // между которыми больше двух запасов, уходят разными кусками — их окна всё
+  // равно не сошлись бы.
+  const PICK_BLOCK_MARGIN = 400;
+  // Кусок длиннее — не слово (ссылка, склеенный мусор разметки). Сервер такой
+  // не примет, поэтому режется здесь, а не роняет ход.
+  const PICK_TOKEN_MAX = 2000;
+
+  function isSelectionUnit(p) {
+    const tap = p && p.meta && p.meta.tap;
+    return !!(tap && tap.source === 'selection');
+  }
+
+  // Запасной кусок единицы: { words, from, to } — строка слов и место в ней.
+  // Поверхность кладёт его в pick.fallback (значение или функция; функция
+  // зовётся здесь, в момент сборки хода). Нужен, когда живого текста с этим
+  // словом уже нет (пузырь пересобрали, страницу перерисовали) или ещё нет
+  // (панель расшифровки не собрана). Нет и его — единица уходит сама собой:
+  // кусок из её собственных слов.
+  function fallbackOf(pick) {
+    let fb = pick && pick.fallback;
+    if (typeof fb === 'function') {
+      try { fb = fb(); } catch (e) {
+        console.warn(TAG, 'fallback() failed:', e && e.message);
+        fb = null;
+      }
+    }
+    if (fb && Array.isArray(fb.words) && Number.isInteger(fb.from) && Number.isInteger(fb.to)
+        && fb.from >= 0 && fb.to >= fb.from && fb.to < fb.words.length
+        && (pick.silent || fb.from === fb.to)) {
+      return fb;
+    }
+    const own = String((pick && pick.word) || '').split(/\s+/).filter(Boolean);
+    if (!own.length) return null;
+    return { words: own, from: 0, to: pick.silent ? own.length - 1 : 0 };
+  }
+
+  // Большой кусок — окрестности мест, а не весь.
+  function sliceStream(words, units) {
+    const sorted = units.slice().sort((a, b) => (a.from - b.from) || (a.to - b.to));
+    const groups = [];
+    sorted.forEach((u) => {
+      const g = groups[groups.length - 1];
+      if (g && u.from <= g.hi + 2 * PICK_BLOCK_MARGIN) {
+        g.units.push(u);
+        if (u.to > g.hi) g.hi = u.to;
+      } else {
+        groups.push({ lo: u.from, hi: u.to, units: [u] });
+      }
+    });
+    return groups.map((g) => {
+      const start = Math.max(0, g.lo - PICK_BLOCK_MARGIN);
+      const end = Math.min(words.length - 1, g.hi + PICK_BLOCK_MARGIN);
+      return {
+        words: words.slice(start, end + 1),
+        units: g.units.map((u) => ({ pick: u.pick, from: u.from - start, to: u.to - start })),
+      };
+    });
+  }
+
+  // Места набора для сервера: { zone, blocks: [{ words }], units: [{ block,
+  // from, to, chip, via? }] }. null — набор пуст.
+  //
+  // Живой текст и места в нём отдаёт адаптер поверхности (placesOf) — только он
+  // знает, где его слова лежат. Единица, которую адаптер не нашёл, уходит своим
+  // запасным куском. Одно место дважды (одно и то же слово, выбранное через две
+  // копии) уходит один раз: это одно и то же нажатое место. Прочие ошибки мест
+  // сервер не чинит — отказывает (validatePicks).
+  function sendPicks() {
     const list = sortedPicks();
-    if (!list.length) return '';
-    const ctx = contextBlocks().join('\n\n');
-    // Пустой контекст при непустом наборе — дефект сборки, а не состояние
-    // продукта: у каждой единицы есть свой кусок текста, и добыть его не
-    // получилось ни у одной. Отправлять 'Context: ""' нельзя (учитель получит
-    // пустое поле и будет обсуждать его), поэтому префикс не взводим вовсе —
-    // ход уйдёт тем, что человек напечатал. console.error печатается всегда,
-    // мимо гейта lex-debug.js: промах обязан быть слышен на разработке.
-    if (!ctx) {
-      console.error(TAG, 'контекст набора пуст — скрытая часть хода не взводится');
-      return '';
-    }
-    // ── Три части хода со словами ────────────────────────────────────────
-    //
-    // Строка(и) единиц — ЧТО спрашивают, поле Context — ГДЕ это стоит, а сам
-    // текст реплики (его приклеивает окно) — вопрос человека. Единицы названы
-    // отдельно не для красоты: обведённое место в отрывке может повторяться в
-    // нём же несколько раз, и учитель ищет спрашиваемое ВНУТРИ скобок, а не по
-    // всему отрывку.
-    //
-    // Фишка и кусок карандаша названы РАЗНЫМИ строками, потому что это разные
-    // вещи. Фишки в поле ввода нет вовсе — она и есть вопрос. Кусок карандаша
-    // в поле ЕСТЬ, и человек правит его как хочет: стирает половину, дописывает
-    // своё, оставляет одно слово. Скобки при этом не двигаются — они держатся
-    // за исходное выделение, снятое в момент протяжки (решение владельца
-    // 2026-08-20). Поэтому строка Selection и нужна: без неё учитель видел бы
-    // в скобках одно, в реплике другое и гадал бы, что из этого спрашивают.
-    // ── Строка источника ─────────────────────────────────────────────────
-    //
-    // Три значения, и других не бывает: учителю нужно знать, читает он
-    // субтитры, чужую страницу или собственную переписку, а различать
-    // комментарий и статью ему незачем (решение владельца 2026-08-21).
-    // Подробность остаётся в телеметрии: колонка `calls.source` и таблица
-    // `word_taps` по-прежнему пишут все шесть зон. Свод живёт ЗДЕСЬ, потому
-    // что здесь единственное место, где текст хода собирается целиком.
+    if (!list.length) return null;
     const zone = sourceZone();
-    const label = SOURCE_LABELS[zone] || null;
-    if (!label) {
-      // Набор есть, а откуда он — неизвестно. Строку не пишем (пустая метка
-      // хуже отсутствующей: учитель начнёт её обсуждать), но молчать нельзя —
-      // это дефект сборки, и он обязан быть слышен на разработке.
-      // console.error печатается всегда, мимо гейта lex-debug.js.
-      console.error(TAG, 'источник набора не определился (' + JSON.stringify(zone) + ') — строка Source не взводится');
+    if (!zone) {
+      console.error(TAG, 'источник набора не определился — места учителю не отправляются');
+      return null;
     }
-    const chipped = chipPicks();
-    const picked = list.filter((p) => p.silent);
-    const quoted = (rows) => rows.map((p) => '"' + p.word + '"').join(', ');
-    const head = [];
-    if (chipped.length === 1) head.push('Word: ' + quoted(chipped));
-    else if (chipped.length > 1) head.push('Words: ' + quoted(chipped));
-    if (picked.length === 1) head.push('Selection: ' + quoted(picked));
-    else if (picked.length > 1) head.push('Selections: ' + quoted(picked));
-    head.push('Context: "' + ctx + '"');
-    // ПОСЛЕ Context и перед пустой строкой с текстом человека. Реплей ленты
-    // режет скрытую часть по этой границе и про строку знает
-    // (chat-surface.js stripHiddenPickPrefix, регрессия
-    // dev-tools/test-replay-hidden-prefix.mjs).
-    if (label) head.push('Source: ' + label);
-    return head.join('\n');
+    const ad = adapterFor(list[0].source);
+    let streams = [];
+    if (ad && typeof ad.placesOf === 'function') {
+      try { streams = ad.placesOf(list) || []; } catch (e) {
+        console.warn(TAG, 'placesOf failed:', e && e.message);
+        streams = [];
+      }
+    }
+    const order = new Map(list.map((p, i) => [p, i]));
+    const placed = new Set();
+    const parts = [];
+    streams.forEach((s) => {
+      const words = s && Array.isArray(s.words) ? s.words : [];
+      const seen = new Set();
+      const units = (s && Array.isArray(s.units) ? s.units : []).filter((u) => {
+        if (!u || !order.has(u.pick) || placed.has(u.pick)) return false;
+        if (!Number.isInteger(u.from) || !Number.isInteger(u.to)) return false;
+        if (u.from < 0 || u.to < u.from || u.to >= words.length) return false;
+        if (!u.pick.silent && u.from !== u.to) return false;
+        const k = u.from + ':' + u.to;
+        if (seen.has(k)) { placed.add(u.pick); return false; }
+        seen.add(k);
+        return true;
+      });
+      if (!units.length) return;
+      units.forEach((u) => placed.add(u.pick));
+      sliceStream(words, units).forEach((p) => parts.push(p));
+    });
+    list.forEach((p) => {
+      if (placed.has(p)) return;
+      const fb = fallbackOf(p);
+      if (!fb) return;
+      placed.add(p);
+      parts.push({ words: fb.words, units: [{ pick: p, from: fb.from, to: fb.to }] });
+    });
+    if (!parts.length) return null;
+    // Куски — в порядке текста: по самому раннему месту набора в каждом.
+    const first = (part) => Math.min.apply(null, part.units.map((u) => order.get(u.pick)));
+    parts.sort((a, b) => first(a) - first(b));
+    const blocks = [];
+    const units = [];
+    parts.forEach((part) => {
+      const bi = blocks.length;
+      blocks.push({
+        words: part.words.map((w) => {
+          const s = String(w == null ? '' : w);
+          return s.length > PICK_TOKEN_MAX ? s.slice(0, PICK_TOKEN_MAX) : s;
+        }),
+      });
+      part.units.forEach((u) => {
+        const unit = { block: bi, from: u.from, to: u.to, chip: !u.pick.silent };
+        if (isSelectionUnit(u.pick)) unit.via = 'selection';
+        units.push(unit);
+      });
+    });
+    return { zone, blocks, units };
   }
 
   // ── Обратная операция: снять скрытую часть с сохранённого хода ───────────
@@ -742,9 +676,9 @@
   // Причина переезда: ту же ленту перечитывает страница `lex-me.club/app`, и
   // копия правила у неё не сторожилась бы ничем. Цена расхождения известна и
   // измерена: ход человека пропадает из ленты ЦЕЛИКОМ (реплей принимает его за
-  // служебную инструкцию). Живёт рядом с sendPrefix намеренно — это ровно
-  // обратная ему операция, и две половины одного правила обязаны править
-  // вместе.
+  // служебную инструкцию). Прямую операцию — сборку вопроса — с 2026-09-12
+  // делает сервер (supabase/functions/_shared/word-pick.ts buildPickTurn); эти
+  // две половины одного правила обязаны править вместе.
   //
   // Выбранные слова уезжают учителю скрытым префиксом
   // 'Word(s): "…"\nContext: "…"' перед напечатанным текстом; окно приклеивает
@@ -831,17 +765,15 @@
     } catch (_) { /* лог никогда не мешает работе */ }
   }
 
-  // Дев-инспекция: что сейчас выбрано и что из этого уйдёт учителю. Только
-  // чтение — набор не меняет. Ею проверяется сборка контекста без браузерных
-  // догадок: видно и сами блоки, и готовую скрытую часть запроса.
+  // Дев-инспекция: что сейчас выбрано и что из этого уйдёт серверу. Только
+  // чтение — набор не меняет. Видно и порядок набора, и сами места в кусках.
   function inspect() {
     const list = sortedPicks();
     return {
       words: list.map((p) => p.word),
       keys: list.map((p) => p.key),
       silent: list.map((p) => !!p.silent),
-      blocks: contextBlocks(),
-      prefix: sendPrefix(),
+      picks: sendPicks(),
       highlighted: highlightedCount(),
     };
   }
@@ -852,7 +784,6 @@
     splitToken,
     isWord,
     tokenOf,
-    markToken,
     // набор
     register,
     add,
@@ -864,23 +795,16 @@
     items,
     lockedSource,
     notifySent,
-    // что уходит учителю
+    // предел ряда фишек и общий замер ряда в DOM
+    MAX_CHIP_ROWS,
+    measureChipRows,
+    // что уходит учителю: места набора; вопрос из них собирает сервер
     text,
     chips,
-    contextOf,
-    contextBlocks,
     sourceZone,
-    sendPrefix,
-    // окно контекста вокруг единицы и склейка окон в куски текста. Переехало
-    // из shared.js (2026-08-23): счёт понадобился странице lex-me.club/app,
-    // куда shared.js не подключить. VocabShared отдаёт те же имена, делегируя
-    // сюда.
-    buildWindowedContext,
-    windowedContextRange,
-    windowedContextRangeSpan,
-    mergeRangesToBlocks,
-    LEX_CONTEXT_MIN_WORDS,
-    // обратная операция к sendPrefix: что из сохранённого хода видит человек
+    sendPicks,
+    PICK_BLOCK_MARGIN,
+    // обратная операция к сборке вопроса: что из сохранённого хода видит человек
     stripHiddenPickPrefix,
     isHiddenOnlyText,
     // подсветка

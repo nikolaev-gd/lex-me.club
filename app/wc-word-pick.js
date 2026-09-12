@@ -9,7 +9,7 @@
 //     УЗЛАМИ, а не строкой HTML, поэтому режем обходом текстовых узлов);
 //   • как опознать слово в ленте и посчитать кусок текста вокруг него;
 //   • ряд фишек над полем ввода (окно у страницы своё, общего кода отрисовки с
-//     расширением нет — общий у нас контракт `chips()` и `sendPrefix()`).
+//     расширением нет — общий у нас контракт `chips()` и `sendPicks()`).
 //
 // ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ, А НЕ ВНУТРИ wc-thread.js. Ровно затем, зачем общий
 // модуль отделён от субтитров: у этой страницы уже есть история про
@@ -218,12 +218,15 @@
     return [msgId, Number(meta.wordIdx)];
   }
 
-  // Кусок текста вокруг набора: та же ширина и форма, что у субтитров и у
-  // расширения (общие счётчики `windowedContextRangeSpan`), но окно КАЖДОГО
-  // слова берётся из текста ЕГО СОБСТВЕННОГО сообщения — у разных подборов в
-  // чате может вообще не быть общего текста. Пересекающиеся окна внутри ОДНОГО
-  // сообщения склеиваются; разные сообщения не склеиваются никогда.
-  function contextBlocks(list) {
+  // Где стоят выбранные слова — для вопроса учителю: текст сообщения словами
+  // (каждое со своей пунктуацией) и номер слова в нём. Разные сообщения —
+  // разные куски; внутри одного сообщения места делят один кусок. Отрывок
+  // вокруг, склейку и скобки считает сервер (supabase/functions/_shared/
+  // word-pick.ts) — своего счёта отрывка у страницы больше нет.
+  //
+  // Позиция сверяется со словом: пузырь могли переписать. Не сошлось — слово
+  // уходит своим снимком, снятым в момент нажатия (pick.fallback).
+  function placesOf(list) {
     const items = Array.isArray(list) ? list : [];
     const byMsg = new Map();
     items.forEach((item) => {
@@ -232,39 +235,31 @@
       if (!byMsg.has(msgId)) byMsg.set(msgId, []);
       byMsg.get(msgId).push(item);
     });
-    const blocks = [];
+    const streams = [];
     byMsg.forEach((groupItems, msgId) => {
       const stream = wordStream(bubbleById(msgId));
-      const ranges = [];
-      const orphans = [];
+      const units = [];
       groupItems.forEach((item) => {
         const at = Number(item.meta.wordIdx);
-        const r = Number.isFinite(at) ? WP.windowedContextRangeSpan(stream.words, at, at) : null;
-        if (r) ranges.push({ start: r.start, end: r.end, from: at, to: at });
-        else orphans.push(item);
+        if (Number.isInteger(at) && at >= 0 && at < stream.words.length
+            && wordCore(stream.words[at]) === wordCore(item.word)) {
+          units.push({ pick: item, from: at, to: at });
+        }
       });
-      if (ranges.length) WP.mergeRangesToBlocks(stream.words, ranges).forEach((b) => blocks.push(b));
-      // Слово, чей пузырь исчез между выбором и отправкой. Ход не портится —
-      // у единицы есть свой запасной кусок текста, — но склейка с соседями
-      // потеряна.
-      orphans.forEach((item) => {
-        const fb = WP.contextOf(item);
-        if (fb) blocks.push(fb);
-      });
+      if (units.length) streams.push({ words: stream.words, units });
     });
-    return blocks;
+    return streams;
   }
 
-  // Описание нажатого слова в виде, который принимает общий модуль. `context`
-  // — функция: значение читается в момент сборки запроса, а не нажатия. И она
-  // САМОДОСТАТОЧНА, contextBlocks обратно не зовёт: в расширении такой обратный
-  // вызов был рекурсией без выхода (слово-сирота уходило в contextOf → context()
-  // → contextBlocks → тот же тупик, до переполнения стека).
+  // Описание нажатого слова в виде, который принимает общий модуль. Запасной
+  // кусок — снимок сообщения словами в момент нажатия: если пузырь исчезнет
+  // или перепишется до отправки, слово уйдёт серверу со своим текстом.
   function describePick(span) {
     const bubble = bubbleOfSpan(span);
     if (!bubble) return null;
     tagBubble(bubble);
-    const wordIdx = wordStream(bubble).spans.indexOf(span);
+    const stream = wordStream(bubble);
+    const wordIdx = stream.spans.indexOf(span);
     if (wordIdx < 0) return null;
     const word = span.textContent || '';
     if (!word) return null;
@@ -274,16 +269,7 @@
       word,
       source: SOURCE,
       meta: { msgId, wordIdx },
-      context: () => {
-        const stream = wordStream(bubbleById(msgId));
-        const r = WP.windowedContextRange(stream.words, wordIdx);
-        if (!r) return word;
-        const out = [];
-        for (let i = r.start; i <= r.end && i < stream.words.length; i++) {
-          out.push(i === wordIdx ? WP.markToken(stream.words[i], 1, 1) : stream.words[i]);
-        }
-        return out.join(' ');
-      },
+      fallback: { words: stream.words.slice(), from: wordIdx, to: wordIdx },
     };
   }
 
@@ -291,9 +277,14 @@
   //
   // Своё окно, свой ряд: общего кода отрисовки с расширением нет и быть не
   // может — там разметка расширения, здесь разметка этой страницы. Общий у нас
-  // КОНТРАКТ: состав ряда отдаёт `LexWordPick.chips()`, а крестик снимает слово
+  // КОНТРАКТ: состав ряда отдаёт `LexWordPick.chips()`, а нажатие на фишку снимает слово
   // тем же ярлыком, каким его снимает повторное нажатие по самому слову. Набор
   // — единственный источник правды, поэтому «снял» значит «не уедет».
+  // Крестика у фишки слова нет: нажатие на саму фишку снимает слово — тем же
+  // ярлыком, что повторное нажатие по слову в ленте. Фишка — кнопка, поэтому
+  // до неё доходит и клавиатура, и скринридер.
+  const CHIP_CLASSES = { strip: 'wc-wordchips', chip: 'wc-wordchip', label: 'wc-wordchip-label' };
+
   function paintChips() {
     const strip = document.getElementById('wc-wordchips');
     if (!strip) return;
@@ -301,25 +292,30 @@
     strip.replaceChildren();
     strip.hidden = !chips.length;
     chips.forEach((chip) => {
-      const kill = document.createElement('button');
-      kill.type = 'button';
-      kill.className = 'wc-wordchip-x';
-      kill.title = 'Remove';
-      kill.setAttribute('aria-label', 'Remove ' + chip.label);
-      kill.textContent = '×';
-      kill.addEventListener('click', (e) => {
+      const label = document.createElement('span');
+      label.className = 'wc-wordchip-label';
+      label.textContent = chip.label;
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'wc-wordchip';
+      el.title = 'Remove';
+      el.setAttribute('aria-label', 'Remove ' + chip.label);
+      el.append(label);
+      el.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         if (WP.remove(chip.key)) changed();
       });
-      const label = document.createElement('span');
-      label.className = 'wc-wordchip-label';
-      label.textContent = chip.label;
-      const el = document.createElement('span');
-      el.className = 'wc-wordchip';
-      el.append(label, kill);
       strip.append(el);
     });
+  }
+
+  // Сколько строк займёт ряд с такими подписями при нынешней ширине —
+  // для предела в три строки (LexWordPick.MAX_CHIP_ROWS).
+  function rowsFor(labels) {
+    const strip = document.getElementById('wc-wordchips');
+    if (!strip || !strip.parentNode) return null;
+    return WP.measureChipRows(strip.parentNode, strip, CHIP_CLASSES, labels);
   }
 
   // Набор изменился: перерисовать ряд и сказать композеру — при пустом поле
@@ -332,18 +328,21 @@
   // ── Что уходит учителю ───────────────────────────────────────────────────
   //
   // Две части, и они разные. Слова становятся ВИДИМЫМ текстом реплики (они
-  // называют предмет, дописанное человеком — сам вопрос), а отрывок вокруг них
-  // уходит скрытой частью ПЕРЕД ним, через пустую строку. Ровно то же делает
-  // расширение — и форма скрытой части общая, её собирает `sendPrefix()`.
+  // называют предмет, дописанное человеком — сам вопрос), а их места уходят
+  // серверу отдельно (`picks`): строки Word/Context перед видимым текстом
+  // ставит он, одинаково для всех поверхностей (supabase/functions/_shared/
+  // word-pick.ts). Собранную реплику сервер присылает первым кадром потока —
+  // её страница и кладёт в свою память беседы (wc-backend.js).
   function takeTurn(typed) {
     const mine = WP.lockedSource() === SOURCE && WP.size() > 0;
-    if (!mine) return { visible: String(typed || '').trim(), sent: String(typed || '').trim() };
+    const plain = String(typed || '').trim();
+    if (!mine) return { visible: plain, sent: plain, picks: null };
     const words = WP.text();
-    const prefix = WP.sendPrefix();
-    const visible = words ? (words + ' ' + String(typed || '')).trim() : String(typed || '').trim();
+    const picks = WP.sendPicks();
+    const visible = words ? (words + ' ' + String(typed || '')).trim() : plain;
     WP.clear();
     changed();
-    return { visible, sent: prefix ? (prefix + '\n\n' + visible) : visible };
+    return { visible, sent: visible, picks };
   }
 
   const WcWordPick = {
@@ -353,7 +352,8 @@
         source: SOURCE,
         keyForSpan,
         orderOf,
-        contextBlocks,
+        placesOf,
+        rowsFor,
         zoneOf: () => ZONE,
       });
 

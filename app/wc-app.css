@@ -1816,40 +1816,29 @@ button { font: inherit; color: inherit; }
   min-width: 0;
 }
 .wc-wordchips[hidden] { display: none; }
+/* Без крестика: нажатие на фишку снимает слово. Числа — те же, что у фишки
+   расширения (styles.css .ytvocab-chat-chip). */
 .wc-wordchip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   max-width: 100%;
-  padding: 3px 4px 3px 10px;
+  min-height: 18px;
+  padding: 3px 10px;
+  border: 0;
   border-radius: 999px;
   background: rgba(62, 166, 255, .22);
   color: var(--fg);
+  font: inherit;
   font-size: 13px;
   line-height: 1.3;
+  cursor: pointer;
 }
+.wc-wordchip:hover { background: rgba(62, 166, 255, .34); }
 .wc-wordchip-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wc-wordchip-x {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--fg-muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-.wc-wordchip-x:hover { background: var(--bg-active); color: var(--fg); }
 
 /* ── Переключатель в настройках ──────────────────────────────────────────────
  *

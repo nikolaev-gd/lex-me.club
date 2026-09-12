@@ -146,6 +146,14 @@
           // Fire-and-forget — a collector fault must never break streaming.
           if (onRawFrame) { try { onRawFrame({ event: eventName, data: dataStr }); } catch (e) {} }
           if (dataParts.length === 0) continue;
+          // Свой кадр сервера, не поставщика: вопрос из выбранных слов в том
+          // виде, в каком его прочитал учитель. Адаптерам поставщиков он не
+          // отдаётся — их разбор его не знает.
+          if (eventName === 'lex_proxy_turn') {
+            const cb = response && response.__lexOnServerTurn;
+            if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
+            continue;
+          }
           onEvent({ event: eventName, data: dataStr });
         }
       }
@@ -178,6 +186,10 @@
         // завершающего кадра тогда не будет вовсе), поэтому не кадром, а
         // заголовком.
         try { if (proxy && typeof proxy.onHeaders === 'function') proxy.onHeaders(resp.headers); } catch (_) {}
+        // Приёмник кадра lex_proxy_turn — вопроса из выбранных слов, собранного
+        // сервером. Кадр читает readSSEStream, общий для всех адаптеров; ручка
+        // едет на самом ответе, чтобы адаптерам не пришлось её передавать.
+        if (proxy && typeof proxy.onServerTurn === 'function') resp.__lexOnServerTurn = proxy.onServerTurn;
         return resp;
       });
     }
@@ -2083,6 +2095,12 @@
             // its output is cached per video forever).
             promptRequired: chatOptions.promptRef.required === true,
           } : {}),
+          // Места выбранных слов (LexWordPick.sendPicks): куски текста словами,
+          // места в них и откуда набор. Вопрос из них — строки Word/Selection/
+          // Context/Source перед видимым текстом реплики — собирает сервер
+          // (supabase/functions/_shared/word-pick.ts) и присылает обратно
+          // первым кадром потока (STREAM_USER_TEXT ниже).
+          ...(chatOptions && chatOptions.picks ? { picks: chatOptions.picks } : {}),
           // Второй, независимый указатель: инструкция, которая едет ВНУТРИ реплики
           // пользователя, а не отдельной ролью (карточка лексики). Сервер допишет её
           // перед текстом последнего user-сообщения.
@@ -2160,6 +2178,14 @@
       // своей копией переписки после «заново» и стучаться ли числом увиденного
       // после «стопа».
       if (proxy) {
+        // Вопрос из выбранных слов, собранный сервером, — наверх отдельным
+        // событием. Поверхность кладёт его в свою копию беседы вместо видимого
+        // текста: следующий ход обязан прислать ровно то, что прочитал учитель
+        // (кэш начала беседы у поставщика и сам вопрос в памяти учителя).
+        proxy.onServerTurn = (d) => {
+          const userText = d && typeof d.userText === 'string' ? d.userText : null;
+          if (userText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText });
+        };
         proxy.onHeaders = (h) => {
           let led = false;
           try { led = String(h && h.get && h.get('x-lex-server-turn')) === '1'; } catch (_) {}
