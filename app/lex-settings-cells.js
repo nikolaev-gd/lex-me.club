@@ -209,7 +209,7 @@
     // разработчик и публикует кнопкой блока; всем остальным значения приезжают
     // опубликованным набором. Ниже — только умолчание ячейки, как у любой ручки.
     knobSubtitleAsrModel: 'nova-3',                    // имя модели у поставщика (строка базы models.subtitle_asr)
-    knobSubtitleAsrLanguage: 'en',                     // язык речи в ролике
+    knobSubtitleAsrLanguage: 'auto',                   // язык речи в ролике; 'auto' — распознавалка определяет сама
     knobSubtitleAsrDiarize: true,                      // разделение говорящих (у Deepgram — платная надбавка)
     knobSubtitleAsrFillerWords: true,                  // слова-паразиты (Deepgram)
     knobSubtitleAsrKeywords: '',                       // точные слова через запятую (Microsoft)
