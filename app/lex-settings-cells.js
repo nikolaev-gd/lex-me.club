@@ -92,6 +92,18 @@
         { id: 'voice2', name: 'Voice 2', text: '' },
       ],
     },
+    // Prompt of the gpt-live thinking model (the text model the voice delegates
+    // to). Its text lives only in the server catalogue, like the chat prompts —
+    // the slots are seeded empty and carry just their tab names.
+    voiceThinkingPrompts: {
+      key: 'voiceThinkingPrompts',
+      activeIdKey: 'activeVoiceThinkingPromptId',
+      refScope: 'shorts-main',
+      slots: [
+        { id: 'thinking1', name: 'Thinking 1', text: '' },
+        { id: 'thinking2', name: 'Thinking 2', text: '' },
+      ],
+    },
     wordClickPrompts: {
       key: 'wordClickPrompts',
       activeIdKey: 'activeWordClickPromptId',

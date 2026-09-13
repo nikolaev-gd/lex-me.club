@@ -529,6 +529,16 @@
       label: 'RT m (OpenAI mini)',
     },
     {
+      // 2026-09-13: gpt-live-1 — OpenAI's second voice transport. The voice is
+      // billed by time, and it hands hard thinking to a text model of OpenAI
+      // (the "thinking model", picked next to it with its own prompt). None of
+      // the realtime knobs apply; voiceTransport:'live' is what the settings
+      // window and the voice module branch on. The server derives the same
+      // from apiModel (supabase/functions/_shared/voice-limits.ts).
+      id: 'gpt-live', apiModel: 'gpt-live-1', provider: 'openai', type: 'voice',
+      label: 'Live 1 (OpenAI)', voiceTransport: 'live',
+    },
+    {
       id: 'gemini-3.1-flash-live-preview', apiModel: 'gemini-3.1-flash-live-preview',
       provider: 'google', type: 'voice', label: 'G3.1 ♪ (Gemini 3.1)',
     },
@@ -1182,7 +1192,22 @@
     // high/xhigh range (unlike Responses API text models, 'minimal' is NOT
     // rejected here).
     voiceReasoningEffort:       { providers: ['openai'] },
+    // gpt-live (2026-09-13): the text model the voice delegates thinking to,
+    // and that model's prompt. They exist on no other voice model.
+    voiceThinkingModel:         { providers: ['openai'], models: ['gpt-live'] },
+    voiceThinkingPrompt:        { providers: ['openai'], models: ['gpt-live'] },
   };
+  // Voice knobs a live-transport model (gpt-live) actually takes. Every other
+  // voice knob is a realtime-session field with no gpt-live equivalent (speed,
+  // VAD, response length, reasoning, the recognizer), so the settings window
+  // hides them while such a model is the working one.
+  const VOICE_LIVE_KNOBS = ['voiceName', 'voiceThinkingModel', 'voiceThinkingPrompt'];
+  // Which transport a voice model id runs on — 'live' for gpt-live, else
+  // 'realtime'. Mirrors the server's voiceTransportOf (by apiModel there).
+  function voiceTransportOfId(id) {
+    const m = LEX_MODELS.find((x) => x.type === 'voice' && modelId(x) === id);
+    return (m && m.voiceTransport === 'live') ? 'live' : 'realtime';
+  }
 
   // Response-length ceiling for voiceMaxResponseTokens, per voice model —
   // the ONE knob where OpenAI and Gemini limits genuinely diverge (a value
@@ -1279,6 +1304,8 @@
     // вложения: умеет ли модель читать картинку
     visionSupported,
     voiceKnobAvailability: VOICE_KNOB_AVAILABILITY,
+    voiceLiveKnobs: VOICE_LIVE_KNOBS,
+    voiceTransportOfId,
     voiceMaxResponseTokensCeiling: VOICE_MAX_RESPONSE_TOKENS_CEILING,
     voiceMaxResponseTokensCeilingDefault: VOICE_MAX_RESPONSE_TOKENS_CEILING_DEFAULT,
   };

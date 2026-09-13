@@ -695,6 +695,17 @@
       };
 
       const apiModel = resolveVoiceApiModel(voiceModelId);
+      // gpt-live: the text model that thinks for the voice and the slot of its
+      // prompt — a fourth catalogue ref the server keeps out of the voice
+      // instructions. Sent only for gpt-live (same rule as the server's
+      // voiceTransportOf); no other voice model has either.
+      const live = /^gpt-live-/.test(String(apiModel || ''));
+      const thinkingMeta = live ? {
+        promptThinkingScope: SCOPE,
+        promptThinkingCell: 'voiceThinkingPrompts',
+        promptThinkingSlot: await activeSlot('activeVoiceThinkingPromptId', 'thinking1'),
+        ...(knobs.voiceThinkingModel ? { thinkingModel: knobs.voiceThinkingModel } : {}),
+      } : {};
       const открыть = (sid) => post('/functions/v1/llm-proxy/voice-sdp-openai', {
         model: voiceModelId,
         sdp: offer.sdp,
@@ -714,6 +725,7 @@
           promptVoiceScope: promptRefs.voice.scope,
           promptVoiceCell: promptRefs.voice.cell,
           promptVoiceSlot: promptRefs.voice.slot,
+          ...thinkingMeta,
         },
       });
 
@@ -770,7 +782,8 @@
       connectServerEvents(callId);
 
       // The one session.update the POST body cannot carry.
-      const maxTokens = Number(knobs.voiceMaxResponseTokens) || null;
+      // gpt-live has no response-length field — nothing to send.
+      const maxTokens = live ? null : (Number(knobs.voiceMaxResponseTokens) || null);
       if (maxTokens) {
         await sendServerCmd([{ type: 'session.update', session: { type: 'realtime', max_output_tokens: maxTokens } }]);
       }

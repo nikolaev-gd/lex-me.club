@@ -219,7 +219,7 @@
   }
 
   async function readKnobs() {
-    const wanted = KNOB_KEYS.map(scoped).concat(['voiceNamesByProvider_' + SCOPE, 'activeVoiceModelId_' + SCOPE]);
+    const wanted = KNOB_KEYS.map(scoped).concat(['voiceNamesByProvider_' + SCOPE, 'activeVoiceModelId_' + SCOPE, 'voiceThinkingModelId_' + SCOPE]);
     const res = await WcStore.get(wanted);
     const tk = (k) => res[scoped(k)];
     // The voice name is not a knob but a map keyed by provider: one account
@@ -250,6 +250,8 @@
       voiceTranscriptionPrompt: tk('knobVoiceTranscriptionPrompt'),
       voiceReasoningEffort: tk('knobVoiceReasoningEffort'),
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
+      // gpt-live thinking model (synthetic text-model id); null — the server's default.
+      voiceThinkingModel: res['voiceThinkingModelId_' + SCOPE] || null,
     };
   }
 
@@ -290,7 +292,7 @@
     // surface actually consumes fails closed. And an unrecognised key is
     // REPORTED, not dropped in silence — silence is how "the owner published
     // it and nothing happened" becomes a mystery.
-    const ADOPTABLE = /^(activeModelId_|activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|effortByApiModel_|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
+    const ADOPTABLE = /^(activeModelId_|activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|voiceThinkingModelId_|activeVoiceThinkingPromptId$|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|effortByApiModel_|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
     const patch = {};
     const skipped = [];
     Object.keys(data).forEach((k) => {
