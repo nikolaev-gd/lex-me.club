@@ -697,7 +697,14 @@
     onFinal: () => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }),
   });
   global.LexDictationRelay.TYPES.forEach((type) => {
-    WcBus.on(type, (m) => liveRelay.handle(type, m, {}));
+    WcBus.on(type, (m) => {
+      // Живая диктовка тоже знает свою беседу: ключ открытой беседы уезжает в
+      // настройках сессии, и сервер пишет его в строку расхода.
+      if (type === 'LEX_DICTATION_LIVE_START' && m && openId) {
+        m = Object.assign({}, m, { config: Object.assign({}, m.config || {}, { chatKey: openId }) });
+      }
+      return liveRelay.handle(type, m, {});
+    });
   });
 
   // Каталог распознавалок диктовки — строки public.models
@@ -771,6 +778,10 @@
       // беседа есть, и назвать её — единственное осмысленное содержимое хвоста.
       // Пусто только до первого сообщения, когда беседы ещё не существует.
       videoId: openId || null,
+      // Та же беседа полным ключом: сервер пишет её в строку расхода
+      // (calls.chat_key), как у расширения. До первого сообщения беседы нет —
+      // пусто, и сервер отметит это в своём журнале.
+      chatKey: openId || null,
       durationMs: m.durationMs,
     }));
 
