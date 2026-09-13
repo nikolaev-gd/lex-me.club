@@ -49,6 +49,17 @@
     if (o.label != null) {
       const b = document.createElement('b');
       b.textContent = o.label;
+      // «?» у заголовка: подсказка по наведению, по нажатию — для тача. Вид и
+      // поведение — те же, что у «?» ручек модели в расширении (styles.css,
+      // initKnobsBarLocal в chat-surface.js), отсюда и имена классов.
+      if (o.help) {
+        const q = document.createElement('button');
+        q.type = 'button';
+        q.className = 'ytvocab-settings-knob-help';
+        q.setAttribute('aria-label', o.helpAria || '?');
+        q.textContent = '?';
+        b.appendChild(q);
+      }
       label.appendChild(b);
     }
     if (o.hint != null && o.hint !== '') {
@@ -69,6 +80,14 @@
       row.appendChild(v);
     }
     wrap.appendChild(row);
+    // Сам текст подсказки — узлом строки, а не заголовка: заголовок режет всё
+    // вылезающее (overflow:hidden), а подсказка встаёт над ним.
+    if (o.help && o.label != null) {
+      const tip = document.createElement('span');
+      tip.className = 'ytvocab-settings-knob-tip';
+      tip.textContent = o.help;
+      wrap.appendChild(tip);
+    }
     // Раскрывающийся хвост строки (подтверждение удаления, поле суммы) —
     // отдельным рядом под ней, чтобы не ломать выравнивание самой строки.
     put(wrap, o.extra);
