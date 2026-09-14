@@ -705,6 +705,7 @@
         promptThinkingCell: 'voiceThinkingPrompts',
         promptThinkingSlot: await activeSlot('activeVoiceThinkingPromptId', 'thinking1'),
         ...(knobs.voiceThinkingModel ? { thinkingModel: knobs.voiceThinkingModel } : {}),
+        ...(Number.isFinite(knobs.voiceLiveTurnGapMs) ? { liveTurnGapMs: knobs.voiceLiveTurnGapMs } : {}),
       } : {};
       const открыть = (sid) => post('/functions/v1/llm-proxy/voice-sdp-openai', {
         model: voiceModelId,

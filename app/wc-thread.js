@@ -481,11 +481,12 @@
         voiceBubbles.set(itemId, entry);
       }
       entry.turn.dataset.raw = text;
-      // PLAIN TEXT, not Markdown — the same choice the extension makes on its
-      // live voice path (chat-surface.js:6584 appends to a text node; the
-      // Markdown pass exists only on the legacy lab surface). Speech has no
-      // Markdown in it, and running a half-arrived transcript through a parser
-      // makes stray asterisks and underscores flicker as formatting.
+      // PLAIN TEXT, not Markdown — the realtime models' live transcript
+      // (gpt-live sends no live text to this page; its turns arrive from the
+      // server and render through WcMarkdown). Running a half-arrived
+      // transcript through a parser makes stray asterisks and underscores
+      // flicker as formatting; the extension's gpt-live feed hides a marker
+      // still waiting for its pair (chat-surface.js hideOpenMarkers).
       entry.bubble.textContent = text;
       maybeStick();
     },

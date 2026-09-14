@@ -1196,12 +1196,15 @@
     // and that model's prompt. They exist on no other voice model.
     voiceThinkingModel:         { providers: ['openai'], models: ['gpt-live'] },
     voiceThinkingPrompt:        { providers: ['openai'], models: ['gpt-live'] },
+    // gpt-live (2026-09-14): the pause after which the next words are a new
+    // bubble. Our listener cuts gpt-live's turns by it; no other model has one.
+    voiceLiveTurnGapMs:         { providers: ['openai'], models: ['gpt-live'] },
   };
   // Voice knobs a live-transport model (gpt-live) actually takes. Every other
   // voice knob is a realtime-session field with no gpt-live equivalent (speed,
   // VAD, response length, reasoning, the recognizer), so the settings window
   // hides them while such a model is the working one.
-  const VOICE_LIVE_KNOBS = ['voiceName', 'voiceThinkingModel', 'voiceThinkingPrompt'];
+  const VOICE_LIVE_KNOBS = ['voiceName', 'voiceThinkingModel', 'voiceThinkingPrompt', 'voiceLiveTurnGapMs'];
   // Which transport a voice model id runs on — 'live' for gpt-live, else
   // 'realtime'. Mirrors the server's voiceTransportOf (by apiModel there).
   function voiceTransportOfId(id) {

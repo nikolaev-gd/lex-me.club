@@ -37,9 +37,13 @@
         return a;
       },
     },
-    { re: /\*\*([^*\n]+)\*\*/, make: (m) => el('strong', m[1]) },
+    // Bold and italic may hold each other — the teacher writes `*I **made**
+    // dinner*` — so each takes the other's pair inside and renders its
+    // content through inline() again. Without that the italic never matched
+    // (its content hit the inner `**`) and its two stars stayed on screen.
+    { re: /\*\*((?:[^*\n]|\*[^*\n]+\*)+)\*\*/, make: (m) => nest('strong', m[1]) },
     { re: /__([^_\n]+)__/, make: (m) => el('strong', m[1]) },
-    { re: /(?<![\w*])\*([^*\n]+)\*(?![\w*])/, make: (m) => el('em', m[1]) },
+    { re: /(?<![\w*])\*((?:[^*\n]|\*\*[^*\n]+\*\*)+)\*(?![\w*])/, make: (m) => nest('em', m[1]) },
     { re: /(?<![\w_])_([^_\n]+)_(?![\w_])/, make: (m) => el('em', m[1]) },
     { re: /~~([^~\n]+)~~/, make: (m) => el('del', m[1]) },
   ];
@@ -57,6 +61,12 @@
       into.append(best.rule.make(best.m));
       rest = rest.slice(best.m.index + best.m[0].length);
     }
+  }
+
+  function nest(tag, text) {
+    const n = el(tag);
+    inline(text, n);
+    return n;
   }
 
   function para(tag, text) {

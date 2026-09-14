@@ -195,7 +195,8 @@
     // Каждая ложится в конкретное поле session.update (applyVoiceKnobsToSession).
     knobVoiceMaxResponseTokens: '',                    // session.max_response_output_tokens
     knobVoiceNoiseReduction: 'off',                    // audio.input.noise_reduction.type ('off'|'near_field'|'far_field')
-    knobVoiceTranscriptionModel: 'gpt-transcribe',      // audio.input.transcription.model
+    // knobVoiceTranscriptionModel ушла: выбор живёт в knobLiveAsrModel, прежний
+    // out_of_band переезжает туда на чтении (chat-knobs.js, LEGACY_TRANSCRIPTION_KEY).
     knobVoiceTranscriptionLanguage: 'en',              // audio.input.transcription.language
     knobVoiceTranscriptionPrompt: '',                  // audio.input.transcription.prompt
     // ── Диктовка (микрофон у поля ввода) ──
@@ -245,6 +246,7 @@
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms
     knobVoiceIdleTimeoutSec: '',                       // → turn_detection.idle_timeout_ms (×1000)
+    knobVoiceLiveTurnGapMs: 2000,                      // gpt-live: пауза, после которой — новый пузырь (voice_sessions.live_turn_gap_ms)
     // ── Голос 1.4.5 — прерывание/чувствительность конца (оба провайдера),
     // длинные сессии / язык вывода / размышление (только Gemini) ──
     knobVoiceInterruptResponse: 'interrupt',           // OpenAI: turn_detection.interrupt_response; Gemini: realtimeInputConfig.activityHandling
@@ -548,8 +550,51 @@
   const LIVE_ASR_KNOB_PREFIX = 'knobLiveAsr';
   const LIVE_ASR_KNOB_KEYS = recognizerKeys(LIVE_ASR_KNOB_PREFIX);
   const LIVE_ASR_VOICE_MODEL = 'voice_model';
-  const LIVE_ASR_MODELS = ['gpt-live-transcribe', 'gemini-3.5-transcribe-live', LIVE_ASR_VOICE_MODEL];
+  // out-of-band — не распознавалка, а параллельный текстовый вызов самой
+  // голосовой модели по промпту (voice/openai-realtime.js). Бывает только у
+  // realtime-моделей: gpt-live-1 команды ответа не принимает (voice-cmd).
+  const LIVE_ASR_OOB = 'out_of_band';
+  const LIVE_ASR_MODELS = [LIVE_ASR_VOICE_MODEL, 'gpt-live-transcribe', 'gemini-3.5-transcribe-live', LIVE_ASR_OOB];
   function liveAsrModel(v) { return LIVE_ASR_MODELS.indexOf(v) >= 0 ? v : LIVE_ASR_VOICE_MODEL; }
+  // Правило одно на окно и на разговор: какие пункты годятся голосовой модели.
+  // Google — блока нет, и рядом ничего не запускается (только своя расшифровка).
+  function liveAsrOptions(provider, transport) {
+    if (provider && provider !== 'openai') return [LIVE_ASR_VOICE_MODEL];
+    return transport === 'live' ? LIVE_ASR_MODELS.filter((m) => m !== LIVE_ASR_OOB) : LIVE_ASR_MODELS.slice();
+  }
+  // Выбор, переставший подходить модели, не стирается — вместо него работает
+  // «голосовая модель», пока человек не вернётся на подходящую модель.
+  function liveAsrEffective(stored, provider, transport) {
+    const v = liveAsrModel(stored);
+    return liveAsrOptions(provider, transport).indexOf(v) >= 0 ? v : LIVE_ASR_VOICE_MODEL;
+  }
+  function liveAsrIsService(v) { return v !== LIVE_ASR_VOICE_MODEL && v !== LIVE_ASR_OOB && LIVE_ASR_MODELS.indexOf(v) >= 0; }
+  // Кто кладёт реплику человека в беседу на СЕРВЕРЕ — по каждому пункту списка,
+  // без умолчания (на моделях реального времени; у Live 1 её пишет слушатель из
+  // собственной расшифровки Live 1 при любом пункте — выключаться она не умеет):
+  //   'listener' — слушатель звонка (voice-watch) сам слышит расшифровку:
+  //                встроенную или ответ out-of-band;
+  //   'app'      — служба рядом с голосовой моделью: её текст видит только
+  //                приложение, и оно отдаёт серверу текст пузыря
+  //                (voice/openai-realtime.js finalizeTurn → voice-cmd, тело said).
+  // Сервер держит ту же границу со своей стороны (_shared/voice-turn.ts,
+  // appWritesPersonTurn): приложению дверь открыта только там, где слушатель
+  // человека не слышит. Пункт списка без строки здесь роняет этот файл на
+  // первой же загрузке: новый пункт, про который никто не решил, кто пишет
+  // реплику, молча оставил бы беседу на сервере без реплик человека.
+  const LIVE_ASR_PERSON_TURN = {
+    [LIVE_ASR_VOICE_MODEL]: 'listener',
+    'gpt-live-transcribe': 'app',
+    'gemini-3.5-transcribe-live': 'app',
+    [LIVE_ASR_OOB]: 'listener',
+  };
+  LIVE_ASR_MODELS.forEach((m) => {
+    const who = LIVE_ASR_PERSON_TURN[m];
+    if (who !== 'listener' && who !== 'app') {
+      throw new Error(`LexSettingsCells: speech transcription option '${m}' does not say who writes the person's turn to the server — add it to LIVE_ASR_PERSON_TURN`);
+    }
+  });
+  function liveAsrPersonTurnByApp(v) { return LIVE_ASR_PERSON_TURN[liveAsrModel(v)] === 'app'; }
   function liveAsrKnobs(stored) { return recognizerKnobs(LIVE_ASR_KNOB_PREFIX, LIVE_ASR_KNOB_KEYS, stored); }
 
   // ── Ручки расшифровки звука видео на провод ──────────────────────────────
@@ -610,7 +655,13 @@
     LIVE_ASR_KNOB_KEYS,
     LIVE_ASR_VOICE_MODEL,
     LIVE_ASR_MODELS,
+    LIVE_ASR_OOB,
     liveAsrModel,
+    liveAsrOptions,
+    liveAsrEffective,
+    liveAsrIsService,
+    LIVE_ASR_PERSON_TURN,
+    liveAsrPersonTurnByApp,
     liveAsrKnobs,
     scopedKey,
     cellFor,

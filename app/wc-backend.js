@@ -198,7 +198,7 @@
     'knobVoiceEndSensitivity', 'knobVoiceInterruptResponse', 'knobVoiceIdleTimeoutSec',
     'knobVoiceIdleDisconnectSec', 'knobVoiceLongSessions', 'knobVoiceOutputLanguage',
     'knobVoiceTranscriptionModel', 'knobVoiceTranscriptionLanguage', 'knobVoiceTranscriptionPrompt',
-    'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel',
+    'knobVoiceReasoningEffort', 'knobVoiceThinkingLevel', 'knobVoiceLiveTurnGapMs',
   ];
 
   const scoped = (k) => k + '_' + SCOPE;
@@ -252,6 +252,9 @@
       voiceThinkingLevel: tk('knobVoiceThinkingLevel'),
       // gpt-live thinking model (synthetic text-model id); null — the server's default.
       voiceThinkingModel: res['voiceThinkingModelId_' + SCOPE] || null,
+      // gpt-live: the pause before a new bubble (published by the owner); the
+      // listener cuts turns by it. Missing — the server's default.
+      voiceLiveTurnGapMs: tk('knobVoiceLiveTurnGapMs'),
     };
   }
 
