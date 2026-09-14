@@ -452,7 +452,102 @@
     };
   }
 
+  // ── Цепочка живых сессий на один поток звука ─────────────────────────────
+  //
+  // Для голосового разговора: живая распознавалка слушает рядом с голосовой
+  // моделью и пишет в пузырь то, что говорит человек (chat-surface.js,
+  // startVoiceLiveAsr). У живой сессии свой потолок — его ставит сервер
+  // (server_config.dictation_live_max_sec), а разговор длиннее. Поэтому, как
+  // только сервер объявил конец сессии, следующая стартует на том же потоке:
+  // звук копится в её очереди, пока она подключается, и не теряется.
+  //
+  // onText(text) получает весь текст цепочки целиком: тексты сессий подряд,
+  // через пробел. Внутри сессии — ровно то, что прислала распознавалка
+  // (onDelta), а на её конце — её итог; ничего не сглаживается и не
+  // задерживается.
+  //
+  // options: transport, config() → кадр начала (на каждую сессию свой),
+  //          onText(text), onError(message, info), logTag
+  // returns  { begin(stream), stop() }
+  function createChain(options) {
+    const opts = options || {};
+    const TAG = opts.logTag || '[lex-dictation-live:chain]';
+    // Сессия, упавшая сразу после старта, трижды подряд — значит, не встанет и
+    // четвёртая: цепочка останавливается, а не молотит сервер по кругу.
+    const QUICK_END_MS = 5000;
+    const QUICK_END_MAX = 3;
+    const texts = [];
+    let stream = null;
+    let cur = null;
+    let stopped = false;
+    let quickEnds = 0;
+    function emit() {
+      if (typeof opts.onText !== 'function') return;
+      try { opts.onText(texts.filter(Boolean).join(' ')); }
+      catch (e) { console.warn(TAG, 'onText threw:', e && e.message); }
+    }
+    async function next() {
+      if (stopped || !stream) return;
+      const idx = texts.length;
+      texts.push('');
+      const startedAt = Date.now();
+      const s = create({
+        transport: opts.transport,
+        logTag: TAG,
+        onDelta: (soFar) => { texts[idx] = soFar || ''; emit(); },
+        // Сервер заканчивает сессию сам (потолок): следующая — сразу, итог
+        // этой придёт следом в onEnded.
+        onClosing: () => { if (cur === s) { cur = null; restart(startedAt); } },
+        onEnded: (info) => {
+          const t = ((info && info.text) || '').trim();
+          if (t) { texts[idx] = t; emit(); }
+          if (cur === s) { cur = null; restart(startedAt); }
+        },
+        onError: (msg, info) => {
+          console.warn(TAG, 'live session failed:', msg, info || {});
+          if (cur === s) cur = null;
+          if (typeof opts.onError === 'function') {
+            try { opts.onError(msg, info); } catch (_) {}
+          }
+        },
+      });
+      cur = s;
+      let config = null;
+      try { config = (typeof opts.config === 'function') ? await opts.config() : (opts.config || null); }
+      catch (e) { console.warn(TAG, 'config failed:', e && e.message); }
+      if (stopped || cur !== s) return;
+      const ok = await s.start(stream, config || {});
+      if (!ok && cur === s) cur = null;
+    }
+    function restart(startedAt) {
+      quickEnds = (Date.now() - startedAt < QUICK_END_MS) ? quickEnds + 1 : 0;
+      if (quickEnds >= QUICK_END_MAX) {
+        console.warn(TAG, `${QUICK_END_MAX} sessions in a row ended right after start — giving up`);
+        return;
+      }
+      next();
+    }
+    return {
+      // Поток пришёл (или сменился — взяли дорожку заново): сессия заводится
+      // на нём; прежняя, если была, бросается.
+      begin(nextStream) {
+        if (stopped || !nextStream || nextStream === stream) return;
+        stream = nextStream;
+        if (cur) { const old = cur; cur = null; old.abort(); }
+        next();
+      },
+      // Разговор кончился: итог никому не нужен, расход за сказанное досчитает
+      // сервер.
+      stop() {
+        stopped = true;
+        const old = cur;
+        cur = null;
+        if (old) old.abort();
+      },
+    };
+  }
+
   // sampleRateFor наружу — частота той распознавалки, которую выбрали, из
   // каталога (строка базы); своей копии числа у поверхности нет.
-  global.LexDictationLive = { create, sampleRateFor };
+  global.LexDictationLive = { create, createChain, sampleRateFor };
 })(typeof self !== 'undefined' ? self : globalThis);

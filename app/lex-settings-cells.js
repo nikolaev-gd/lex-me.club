@@ -216,6 +216,19 @@
     knobDictationLiveText: 'streaming',                // живая диктовка Google: текст по ходу речи или готовыми кусками
     knobDictationTimeMarks: 'none',                    // метки времени В ТЕКСТЕ у Microsoft: none | segment | word
     knobDictationSpeakers: false,                      // «Speaker 1:» в тексте у Microsoft
+    // ── Расшифровка речи в голосовом разговоре (свой блок раздела Transcription) ──
+    // Кто пишет в пузырь то, что человек говорит голосом: живая распознавалка
+    // рядом с голосовой моделью или сама голосовая модель (LIVE_ASR_VOICE_MODEL
+    // ниже, умолчание — прежнее поведение). Поля — те же, что у этой
+    // распознавалки в «Диктовке», но ячейки свои: разговор и диктовка — разные
+    // настройки (docs/spec/30-voice.md, «Запись голоса»).
+    knobLiveAsrModel: 'voice_model',
+    knobLiveAsrLanguages: '',
+    knobLiveAsrPrompt: '',
+    knobLiveAsrKeywords: '',
+    knobLiveAsrDelay: '',
+    knobLiveAsrMode: 'verbatim',
+    knobLiveAsrLiveText: 'streaming',
     // ── Расшифровка звука видео (у ролика нет английских субтитров) ──
     // Блок «Subtitle transcription». Распознавалку, её поля и нарезку выбирает
     // разработчик и публикует кнопкой блока; всем остальным значения приезжают
@@ -506,23 +519,38 @@
   // `knobDictationLiveText_shorts-main` → `liveText`. Отдельного списка имён у
   // приложения нет: ручки берутся из ячеек выше, новая ручка — новая ячейка.
   // Модель в набор не входит: она едет своим полем, по ней выбирается путь.
-  const DICTATION_KNOB_PREFIX = 'knobDictation';
-  const DICTATION_KNOB_KEYS = Object.keys(KNOB_DEFAULTS)
-    .filter((k) => k.indexOf(DICTATION_KNOB_PREFIX) === 0 && k !== 'knobDictationModel');
-  function dictationWireName(key) {
-    const rest = String(key).slice(DICTATION_KNOB_PREFIX.length).replace(/_.*$/, '');
+  // Поля распознавалки у двух блоков — «Диктовки» и расшифровки речи в
+  // разговоре: одна схема имени на проводе, свои ячейки у каждого блока.
+  function recognizerKeys(prefix) {
+    return Object.keys(KNOB_DEFAULTS).filter((k) => k.indexOf(prefix) === 0 && k !== prefix + 'Model');
+  }
+  function recognizerWireName(prefix, key) {
+    const rest = String(key).slice(prefix.length).replace(/_.*$/, '');
     return rest.charAt(0).toLowerCase() + rest.slice(1);
   }
   // stored — { ключ хранилища без окна: значение }. Незаданное не уезжает:
   // умолчание у сервера то же, что у ячейки.
-  function dictationKnobs(stored) {
+  function recognizerKnobs(prefix, keys, stored) {
     const out = {};
     const src = stored || {};
-    DICTATION_KNOB_KEYS.forEach((k) => {
-      if (src[k] !== undefined && src[k] !== null) out[dictationWireName(k)] = src[k];
+    keys.forEach((k) => {
+      if (src[k] !== undefined && src[k] !== null) out[recognizerWireName(prefix, k)] = src[k];
     });
     return out;
   }
+  const DICTATION_KNOB_PREFIX = 'knobDictation';
+  const DICTATION_KNOB_KEYS = recognizerKeys(DICTATION_KNOB_PREFIX);
+  function dictationWireName(key) { return recognizerWireName(DICTATION_KNOB_PREFIX, key); }
+  function dictationKnobs(stored) { return recognizerKnobs(DICTATION_KNOB_PREFIX, DICTATION_KNOB_KEYS, stored); }
+
+  // Расшифровка речи в голосовом разговоре. Две живые распознавалки и третий
+  // выбор — «сама голосовая модель»: тогда рядом ничего не запускается.
+  const LIVE_ASR_KNOB_PREFIX = 'knobLiveAsr';
+  const LIVE_ASR_KNOB_KEYS = recognizerKeys(LIVE_ASR_KNOB_PREFIX);
+  const LIVE_ASR_VOICE_MODEL = 'voice_model';
+  const LIVE_ASR_MODELS = ['gpt-live-transcribe', 'gemini-3.5-transcribe-live', LIVE_ASR_VOICE_MODEL];
+  function liveAsrModel(v) { return LIVE_ASR_MODELS.indexOf(v) >= 0 ? v : LIVE_ASR_VOICE_MODEL; }
+  function liveAsrKnobs(stored) { return recognizerKnobs(LIVE_ASR_KNOB_PREFIX, LIVE_ASR_KNOB_KEYS, stored); }
 
   // ── Ручки расшифровки звука видео на провод ──────────────────────────────
   //
@@ -579,6 +607,11 @@
     DICTATION_KNOB_KEYS,
     dictationWireName,
     dictationKnobs,
+    LIVE_ASR_KNOB_KEYS,
+    LIVE_ASR_VOICE_MODEL,
+    LIVE_ASR_MODELS,
+    liveAsrModel,
+    liveAsrKnobs,
     scopedKey,
     cellFor,
     stringCellFor,

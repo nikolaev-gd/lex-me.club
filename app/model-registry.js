@@ -521,12 +521,12 @@
       // same pattern as the v1.3.1 / v1.5.213 realtime migrations). Live-
       // verified: client_secrets mint accepts the model, session echoes it.
       id: 'gpt-realtime', apiModel: 'gpt-realtime-2.1', provider: 'openai', type: 'voice',
-      label: 'RT (OpenAI full)',
+      label: 'gpt-realtime-2.1',
     },
     {
       // 2026-07-12: apiModel bumped to realtime-2.1-mini (id/pricing unchanged).
       id: 'gpt-realtime-mini', apiModel: 'gpt-realtime-2.1-mini', provider: 'openai', type: 'voice',
-      label: 'RT m (OpenAI mini)',
+      label: 'gpt-realtime-2.1-mini',
     },
     {
       // 2026-09-13: gpt-live-1 — OpenAI's second voice transport. The voice is
@@ -536,7 +536,7 @@
       // window and the voice module branch on. The server derives the same
       // from apiModel (supabase/functions/_shared/voice-limits.ts).
       id: 'gpt-live', apiModel: 'gpt-live-1', provider: 'openai', type: 'voice',
-      label: 'Live 1 (OpenAI)', voiceTransport: 'live',
+      label: 'gpt-live-1', voiceTransport: 'live',
     },
     {
       id: 'gemini-3.1-flash-live-preview', apiModel: 'gemini-3.1-flash-live-preview',
