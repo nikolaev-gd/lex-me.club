@@ -45,6 +45,7 @@
     'err.prompt.notPublished': 'This preset has not been published yet — the teacher has no instructions. You were not charged.',
     'err.model.unpriced': 'This model is unavailable right now — pick another one. You were not charged.',
     'err.chat.conversationReset': 'This conversation was reset — reopen it to continue. You were not charged.',
+    'err.chat.regenTargetGone': 'This answer has already changed — reopen the conversation to see the latest one. You were not charged.',
     'err.provider.busy': 'The service is overloaded right now. Please try again in a minute.',
     'err.provider.generic': 'The answer did not come through. Please try again.',
   };
@@ -213,6 +214,23 @@
     return t('err.chat.conversationReset');
   }
 
+  // ── 6. Переспрашиваемого ответа уже нет в беседе ──────────────────────────
+  //
+  // Переспрос выбором модели заменяет ответ в беседе на сервере. Сервер сперва
+  // проверяет, что заменяемый ответ там есть и не заменён и не снят: иначе
+  // новый ответ встал бы вторым под тем же вопросом. Не нашёл — отказ ДО денег:
+  // llm-proxy отвечает 409 со стадией 'regen_target_gone'. Так бывает, когда
+  // этот ответ уже переспросили или сняли на другом устройстве. Лечится одним
+  // действием — открыть беседу заново; деньги не списаны. Обе поверхности
+  // узнают отказ здесь.
+  function isRegenTargetGone(raw) {
+    return str(raw).includes('regen_target_gone');
+  }
+
+  function regenTargetGone() {
+    return t('err.chat.regenTargetGone');
+  }
+
   global.LexErrorText = Object.freeze({
     auth,
     topup,
@@ -225,5 +243,7 @@
     modelUnpriced,
     isConversationReset,
     conversationReset,
+    isRegenTargetGone,
+    regenTargetGone,
   });
 })(typeof self !== 'undefined' ? self : globalThis);

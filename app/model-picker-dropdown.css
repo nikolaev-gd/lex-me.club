@@ -1,0 +1,84 @@
+/* model-picker-dropdown.css — вид меню моделей (model-picker-dropdown.js):
+ * панель, строки моделей, подменю уровней размышления. Один файл на
+ * расширение и на страницу lex-me.club/app (её же показывает программа для
+ * Мака): меню открывается и под ответом (переспрос выбранной моделью), и из
+ * меню «+» у поля ввода (модель по умолчанию).
+ *
+ * Панель и подменю — порталы в <body> (position:fixed), поэтому селекторы не
+ * привязаны к окну. Цвета — переменными с тёмными значениями по умолчанию
+ * (панель расширения тёмная); страница задаёт свои под светлую и тёмную тему:
+ *   --lex-menu-bg, --lex-menu-line, --lex-menu-shadow, --lex-menu-fg,
+ *   --lex-menu-fg-strong, --lex-menu-muted, --lex-menu-hover, --lex-menu-accent,
+ *   --lex-menu-font-size. */
+
+.ytvocab-model-picker-panel,
+.ytvocab-model-picker-submenu {
+  /* Портал в <body> чужой страницы: её правила для div (example.com ставит
+     `div { opacity: 0.8 }`) достают и до меню — закрепляем. */
+  opacity: 1;
+  background: var(--lex-menu-bg, var(--yt-spec-base-background, #0f0f0f));
+  border: 1px solid var(--lex-menu-line, rgba(255, 255, 255, 0.14));
+  border-radius: 8px;
+  box-shadow: var(--lex-menu-shadow, 0 8px 24px rgba(0, 0, 0, 0.5));
+  padding: 4px;
+  /* Above every known host window's z-index (checked: standalone chat's
+     2147483001 is the highest short of this) — the panel is a portal
+     appended to document.body, so it must out-rank whatever window it
+     was opened from, whichever surface that is. */
+  z-index: 2147483647;
+  max-height: 70vh;
+  overflow-y: auto;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+.ytvocab-model-picker-panel {
+  min-width: 160px;
+}
+.ytvocab-model-picker-submenu {
+  min-width: 84px;
+}
+.ytvocab-model-picker-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--lex-menu-muted, rgba(255, 255, 255, 0.5));
+  padding: 5px 8px 3px;
+}
+.ytvocab-model-picker-row,
+.ytvocab-model-picker-effort-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: var(--lex-menu-font-size, 12px);
+  color: var(--lex-menu-fg, #e0e0e0);
+}
+.ytvocab-model-picker-row:hover,
+.ytvocab-model-picker-effort-row:hover {
+  background: var(--lex-menu-hover, rgba(255, 255, 255, 0.1));
+  color: var(--lex-menu-fg-strong, #fff);
+}
+.ytvocab-model-picker-row.is-selected,
+.ytvocab-model-picker-effort-row.is-selected {
+  color: var(--lex-menu-fg-strong, #fff);
+}
+.ytvocab-model-picker-check {
+  flex: 0 0 auto;
+  width: 12px;
+  font-size: 11px;
+  color: var(--lex-menu-accent, #4fb0ff);
+}
+.ytvocab-model-picker-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ytvocab-model-picker-chevron {
+  flex: 0 0 auto;
+  opacity: 0.5;
+  font-size: 12px;
+}

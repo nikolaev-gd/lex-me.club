@@ -10,7 +10,7 @@
 (function (global) {
   'use strict';
 
-  const { el, iconBtn, toast } = WcUI;
+  const { el, toast } = WcUI;
 
   let elThread, elTurns, elEmpty, elJump;
   let hooks = {};
@@ -57,20 +57,6 @@
     if (global.WcHeader && WcHeader.setHasContent) WcHeader.setHasContent(!isEmpty);
   }
 
-  function copyButton(getText) {
-    return iconBtn('copy', 'Copy', async (e) => {
-      try {
-        await navigator.clipboard.writeText(getText());
-        toast('Copied');
-      } catch (_) {
-        // Clipboard is permissioned and can simply refuse (an insecure origin,
-        // a shell that has not granted it). Say so instead of failing mutely.
-        toast('The browser refused clipboard access', { error: true });
-      }
-      if (e && e.currentTarget) e.currentTarget.blur();
-    });
-  }
-
   // ── Долгое нажатие ───────────────────────────────────────────────────────
   // Тот же жест, что у композера, и он ещё должен ужиться с системным
   // выделением текста: на СВОИХ сообщениях выделение подавлено (wc-app.css),
@@ -98,11 +84,11 @@
   }
 
   // ── Ход ЗАГОТОВКИ в ленте ────────────────────────────────────────────────
-  // Отличается ровно одним: под ним нет ни «заново», ни «изменить». Оба органа
-  // отправляют заново, а отправить заново они умеют только в переписку учителя
-  // — то есть ход заготовки уехал бы в чат, из которого его весь смысл был
-  // исключить. Расширение поступает так же и по той же причине
-  // (chat-surface.js: «Action turns never participate in ⟳ re-ask»).
+  // Под вопросом заготовки нет «Edit»: правка кладёт текст в поле и уходит
+  // обычным вопросом учителю, а не в ветку заготовки. Под ОТВЕТОМ заготовки
+  // строка та же, что под любым ответом: переспрос выбором модели уходит в её
+  // ветку и с её инструкцией (wc-backend.js WC_REGENERATE) — так же, как в
+  // расширении и на айфоне.
   const ACTION_CLASS = 'wc-turn-action';
   const isActionTurn = (node) => !!(node && node.classList && node.classList.contains(ACTION_CLASS));
 
@@ -145,17 +131,26 @@
     return turn;
   }
 
-  // Кнопка «заново» под ответом. Стоит ТОЛЬКО под последним ответом: повтор
-  // середины беседы осиротил бы всё, что после неё, — так же это устроено и в
-  // расширении (decorateLastExchangeControls вешает органы на последний обмен).
-  function retryButton() {
-    return iconBtn('retry', 'Retry', () => hooks.onRetry && hooks.onRetry());
+  // Строка под ответом — общий модуль с расширением (lex-answer-row.js):
+  // копирование под каждым ответом, кнопка модели под последним. Какой ответ
+  // последний, решает он же (syncFeet ниже).
+  function answerRow(getText) {
+    return global.LexAnswerRow.create({
+      getText,
+      copyLabel: 'Copy',
+      onCopied: (ok) => {
+        // Clipboard is permissioned and can simply refuse (an insecure origin,
+        // a shell that has not granted it). Say so instead of failing mutely.
+        if (ok) toast('Copied');
+        else toast('The browser refused clipboard access', { error: true });
+      },
+    });
   }
 
   function assistantTurn(text) {
     const bubble = el('.wc-bubble');
     if (text) WcMarkdown.into(bubble, text);
-    const foot = el('.wc-turn-foot', {}, [copyButton(() => turn.dataset.raw || '')]);
+    const foot = el('.wc-turn-foot', {}, [answerRow(() => turn.dataset.raw || '')]);
     const turn = el('.wc-turn.wc-turn-assistant', {}, [bubble, foot]);
     turn.dataset.raw = text || '';
     // Готовый ответ (история, реплей) режется сразу; пустой — это открытый
@@ -166,25 +161,46 @@
     return { turn, bubble, foot };
   }
 
-  // Перерисовать подвалы: «заново» живёт только под последним ответом, и после
-  // каждого добавления/загрузки его надо перевесить.
+  // Перерисовать строки под ответами: кнопка модели живёт только под
+  // последним ответом, и после каждого добавления, загрузки и отказа её надо
+  // перевесить. Под голосовым ответом строки нет вовсе. Правило «какой
+  // последний» — общее с расширением (LexAnswerRow.sync).
   function syncFeet() {
-    const assistants = [...elTurns.querySelectorAll('.wc-turn-assistant')];
-    assistants.forEach((t, i) => {
+    const entries = [];
+    for (const t of elTurns.querySelectorAll('.wc-turn-assistant')) {
       const foot = t.querySelector('.wc-turn-foot');
-      if (!foot) return;
-      const has = !!foot.querySelector('[data-retry]');
-      const last = (i === assistants.length - 1) && !t.classList.contains('is-streaming')
-        && !t.classList.contains('wc-turn-error')
-        && !isActionTurn(t);
-      if (last && !has) {
-        const b = retryButton();
-        b.dataset.retry = '1';
-        foot.append(b);
-      } else if (!last && has) {
-        foot.querySelector('[data-retry]').remove();
+      if (t.classList.contains('wc-turn-voice')) {
+        if (foot) foot.remove();
+        entries.push({ row: null, eligible: false });
+        continue;
       }
-    });
+      const row = foot ? foot.querySelector('.lex-answer-row') : null;
+      entries.push({
+        row,
+        eligible: !!row && !t.classList.contains('is-streaming')
+          && !t.classList.contains('wc-turn-error')
+          && !t.classList.contains('wc-turn-gate'),
+        model: {
+          label: global.LexAnswerRow.modelLabel(t.dataset.model || '') || 'Model',
+          title: 'Choose a model and re-ask',
+          onClick: (btn) => hooks.onPickModel && hooks.onPickModel(btn, t),
+        },
+      });
+    }
+    global.LexAnswerRow.sync(entries);
+  }
+
+  // Прежний ответ вернуть на место: переспрос не дал ни слова (отказ, «стоп»
+  // до первого слова). На сервере он не заменён — значит и на экране должен
+  // остаться он, а не пустой пузырь.
+  function restorePrevious(entry) {
+    const prev = entry.retry;
+    entry.turn.classList.remove('is-streaming', 'wc-turn-error', 'wc-turn-gate');
+    entry.turn.dataset.raw = prev.raw;
+    entry.turn.dataset.model = prev.model || '';
+    entry.bubble.textContent = '';
+    if (prev.raw) WcMarkdown.into(entry.bubble, prev.raw);
+    if (prev.raw && global.WcWordPick) WcWordPick.ready(entry.bubble, prev.raw, 'markdown');
   }
 
   const WcThread = {
@@ -215,6 +231,7 @@
         if (msg.type === 'STREAM_CHUNK') WcThread.chunk(msg);
         else if (msg.type === 'STREAM_DONE') WcThread.done(msg);
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
+        else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
       });
     },
 
@@ -257,7 +274,15 @@
           const { turn } = assistantTurn(t.text);
           // Ход, пришедший из ветки заготовки, узнаётся по ключу ветки рядом с
           // репликой — его проставил тот, кто сшивал ленту (wc-backend.js).
-          if (t.branchKey) turn.classList.add(ACTION_CLASS);
+          // Ключ остаётся на узле: переспрос ответа заготовки уходит в её ветку.
+          if (t.branchKey) {
+            turn.classList.add(ACTION_CLASS);
+            turn.dataset.branchKey = t.branchKey;
+          }
+          // Сказанное голосом — под ним строки нет (syncFeet).
+          if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
+          // Модель ответа (из расходов беседы) — подпись кнопки модели.
+          if (t.model) turn.dataset.model = t.model;
           elTurns.append(turn);
         }
       });
@@ -277,14 +302,18 @@
       scrollToBottom(false);
     },
 
-    // Повтор пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: «заново»
-    // — это замена ответа, а не ещё один. В хранилище он тоже заменяет строку,
-    // потому что уходит под тем же turn_uid (upsert on_conflict).
-    beginRetry(requestId) {
-      const last = [...elTurns.querySelectorAll('.wc-turn-assistant')].pop();
-      if (!last || isActionTurn(last)) return false;
+    // Переспрос пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: это
+    // замена ответа, а не ещё один. Прежний текст и модель запоминаются —
+    // переспрос без единого слова возвращает их на место (restorePrevious).
+    // Возвращает, что нужно серверной части: ветку заготовки, если это её
+    // ответ. false — переспрашивать нечего (не последний ответ, голосовой).
+    beginRetry(requestId, turn) {
+      const all = [...elTurns.querySelectorAll('.wc-turn-assistant')];
+      const last = all.pop();
+      if (!last || (turn && turn !== last) || last.classList.contains('wc-turn-voice')) return false;
       const bubble = last.querySelector('.wc-bubble');
       if (!bubble) return false;
+      const retry = { raw: last.dataset.raw || '', model: last.dataset.model || '' };
       // Пузырь переписывается — его слова в наборе указывали бы на текст,
       // которого больше нет.
       if (global.WcWordPick) WcWordPick.forgetBubble(bubble);
@@ -292,10 +321,13 @@
       last.dataset.raw = '';
       last.classList.remove('wc-turn-error');
       last.classList.add('is-streaming');
-      live.set(requestId, { turn: last, bubble, text: '' });
+      live.set(requestId, { turn: last, bubble, text: '', retry });
       syncFeet();
       maybeStick();
-      return true;
+      return {
+        branchKey: last.dataset.branchKey || null,
+        slotId: last.dataset.slot || null,
+      };
     },
 
     // Opened before the first token so the reader sees the answer start.
@@ -304,6 +336,8 @@
       const { turn, bubble } = assistantTurn('');
       turn.classList.add('is-streaming');
       if (opts && opts.action) turn.classList.add(ACTION_CLASS);
+      // Слот заготовки — на узел: переспрос её ответа уходит в её ветку.
+      if (opts && opts.slotId) turn.dataset.slot = String(opts.slotId);
       elTurns.append(turn);
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,
@@ -325,10 +359,24 @@
       maybeStick();
     },
 
+    // Модель хода — от серверной части в начале хода (WC_TURN_MODEL).
+    setTurnModel(msg) {
+      const entry = live.get(msg.requestId);
+      if (!entry || !msg.modelId) return;
+      entry.turn.dataset.model = String(msg.modelId);
+    },
+
     done(msg) {
       const entry = live.get(msg.requestId);
       if (!entry) return;
       live.delete(msg.requestId);
+      // Переспрос, который не дал ни слова, — прежний ответ остаётся.
+      if (entry.retry && !entry.text) {
+        restorePrevious(entry);
+        syncFeet();
+        maybeStick();
+        return;
+      }
       entry.turn.classList.remove('is-streaming');
       syncFeet();
       // Ответ дописан — вот теперь его можно резать на слова. Раньше нельзя:
@@ -381,7 +429,12 @@
 
       const providerText = !gate && !promptMissing && !modelUnpriced && !conversationReset && LexErrorText.provider(text);
       if (providerText) lexLog('[wc-thread] provider error:', text);
-      const shown = promptMissing ? LexErrorText.promptMissing()
+      // Ответ, который переспрашивали, уже переспросили или сняли на другом
+      // устройстве — сервер отказал до денег (409 regen_target_gone).
+      const regenGone = !gate && typeof LexErrorText.isRegenTargetGone === 'function'
+        && LexErrorText.isRegenTargetGone(text);
+      const shown = regenGone ? LexErrorText.regenTargetGone()
+        : promptMissing ? LexErrorText.promptMissing()
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)
           : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 
@@ -398,8 +451,22 @@
       if (entry) {
         live.delete(msg.requestId);
         entry.turn.classList.remove('is-streaming');
+        if (entry.retry && !entry.text) {
+          // Переспрос не удался: прежний ответ возвращается на место, а причина
+          // (в том числе «пополните») встаёт заметкой под ним. Заметка — не
+          // ответ: кнопка модели остаётся у прежнего ответа, и после пополнения
+          // переспрашивают его же.
+          restorePrevious(entry);
+          const note = el('.wc-turn.wc-turn-notice', {}, [el('.wc-bubble')]);
+          paint(note, note.firstChild);
+          entry.turn.after(note);
+          syncFeet();
+          maybeStick();
+          return;
+        }
         if (!entry.text) {
           paint(entry.turn, entry.bubble);
+          syncFeet();
           maybeStick();
           return;
         }
@@ -488,6 +555,7 @@
       // flicker as formatting; the extension's gpt-live feed hides a marker
       // still waiting for its pair (chat-surface.js hideOpenMarkers).
       entry.bubble.textContent = text;
+      syncFeet();
       maybeStick();
     },
 

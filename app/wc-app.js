@@ -276,7 +276,7 @@
     // только внутри страницы и до сервера не доезжает вовсе.
     const opId = global.LexTurnId.newOpId();
     const pressedAt = Date.now();
-    WcThread.beginAssistant(requestId, { action: !!mode });
+    WcThread.beginAssistant(requestId, { action: !!mode, slotId });
     WcComposer.setStreaming(true, requestId);
 
     try {
@@ -360,19 +360,79 @@
     };
   }
 
-  // ── «Заново» и «изменить» ────────────────────────────────────────────────
-  async function regenerate() {
+  // ── Выбор модели: под ответом и в меню «+» ───────────────────────────────
+  //
+  // Меню моделей — общее с расширением (model-picker-dropdown.js): все видимые
+  // текстовые модели по поставщикам, у каждой подменю уровней размышления.
+  // Отмечена модель, которую передали (модель ответа или модель по умолчанию).
+  function openModelMenu(anchor, selectedId, efforts, onPick) {
+    const D = global.LexModelPickerDropdown;
+    if (!D) return;
+    const parts = String(selectedId || '').split(':');
+    D.open(anchor, {
+      getSelected: async () => (parts.length >= 2 && parts[1] ? { provider: parts[0], apiModel: parts[1] } : null),
+      getEffort: async (apiModel) => {
+        // У выбранной модели — её уровень; у остальных — тот, что помнит
+        // модель по умолчанию, иначе уровень реестра.
+        if (parts[1] === apiModel && parts[2]) return parts[2];
+        return (efforts && efforts[apiModel]) || null;
+      },
+      onPick: (provider, apiModel, effort) => onPick(provider + ':' + apiModel + ':' + effort),
+    });
+  }
+
+  // Кнопка модели под последним ответом: переспросить этот ответ выбранной
+  // моделью. Модель — только на этот ответ; модель по умолчанию не меняется.
+  async function pickModelForAnswer(btn, turn) {
+    if (WcThread.isStreaming()) return;
+    let efforts = {};
+    try { efforts = (await WcBus.call('WC_TEXT_MODEL', {})).efforts || {}; } catch (_) { efforts = {}; }
+    openModelMenu(btn, turn.dataset.model || '', efforts, (modelId) => regenerate(turn, modelId));
+  }
+
+  // Пункт «Text model» в меню «+»: модель по умолчанию для следующих вопросов.
+  async function pickDefaultModel(anchor) {
+    let cur = { modelId: null, efforts: {} };
+    try { cur = await WcBus.call('WC_TEXT_MODEL', {}); } catch (_) { /* пусто — без галочки */ }
+    openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
+      try {
+        await WcBus.call('WC_SET_TEXT_MODEL', { modelId });
+        WcUI.toast('Text model: ' + global.LexAnswerRow.modelLabel(modelId));
+      } catch (err) {
+        WcUI.toast(String((err && err.message) || err), { error: true });
+      }
+    });
+  }
+
+  // Подпись пункта «Text model» — нынешняя модель по умолчанию. Меню «+»
+  // открывается синхронно, поэтому подпись держится наготове.
+  let textModelLabel = '';
+  async function refreshTextModelLabel() {
+    try {
+      const cur = await WcBus.call('WC_TEXT_MODEL', {});
+      textModelLabel = cur && cur.modelId ? global.LexAnswerRow.modelLabel(cur.modelId) : '';
+    } catch (_) { textModelLabel = ''; }
+  }
+
+  // ── Переспрос и «изменить» ───────────────────────────────────────────────
+  async function regenerate(turn, modelId) {
     if (WcThread.isStreaming()) return;
     const requestId = nextRequestId();
     // Пузырь очищается ДО запроса: между нажатием и первым словом проходит
     // секунда-другая, и всё это время старый ответ на экране означал бы, что
-    // нажатие не сработало.
-    if (!WcThread.beginRetry(requestId)) return;
+    // нажатие не сработало. Не удастся — прежний ответ вернётся (wc-thread.js).
+    const target = WcThread.beginRetry(requestId, turn || null);
+    if (!target) return;
     state.requestId = requestId;
     WcComposer.setStreaming(true, requestId);
     WcHaptics.tap();
     try {
-      await WcBus.call('WC_REGENERATE', { requestId });
+      await WcBus.call('WC_REGENERATE', {
+        requestId,
+        modelId: modelId || null,
+        branchKey: target.branchKey,
+        slotId: target.slotId,
+      });
     } catch (err) {
       WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });
     }
@@ -1208,8 +1268,12 @@
     await WcSettings.applyStored();
 
     WcThread.init({
-      onRetry: regenerate,
+      onPickModel: pickModelForAnswer,
       onEdit: editTurn,
+    });
+    refreshTextModelLabel();
+    WcStore.subscribe((changes) => {
+      if (changes && Object.keys(changes).some((k) => k.indexOf('activeModelId_') === 0)) refreshTextModelLabel();
     });
     // Клик по словам в ленте. Поднимается ДО первой отрисовки беседы: иначе
     // первые пузыри пришли бы без исходника на узле и включить режим на них
@@ -1243,6 +1307,9 @@
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
+      // Пункт «Text model» меню «+»: подпись — модель по умолчанию, нажатие
+      // открывает меню моделей. Видят все.
+      textModel: () => ({ label: textModelLabel, open: pickDefaultModel }),
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.

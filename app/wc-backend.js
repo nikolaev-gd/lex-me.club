@@ -323,6 +323,27 @@
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
+  // ── Модель по умолчанию: пункт «Text model» в меню «+» ─────────────────────
+  // Та же ячейка, что читает отправка (activeModelId) и что приносит публикация
+  // настроек, — и те же имена, что у расширения (activeModelId_<scope>,
+  // effortByApiModel_<scope>). Хранится в этом браузере; следующая публикация
+  // настроек перепишет выбор, как и в расширении у обычного человека.
+  WcBus.on('WC_TEXT_MODEL', async () => {
+    const modelId = await WcStore.one('activeModelId_' + SCOPE, null);
+    const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);
+    return { modelId: modelId || null, efforts: (efforts && typeof efforts === 'object') ? efforts : {} };
+  });
+  WcBus.on('WC_SET_TEXT_MODEL', async (m) => {
+    const parts = String((m && m.modelId) || '').split(':');
+    if (parts.length < 3 || !parts[0] || !parts[1]) throw new Error('Unknown model.');
+    const effKey = 'effortByApiModel_' + SCOPE;
+    const cur = await WcStore.one(effKey, null);
+    const efforts = (cur && typeof cur === 'object') ? { ...cur } : {};
+    efforts[parts[1]] = parts[2];
+    await WcStore.set({ ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts });
+    return { ok: true };
+  });
+
   WcBus.on('WC_ACCOUNT_STATE', async () => {
     const token = await A.validToken();
     const s = A.session();
@@ -434,6 +455,21 @@
     // учитель со следующего же вопроса увидел бы всё, что человек говорил
     // заготовкам, и изоляция кончилась бы молча, без единой ошибки.
     const branchTurns = conv.branches;
+    // Модель каждого ответа — для подписи кнопки модели под ответом. Реплика
+    // её не несёт; берём из расходов беседы по номеру операции ответа (уид
+    // ответа — «<номер>:a»). Не прочиталось — подписи будут общим словом.
+    try {
+      const ch = await WcHistory.charges(m.id);
+      const byUid = new Map();
+      for (const a of ((ch && Array.isArray(ch.answers)) ? ch.answers : [])) {
+        if (a && a.op_id) byUid.set(String(a.op_id) + ':a', global.LexAnswerRow.modelIdOfCharge(a.model, a.effort));
+      }
+      for (const t of turns.concat(branchTurns)) {
+        if (t.role === 'assistant' && t.uid && byUid.has(t.uid)) t.model = byUid.get(t.uid);
+      }
+    } catch (err) {
+      console.warn(TAG, 'answer models not read:', err && err.message);
+    }
     const byBranch = {};
     branchTurns.forEach((t) => {
       (byBranch[t.branchKey] || (byBranch[t.branchKey] = [])).push(t);
@@ -546,7 +582,7 @@
   const openBranches = new Map();      // branchKey → turns[]
 
   const normalizeTurns = (turns) => (turns || [])
-    .map((t) => ({ role: t.role, text: t.text, uid: t.uid || WcHistory.newUid() }));
+    .map((t) => ({ role: t.role, text: t.text, uid: t.uid || WcHistory.newUid(), model: t.model || null }));
 
   function setOpen(id, turns, branches) {
     openId = id;
@@ -858,6 +894,8 @@
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
     const modelId = m.modelOverride || (native && native.model) || await activeModelId();
+    // Модель хода — ленте: ею подписана кнопка модели под ответом.
+    WcBus.broadcast({ type: 'WC_TURN_MODEL', requestId: m.requestId, modelId });
 
     // The key is minted on the FIRST message, from the session row id. Before
     // that the conversation is not a row anywhere — which is why a brand-new
@@ -979,6 +1017,14 @@
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
       serverOps.delete(m.requestId);
       unsubscribe();
+      // Переспрос не дал ни слова (отказ, «стоп» до первого слова): прежний
+      // ответ остался в беседе на сервере — возвращаем пару в контекст.
+      if (!answer && Array.isArray(m.restoreOnFail)) {
+        const i = buf.findIndex((t) => t.uid === userUid);
+        if (i >= 0) buf.splice(i, 1);
+        buf.push(...m.restoreOnFail);
+        return;
+      }
       // A partial answer is kept: the provider produced those tokens and the
       // account was billed for them, so throwing them away would be throwing
       // away something already paid for.
@@ -1102,58 +1148,70 @@
     return WcHistory.attachmentOf(m.id, m.hint || null);
   });
 
-  // ── «Заново» ──────────────────────────────────────────────────────────────
+  // ── Переспрос последнего ответа выбранной моделью ──────────────────────────
   //
-  // Простой повтор ТОЙ ЖЕ моделью. В расширении есть только переспрос С ВЫБОРОМ
-  // другой модели (ytvocab-reask-menu → runModelReask → sendReask), и его
-  // reaskKind:'regenerate' — это пометка происхождения для лога, а модель
-  // приходит аргументом. То есть повтор той же моделью — это тот же путь с
-  // прежним аргументом, и здесь он собран так же: тот же вопрос, тот же
-  // контекст без последней пары, тот же uid ответа.
+  // Кнопка модели под последним ответом (lex-answer-row.js). Тот же вопрос, тот
+  // же контекст без последней пары, модель — выбранная в меню, и только на этот
+  // ответ: activeModelId не трогается, следующий вопрос уйдёт моделью по
+  // умолчанию. Ход ведёт сервер (act 'regen' + уид заменяемого ответа): он
+  // проверяет, что ответ есть в беседе, заводит новый и помечает прежний
+  // заменённым. Расширение и айфон делают то же самое.
   //
-  // Повторяется ТОЛЬКО последний ответ. Повтор середины беседы осиротил бы всё,
-  // что после него, — расширение вешает свои органы на последний обмен ровно
-  // поэтому.
+  // Переспрашивается ТОЛЬКО последний ответ. Повтор середины беседы осиротил бы
+  // всё, что после него. Ответ заготовки переспрашивается в её ветке и с её
+  // инструкцией: m.branchKey (лента из истории) или m.slotId (живой ход).
   WcBus.on('WC_REGENERATE', async (m) => {
-    if (!openTurns.length) throw new Error('Nothing to retry.');
-    const last = openTurns[openTurns.length - 1];
+    const branchKey = m.branchKey
+      || (m.slotId && openId ? global.LexActionBranch.actionBranchKeyOf(openId, m.slotId) : null);
+    const buf = branchKey ? await branchBuffer(branchKey) : openTurns;
+    if (!buf.length) throw new Error('Nothing to retry.');
+    const last = buf[buf.length - 1];
     if (!last || last.role !== 'assistant') throw new Error('The last turn is not an answer.');
-    const prev = openTurns[openTurns.length - 2];
+    const prev = buf[buf.length - 2];
     if (!prev || prev.role !== 'user') throw new Error('No question to repeat.');
+    let slotId = m.slotId || null;
+    if (branchKey && !slotId) {
+      const prefix = global.LexActionBranch.actionBranchPrefixOf(openId);
+      slotId = (prefix && branchKey.indexOf(prefix) === 0) ? branchKey.slice(prefix.length) : null;
+      if (!slotId) throw new Error('This action preset is no longer available. Reopen the chat and try again.');
+    }
 
-    // Ответ выкидывается из контекста, вопрос остаётся: модель должна увидеть
-    // ровно то, что видела в прошлый раз. `dropLastPair` в расширении делает
-    // то же самое.
-    openTurns.pop();
+    // Пара выкидывается из контекста: runSend положит вопрос обратно сам, а
+    // ответ — когда придёт новый. Модель должна увидеть ровно то, что видела в
+    // прошлый раз. `dropLastPair` в расширении делает то же самое.
+    buf.pop();
+    buf.pop();
     const userUid = prev.uid;
     const assistantUid = last.uid;
-    // Модель того хода, если она известна. Известна она только пока страницу
-    // не перезагрузили — см. комментарий у openTurns.push выше.
-    const modelOverride = last.model || null;
-    // Вопрос тоже выкидываем: runSend положит его обратно сам.
-    openTurns.pop();
-
-    // «Заново» уезжает на сервер СВОИМ номером операции и уидом заменяемого
-    // ответа. Из номера считается уид нового ответа — тот же, что заведёт
-    // сервер. Прежний уид тоже едет: без него ход остаётся клиентским (сервер
-    // «заново» без него не ведёт), и тогда всё работает ровно как раньше —
-    // прежние уиды, перезапись строк на месте.
+    // Модель: выбранная в меню; без выбора — та, которой отвечали (известна
+    // из памяти или из расходов беседы).
+    const modelOverride = m.modelId || last.model || null;
     const opId = (global.LexTurnId && assistantUid) ? global.LexTurnId.newOpId() : null;
 
-    return runSend({
-      requestId: m.requestId,
-      conversationId: openId,
-      text: prev.text,
-      images: [],
-      mode: null,
-      modelOverride,
-      userUid,
-      assistantUid,
-      act: 'regen',
-      opId,
-      pressedAt: Date.now(),
-      replacesUid: assistantUid,
-    });
+    try {
+      return await runSend({
+        requestId: m.requestId,
+        conversationId: openId,
+        text: prev.text,
+        images: [],
+        mode: branchKey ? 'native' : null,
+        slotId,
+        modelOverride,
+        userUid,
+        assistantUid,
+        act: 'regen',
+        opId,
+        pressedAt: Date.now(),
+        replacesUid: assistantUid,
+        // Не удалось — прежняя пара возвращается в контекст: на сервере она
+        // осталась на месте, и следующий вопрос обязан её видеть.
+        restoreOnFail: [prev, last],
+      });
+    } catch (err) {
+      if (buf[buf.length - 1] && buf[buf.length - 1].uid === userUid) buf.pop();
+      buf.push(prev, last);
+      throw err;
+    }
   });
 
   // Voice needs a bound session BEFORE the call is minted: llm-proxy refuses a

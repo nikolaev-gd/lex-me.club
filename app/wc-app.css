@@ -97,6 +97,19 @@
    * другое — и побеждала база. */
   --wc-font-base:  15px;
   --wc-font-scale: 1;
+
+  /* Меню моделей (общее с расширением, model-picker-dropdown.css) — в палитре
+   * страницы. Ссылки на токены, а не значения: тёмная тема ниже переопределяет
+   * токены, и меню идёт за ней само. */
+  --lex-menu-bg:        var(--bg-raised);
+  --lex-menu-line:      var(--line);
+  --lex-menu-shadow:    var(--shadow-lg);
+  --lex-menu-fg:        var(--fg);
+  --lex-menu-fg-strong: var(--fg);
+  --lex-menu-muted:     var(--fg-muted);
+  --lex-menu-hover:     var(--bg-hover);
+  --lex-menu-accent:    var(--fg);
+  --lex-menu-font-size: 14px;
 }
 
 /* ── Айфон: свой кегль ───────────────────────────────────────────────────────
@@ -1058,12 +1071,22 @@ button { font: inherit; color: inherit; }
   display: flex;
   gap: 2px;
   margin-top: 4px;
-  opacity: 0;
-  transition: opacity .12s;
+  /* Строка под ответом — общий модуль (lex-answer-row.css), цвета и размер
+     — здесь. Видна всегда, а не по наведению: на телефоне наведения нет, и
+     кнопку модели под последним ответом человек обязан видеть сразу. */
+  --lex-answer-row-fg:       var(--fg-muted);
+  --lex-answer-row-fg-hover: var(--fg);
+  --lex-answer-row-bg-hover: var(--bg-hover);
+  --lex-answer-row-size:     28px;
+  --lex-answer-row-icon:     15px;
 }
-.wc-turn:hover .wc-turn-foot, .wc-turn-foot:focus-within { opacity: 1; }
-.wc-turn-foot .wc-icon-btn { width: 28px; height: 28px; }
-.wc-turn-foot svg { width: 15px; height: 15px; }
+.wc-turn-foot .lex-answer-row-btn { font-size: 13px; }
+
+/* Заметка под ответом, который переспросить не удалось (отказ сервера,
+   «пополните»): не ответ и не конец беседы — кнопка модели остаётся у ответа
+   над ней. Вид — как у ошибки и у плашки оплаты. */
+.wc-turn-notice.wc-turn-error .wc-bubble,
+.wc-turn-notice.wc-turn-gate .wc-bubble { margin-top: 2px; }
 
 /* ── Айфон: под ответом жмут пальцем ─────────────────────────────────────────
  *
@@ -1089,8 +1112,7 @@ button { font: inherit; color: inherit; }
  * отъехала бы на все 16 px прироста коробки. С ним от нижнего края цели до
  * следующего хода остаётся 12 px (20 собственных минус 8), то есть цель ни на
  * что не налезает и снизу. */
-:root[data-lex-platform="ios"] .wc-turn-foot .wc-icon-btn { width: 44px; height: 44px; }
-:root[data-lex-platform="ios"] .wc-turn-foot svg { width: 18px; height: 18px; }
+:root[data-lex-platform="ios"] .wc-turn-foot { --lex-answer-row-size: 44px; --lex-answer-row-icon: 18px; }
 :root[data-lex-platform="ios"] .wc-turn-foot { margin-top: 0; margin-bottom: -8px; }
 
 /* ── Composer ────────────────────────────────────────────────────────────── */

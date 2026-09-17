@@ -1,11 +1,11 @@
 // webchat/wc-settings.js — the settings sheet.
 //
 // WHAT IS NOT HERE, AND WHY. No model picker, no prompt editor, no request
-// log, no cost pill, no answer comparison. Those are the owner's instruments
-// and they stay in the extension (docs/PLAN-NEW-CHAT.md, «Чего не делаем»).
-// The model this page sends to is the one the owner published — the person
-// using this page does not choose it and does not need a control that implies
-// they could.
+// log, no cost pill, no answer comparison. The prompt editor, the log and the
+// price are the owner's instruments and stay in the extension
+// (docs/PLAN-NEW-CHAT.md, «Чего не делаем»). The model is chosen outside this
+// sheet: «Text model» in the «+» menu sets the default one, and the model
+// button under the last answer re-asks it with another (lex-answer-row.js).
 //
 // What is left is what a reader actually owns: how the page looks, what
 // language it speaks to them in, and how the voice sounds. Each block is its

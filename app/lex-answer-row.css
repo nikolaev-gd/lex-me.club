@@ -1,0 +1,74 @@
+/* lex-answer-row.css — вид строки под ответом учителя (lex-answer-row.js).
+ * Один файл на расширение и на страницу lex-me.club/app. Цвета и размер окно
+ * задаёт своими переменными на контейнере строки — тёмная панель расширения и
+ * светлая/тёмная тема страницы разные, а раскладка и поведение одни:
+ *   --lex-answer-row-fg        цвет значков и подписи;
+ *   --lex-answer-row-fg-hover  цвет под курсором;
+ *   --lex-answer-row-bg-hover  подложка под курсором;
+ *   --lex-answer-row-size      высота кнопки (и ширина кнопки-значка);
+ *   --lex-answer-row-icon      размер значка.
+ * Селекторы с классом строки впереди — чтобы стили хозяйской страницы
+ * (YouTube, любой сайт под маленьким окном) не перебивали кнопку. */
+
+.lex-answer-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lex-answer-row .lex-answer-row-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: var(--lex-answer-row-size, 26px);
+  min-width: var(--lex-answer-row-size, 26px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lex-answer-row-fg, rgba(127, 127, 127, 0.9));
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.lex-answer-row .lex-answer-row-btn:hover,
+.lex-answer-row .lex-answer-row-btn:focus-visible {
+  background: var(--lex-answer-row-bg-hover, rgba(127, 127, 127, 0.14));
+  color: var(--lex-answer-row-fg-hover, currentColor);
+  outline: none;
+}
+
+.lex-answer-row .lex-answer-row-icon {
+  width: var(--lex-answer-row-icon, 15px);
+  height: var(--lex-answer-row-icon, 15px);
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Кнопка модели — подпись и стрелка меню. Длинное имя с уровнем обрезается
+ * многоточием, а не растягивает строку. */
+.lex-answer-row .lex-answer-row-model {
+  padding: 0 4px 0 8px;
+  max-width: 220px;
+}
+.lex-answer-row .lex-answer-row-model-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lex-answer-row .lex-answer-row-model .lex-answer-row-icon {
+  width: 13px;
+  height: 13px;
+}

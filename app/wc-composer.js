@@ -657,6 +657,18 @@
           });
         }
         items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
+        // Модель по умолчанию для следующих вопросов — так же, как пункт «Text
+        // model» в меню «+» расширения. Меню моделей встаёт у кнопки «+».
+        let tm = null;
+        try { tm = hooks.textModel && hooks.textModel(); } catch (_) { tm = null; }
+        if (tm) {
+          const anchor = e.currentTarget;
+          items.push({
+            label: tm.label ? 'Text model: ' + tm.label : 'Text model',
+            icon: 'spark',
+            onSelect: () => tm.open(anchor),
+          });
+        }
         // Меню открывается по обычному нажатию, значит и отклик обычный —
         // `tap`. `press` носит долгое удержание (onLongPress выше), и разница
         // между ними здесь смысловая: она говорит пальцу, каким жестом это
