@@ -34,6 +34,7 @@
   const FALLBACK = {
     'billing.gateMsg': 'Please top up your balance',
     'billing.topupBtn': 'Top up',
+    'billing.shortMsg': 'Not enough balance for this request: {need} needed, {have} available ({missing} short). Nothing was charged.',
   };
 
   function t(key) {
@@ -47,8 +48,58 @@
     return FALLBACK[key] || key;
   }
 
-  function message() { return t('billing.gateMsg'); }
   function buttonLabel() { return t('billing.topupBtn'); }
+
+  // ── Числа в отказе ────────────────────────────────────────────────────────
+  //
+  // Отказ бывает двух видов, и человеку они должны говорить разное:
+  //   • на счету пусто — «пополните баланс»;
+  //   • деньги есть, но на ЭТОТ запрос их не хватает — тогда сервер присылает
+  //     числа, и честнее сказать, сколько нужно и сколько есть, чем повторять
+  //     общее «пополните» человеку, у которого на счету что-то лежит.
+  //
+  // Числа приезжают прицепом к маркеру: `LEX_BILLING_GATE:{json}`
+  // (lex-teacher-core.js). Разбор здесь, чтобы ни одна поверхность не парсила
+  // строку ошибки сама.
+  function parse(raw) {
+    const s = String(raw == null ? '' : raw);
+    const at = s.indexOf('LEX_BILLING_GATE:');
+    if (at < 0) return null;
+    const tail = s.slice(at + 'LEX_BILLING_GATE:'.length);
+    // Строка ошибки могла обрасти хвостом — берём ровно объект.
+    const end = tail.lastIndexOf('}');
+    if (end < 0) return null;
+    try {
+      const j = JSON.parse(tail.slice(0, end + 1));
+      return (j && typeof j === 'object') ? j : null;
+    } catch (_) { return null; }
+  }
+
+  // Доллары для показа. Два знака после точки, как в остальном интерфейсе, — но
+  // у мелких сумм этого мало: округление до центов превращает «нужно 0,0154,
+  // есть 0,005» в «нужно $0.02, есть $0.01», и числа перестают сходиться между
+  // собой. Поэтому всё меньше десяти центов показывается тремя знаками.
+  function usd(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return null;
+    const digits = Math.abs(n) < 0.1 ? 3 : 2;
+    const p = Math.pow(10, digits);
+    return '$' + (Math.round(n * p) / p).toFixed(digits);
+  }
+
+  // Надпись под конкретный отказ. Чисел нет — общее «пополните баланс», как
+  // было всегда.
+  function message(raw) {
+    const info = (raw && typeof raw === 'object' && !(raw instanceof Error)) ? raw : parse(raw);
+    const need = info && usd(info.needed);
+    const have = info && usd(info.available != null ? info.available : info.balance);
+    const missing = info && usd(info.missing);
+    if (need && have && missing) {
+      return t('billing.shortMsg')
+        .replace('{need}', need).replace('{have}', have).replace('{missing}', missing);
+    }
+    return t('billing.gateMsg');
+  }
 
   // ── Признак «это отказ по деньгам» ────────────────────────────────────────
   //
@@ -97,7 +148,9 @@
 
     const text = doc.createElement('span');
     text.className = 'ytvocab-billing-gate-text';
-    text.textContent = (opts && opts.message) || message();
+    // opts.message — свой текст поверхности (её и так умеет путь субтитров);
+    // opts.raw — строка ошибки, из которой надпись соберётся сама, с числами.
+    text.textContent = (opts && opts.message) || message(opts && opts.raw);
     wrap.appendChild(text);
 
     const btn = doc.createElement('button');
@@ -117,6 +170,8 @@
   global.LexBillingGate = Object.freeze({
     CHECKOUT_URL,
     isGateError,
+    parse,
+    usd,
     message,
     buttonLabel,
     setTopupAction,

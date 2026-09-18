@@ -157,6 +157,10 @@
   function refreshPublished() {
     WcBackend.adoptPublished().catch((err) =>
       console.warn('[wc] published settings:', err && err.message));
+    // Модель по умолчанию — отдельным вопросом к серверу: публикация её больше
+    // не подменяет, решение «личная или рекомендуемая» принимает база.
+    WcBackend.modelDefaults().catch((err) =>
+      console.warn('[wc] model defaults:', err && err.message));
   }
 
   async function openConversation(id) {
@@ -1230,6 +1234,13 @@
       await WcBackend.adoptPublished();
     } catch (err) {
       console.warn('[wc] published settings:', err && err.message);
+    }
+    // Модель по умолчанию — до первого вопроса, как и остальной набор: ход не
+    // должен уйти на модели, которую сервер сейчас заменит.
+    try {
+      await WcBackend.modelDefaults();
+    } catch (err) {
+      console.warn('[wc] model defaults:', err && err.message);
     }
     // Дальше набор перечитывается при открытии беседы — см. refreshPublished.
     // Список ЗАГОТОВОК ДЕЙСТВИЙ — здесь же и по той же причине, что настройки

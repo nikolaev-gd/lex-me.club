@@ -295,7 +295,14 @@
     // surface actually consumes fails closed. And an unrecognised key is
     // REPORTED, not dropped in silence — silence is how "the owner published
     // it and nothing happened" becomes a mystery.
-    const ADOPTABLE = /^(activeModelId_|activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|voiceThinkingModelId_|activeVoiceThinkingPromptId$|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|effortByApiModel_|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
+    //
+    // 2026-09-17: ключи выбора модели (activeModelId_, effortByApiModel_) из
+    // этого списка УБРАНЫ. Опубликованное владельцем значение стало
+    // РЕКОМЕНДУЕМОЙ моделью, а что взять на самом деле — решает одна функция
+    // базы (lex_model_defaults): есть личный выбор человека — он, нет —
+    // рекомендуемая. Её ответ приезжает отдельно (modelDefaults ниже), поэтому
+    // публикация сюда больше не пишет и выбор человека не стирает.
+    const ADOPTABLE = /^(activeChatPromptId$|activeVoiceModelId_|activeVoicePromptId$|voiceThinkingModelId_|activeVoiceThinkingPromptId$|activeTranscriptionPromptId$|activePreprocessModelId$|activePreprocessPromptId$|knob[A-Z]|voiceNamesByProvider_|speechEngine$|speechRate$|speechVoiceName$|voiceModeChoice_|chatPrompts$|voicePrompts$|contentTypePrompts$|nativePrompts$)/;
     const patch = {};
     const skipped = [];
     Object.keys(data).forEach((k) => {
@@ -309,6 +316,58 @@
     patch[wmKey] = row.id;
     await WcStore.set(patch);
     return { ok: true, adopted: Object.keys(patch).length - 1, skipped };
+  }
+
+  // ── Модель по умолчанию: правило чтения живёт на сервере ──────────────────
+  //
+  // Одна функция базы отвечает на вопрос «какая у меня модель» для каждого
+  // окна: есть личный выбор — он, нет — рекомендуемая (последняя
+  // опубликованная владельцем). Страница это правило у себя не повторяет:
+  // спрашивает и раскладывает ответ по тем же ячейкам, которые уже читает
+  // отправка хода. Поэтому ни один читатель ячейки не менялся.
+  async function modelDefaults() {
+    const token = await A.validToken();
+    if (!token) return { ok: false };
+    let resp;
+    try {
+      resp = await fetch(A.supabaseUrl() + '/rest/v1/rpc/lex_model_defaults', {
+        method: 'POST',
+        headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+    } catch (e) { console.warn(TAG, 'model defaults network error:', e && e.message); return { ok: false }; }
+    // Сервер ещё без этой функции (выложен раньше кода) — молча остаёмся на
+    // том, что уже лежит в ячейке.
+    if (!resp.ok) { console.warn(TAG, 'model defaults', resp.status); return { ok: false }; }
+    const out = await resp.json().catch(() => null);
+    if (!out || out.ok !== true || !out.scopes) return { ok: false };
+    const mine = out.scopes[SCOPE];
+    if (!mine || typeof mine !== 'object') return { ok: true, applied: 0 };
+    const patch = {};
+    if (typeof mine.model === 'string' && mine.model) patch['activeModelId_' + SCOPE] = mine.model;
+    if (mine.effort && typeof mine.effort === 'object' && Object.keys(mine.effort).length) {
+      patch['effortByApiModel_' + SCOPE] = mine.effort;
+    }
+    if (!Object.keys(patch).length) return { ok: true, applied: 0 };
+    await WcStore.set(patch);
+    return { ok: true, applied: Object.keys(patch).length, source: mine.source };
+  }
+
+  // Личный выбор модели уезжает человеку в аккаунт — той же функцией базы,
+  // которой пишутся остальные личные настройки. Отсюда он виден расширению,
+  // программе для Мака и айфону.
+  async function pushModelChoice(patch) {
+    const token = await A.validToken();
+    if (!token) return false;
+    try {
+      const r = await fetch(A.supabaseUrl() + '/rest/v1/rpc/lex_patch_user_settings', {
+        method: 'POST',
+        headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_patch: patch }),
+      });
+      if (!r.ok) { console.warn(TAG, 'model choice push', r.status); return false; }
+      return true;
+    } catch (e) { console.warn(TAG, 'model choice push failed:', e && e.message); return false; }
   }
 
   async function activeModelId() {
@@ -341,6 +400,10 @@
     const efforts = (cur && typeof cur === 'object') ? { ...cur } : {};
     efforts[parts[1]] = parts[2];
     await WcStore.set({ ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts });
+    // И наверх, человеку в аккаунт: выбор принадлежит ему, а не этому браузеру.
+    // Локальная ячейка при этом остаётся — она нужна, чтобы кнопка модели
+    // перерисовалась сразу, не дожидаясь сети.
+    await pushModelChoice({ ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts });
     return { ok: true };
   });
 
@@ -1352,6 +1415,7 @@
     readKnobs,
     readDictationKnobs,
     adoptPublished,
+    modelDefaults,
     activeModelId,
     setOpen,
     currentSessionId: () => sessionId,

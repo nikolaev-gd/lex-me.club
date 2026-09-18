@@ -442,7 +442,9 @@
         turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');
         if (gate) {
           bubble.textContent = '';
-          bubble.append(LexBillingGate.createElement());
+          // Сырая строка едет в блок: если сервер прислал числа (на ЭТОТ запрос
+          // не хватает), человек увидит сколько нужно и сколько есть.
+          bubble.append(LexBillingGate.createElement({ raw: text }));
         } else {
           bubble.textContent = shown;
         }

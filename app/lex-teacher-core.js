@@ -200,10 +200,32 @@
     // "OpenAI 402: {...}". Возвращает Error с флагом .lexBillingGate=true, если
     // status===402 — вызыватель throw'ает его ВМЕСТО генерик-ошибки; иначе null,
     // генерик-путь не тронут (401/5xx и т.п. остаются подробными для отладки).
-    function lexBillingGateError(status) {
+    //
+    // 2026-09-17: тело ответа ЧИТАЕТСЯ. Сервер при отказе «на этот запрос не
+    // хватает» кладёт туда числа — сколько нужно, сколько свободно, сколько не
+    // хватает, — и без них человеку пришлось бы показывать общее «пополните
+    // баланс» там, где деньги на счету есть, просто мало. Числа едут дальше
+    // прицепом к маркеру: `LEX_BILLING_GATE:{json}`. Маркер остался первым
+    // словом строки, поэтому все прежние читатели (LexBillingGate.isGateError
+    // ищет подстроку) продолжают работать, ничего не зная про числа.
+    async function lexBillingGateError(response) {
+      const status = (response && typeof response === 'object') ? response.status : response;
       if (status !== 402) return null;
-      const e = new Error('LEX_BILLING_GATE');
+      let info = null;
+      if (response && typeof response.json === 'function') {
+        try {
+          const j = await response.json();
+          if (j && typeof j === 'object' && j.reason === 'insufficient_funds') {
+            info = {
+              needed: j.needed_usd, available: j.available_usd,
+              missing: j.missing_usd, balance: j.balance_usd,
+            };
+          }
+        } catch (_) { /* тела нет или оно не JSON — покажем общий текст */ }
+      }
+      const e = new Error(info ? ('LEX_BILLING_GATE:' + JSON.stringify(info)) : 'LEX_BILLING_GATE');
       e.lexBillingGate = true;
+      if (info) e.lexBillingInfo = info;
       return e;
     }
 
@@ -629,7 +651,7 @@
           signal,
         });
       if (!response.ok) {
-        const gateErr = lexBillingGateError(response.status);
+        const gateErr = await lexBillingGateError(response);
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
@@ -973,7 +995,7 @@
         });
       __diagMark?.('openai:fetch_returned');
       if (!response.ok) {
-        const gateErr = lexBillingGateError(response.status);
+        const gateErr = await lexBillingGateError(response);
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
@@ -1259,7 +1281,7 @@
         });
       __diagMark?.('anthropic:fetch_returned');
       if (!response.ok) {
-        const gateErr = lexBillingGateError(response.status);
+        const gateErr = await lexBillingGateError(response);
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
@@ -1444,7 +1466,7 @@
         });
       __diagMark?.('google:fetch_returned');
       if (!response.ok) {
-        const gateErr = lexBillingGateError(response.status);
+        const gateErr = await lexBillingGateError(response);
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
