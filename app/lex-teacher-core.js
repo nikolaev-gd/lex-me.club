@@ -168,6 +168,13 @@
     // target and auth headers change. See docs/SERVER-PROXY-DESIGN.md.
     //   proxy = { kind: 'openai-chat'|'openai-responses'|'anthropic'|'google',
     //             token: <user JWT>, meta: {...Lex-domain fields for the calls row} }
+    //
+    // How long a paid request may sit on the server waiting for a free place in
+    // the account's queue before it goes to the model (or comes back as the
+    // «service busy» 429 inflight). The same number as SLOT_WAIT_MAX_MS in
+    // supabase/functions/_shared/call-slot.ts; the client declares it in
+    // meta.slotWaitMs and sizes its own first-answer watchdog by it.
+    const LEX_SERVER_SLOT_WAIT_MS = 30_000;
     function proxyFetch(proxy, providerBody, signal) {
       const url = `${lexSbUrl()}/functions/v1/llm-proxy/${proxy.kind}`;
       return fetch(url, {
@@ -372,9 +379,21 @@
     // the proxy forwards everything except `meta` to the provider with a server-held
     // key, returns the provider JSON unchanged, and writes the calls row. Do NOT set
     // Content-Type — fetch derives the multipart boundary from the FormData body.
+    // A paid request may now sit on the server up to LEX_SERVER_SLOT_WAIT_MS
+    // before its answer starts: the server waits for a free place in the
+    // account's queue (supabase/functions/_shared/call-slot.ts). In the
+    // extension's MV3 worker ~30 s without an extension-API call gets the worker
+    // evicted, and the request dies with it — so keepAlive() every 20 s until
+    // the response headers arrive, the same guard the chat and the subtitle
+    // cleanup already have. On the web page keepAlive is a no-op.
+    function fetchKeptAlive(url, init) {
+      const ka = setInterval(() => { try { keepAlive(); } catch (_) { /* noop */ } }, 20_000);
+      return fetch(url, init).finally(() => clearInterval(ka));
+    }
+
     function proxyFetchMultipart(kind, formData, token, signal) {
       const url = `${lexSbUrl()}/functions/v1/llm-proxy/${kind}`;
-      return fetch(url, {
+      return fetchKeptAlive(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, apikey: lexAnonKey() },
         body: formData,
@@ -387,7 +406,7 @@
     // {meta, providerRequestBody} text envelope.
     function proxyPostJson(kind, bodyObj, token, signal) {
       const url = `${lexSbUrl()}/functions/v1/llm-proxy/${kind}`;
-      return fetch(url, {
+      return fetchKeptAlive(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, apikey: lexAnonKey(), 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyObj || {}),
@@ -402,7 +421,7 @@
     // in/out, no provider-body envelope. Throws on any non-ok / missing link.
     async function proxyFetchYtjarLink(videoId, proxyToken, signal) {
       const url = `${lexSbUrl()}/functions/v1/llm-proxy/ytjar-dl`;
-      const resp = await fetch(url, {
+      const resp = await fetchKeptAlive(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${proxyToken}`,
@@ -2092,6 +2111,12 @@
           surface: (chatOptions && chatOptions.surface) || null,
           source: (chatOptions && chatOptions.source) || null,
           callType: isChat ? (isMiniChatTurn ? 'tutor' : 'chat') : 'word',
+          // How long this client is ready to wait while the server looks for a
+          // free place in the account's queue. It can: its first-text watchdog
+          // counts from the server's answer, not from the send (see the
+          // watchdog below). Without this number the server waits only as long
+          // as an older client survives (supabase/functions/_shared/call-slot.ts).
+          slotWaitMs: LEX_SERVER_SLOT_WAIT_MS,
           // Parity with one-door promptType: action turns use their own category.
           promptType: (chatOptions && chatOptions.actionId)
             ? 'action'
@@ -2304,13 +2329,39 @@
       // adapterCallbacks.onChunk below clears this timer so a thinking
       // model can continue streaming as long as it needs. After the first
       // token there is no upper bound on response length anymore.
+      //
+      // Through the Lex server the 15 s count from the moment its answer
+      // ARRIVES (response headers), not from the send: before answering, the
+      // server may hold the request while it waits for a free place in the
+      // account's queue — up to LEX_SERVER_SLOT_WAIT_MS, which this client
+      // declares in meta.slotWaitMs (supabase/functions/_shared/call-slot.ts).
+      // During that wait the person sees the usual loading. Until the headers
+      // come, the ceiling is the wait plus the same 15 s; the headers re-arm the
+      // 15 s first-text budget (proxy.onHeaders below). The iPhone app counts
+      // the same way (ProxyStream.swift starts its watchdog after the headers).
       let streamTimer = null;
       const controller = new AbortController();
       const STREAM_TIMEOUT_MS = 15_000;
       const TIMEOUT_TEXT = LXT('error.timeout', { sec: STREAM_TIMEOUT_MS / 1000 });
-      streamTimer = setTimeout(() => {
-        controller.abort(new DOMException(TIMEOUT_TEXT, 'TimeoutError'));
-      }, STREAM_TIMEOUT_MS);
+      const armStreamTimer = (ms, text) => {
+        if (streamTimer != null) clearTimeout(streamTimer);
+        streamTimer = setTimeout(() => {
+          controller.abort(new DOMException(text, 'TimeoutError'));
+        }, ms);
+      };
+      if (proxy) {
+        const headersMs = LEX_SERVER_SLOT_WAIT_MS + STREAM_TIMEOUT_MS;
+        armStreamTimer(headersMs, LXT('error.timeout', { sec: headersMs / 1000 }));
+        const onHeadersBefore = proxy.onHeaders;
+        proxy.onHeaders = (h) => {
+          // Still waiting for the first text (streamTimer not yet cleared by
+          // onChunk) — from here on the usual 15 s.
+          if (streamTimer != null) armStreamTimer(STREAM_TIMEOUT_MS, TIMEOUT_TEXT);
+          if (typeof onHeadersBefore === 'function') onHeadersBefore(h);
+        };
+      } else {
+        armStreamTimer(STREAM_TIMEOUT_MS, TIMEOUT_TEXT);
+      }
       // MV3 keepalive — without this, if the fetch stalls (Pro reasoning
       // queue, dead TCP) the service worker can be evicted by Chrome around
       // the 30-second idle mark and our setTimeout silently dies with it.

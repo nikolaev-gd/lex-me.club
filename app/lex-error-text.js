@@ -231,6 +231,21 @@
     return t('err.chat.regenTargetGone');
   }
 
+  // ── 7. Места в очереди не дождались ───────────────────────────────────────
+  //
+  // Сервер держал запрос, пока не освободится место в очереди платных вызовов
+  // аккаунта (до 30 секунд, supabase/functions/_shared/call-slot.ts), и не
+  // дождался: 429 со стадией 'inflight'. Для человека это то же «сервис занят,
+  // попробуй ещё раз», что и перегрузка поставщика, — один текст на все пути,
+  // где он встречается: чат, голос, диктовка.
+  function isQueueBusy(status, stage) {
+    return Number(status) === 429 && String(stage || '') === 'inflight';
+  }
+
+  function busy() {
+    return t('err.provider.busy');
+  }
+
   global.LexErrorText = Object.freeze({
     auth,
     topup,
@@ -245,5 +260,7 @@
     conversationReset,
     isRegenTargetGone,
     regenTargetGone,
+    isQueueBusy,
+    busy,
   });
 })(typeof self !== 'undefined' ? self : globalThis);

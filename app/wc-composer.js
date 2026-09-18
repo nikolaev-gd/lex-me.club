@@ -331,6 +331,13 @@
       onError: (msg, info) => {
         if (finished) return;
         if (info && info.status === 402) { toast('Not enough balance for dictation.', { error: true }); return; }
+        // Места в очереди платных вызовов сервер не дождался — «сервис занят»,
+        // тот же текст, что у чата, а не сырое too_many_inflight.
+        if (info && info.status === 429) {
+          toast((typeof LexErrorText !== 'undefined' && LexErrorText.busy)
+            ? LexErrorText.busy() : 'The service is overloaded right now. Please try again in a minute.', { error: true });
+          return;
+        }
         toast('Could not transcribe: ' + msg, { error: true });
       },
     });
@@ -555,7 +562,8 @@
       // дописывается к набранному через пробел.
       grower.finish(text);
     } catch (err) {
-      toast('Could not transcribe: ' + ((err && err.message) || err), { error: true });
+      // «Сервис занят» уже сказан словами целиком — без приставки.
+      toast(err && err.lexBusy ? err.message : 'Could not transcribe: ' + ((err && err.message) || err), { error: true });
     } finally {
       unsub();
       // Итога не было (отказ, пустота) — выросшее остаётся как есть.

@@ -97,6 +97,12 @@
     // была домыслом клиента о коде 409 — см. разбор у места повтора.
     race: 'Could not start the conversation. Press again.',
     no_listener: 'The server could not open the billing session — try again.',
+    // Сервер ждал места в очереди платных вызовов аккаунта (до 30 с,
+    // supabase/functions/_shared/call-slot.ts) и не дождался. Текст — общий
+    // «сервис занят» из lex-error-text.js, тот же, что у чата.
+    busy: (typeof LexErrorText !== 'undefined' && LexErrorText.busy)
+      ? LexErrorText.busy()
+      : 'The service is overloaded right now. Please try again in a minute.',
   };
 
   // Why a conversation ended without the reader ending it, in words — one line
@@ -764,6 +770,7 @@
         const stage = r.json && r.json.stage;
         const gate = stage === 'no_listener' ? 'no_listener'
           : r.status === 402 ? 'balance'
+          : (r.status === 429 && stage === 'inflight') ? 'busy'
           : r.status === 429 ? 'cap'
           : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'

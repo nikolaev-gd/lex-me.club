@@ -45,6 +45,13 @@
 
   // Сколько ждём «готов», прежде чем сказать «не дозвонились».
   const START_TIMEOUT_MS = 12000;
+  // Сколько сервер может ждать свободного места в очереди платных вызовов
+  // аккаунта, прежде чем сказать «готов» или «занято» (то же число, что
+  // SLOT_WAIT_MAX_MS в supabase/functions/_shared/call-slot.ts). Реле называет
+  // его серверу в «начале» (config.slotWaitMs) и, получив кадр «queued»,
+  // продлевает свой срок старта на это время: человек всё это время говорит,
+  // звук копится у вкладки и уйдёт, как только сервер скажет «готов».
+  const SLOT_WAIT_MS = 30000;
   // Сколько ждём итог после «договорил».
   const FINISH_TIMEOUT_MS = 15000;
   // Сервер закончил сам, а «стоп» ещё никто не нажимал: итог держится здесь
@@ -122,13 +129,22 @@
       };
 
       const opened = await new Promise((resolve) => {
-        const giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), START_TIMEOUT_MS);
+        let giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), START_TIMEOUT_MS);
         ws.onopen = () => {
           if (entry.cancelled) { try { ws.close(); } catch (_) {} return; }
-          try { ws.send(JSON.stringify({ type: 'start', token, config })); } catch (_) {}
+          try { ws.send(JSON.stringify({ type: 'start', token, config: Object.assign({}, config, { slotWaitMs: SLOT_WAIT_MS }) })); } catch (_) {}
         };
         ws.onmessage = (ev) => {
           let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+          // Сервер ждёт места в очереди: «готов» придёт позже обычного — срок
+          // старта растёт на его ожидание. Один раз: кадр приходит один.
+          if (m.type === 'queued') {
+            clearTimeout(giveUp);
+            const waitMs = Number(m.waitMs) > 0 ? Math.min(Number(m.waitMs), SLOT_WAIT_MS) : SLOT_WAIT_MS;
+            giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), START_TIMEOUT_MS + waitMs);
+            log('[lex-dictation-relay] server is waiting for a free place, start deadline +' + waitMs + ' ms');
+            return;
+          }
           // Потолок сессии называет сервер — своего числа у поверхностей нет.
           if (m.type === 'ready') {
             clearTimeout(giveUp);

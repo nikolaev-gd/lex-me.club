@@ -931,6 +931,15 @@
       // 402 is "no money", not "could not hear you" — say the one the reader
       // can act on.
       if (resp.status === 402) throw new Error('Not enough balance for dictation.');
+      // 429 — места в очереди платных вызовов аккаунта сервер ждал до 30 с и
+      // не дождался (или занят поставщик): человеку — общее «сервис занят»,
+      // а не сырое тело ответа.
+      if (resp.status === 429) {
+        const busy = new Error((typeof LexErrorText !== 'undefined' && LexErrorText.busy)
+          ? LexErrorText.busy() : 'The service is overloaded right now. Please try again in a minute.');
+        busy.lexBusy = true;
+        throw busy;
+      }
       throw new Error(bodyText.slice(0, 160) || ('HTTP ' + resp.status));
     }
     let text = '';
