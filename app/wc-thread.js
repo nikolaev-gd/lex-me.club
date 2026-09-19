@@ -170,7 +170,10 @@
     for (const t of elTurns.querySelectorAll('.wc-turn-assistant')) {
       const foot = t.querySelector('.wc-turn-foot');
       if (t.classList.contains('wc-turn-voice')) {
-        if (foot) foot.remove();
+        // Строки с моделью и копированием под голосовым ответом нет; цена хода
+        // (разработчику) встаёт в свой подвал — paintMoney.
+        const row = foot ? foot.querySelector('.lex-answer-row') : null;
+        if (row) row.remove();
         entries.push({ row: null, eligible: false });
         continue;
       }
@@ -232,6 +235,7 @@
         else if (msg.type === 'STREAM_DONE') WcThread.done(msg);
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
         else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
+        else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
       });
     },
 
@@ -269,7 +273,9 @@
           // ни пузыря, ни картинки.
           const hasImage = Array.isArray(t.images) && t.images.length > 0;
           if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          elTurns.append(userTurn(visible, t.images, { action: !!t.branchKey }));
+          const node = userTurn(visible, t.images, { action: !!t.branchKey });
+          if (t.uid) node.dataset.uid = String(t.uid);
+          elTurns.append(node);
         } else {
           const { turn } = assistantTurn(t.text);
           // Ход, пришедший из ветки заготовки, узнаётся по ключу ветки рядом с
@@ -281,8 +287,10 @@
           }
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
-          // Модель ответа (из расходов беседы) — подпись кнопки модели.
+          // Модель ответа (из денег беседы) — подпись кнопки модели.
           if (t.model) turn.dataset.model = t.model;
+          // Уид реплики: по нему встаёт цена хода (paintMoney).
+          if (t.uid) turn.dataset.uid = String(t.uid);
           elTurns.append(turn);
         }
       });
@@ -364,6 +372,53 @@
       const entry = live.get(msg.requestId);
       if (!entry || !msg.modelId) return;
       entry.turn.dataset.model = String(msg.modelId);
+    },
+
+    // Уиды пары — от серверной части в начале хода (WC_TURN_UIDS). Ответ —
+    // живой пузырь этого хода; вопрос — последний вопрос перед ним (при
+    // переспросе вопрос тот же, и уид у него прежний).
+    setTurnUids(msg) {
+      const entry = live.get(msg.requestId);
+      if (!entry) return;
+      if (msg.assistantUid) entry.turn.dataset.uid = String(msg.assistantUid);
+      if (msg.userUid) {
+        let prev = entry.turn.previousElementSibling;
+        while (prev && !prev.classList.contains('wc-turn-user')) prev = prev.previousElementSibling;
+        if (prev && !prev.dataset.uid) prev.dataset.uid = String(msg.userUid);
+      }
+    },
+
+    // Деньги беседы на экране: цена под репликой — по готовому уиду, который
+    // отдал сервер (list_chat_money, разбор — lex-chat-money.js), и итог
+    // беседы в шапке (WcHeader.setMoney). Что показывать и кому, решил сервер
+    // (show_money); своего счёта у страницы нет. money === null — беседы нет
+    // или денег не показывают: все цены снимаются.
+    paintMoney(money) {
+      const show = !!(money && money.showMoney);
+      for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
+        const old = t.querySelector(':scope > .wc-turn-foot > .wc-price, :scope > div > .wc-turn-foot > .wc-price');
+        const a = show ? money.answers.get(t.dataset.uid) : null;
+        const usd = (a && a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
+        if (usd == null) { if (old) old.remove(); continue; }
+        let foot = t.classList.contains('wc-turn-user')
+          ? t.querySelector(':scope > div > .wc-turn-foot')
+          : t.querySelector(':scope > .wc-turn-foot');
+        if (!foot) {
+          foot = el('.wc-turn-foot');
+          if (t.classList.contains('wc-turn-user')) {
+            foot.classList.add('wc-turn-foot-question');
+            (t.firstElementChild || t).append(foot);
+          } else {
+            t.append(foot);
+          }
+        }
+        const node = old || el('span.wc-price');
+        node.textContent = global.LexChatMoney.format(usd);
+        node.dataset.lexUsd = String(usd);
+        node.title = [a.model, a.effort].filter(Boolean).join(' · ');
+        if (!old) foot.append(node);
+      }
+      if (global.WcHeader && WcHeader.setMoney) WcHeader.setMoney(show ? money.total : null, show);
     },
 
     done(msg) {
@@ -512,6 +567,7 @@
       // .wc-turn-voice: italic, same as the extension's spoken bubbles
       // (styles.css .ytvocab-chat-msg-voice) — marks it as said, not typed.
       const turn = el('.wc-turn.wc-turn-user.wc-turn-voice', {}, [el('div', {}, [bubble])]);
+      turn.dataset.uid = 'voice:' + itemId;
       elTurns.append(turn);
       voiceBubbles.set(itemId, { turn, bubble, role: 'user' });
       maybeStick();
@@ -545,6 +601,8 @@
         setEmpty(false);
         const made = assistantTurn('');
         made.turn.classList.add('wc-turn-voice');
+        // Уид, под которым сервер записал реплику и отдаёт цену хода.
+        made.turn.dataset.uid = 'voice:' + itemId;
         elTurns.append(made.turn);
         entry = { turn: made.turn, bubble: made.bubble, role: 'assistant' };
         voiceBubbles.set(itemId, entry);
@@ -596,6 +654,9 @@
     // есть ли в открытой сейчас беседе хоть одно сообщение. Единственный
     // источник правды для решения про клавиатуру у боковой панели (wc-app.js).
     isEmpty() { return !elTurns.childElementCount; },
+
+    // Сколько ответов учителя в ленте — первый ход беседы узнаётся по этому.
+    answerCount() { return elTurns.querySelectorAll('.wc-turn-assistant').length; },
   };
 
   global.WcThread = WcThread;

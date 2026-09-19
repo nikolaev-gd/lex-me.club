@@ -518,27 +518,40 @@
     // учитель со следующего же вопроса увидел бы всё, что человек говорил
     // заготовкам, и изоляция кончилась бы молча, без единой ошибки.
     const branchTurns = conv.branches;
-    // Модель каждого ответа — для подписи кнопки модели под ответом. Реплика
-    // её не несёт; берём из расходов беседы по номеру операции ответа (уид
-    // ответа — «<номер>:a»). Не прочиталось — подписи будут общим словом.
+    // Деньги беседы (list_chat_money): модель каждого ответа — для подписи
+    // кнопки модели под ответом (реплика её не несёт), и, разработчику, цены
+    // и итог. Где стоит цена, решил сервер — по готовому уиду реплики; своего
+    // правила «номер операции → реплика» у страницы нет. Не прочиталось —
+    // подписи будут общим словом, денег на экране не будет.
+    let money = null;
     try {
-      const ch = await WcHistory.charges(m.id);
+      money = await WcHistory.money(m.id);
       const byUid = new Map();
-      for (const a of ((ch && Array.isArray(ch.answers)) ? ch.answers : [])) {
-        if (a && a.op_id) byUid.set(String(a.op_id) + ':a', global.LexAnswerRow.modelIdOfCharge(a.model, a.effort));
+      for (const a of ((money && Array.isArray(money.answers)) ? money.answers : [])) {
+        if (a && a.uid && a.anchor !== 'question') {
+          byUid.set(String(a.uid), global.LexAnswerRow.modelIdOfCharge(a.model, a.effort));
+        }
       }
       for (const t of turns.concat(branchTurns)) {
         if (t.role === 'assistant' && t.uid && byUid.has(t.uid)) t.model = byUid.get(t.uid);
       }
     } catch (err) {
-      console.warn(TAG, 'answer models not read:', err && err.message);
+      console.warn(TAG, 'chat money not read:', err && err.message);
     }
     const byBranch = {};
     branchTurns.forEach((t) => {
       (byBranch[t.branchKey] || (byBranch[t.branchKey] = [])).push(t);
     });
     setOpen(m.id, turns, byBranch);
-    return { ok: true, turns: mergeForDisplay(turns, branchTurns) };
+    return { ok: true, turns: mergeForDisplay(turns, branchTurns), money };
+  });
+
+  // Деньги открытой беседы — одни, без переписки: интерфейс перечитывает их
+  // после каждого платного события (ход, разговор, диктовка, название).
+  WcBus.on('WC_CHAT_MONEY', async () => {
+    if (!openId) return { ok: true, body: null };
+    const body = await WcHistory.money(openId);
+    return { ok: !!body, body };
   });
 
   // Starting over. The session is dropped so the NEXT message mints a new one —
@@ -799,15 +812,38 @@
     onFinal: () => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }),
   });
   global.LexDictationRelay.TYPES.forEach((type) => {
-    WcBus.on(type, (m) => {
+    WcBus.on(type, async (m) => {
       // Живая диктовка тоже знает свою беседу: ключ открытой беседы уезжает в
-      // настройках сессии, и сервер пишет его в строку расхода.
-      if (type === 'LEX_DICTATION_LIVE_START' && m && openId) {
-        m = Object.assign({}, m, { config: Object.assign({}, m.config || {}, { chatKey: openId }) });
+      // настройках сессии, и сервер пишет его в строку расхода. Новой беседы
+      // ещё нет — заводим её здесь (openForPaidWork), иначе деньги диктовки
+      // не попали бы ни в одну беседу.
+      if (type === 'LEX_DICTATION_LIVE_START' && m) {
+        const key = await openForPaidWork();
+        if (key) m = Object.assign({}, m, { config: Object.assign({}, m.config || {}, { chatKey: key }) });
       }
       return liveRelay.handle(type, m, {});
     });
   });
+
+  // Платная работа до первого сообщения (диктовка) тоже принадлежит беседе:
+  // её строка расхода несёт ключ беседы, и по нему деньги входят в итог. Ключа
+  // до первого сообщения нет — заводим беседу сейчас, тем же путём, что голос
+  // (WC_ENSURE_SESSION), и говорим интерфейсу, какая беседа открыта: первое
+  // сообщение уйдёт в неё же, а не заведёт вторую.
+  async function openForPaidWork() {
+    if (openId) return openId;
+    try {
+      const sid = await ensureSession();
+      if (sid == null) return null;
+      const key = WcHistory.keyForSession(sid);
+      setOpen(key, []);
+      WcBus.broadcast({ type: 'WC_CONVERSATION_OPENED', id: key });
+      return key;
+    } catch (err) {
+      console.warn(TAG, 'conversation for paid work not opened:', err && err.message);
+      return null;
+    }
+  }
 
   // Каталог распознавалок диктовки — строки public.models
   // (lex-dictation-catalog.js). Пропуск здесь, поэтому и источник каталога для
@@ -858,10 +894,9 @@
     const form = new FormData();
     form.append('file', new File([bytes], 'recording.' + ext, { type: base }));
     form.append('model', apiModel);
-    // The session is whatever conversation is already open — NOT a fresh one.
-    // Minting a session here would give a brand-new empty chat a row before a
-    // single message had been sent, which is the one thing the key rule
-    // forbids (see the header of wc-app.js).
+    // Беседа — открытая; новой ещё нет — заводится здесь (openForPaidWork):
+    // деньги диктовки принадлежат беседе, в которую уйдёт надиктованное.
+    const convKey = await openForPaidWork();
     form.append('meta', JSON.stringify({
       sessionId,
       callType: 'dictation',
@@ -878,12 +913,10 @@
       // null здесь она читалась как «dictation:» — списание, привязанное ни к
       // чему. Расширение эту же грабку уже проходило. Видео тут нет вовсе, но
       // беседа есть, и назвать её — единственное осмысленное содержимое хвоста.
-      // Пусто только до первого сообщения, когда беседы ещё не существует.
-      videoId: openId || null,
+      videoId: convKey || null,
       // Та же беседа полным ключом: сервер пишет её в строку расхода
-      // (calls.chat_key), как у расширения. До первого сообщения беседы нет —
-      // пусто, и сервер отметит это в своём журнале.
-      chatKey: openId || null,
+      // (calls.chat_key), как у расширения.
+      chatKey: convKey || null,
       durationMs: m.durationMs,
     }));
 
@@ -1022,6 +1055,9 @@
     // время ответа считает сам сервер (lex_turn_begin), разводя пару по тому
     // же правилу, что turnAuthoredAt: при равной метке тайбрейк по уиду
     // поставил бы ':a' перед ':u' — ответ над вопросом.
+    // Уиды пары — ленте: по ним встаёт цена хода, которую сервер отдаёт по
+    // готовому уиду реплики (list_chat_money).
+    WcBus.broadcast({ type: 'WC_TURN_UIDS', requestId: m.requestId, userUid: isRegen ? null : userUid, assistantUid });
     const opAt = opId ? global.LexTurnId.turnAuthoredAt(m.pressedAt) : null;
     const authoredAt = opAt ? new Date(opAt.userAt).toISOString() : new Date().toISOString();
     const attachment = (m.images && m.images[0]) || null;

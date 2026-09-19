@@ -1,9 +1,12 @@
 // webchat/wc-settings.js — the settings sheet.
 //
 // WHAT IS NOT HERE, AND WHY. No model picker, no prompt editor, no request
-// log, no cost pill, no answer comparison. The prompt editor, the log and the
-// price are the owner's instruments and stay in the extension
-// (docs/PLAN-NEW-CHAT.md, «Чего не делаем»). The model is chosen outside this
+// log, no answer comparison. The prompt editor and the log are the owner's
+// instruments and stay in the extension (docs/PLAN-NEW-CHAT.md, «Чего не
+// делаем»). The price is not a setting either: a developer sees it in the feed
+// and the conversation total in the top bar (wc-thread.js paintMoney,
+// wc-header.js setMoney), the same as in the extension — the server decides
+// who sees money (list_chat_money show_money). The model is chosen outside this
 // sheet: «Text model» in the «+» menu sets the default one, and the model
 // button under the last answer re-asks it with another (lex-answer-row.js).
 //

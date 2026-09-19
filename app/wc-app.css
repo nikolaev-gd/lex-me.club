@@ -791,6 +791,38 @@ button { font: inherit; color: inherit; }
 
 .wc-topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
+/* Итог беседы — разработчику: сколько списано по этой беседе целиком. Та же
+   пилюля, что в окне расширения; наведение показывает разбивку по видам. */
+.wc-money {
+  position: relative;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: 12px/26px ui-monospace, SFMono-Regular, Menlo, monospace;
+  cursor: pointer;
+}
+.wc-money:hover { color: var(--fg); background: var(--bg-hover); }
+.wc-money-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 12px/20px system-ui, sans-serif;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  display: none;
+}
+.wc-money:hover .wc-money-tip:not([hidden]) { display: block; }
+.wc-money-row { display: flex; justify-content: space-between; gap: 16px; }
+
 /* During a call the gear takes the new-chat spot rather than sitting next to
  * it — starting a second chat mid-call makes no sense, and the top bar stays
  * at exactly two controls either way (owner's count, 2026-08-17). Visibility
@@ -1081,6 +1113,24 @@ button { font: inherit; color: inherit; }
   --lex-answer-row-icon:     15px;
 }
 .wc-turn-foot .lex-answer-row-btn { font-size: 13px; }
+
+/* Цена хода — только разработчику (сервер отдаёт её лишь ему): одно число
+   правее строки под ответом, тем же видом, что в окне расширения. Прячется и
+   показывается нажатием на итог в шапке (wc-header.js). */
+.wc-price {
+  align-self: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--fg-muted);
+  font: 11px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: nowrap;
+}
+.wc-prices-hidden .wc-price { display: none; }
+/* Цена пустого ответа — под вопросом, у правого края, как сам вопрос. */
+.wc-turn-foot-question { justify-content: flex-end; }
+.wc-turn-foot-question .wc-price { margin-left: 0; }
 
 /* Заметка под ответом, который переспросить не удалось (отказ сервера,
    «пополните»): не ответ и не конец беседы — кнопка модели остаётся у ответа

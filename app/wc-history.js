@@ -398,12 +398,13 @@
     origin: r.origin || null,
   });
 
-  // Расходы беседы: по каждому ответу — модель, уровень и цена (строка
-  // расхода с номером операции ответа). Нужны строке под ответом: подпись
-  // кнопки модели после перезагрузки берётся отсюда — сама реплика модели не
-  // несёт. Тот же вызов, что у расширения. null — не прочиталось.
-  async function charges(chatKey) {
-    const out = await post('/rest/v1/rpc/list_chat_charges', { p_chat_key: chatKey });
+  // Деньги беседы (list_chat_money) — тот же вызов, что у расширения: по
+  // каждому ответу готовый уид реплики, модель, уровень и цена; итог беседы;
+  // показывать ли деньги вообще (решает сервер). Модель нужна строке под
+  // ответом всем — ею подписана кнопка модели после перезагрузки; цены и
+  // итог — только разработчику. null — не прочиталось.
+  async function money(chatKey) {
+    const out = await post('/rest/v1/rpc/list_chat_money', { p_chat_key: chatKey });
     return (out && typeof out === 'object') ? out : null;
   }
 
@@ -470,7 +471,7 @@
     setChatHidden,
     requestTitle,
     conversation,
-    charges,
+    money,
     reportStopped,
     attach,
     newUid,

@@ -189,11 +189,40 @@
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     state.conversationId = id;
+    resetMoney();
     WcThread.renderTurns(r.turns);
+    // Деньги беседы пришли тем же заходом — цены под ответами и итог.
+    if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
     WcSidebar.setActive(id);
     WcSidebar.close();
     syncTitle();
     syncAttachment();
+  }
+
+  // ── Деньги беседы ───────────────────────────────────────────────────────
+  // Всё, что лента знает о деньгах, приходит с сервера (list_chat_money):
+  // цена под репликой по готовому уиду и итог беседы. После платного события
+  // деньги перечитываются (lex-chat-money.js), пока строка расхода не
+  // доехала. Смена беседы начинает новую эпоху: ответ для прежней беседы на
+  // экран не попадёт.
+  const turnUids = new Map();
+  let moneyEpoch = 0;
+  const moneyRefresher = global.LexChatMoney ? global.LexChatMoney.createRefresher({
+    load: async () => {
+      const ep = moneyEpoch;
+      const r = await WcBus.call('WC_CHAT_MONEY', {}).catch(() => null);
+      return (ep === moneyEpoch && r && r.ok) ? r.body : null;
+    },
+    apply: (_key, money) => WcThread.paintMoney(money),
+    currentKey: () => 'open:' + moneyEpoch,
+  }) : null;
+  function requestMoney(r) {
+    if (moneyRefresher) moneyRefresher.request(Object.assign({ key: 'open:' + moneyEpoch }, r || {}));
+  }
+  function resetMoney() {
+    moneyEpoch++;
+    if (moneyRefresher) moneyRefresher.cancel();
+    WcThread.paintMoney(null);
   }
 
   async function newConversation() {
@@ -205,6 +234,7 @@
     await endVoiceOnLeave('new-chat');
     state.conversationId = null;
     WcThread.clear();
+    resetMoney();
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
     syncAttachment();
@@ -671,8 +701,9 @@
           onAssistantDelta: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
           onAssistantDone: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
 
-          // response.done — весь ход завершён, можно записывать.
-          onTurnDone: () => flushExchange(),
+          // response.done — весь ход завершён, можно записывать. Строку хода
+          // слушатель сервера пишет вслед за ответом — деньги перечитываются.
+          onTurnDone: () => { flushExchange(); requestMoney({ settleMs: 10000 }); },
 
           // Toasted directly — same path as every other voice-start failure
           // in this function — rather than through WcVoiceScreen.status(),
@@ -698,6 +729,10 @@
             // closes, so ask for the balance twice, like a text turn does.
             refreshAccount();
             setTimeout(refreshAccount, 3000);
+            // Деньги разговора (последний ход, секунды Live 1, расшифровка
+            // речи) слушатель дописывает после отбоя — перечитываем, пока
+            // доезжают.
+            requestMoney({ settleMs: 30000 });
             if (turns) refreshConversations();
           },
         },
@@ -1350,12 +1385,32 @@
     watchBarHeights();
 
     WcBus.subscribe((msg) => {
+      if (msg.type === 'WC_TURN_UIDS') {
+        turnUids.set(msg.requestId, { userUid: msg.userUid, assistantUid: msg.assistantUid });
+      } else if (msg.type === 'WC_CONVERSATION_OPENED') {
+        // Беседа заведена до первого сообщения (диктовка): она и открыта.
+        if (!state.conversationId && msg.id) {
+          state.conversationId = msg.id;
+          WcSidebar.setActive(msg.id);
+        }
+      }
       if (msg.type === 'STREAM_DONE' || msg.type === 'STREAM_ERROR') {
         if (msg.requestId === state.requestId) {
           state.requestId = null;
           WcComposer.setStreaming(false);
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
+        // Цена хода встанет, когда сервер запишет строку расхода: под ответом,
+        // а у пустого ответа — под вопросом. Остановленный ответ сервер
+        // дочитывает до конца и пишет позже; после первого хода беседы ещё
+        // считается платное название.
+        const u = turnUids.get(msg.requestId) || {};
+        turnUids.delete(msg.requestId);
+        requestMoney({
+          expectUid: [u.assistantUid, u.userUid].filter(Boolean),
+          patienceMs: msg.stopped ? 180000 : 30000,
+          settleMs: WcThread.answerCount() <= 1 ? 90000 : 4000,
+        });
       } else if (msg.type === 'WC_TITLES_FILLED') {
         // Приходят ТОЛЬКО имена, по ключу беседы, — не список целиком.
         // Прислали бы список, и он затёр бы порции, догруженные прокруткой,
@@ -1366,10 +1421,14 @@
         WcSidebar.setItems(state.conversations, state.conversationId,
           { error: state.convsError, done: state.convsDone });
         syncTitle();
+        // Название беседы платное — его цена входит в итог.
+        requestMoney({ settleMs: 5000 });
       } else if (msg.type === 'WC_CONVERSATIONS_CHANGED') {
         refreshConversations();
       } else if (msg.type === 'WC_BALANCE_CHANGED') {
         refreshAccount();
+        // Диктовка и прочая платная работа — деньги беседы изменились.
+        requestMoney({ settleMs: 5000 });
       }
     });
 
