@@ -635,7 +635,61 @@
   // Не длиннее двух минут: на длинных кусках Microsoft заметно тормозит.
   const SUBTITLE_ASR_FIRST_CHUNK_SEC = [30, 45, 60, 90, 120];
 
+  // ── Промпты очистки субтитров, схема «Patch» ─────────────────────────────
+  // Три пункта списка промптов, и у каждого ДВА слота серверной ячейки
+  // preprocessPrompts: `id` — для куска без строк автора, `author` — для куска,
+  // где они есть (решение владельца 2026-09-19). Какой из двух уходит модели,
+  // решает воркер по каждому куску сам (background.js preprocessSubtitles:
+  // есть ли в этом куске строки авторской дорожки); человек выбирает только
+  // пункт. Отсюда же берут список окно, редактор (вкладки «без автора» / «с
+  // автором»), публикация (оба слота разом) и страница (перечень пунктов).
+  //   mode — как разбирать ответ (subtitles/patch-answer.js): «упрощённый»
+  //          пишет знак вместе со словом, как «со словом»;
+  //   form / authorForm — вид ответа в отпечатке оплаченного на сервере
+  //          (llm-proxy CLEANUP_FORMS), свой у каждого слота. Тело запроса у
+  //          пунктов одно, а промпт в отпечаток не входит: без своего вида ответ
+  //          одного пункта вернулся бы повтором на заказ другого. Текст «с
+  //          автором» тоже получил свой вид: расширение до 2026-09-19 слало кусок
+  //          с автором в слот пункта (`id`) с видом `form`, и при общем виде
+  //          ответ, сделанный тем промптом, вернулся бы повтором на заказ текста
+  //          «с автором» — тело у них одно и то же.
+  //   label — подпись пункта, пока у слота нет своего имени в каталоге.
+  const CLEANUP_PATCH_ITEMS = [
+    { id: 'preprocessPatchWord', author: 'preprocessPatchWordAuthor', mode: 'word',
+      form: 'patch-word', authorForm: 'patch-word-author', label: 'preprocess.patchWord' },
+    { id: 'preprocessPatchBare', author: 'preprocessPatchBareAuthor', mode: 'bare',
+      form: 'patch-bare', authorForm: 'patch-bare-author', label: 'preprocess.patchBare' },
+    { id: 'preprocessPatchSimple', author: 'preprocessPatchSimpleAuthor', mode: 'word',
+      form: 'patch-simple', authorForm: 'patch-simple-author', label: 'preprocess.patchSimple' },
+  ];
+  const CLEANUP_PATCH_DEFAULT = 'preprocessPatchWord';
+  // Пункт по его id; незнакомое — null (читатели сами решают, падать ли на
+  // пункт по умолчанию).
+  function cleanupPatchItem(id) {
+    return CLEANUP_PATCH_ITEMS.find((it) => it.id === id) || null;
+  }
+  // Пункт, которому принадлежит слот, — по любому из двух его слотов.
+  function cleanupPatchItemOfSlot(slot) {
+    return CLEANUP_PATCH_ITEMS.find((it) => it.id === slot || it.author === slot) || null;
+  }
+  // Слот, который уходит модели: пункт × есть ли в куске строки автора.
+  function cleanupPatchSlot(id, withAuthor) {
+    const it = cleanupPatchItem(id) || cleanupPatchItem(CLEANUP_PATCH_DEFAULT);
+    return withAuthor ? it.author : it.id;
+  }
+  // Вид ответа для отпечатка на сервере — тем же выбором, что слот.
+  function cleanupPatchForm(id, withAuthor) {
+    const it = cleanupPatchItem(id) || cleanupPatchItem(CLEANUP_PATCH_DEFAULT);
+    return withAuthor ? it.authorForm : it.form;
+  }
+
   global.LexSettingsCells = {
+    CLEANUP_PATCH_ITEMS,
+    CLEANUP_PATCH_DEFAULT,
+    cleanupPatchItem,
+    cleanupPatchItemOfSlot,
+    cleanupPatchSlot,
+    cleanupPatchForm,
     SUBTITLE_ASR_KNOB_KEYS,
     SUBTITLE_ASR_WIRE_KEYS,
     SUBTITLE_ASR_CHUNK_MINUTES,
