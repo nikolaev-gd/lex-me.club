@@ -636,51 +636,70 @@
   const SUBTITLE_ASR_FIRST_CHUNK_SEC = [30, 45, 60, 90, 120];
 
   // ── Промпты очистки субтитров, схема «Patch» ─────────────────────────────
-  // Три пункта списка промптов, и у каждого ДВА слота серверной ячейки
-  // preprocessPrompts: `id` — для куска без строк автора, `author` — для куска,
-  // где они есть (решение владельца 2026-09-19). Какой из двух уходит модели,
-  // решает воркер по каждому куску сам (background.js preprocessSubtitles:
-  // есть ли в этом куске строки авторской дорожки); человек выбирает только
-  // пункт. Отсюда же берут список окно, редактор (вкладки «без автора» / «с
-  // автором»), публикация (оба слота разом) и страница (перечень пунктов).
+  // Три пункта списка промптов, и у каждого ТРИ слота серверной ячейки
+  // preprocessPrompts — по тексту на то, что пришло в запросе от авторской
+  // дорожки (решения владельца 2026-09-19):
+  //   `id`     — строк автора в запросе нет;
+  //   `author` — строки автора пришли целиком (схема «Patch», а у «Patch ·
+  //              author diffs» — когда сверка дорожек не удалась и ушёл весь блок);
+  //   `diff`   — пришли только места расхождений (схема «Patch · author diffs»).
+  // Какой из трёх уходит модели, решает воркер по каждому запросу сам
+  // (background.js preprocessSubtitles, cleanupPatchTextOf); человек выбирает
+  // только пункт, и выбор один на обе схемы правки. Отсюда же берут список
+  // окно, редактор (три вкладки), публикация (все слоты пункта разом) и
+  // страница (перечень пунктов).
   //   mode — как разбирать ответ (subtitles/patch-answer.js): «упрощённый»
   //          пишет знак вместе со словом, как «со словом»;
-  //   form / authorForm — вид ответа в отпечатке оплаченного на сервере
-  //          (llm-proxy CLEANUP_FORMS), свой у каждого слота. Тело запроса у
-  //          пунктов одно, а промпт в отпечаток не входит: без своего вида ответ
-  //          одного пункта вернулся бы повтором на заказ другого. Текст «с
-  //          автором» тоже получил свой вид: расширение до 2026-09-19 слало кусок
-  //          с автором в слот пункта (`id`) с видом `form`, и при общем виде
-  //          ответ, сделанный тем промптом, вернулся бы повтором на заказ текста
-  //          «с автором» — тело у них одно и то же.
+  //   form / authorForm / diffForm — вид ответа в отпечатке оплаченного на
+  //          сервере (llm-proxy CLEANUP_FORMS), свой у каждого слота. Тело
+  //          запроса у пунктов одно, а промпт в отпечаток не входит: без своего
+  //          вида ответ одного пункта вернулся бы повтором на заказ другого. Свои
+  //          виды и у текстов «с автором» и «отличия»: расширение прошлой версии
+  //          слало тот же запрос в другой слот (до 2026-09-19 — кусок с автором в
+  //          `id`, в v1.241.0 — кусок с одними расхождениями в `author`), и при
+  //          общем виде ответ, сделанный тем промптом, вернулся бы повтором.
   //   label — подпись пункта, пока у слота нет своего имени в каталоге.
   const CLEANUP_PATCH_ITEMS = [
-    { id: 'preprocessPatchWord', author: 'preprocessPatchWordAuthor', mode: 'word',
-      form: 'patch-word', authorForm: 'patch-word-author', label: 'preprocess.patchWord' },
-    { id: 'preprocessPatchBare', author: 'preprocessPatchBareAuthor', mode: 'bare',
-      form: 'patch-bare', authorForm: 'patch-bare-author', label: 'preprocess.patchBare' },
-    { id: 'preprocessPatchSimple', author: 'preprocessPatchSimpleAuthor', mode: 'word',
-      form: 'patch-simple', authorForm: 'patch-simple-author', label: 'preprocess.patchSimple' },
+    { id: 'preprocessPatchWord', author: 'preprocessPatchWordAuthor', diff: 'preprocessPatchWordDiff', mode: 'word',
+      form: 'patch-word', authorForm: 'patch-word-author', diffForm: 'patch-word-diff', label: 'preprocess.patchWord' },
+    { id: 'preprocessPatchBare', author: 'preprocessPatchBareAuthor', diff: 'preprocessPatchBareDiff', mode: 'bare',
+      form: 'patch-bare', authorForm: 'patch-bare-author', diffForm: 'patch-bare-diff', label: 'preprocess.patchBare' },
+    { id: 'preprocessPatchSimple', author: 'preprocessPatchSimpleAuthor', diff: 'preprocessPatchSimpleDiff', mode: 'word',
+      form: 'patch-simple', authorForm: 'patch-simple-author', diffForm: 'patch-simple-diff', label: 'preprocess.patchSimple' },
   ];
   const CLEANUP_PATCH_DEFAULT = 'preprocessPatchWord';
+  // Что пришло в запросе от авторской дорожки: 'none' | 'full' | 'diff'.
+  // Прежний вызов с true/false читается как 'full' / 'none'.
+  const CLEANUP_PATCH_TEXTS = ['none', 'full', 'diff'];
+  function cleanupPatchTextOf(kind) {
+    if (kind === true) return 'full';
+    return CLEANUP_PATCH_TEXTS.includes(kind) ? kind : 'none';
+  }
   // Пункт по его id; незнакомое — null (читатели сами решают, падать ли на
   // пункт по умолчанию).
   function cleanupPatchItem(id) {
     return CLEANUP_PATCH_ITEMS.find((it) => it.id === id) || null;
   }
-  // Пункт, которому принадлежит слот, — по любому из двух его слотов.
+  // Пункт, которому принадлежит слот, — по любому из трёх его слотов.
   function cleanupPatchItemOfSlot(slot) {
-    return CLEANUP_PATCH_ITEMS.find((it) => it.id === slot || it.author === slot) || null;
+    return CLEANUP_PATCH_ITEMS.find((it) => it.id === slot || it.author === slot || it.diff === slot) || null;
   }
-  // Слот, который уходит модели: пункт × есть ли в куске строки автора.
-  function cleanupPatchSlot(id, withAuthor) {
+  // Все слоты пункта в порядке вкладок редактора: без автора, с автором, отличия.
+  function cleanupPatchSlots(id) {
+    const it = cleanupPatchItem(id);
+    return it ? [it.id, it.author, it.diff] : [];
+  }
+  // Слот, который уходит модели: пункт × что пришло от автора в запросе.
+  function cleanupPatchSlot(id, kind) {
     const it = cleanupPatchItem(id) || cleanupPatchItem(CLEANUP_PATCH_DEFAULT);
-    return withAuthor ? it.author : it.id;
+    const k = cleanupPatchTextOf(kind);
+    return k === 'diff' ? it.diff : (k === 'full' ? it.author : it.id);
   }
   // Вид ответа для отпечатка на сервере — тем же выбором, что слот.
-  function cleanupPatchForm(id, withAuthor) {
+  function cleanupPatchForm(id, kind) {
     const it = cleanupPatchItem(id) || cleanupPatchItem(CLEANUP_PATCH_DEFAULT);
-    return withAuthor ? it.authorForm : it.form;
+    const k = cleanupPatchTextOf(kind);
+    return k === 'diff' ? it.diffForm : (k === 'full' ? it.authorForm : it.form);
   }
 
   global.LexSettingsCells = {
@@ -688,6 +707,9 @@
     CLEANUP_PATCH_DEFAULT,
     cleanupPatchItem,
     cleanupPatchItemOfSlot,
+    CLEANUP_PATCH_TEXTS,
+    cleanupPatchTextOf,
+    cleanupPatchSlots,
     cleanupPatchSlot,
     cleanupPatchForm,
     SUBTITLE_ASR_KNOB_KEYS,
