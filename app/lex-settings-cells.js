@@ -248,7 +248,6 @@
     knobSubtitleAsrMode: 'verbatim',                   // дословно / причёсанно (Microsoft)
     knobSubtitleAsrChunkMinutes: 5,                    // длина куска, минут — одно из SUBTITLE_ASR_CHUNK_MINUTES
     knobSubtitleAsrParallel: 6,                        // сколько кусков уходит одновременно — одно из SUBTITLE_ASR_PARALLEL
-    knobSubtitleAsrFirstChunkSec: 60,                  // длина ПЕРВОГО куска, секунд — одно из SUBTITLE_ASR_FIRST_CHUNK_SEC
     knobVoiceVadThreshold: 0.75,                       // audio.input.turn_detection.threshold
     knobVoicePrefixPaddingMs: 300,                     // audio.input.turn_detection.prefix_padding_ms
     knobVoiceSilenceDurationMs: 1500,                  // audio.input.turn_detection.silence_duration_ms
@@ -610,7 +609,7 @@
   // делает сервер (supabase/functions/_shared/subtitle-asr.ts). Модель едет
   // своим полем, нарезка серверу не нужна вовсе — её делает воркер.
   const SUBTITLE_ASR_KNOB_PREFIX = 'knobSubtitleAsr';
-  const SUBTITLE_ASR_NOT_WIRED = ['knobSubtitleAsrModel', 'knobSubtitleAsrChunkMinutes', 'knobSubtitleAsrParallel', 'knobSubtitleAsrFirstChunkSec'];
+  const SUBTITLE_ASR_NOT_WIRED = ['knobSubtitleAsrModel', 'knobSubtitleAsrChunkMinutes', 'knobSubtitleAsrParallel'];
   const SUBTITLE_ASR_KNOB_KEYS = Object.keys(KNOB_DEFAULTS)
     .filter((k) => k.indexOf(SUBTITLE_ASR_KNOB_PREFIX) === 0);
   const SUBTITLE_ASR_WIRE_KEYS = SUBTITLE_ASR_KNOB_KEYS.filter((k) => SUBTITLE_ASR_NOT_WIRED.indexOf(k) < 0);
@@ -636,10 +635,6 @@
   // dev-tools/test-inflight-groups.mjs сверяет это с числами в базе.
   const SUBTITLE_ASR_CHUNK_MINUTES = [1, 2, 3, 4, 5];
   const SUBTITLE_ASR_PARALLEL = [1, 2, 3, 4, 5, 6];
-  // Первый кусок — отдельно от остальных: короткий возвращается быстрее, и
-  // начало субтитров встаёт на экран, пока остальное ещё расшифровывается.
-  // Не длиннее двух минут: на длинных кусках Microsoft заметно тормозит.
-  const SUBTITLE_ASR_FIRST_CHUNK_SEC = [30, 45, 60, 90, 120];
 
   // ── Промпты очистки субтитров, схема «Patch» ─────────────────────────────
   // Три пункта списка промптов, и у каждого ТРИ слота серверной ячейки
@@ -722,7 +717,6 @@
     SUBTITLE_ASR_WIRE_KEYS,
     SUBTITLE_ASR_CHUNK_MINUTES,
     SUBTITLE_ASR_PARALLEL,
-    SUBTITLE_ASR_FIRST_CHUNK_SEC,
     subtitleAsrWireName,
     subtitleAsrKnobs,
     SLOT_CELLS,
