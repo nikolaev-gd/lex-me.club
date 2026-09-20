@@ -234,9 +234,15 @@
     // Блок «Subtitle transcription». Распознавалку, её поля и нарезку выбирает
     // разработчик и публикует кнопкой блока; всем остальным значения приезжают
     // опубликованным набором. Ниже — только умолчание ячейки, как у любой ручки.
-    knobSubtitleAsrModel: 'nova-3',                    // имя модели у поставщика (строка базы models.subtitle_asr)
+    // Умолчание — Microsoft, и разделение говорящих выключено (решение
+    // владельца 2026-09-20). Раньше здесь стоял Deepgram nova-3 с включённым
+    // разделением: час звука у него стоит $0.258 плюс $0.12 надбавки за
+    // разделение, у Microsoft — $0.10, то есть почти вчетверо дешевле за ту же
+    // работу. Разделение говорящих субтитрам Lex не нужно, а деньги берёт с
+    // каждого ролика без английских субтитров.
+    knobSubtitleAsrModel: 'MAI-Transcribe-2',          // имя модели у поставщика (строка базы models.subtitle_asr)
     knobSubtitleAsrLanguage: 'auto',                   // язык речи в ролике; 'auto' — распознавалка определяет сама
-    knobSubtitleAsrDiarize: true,                      // разделение говорящих (у Deepgram — платная надбавка)
+    knobSubtitleAsrDiarize: false,                     // разделение говорящих (у Deepgram — платная надбавка)
     knobSubtitleAsrFillerWords: true,                  // слова-паразиты (Deepgram)
     knobSubtitleAsrKeywords: '',                       // точные слова через запятую (Microsoft)
     knobSubtitleAsrMode: 'verbatim',                   // дословно / причёсанно (Microsoft)
