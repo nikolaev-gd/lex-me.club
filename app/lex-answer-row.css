@@ -72,3 +72,38 @@
   width: 13px;
   height: 13px;
 }
+
+/* Кнопка правки своего сообщения. Рисованный значок, один размер с остальными:
+ * раньше на её месте стоял цветной эмодзи, который не брал цвет строки. */
+.lex-answer-row .lex-answer-row-edit {
+  padding: 0;
+}
+
+/* Переключатель версий: «‹ 1 / 2 ›», прижат к правому краю строки. Строка
+ * растягивается только когда переключатель есть (has-flip) — окна без версий
+ * остаются как были. */
+.lex-answer-row.has-flip {
+  width: 100%;
+}
+.lex-answer-row .lex-answer-row-flip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: auto;
+}
+.lex-answer-row .lex-answer-row-flip-btn {
+  min-width: calc(var(--lex-answer-row-size, 26px) - 6px);
+  padding: 0;
+}
+.lex-answer-row .lex-answer-row-flip-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
+}
+.lex-answer-row .lex-answer-row-count {
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  padding: 0 2px;
+  font-variant-numeric: tabular-nums;
+}

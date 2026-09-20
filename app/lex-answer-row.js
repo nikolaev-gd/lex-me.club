@@ -32,6 +32,11 @@
     copy: 'M9 9h10v10H9zM5 15V5h10',
     check: 'M4 12l5 5L20 6',
     chevron: 'M7 10l5 5 5-5',
+    // Карандаш правки. Рисованный значок, а не знак шрифта: цветной эмодзи
+    // ✏️ не берёт цвет строки и рядом с рисованными значками выглядит чужим.
+    pencil: 'M4 20h4L19 9l-4-4L4 16v4zM15 5l4 4',
+    prev: 'M14 6l-6 6 6 6',
+    next: 'M10 6l6 6-6 6',
   };
   const COPIED_MS = 1400;
 
@@ -159,18 +164,114 @@
   }
 
   /**
+   * Поставить, обновить или снять кнопку правки. Строка под сообщением
+   * человека несёт её слева от копирования; строка под ответом учителя — нет.
+   * @param {HTMLElement} row строка из create
+   * @param {{title?: string, onClick: (btn: HTMLElement) => void}|null} spec
+   * @returns {HTMLElement|null}
+   */
+  function setEdit(row, spec) {
+    if (!row) return null;
+    let btn = row.querySelector(':scope > .lex-answer-row-edit');
+    if (!spec) {
+      if (btn) btn.remove();
+      return null;
+    }
+    if (!btn) {
+      btn = button('lex-answer-row-edit', spec.title || '');
+      btn.appendChild(icon('pencil'));
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof btn._lexOnClick === 'function') btn._lexOnClick(btn);
+      });
+      row.insertBefore(btn, row.firstChild);
+    }
+    if (spec.title) {
+      btn.title = spec.title;
+      btn.setAttribute('aria-label', spec.title);
+    }
+    btn._lexOnClick = spec.onClick;
+    return btn;
+  }
+
+  /**
+   * Переключатель версий: «‹ 1 / 2 ›», прижат к правому краю строки. Версия
+   * одна — переключателя нет вовсе.
+   *
+   * Строка растягивается на ширину пузыря только когда переключатель есть
+   * (класс has-flip): окна, которые версий не показывают, остаются как были.
+   *
+   * @param {HTMLElement} row строка из create
+   * @param {{idx: number, total: number, onPrev: () => void, onNext: () => void,
+   *          prevTitle?: string, nextTitle?: string}|null} spec
+   * @returns {HTMLElement|null}
+   */
+  function setVersions(row, spec) {
+    if (!row) return null;
+    let box = row.querySelector(':scope > .lex-answer-row-flip');
+    const total = spec ? Number(spec.total) || 0 : 0;
+    const idx = spec ? Number(spec.idx) || 0 : 0;
+    if (!spec || total < 2 || idx < 1) {
+      if (box) box.remove();
+      row.classList.remove('has-flip');
+      return null;
+    }
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'lex-answer-row-flip';
+      const prev = button('lex-answer-row-flip-btn lex-answer-row-flip-prev', spec.prevTitle || '');
+      prev.appendChild(icon('prev'));
+      const count = document.createElement('span');
+      count.className = 'lex-answer-row-count';
+      const next = button('lex-answer-row-flip-btn lex-answer-row-flip-next', spec.nextTitle || '');
+      next.appendChild(icon('next'));
+      prev.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (typeof box._lexPrev === 'function') box._lexPrev();
+      });
+      next.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (typeof box._lexNext === 'function') box._lexNext();
+      });
+      box.appendChild(prev);
+      box.appendChild(count);
+      box.appendChild(next);
+      row.appendChild(box);
+    }
+    row.classList.add('has-flip');
+    box.querySelector('.lex-answer-row-count').textContent = idx + ' / ' + total;
+    box._lexPrev = spec.onPrev;
+    box._lexNext = spec.onNext;
+    const prevBtn = box.querySelector('.lex-answer-row-flip-prev');
+    const nextBtn = box.querySelector('.lex-answer-row-flip-next');
+    // Края цепочки: на первой версии некуда влево, на последней — вправо.
+    prevBtn.disabled = idx <= 1;
+    nextBtn.disabled = idx >= total;
+    if (spec.prevTitle) { prevBtn.title = spec.prevTitle; prevBtn.setAttribute('aria-label', spec.prevTitle); }
+    if (spec.nextTitle) { nextBtn.title = spec.nextTitle; nextBtn.setAttribute('aria-label', spec.nextTitle); }
+    return box;
+  }
+
+  /**
    * Правило одной ленты: кнопка модели — только под последним ответом и
    * только если он готовый текстовый. Копирование уже стоит в каждой строке.
    * @param {Array<{row: HTMLElement|null, eligible: boolean, model?: object}>} entries
    *   ВСЕ ответы ленты в порядке показа, включая голосовые, ошибки и тот, что
    *   ещё пишется (у них row: null или eligible: false).
    */
-  function sync(entries) {
+  function sync(entries, opts) {
     const list = Array.isArray(entries) ? entries : [];
     const last = list.length ? list[list.length - 1] : null;
+    // everyAnswer — кнопка модели под КАЖДЫМ готовым текстовым ответом, а не
+    // только под последним. Так переспросить можно любой ответ беседы, и из
+    // него вырастет своя версия. Окно, которое версий не показывает, зовёт
+    // sync без этого признака и остаётся с прежним правилом.
+    const every = !!(opts && opts.everyAnswer);
     for (const e of list) {
       if (!e || !e.row) continue;
-      setModel(e.row, (e === last && e.eligible && e.model) ? e.model : null);
+      const wants = every ? (e.eligible && e.model) : (e === last && e.eligible && e.model);
+      setModel(e.row, wants ? e.model : null);
     }
   }
 
@@ -222,5 +323,5 @@
     return m.provider + ':' + m.apiModel + ':' + String(effort || 'none');
   }
 
-  global.LexAnswerRow = { create, setModel, sync, modelLabel, modelIdOfCharge, copyText };
+  global.LexAnswerRow = { create, setModel, setEdit, setVersions, sync, modelLabel, modelIdOfCharge, copyText };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -41,7 +41,7 @@
 
   if (global.LexTeacherCore) return;
 
-  const REQUIRED = ["TAG", "LXT", "emit", "keepAlive", "hasSecrets", "inflightStreams", "lastClickByTab", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "DEFAULT_API_KEY", "getApiKey", "lexSbUrl", "lexAnonKey", "OPENAI_URL", "OPENAI_RESPONSES_URL", "OPENAI_CONVERSATIONS_URL", "ANTHROPIC_URL", "GOOGLE_URL_TMPL", "GOOGLE_INTERACTIONS_URL", "MODEL_REGISTRY", "authValidToken", "getActiveChatPrompt", "upsertPrompt", "addWordClick", "updateWordClick", "recordAnyCall", "logTextCallRequest", "logTextCallResponse", "buildIoResponse", "extractEffectiveCallParams", "lexNotifyBalanceMaybeChanged", "logContextTrace", "resolvePageType", "resolveCallSessionId", "ensureSessionForTab", "ensureStandaloneSessionForTab", "forgetSessionId", "forgetStandaloneSessionId", "extractRealVideoId"];
+  const REQUIRED = ["TAG", "LXT", "emit", "keepAlive", "hasSecrets", "inflightStreams", "lastClickByTab", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "DEFAULT_API_KEY", "getApiKey", "lexSbUrl", "lexAnonKey", "OPENAI_URL", "OPENAI_RESPONSES_URL", "OPENAI_CONVERSATIONS_URL", "ANTHROPIC_URL", "GOOGLE_URL_TMPL", "GOOGLE_INTERACTIONS_URL", "MODEL_REGISTRY", "authValidToken", "getActiveChatPrompt", "upsertPrompt", "addWordClick", "updateWordClick", "recordAnyCall", "logTextCallRequest", "logTextCallResponse", "replaceTextCallRequestBody", "buildIoResponse", "extractEffectiveCallParams", "lexNotifyBalanceMaybeChanged", "logContextTrace", "resolvePageType", "resolveCallSessionId", "ensureSessionForTab", "ensureStandaloneSessionForTab", "forgetSessionId", "forgetStandaloneSessionId", "extractRealVideoId"];
 
   function create(deps) {
     const missing = REQUIRED.filter((n) => deps[n] === undefined);
@@ -81,6 +81,7 @@
       updateWordClick,
       recordAnyCall,
       logTextCallRequest,
+      replaceTextCallRequestBody,
       logTextCallResponse,
       buildIoResponse,
       extractEffectiveCallParams,
@@ -154,6 +155,16 @@
             if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
             continue;
           }
+          // Свой кадр сервера: итоговое тело запроса — то, что ушло поставщику
+          // после всех серверных вклеек. Журнал обмена записывает его вместо
+          // своего: список реплик собирает сервер, и без этого кадра в журнале
+          // осталась бы одна реплика вместо всей беседы. Приходит только
+          // разработчику.
+          if (eventName === 'lex_proxy_request') {
+            const cb = response && response.__lexOnServerRequest;
+            if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
+            continue;
+          }
           onEvent({ event: eventName, data: dataStr });
         }
       }
@@ -197,6 +208,7 @@
         // сервером. Кадр читает readSSEStream, общий для всех адаптеров; ручка
         // едет на самом ответе, чтобы адаптерам не пришлось её передавать.
         if (proxy && typeof proxy.onServerTurn === 'function') resp.__lexOnServerTurn = proxy.onServerTurn;
+        if (proxy && typeof proxy.onServerRequest === 'function') resp.__lexOnServerRequest = proxy.onServerRequest;
         return resp;
       });
     }
@@ -2217,6 +2229,10 @@
           // же ответ, когда открыто второе устройство; кто заменяется, знает
           // нажавший. Без него сервер «заново» не ведёт вовсе.
           replacesUid: (chatOptions && chatOptions.replacesUid) || null,
+          // Контекст собирает сервер: в конверте едет только новая реплика, а
+          // цепочку от начала беседы до выбранного сообщения сервер поднимает
+          // сам. Готовый список реплик он при этом признаке не принимает вовсе.
+          tree: !!(chatOptions && chatOptions.tree),
         },
       } : null;
       // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)
@@ -2232,6 +2248,15 @@
         proxy.onServerTurn = (d) => {
           const userText = d && typeof d.userText === 'string' ? d.userText : null;
           if (userText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText });
+        };
+        // Итоговое тело запроса от сервера — в журнал обмена, на место того,
+        // которое собрало устройство. Тело приходит строкой, уже без байтов
+        // картинок (их сервер заменил маркером, как это делает сам журнал).
+        proxy.onServerRequest = (d) => {
+          const body = d && typeof d.body === 'string' ? d.body : null;
+          if (!body || !lastIoLogId) return;
+          try { replaceTextCallRequestBody(lastIoLogId, body); }
+          catch (_) { /* журнал остаётся со своим телом */ }
         };
         proxy.onHeaders = (h) => {
           let led = false;
