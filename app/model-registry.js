@@ -956,12 +956,15 @@
   }
 
   // Надпись выбранной модели на кнопке выбора модели: «5.6 Terra · medium».
-  // Ступень «none» не пишется — у модели без размышления надпись та же, что в
-  // списке. Одна на все такие кнопки (Text models, Subtitle cleanup, Action
-  // modes), чтобы надписи не разъехались.
+  // Ступень пишется ВСЕГДА, включая «none» (решение владельца 2026-09-20):
+  // «не размышлять» — такой же выбор, как остальные, и по надписи без ступени
+  // нельзя было отличить «выбрано none» от «ступени у модели нет вовсе».
+  // Пишется тем же словом, что стоит пунктом в меню ступеней, чтобы надпись и
+  // меню читались одинаково. Одна на все такие кнопки (Text models, Subtitle
+  // cleanup, Action modes), чтобы надписи не разъехались.
   function modelEffortLabel(apiModel, effort) {
     const label = labelForModel(apiModel);
-    return (effort && effort !== 'none') ? label + ' · ' + effort : label;
+    return effort ? label + ' · ' + effort : label;
   }
 
   // <option> markup for the voice-model <select> (flat, no optgroup).

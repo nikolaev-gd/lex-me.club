@@ -194,7 +194,9 @@
     }
     const reg = global.LexModelRegistry;
     if (reg && typeof reg.modelEffortLabel === 'function') return reg.modelEffortLabel(api, eff);
-    return (eff && eff !== 'none') ? api + ' · ' + eff : api;
+    // Ступень пишется всегда, включая «none» — как на кнопках выбора модели
+    // (modelEffortLabel в model-registry.js).
+    return eff ? api + ' · ' + eff : api;
   }
 
   /**
