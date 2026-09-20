@@ -544,14 +544,22 @@
     // normalizer cannot stay provider-agnostic once content can be an array.
     // For Google it remaps role 'assistant' → 'model' and wraps content in
     // {parts:[…]}.
-    function normalizeMessagesForOpenAIAnthropic(messages, userMessage, dialect) {
-      if (Array.isArray(messages) && messages.length) {
+    // `serverHistory` — ход по дереву переписки: список реплик собирает сервер,
+    // и устройство шлёт либо одну новую реплику, либо НОЛЬ (переспрос: нового
+    // текста нет вовсе). Пустой список здесь значит «сообщений нет», а не
+    // «списка не дали»: подставить вместо него заглушку `userMessage` («.»)
+    // значило бы дописать модели лишнюю реплику в самый конец запроса — после
+    // цепочки, которую вставит сервер, — и она отвечала бы на точку вместо
+    // вопроса. Без этого признака поведение прежнее: пустой список = нет
+    // истории, едет `userMessage` (так работает разбор слова).
+    function normalizeMessagesForOpenAIAnthropic(messages, userMessage, dialect, serverHistory) {
+      if (Array.isArray(messages) && (messages.length || serverHistory)) {
         return messages.map((m) => ({ role: m.role, content: contentToDialect(m.role, m.content, dialect) }));
       }
       return [{ role: 'user', content: contentToDialect('user', userMessage, dialect) }];
     }
 
-    function normalizeMessagesForGoogle(messages, userMessage) {
+    function normalizeMessagesForGoogle(messages, userMessage, serverHistory) {
       // Google's part shape is `inline_data` in snake_case, mirroring the one REST
       // precedent in this file (runBenchGeminiText, the pronunciation bench, which
       // sends WAV the same way). The camelCase `inlineData` seen elsewhere in the
@@ -564,7 +572,9 @@
           ? { inline_data: { mime_type: neutralBlockMime(b), data: b.data } }
           : { text: neutralBlockText(b) }));
       };
-      if (Array.isArray(messages) && messages.length) {
+      // Пустой список при ходе дерева — законен, см. комментарий у
+      // normalizeMessagesForOpenAIAnthropic выше.
+      if (Array.isArray(messages) && (messages.length || serverHistory)) {
         const filtered = [];
         for (const m of messages) {
           // Google encodes the system prompt separately in `systemInstruction` —
@@ -625,7 +635,7 @@
       return t;
     }
 
-    async function callOpenAIStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, signal, effort, knobs, modelId, proxy }) {
+    async function callOpenAIStream({ model, systemPrompt, userMessage, messages, serverHistory, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, signal, effort, knobs, modelId, proxy }) {
       const apiKey = proxy ? null : await getApiKey();
       if (!proxy && !apiKey) throw new Error('OpenAI API key not set. Open extension settings.');
 
@@ -640,7 +650,7 @@
         // "your instructions are: nothing".
         messages: [
           ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
-          ...normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'openai-chat'),
+          ...normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'openai-chat', serverHistory),
         ],
       };
       // OpenAI reasoning_effort: 'none' | 'low' | 'medium' | 'high'. Passed through
@@ -927,7 +937,7 @@
     }
 
     async function callOpenAIResponsesStream({
-      model, systemPrompt, userMessage, messages, previousResponseId,
+      model, systemPrompt, userMessage, messages, serverHistory, previousResponseId,
       onChunk, onModel, onUsage, onBilled, onProxyTimings, onResponseId, onRequestBody, onResponseMeta, onRawFrame, signal, effort,
       conversation, videoId, knobs, modelId, __diagMark, proxy,
     }) {
@@ -940,10 +950,10 @@
       let input;
       if (previousResponseId) {
         input = userMessage;
-      } else if (Array.isArray(messages) && messages.length > 0) {
+      } else if (Array.isArray(messages) && (messages.length > 0 || serverHistory)) {
         // Reuse the same OpenAI/Anthropic message normalization helper. The
         // Responses API accepts the same {role, content} shape in input.
-        input = normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'openai-responses');
+        input = normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'openai-responses', serverHistory);
       } else {
         input = userMessage;
       }
@@ -1174,7 +1184,7 @@
       } catch (e) { /* log collection must never break the call */ }
     }
 
-    async function callAnthropicStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
+    async function callAnthropicStream({ model, systemPrompt, userMessage, messages, serverHistory, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
       // `!proxy &&` — как у соседних адаптеров (OpenAI, Google). Ключ читается
       // ТОЛЬКО в прямой ветке ниже (`x-api-key`); на прокси-пути его ставит
       // сервер. Без этого условия любой host, который провайдерских ключей не
@@ -1206,7 +1216,7 @@
         // the cache_control block form. Sending an empty string here would both
         // waste the cache breakpoint and risk a 400.
         ...(systemPrompt ? { system: systemPrompt } : {}),
-        messages: normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'anthropic'),
+        messages: normalizeMessagesForOpenAIAnthropic(messages, userMessage, 'anthropic', serverHistory),
       };
       // 1.5.30: prompt caching. Two cache_control breakpoints (limit is 4 per
       // request — well under). One on the system prompt (stable across every
@@ -1437,7 +1447,7 @@
       } catch (e) { /* log collection must never break the call */ }
     }
 
-    async function callGoogleStream({ model, systemPrompt, userMessage, messages, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel, knobs, modelId, __diagMark, proxy }) {
+    async function callGoogleStream({ model, systemPrompt, userMessage, messages, serverHistory, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, thinkingLevel, knobs, modelId, __diagMark, proxy }) {
       if (!proxy && !GOOGLE_API_KEY) throw new Error('Google API key not set.');
 
       const url = `${GOOGLE_URL_TMPL}${model}:streamGenerateContent?alt=sse&key=${GOOGLE_API_KEY}`;
@@ -1445,7 +1455,7 @@
         // Absent when the server owns the prompt — llm-proxy writes
         // systemInstruction itself. Google rejects an empty parts[].text.
         ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
-        contents: normalizeMessagesForGoogle(messages, userMessage),
+        contents: normalizeMessagesForGoogle(messages, userMessage, serverHistory),
       };
       // generationConfig holds both thinking + the knobs. Build incrementally so
       // an empty knobs payload doesn't add an empty object next to thinkingConfig.
@@ -1977,6 +1987,11 @@
       // callGoogleStream path with messages[] — the chat still works, just
       // without server-side memory.
       const isChat = !!(chatOptions && (Array.isArray(chatOptions.messages) || typeof chatOptions.text === 'string'));
+      // Ход по дереву переписки: контекст поднимает сервер по цепочке родителей,
+      // и устройство отправляет либо одну новую реплику, либо ни одной («заново»
+      // — нового текста человек не писал). Признак нужен адаптерам, чтобы они
+      // НЕ подставляли вместо пустого списка заглушку «.» (normalizeMessages*).
+      const treeTurn = !!(chatOptions && chatOptions.tree === true);
       // 1.5.61: the word-click popup is a cheap one-shot lookup — keep it
       // OUT of the per-video conversation thread. When wordPromptOverride is
       // present (= a word-click popup request) force the non-thread path:
@@ -2675,6 +2690,7 @@
             // word-flow synthetic userMessage for first-click).
             userMessage: previousResponseIdToUse ? lastUserMessage : userMessage,
             messages: isChat ? chatOptions.messages : null,
+            serverHistory: treeTurn,
             previousResponseId: previousResponseIdToUse,
             videoId,
             effort: entry.effort ?? null,
@@ -2691,6 +2707,7 @@
           systemPrompt: prompt,
           userMessage,
           messages: isChat ? chatOptions.messages : null,
+          serverHistory: treeTurn,
           effort: entry.effort ?? null,
           thinking: thinkingEnabled,
           thinkingLevel: entry.thinkingLevel ?? null,
