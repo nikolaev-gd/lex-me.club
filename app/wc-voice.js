@@ -217,8 +217,17 @@
     eventsSeen = new Set();
     let ref = 0;
 
-    const open = () => {
+    // Тема разговора приватная: Realtime пускает в неё только по пропуску, и
+    // правило в базе сверяет, что этот call_id принадлежит вошедшему. Поэтому
+    // токен берётся ПЕРЕД каждым подключением, в том числе перед повторным:
+    // разговор может пережить продление пропуска, а старый токен Realtime уже
+    // не примет.
+    const open = async () => {
       if (closed) return;
+      let token = null;
+      try { token = await A().validToken(); } catch (_) { token = null; }
+      if (closed) return;
+      if (!token) { warn('events: нет пропуска — канал разговора не открыть'); return; }
       let sock;
       try { sock = new WebSocket(wsUrl); } catch (e) { warn('events ws create failed:', e && e.message); return; }
       eventsWs = sock;
@@ -227,7 +236,10 @@
         try {
           sock.send(JSON.stringify({
             topic, event: 'phx_join', ref: String(++ref),
-            payload: { config: { broadcast: { self: false }, presence: { key: '' }, private: false } },
+            payload: {
+              config: { broadcast: { self: false }, presence: { key: '' }, private: true },
+              access_token: token,
+            },
           }));
         } catch (_) {}
         if (eventsHb) clearInterval(eventsHb);
@@ -267,13 +279,13 @@
         // keeps flowing over WebRTC. One reconnect per drop.
         if (!closed && eventsWs === sock) {
           log('events dropped — reconnecting');
-          setTimeout(() => { if (!closed) open(); }, 1000);
+          setTimeout(() => { if (!closed) open().catch(() => {}); }, 1000);
         }
       };
       sock.onerror = () => { /* onclose follows */ };
     };
 
-    open();
+    open().catch((e) => warn('events open threw:', e && e.message));
   }
 
   function sendServerCmd(commands) {
