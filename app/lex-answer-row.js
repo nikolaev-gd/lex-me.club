@@ -236,6 +236,13 @@
         e.preventDefault(); e.stopPropagation();
         if (typeof box._lexNext === 'function') box._lexNext();
       });
+      // Наведение мыши — не действие, а предупреждение о нём. Окно пользуется
+      // им, чтобы разбудить спящий служебный процесс расширения заранее: от
+      // наведения до нажатия проходит больше времени, чем стоит пробуждение.
+      // Ничего не рисует и ничего не меняет.
+      const hover = () => { if (typeof box._lexHover === 'function') box._lexHover(); };
+      prev.addEventListener('pointerenter', hover);
+      next.addEventListener('pointerenter', hover);
       box.appendChild(prev);
       box.appendChild(count);
       box.appendChild(next);
@@ -245,6 +252,7 @@
     box.querySelector('.lex-answer-row-count').textContent = idx + ' / ' + total;
     box._lexPrev = spec.onPrev;
     box._lexNext = spec.onNext;
+    box._lexHover = spec.onHover;
     const prevBtn = box.querySelector('.lex-answer-row-flip-prev');
     const nextBtn = box.querySelector('.lex-answer-row-flip-next');
     // Края цепочки: на первой версии некуда влево, на последней — вправо.
