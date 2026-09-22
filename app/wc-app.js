@@ -301,6 +301,11 @@
     // would blank the picture the reader just sent.
     // Слот заготовки — на пузырь: «Edit» такого вопроса уйдёт той же заготовкой.
     WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null });
+    // Ход заготовки: пузырь сразу строкой и фразой, по строке из списка пилюль.
+    // Первый кадр ответа (laterText) перерисует его серверной версией.
+    const localLater = (mode && slotId && opts && typeof opts.laterOf === 'function')
+      ? opts.laterOf(turn.visible) : '';
+    if (localLater) WcThread.setLastUserPreset(localLater);
     WcComposer.refresh();
 
     const requestId = nextRequestId();

@@ -104,7 +104,13 @@
     // Модель — тоже готовым значением из строки списка, а не по имени ключа,
     // которое страница собирала у себя: та копия правила уже расходилась
     // однажды (врезка в wc-backend.js).
-    submit({ mode: 'native', slotId, modelId: (p && p.modelId) || '' });
+    // laterOf — пузырь хода сразу строкой и фразой (LexActionPresets.laterOf);
+    // только показ, кадр сервера со строкой перерисует его своей версией.
+    submit({
+      mode: 'native', slotId, modelId: (p && p.modelId) || '',
+      laterOf: (phrase) => ((P && presetScope && typeof P.laterOf === 'function')
+        ? P.laterOf(presetScope, slotId, phrase) : ''),
+    });
   }
 
   // Рисует ряд заново с нуля — проще и надёжнее патча трёх кнопок по месту,
