@@ -327,6 +327,9 @@
         text: turn.sent,
         // Места выбранных слов; null — слов не выбирали.
         picks: turn.picks || null,
+        // «Edit» вопроса без новых выбранных слов: из какого вопроса сервер
+        // возьмёт скрытый блок (Word/Context/Source).
+        pickFrom: (!turn.picks && opts && opts.pickFrom) ? String(opts.pickFrom) : null,
         images,
         mode,
         slotId,
@@ -476,9 +479,11 @@
   // не вернуть. Отправка обычная — она добавит новый ход. Вопрос, заданный
   // заготовкой, уходит той же заготовкой: её пилюля подсвечивается, и
   // отправка идёт через неё (решение владельца 2026-09-21).
-  function editTurn(text, presetSlot) {
+  function editTurn(text, presetSlot, sourceUid) {
     WcComposer.setText(text || '');
     WcComposer.armPreset(presetSlot || null);
+    // С какого вопроса правка: сервер возьмёт из него блок выбранного слова.
+    WcComposer.armEditSource(sourceUid || null);
     WcComposer.focus();
   }
 

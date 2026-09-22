@@ -53,6 +53,10 @@
   // подсвечена, пока взведено, — отправка через заготовку не бывает невидимой.
   // Снимается отправкой, нажатием любой пилюли и опустевшим полем.
   let armedPresetSlot = null;
+  // «Edit» своего вопроса: с какого вопроса начали правку. Отправка несёт его
+  // номер, и сервер берёт из того вопроса скрытый блок выбранного слова
+  // (Word/Context/Source) — иначе правленый вопрос ушёл бы учителю без него.
+  let editSourceUid = null;
 
   // Подпись «Native» — запасная: её отдаёт labelOf(), пока имя первой заготовки
   // в каталоге не тронуто человеком. У расширения на её месте строка перевода,
@@ -276,7 +280,9 @@
     autoGrow();
     syncButton();
     WcHaptics.tap();
-    await hooks.onSend(text, opts || {});
+    const pickFrom = editSourceUid;
+    editSourceUid = null;
+    await hooks.onSend(text, { ...(opts || {}), ...(pickFrom ? { pickFrom } : {}) });
   }
 
   // ── Long press ───────────────────────────────────────────────────────────
@@ -659,7 +665,7 @@
       elInput.addEventListener('input', () => {
         autoGrow(); syncButton();
         // Поле стёрли — взведённая правкой заготовка больше ни к чему.
-        if (!elInput.value.trim()) armPreset(null);
+        if (!elInput.value.trim()) { armPreset(null); editSourceUid = null; }
       });
 
       // Что делает Enter — решает общий модуль, один на четыре места
@@ -812,12 +818,14 @@
       syncButton();
       // Поле очистили снаружи (новая беседа, другая беседа) — взведённая
       // правкой заготовка к нему больше не относится.
-      if (!elInput.value.trim()) armPreset(null);
+      if (!elInput.value.trim()) { armPreset(null); editSourceUid = null; }
     },
 
     // «Edit» вопроса, заданного заготовкой: следующая обычная отправка уйдёт
     // через неё. null — снять.
     armPreset(slotId) { armPreset(slotId || null); },
+    // «Edit» вопроса: номер вопроса, с которого начали правку (null — снять).
+    armEditSource(uid) { editSourceUid = uid ? String(uid) : null; },
 
     text() { return elInput.value; },
   };

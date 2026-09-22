@@ -1154,6 +1154,7 @@
         text: m.text,
         // Места выбранных слов: вопрос из них собирает сервер.
         ...(m.picks ? { picks: m.picks } : {}),
+        ...(!m.picks && m.pickFrom ? { pickBlockFrom: String(m.pickFrom) } : {}),
         surface: 'standalone',
         source: 'webchat',
         turnIndex: buf.length - 1,

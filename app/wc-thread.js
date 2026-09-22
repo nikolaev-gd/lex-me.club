@@ -102,13 +102,30 @@
       {
         label: 'Edit',
         icon: 'edit',
-        onSelect: () => hooks.onEdit && hooks.onEdit(userText(bubble), (opts && opts.presetSlot) || null),
+        // У хода заготовки правится только фраза: строку заготовки править
+        // нельзя, она встаёт сама при отправке через ту же пилюлю.
+        onSelect: () => {
+          const turn = bubble.closest('.wc-turn-user');
+          return hooks.onEdit && hooks.onEdit(
+            (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
+            (opts && opts.presetSlot) || null,
+            (turn && turn.dataset.uid) || null);
+        },
       },
     ]);
   }
 
+  // Пузырь хода заготовки: строка, пустая строка, фраза — так, как вопрос видит
+  // учитель на следующих ходах (решение владельца 2026-09-22). Замену
+  // присылает сервер; правило разбора общее с расширением (lex-word-pick.js).
+  function presetParts(later) {
+    const WP = global.LexWordPick;
+    return (later && WP && typeof WP.splitPresetLater === 'function') ? WP.splitPresetLater(later) : null;
+  }
+
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
+    if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
     // Ход человека приходит текстом целиком, поэтому режется сразу — ждать
     // тут нечего. `ready` кладёт на пузырь исходник даже при выключенном
     // режиме: включение посреди беседы иначе нашло бы пузыри без исходника и
@@ -233,6 +250,7 @@
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
         else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
         else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
+        else if (msg.type === 'STREAM_USER_TEXT' && msg.laterText) WcThread.setLastUserPreset(msg.laterText);
       });
     },
 
@@ -260,7 +278,13 @@
           // живой ленте он видел только напечатанное, и перечитывание обязано
           // вести себя так же. Правило общее с расширением (лента одна и та
           // же: беседа из расширения читается здесь и наоборот).
-          const visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
+          let visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
+          let editText;
+          const pp = t.presetSlot ? presetParts(t.later) : null;
+          if (pp && pp.line) {
+            visible = global.LexWordPick.presetBubbleText(pp);
+            editText = pp.phrase;
+          }
           // Ход, от которого после этого ничего не осталось, — служебная
           // инструкция выключенного лексического попапа, а не реплика
           // человека. Пустой пузырь на её месте читался бы как «он ничего не
@@ -270,7 +294,7 @@
           // ни пузыря, ни картинки.
           const hasImage = Array.isArray(t.images) && t.images.length > 0;
           if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          const node = userTurn(visible, t.images, { presetSlot: t.presetSlot || null });
+          const node = userTurn(visible, t.images, { presetSlot: t.presetSlot || null, editText });
           if (t.uid) node.dataset.uid = String(t.uid);
           elTurns.append(node);
         } else {
@@ -290,6 +314,21 @@
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
       requestAnimationFrame(() => scrollToBottom(false));
+    },
+
+    // Замена хода заготовки пришла первым кадром — последний свой пузырь
+    // заготовки перерисовывается строкой и фразой, до первого слова учителя.
+    setLastUserPreset(later) {
+      const all = [...elTurns.querySelectorAll('.wc-turn-user')];
+      const old = all.pop();
+      if (!old || !old.dataset.presetSlot) return;
+      const pp = presetParts(later);
+      if (!pp || !pp.line) return;
+      const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
+      const node = userTurn(global.LexWordPick.presetBubbleText(pp), imgs,
+        { presetSlot: old.dataset.presetSlot, editText: pp.phrase });
+      if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
+      old.replaceWith(node);
     },
 
     appendUser(text, images, opts) {
