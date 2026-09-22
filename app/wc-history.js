@@ -356,36 +356,36 @@
   // больше нет: снятое, заменённое переспросом и ещё пустое отсеивает list_turns,
   // один раз на все поверхности. Страница ничего не фильтрует.
   //
-  // Ходы заготовок приходят той же выдачей: «какие ключи принадлежат этой
-  // беседе» — тоже правило показа, и жило оно двумя копиями клиентского кода
-  // (actionBranchBelongsTo здесь и в расширении). У каждой строки свой chat_key,
-  // поэтому разложить их обратно на урок и ветки страница по-прежнему может — и
-  // обязана: лента и контекст расходятся намеренно (см. wc-backend.js).
+  // Ходы заготовок — обычные реплики этой беседы. Строки с чужим ключом
+  // (записанные снятым режимом заготовок, пока сервер их ещё отдаёт) не наши и
+  // в ленту не идут.
   //
   // Порядок задаёт сервер: authored_at, затем turn_uid. Не seq — клиент её не
   // пишет с тех пор, как с колонки сняли NOT NULL.
   //
-  // Возвращает { lesson, branches } — обе половины уже в виде реплик ленты.
+  // Возвращает { lesson } — реплики ленты.
   async function conversation(chatKey) {
     const out = await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey });
     const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
     const lesson = [];
-    const branches = [];
     for (const r of rows) {
       const key = r && r.chat_key;
-      if (!key) continue;
-      if (key === chatKey) lesson.push(toTurn(r));
-      else branches.push(Object.assign(toTurn(r), { branchKey: key }));
+      if (!key || key !== chatKey) continue;
+      lesson.push(toTurn(r));
     }
-    return { lesson, branches };
+    return { lesson };
   }
 
-  // Время авторства идёт НАРУЖУ вместе с репликой — оно нужно тому, кто сшивает
-  // урок с ветками заготовок в одну ленту (wc-backend.js). Внутри одного ключа
-  // порядок задаёт сам запрос, между ключами задать его нечем, кроме этого поля.
   const toTurn = (r) => ({
     role: r.role,
     text: r.content || '',
+    // Вопрос, заданный заготовкой: как учитель читает его на следующих ходах
+    // (короткая строка и фраза). Страница собирает контекст сама и кладёт в
+    // свой список его, а не text; на экране — text, как у любого вопроса.
+    later: (typeof r.later_text === 'string' && r.later_text) || null,
+    // Слот заготовки, которой задан вопрос: «Edit» такого вопроса отправляет
+    // правку той же заготовкой.
+    presetSlot: (typeof r.preset_slot === 'string' && r.preset_slot) || null,
     uid: r.turn_uid || null,
     authoredAt: r.authored_at || r.created_at || null,
     // Файлы реплики приезжают ПУТЯМИ в бакете. Ключ блоба здесь не появляется

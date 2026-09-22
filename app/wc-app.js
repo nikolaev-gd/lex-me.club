@@ -287,8 +287,8 @@
     const mode = (opts && opts.mode) || null;
     // Какой ЗАГОТОВКОЙ. Кнопка одна, заготовок много (lex-action-presets.js):
     // слот едет с ходом, а не читается на месте, — человек мог выбрать другую
-    // между нажатием и отправкой, а промпт, модель и ветка переписки обязаны
-    // относиться к той, чьё имя он видел на кнопке.
+    // между нажатием и отправкой, а промпт и модель обязаны относиться к той,
+    // чьё имя он видел на кнопке.
     const slotId = (opts && opts.slotId) || null;
     // И на какой МОДЕЛИ. Тоже с ходом, и тоже готовым значением: имя ключа
     // модели заготовки считает сервер (см. handlePresets в prompts-admin), а
@@ -299,7 +299,8 @@
     // The preview URL made for the strip is handed to the bubble rather than
     // revoked and remade: it points at the same Blob, and revoking it here
     // would blank the picture the reader just sent.
-    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { action: !!mode });
+    // Слот заготовки — на пузырь: «Edit» такого вопроса уйдёт той же заготовкой.
+    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null });
     WcComposer.refresh();
 
     const requestId = nextRequestId();
@@ -310,7 +311,7 @@
     // только внутри страницы и до сервера не доезжает вовсе.
     const opId = global.LexTurnId.newOpId();
     const pressedAt = Date.now();
-    WcThread.beginAssistant(requestId, { action: !!mode, slotId });
+    WcThread.beginAssistant(requestId);
     WcComposer.setStreaming(true, requestId);
 
     try {
@@ -464,8 +465,6 @@
       await WcBus.call('WC_REGENERATE', {
         requestId,
         modelId: modelId || null,
-        branchKey: target.branchKey,
-        slotId: target.slotId,
       });
     } catch (err) {
       WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });
@@ -474,9 +473,12 @@
 
   // «Изменить» кладёт вопрос обратно в поле. Свой ход при этом НЕ удаляется:
   // человек ещё не решил отправлять, а исчезнувшее сообщение при передумывании
-  // не вернуть. Отправка обычная — она добавит новый ход.
-  function editTurn(text) {
+  // не вернуть. Отправка обычная — она добавит новый ход. Вопрос, заданный
+  // заготовкой, уходит той же заготовкой: её пилюля подсвечивается, и
+  // отправка идёт через неё (решение владельца 2026-09-21).
+  function editTurn(text, presetSlot) {
     WcComposer.setText(text || '');
+    WcComposer.armPreset(presetSlot || null);
     WcComposer.focus();
   }
 

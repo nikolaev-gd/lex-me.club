@@ -11,14 +11,19 @@
 // по-прежнему зовётся 'native'. Заготовка — это НЕ вторая кнопка: это выбранный
 // слот у той же кнопки. Отсюда следствие, которое легко сломать, приняв
 // заготовку за режим: `action_id` в журнале вызовов у всех заготовок один и тот
-// же — 'native'. Своим у каждой заготовки становится имя, текст промпта, модель
-// и ПЕРЕПИСКА.
+// же — 'native'. Своим у каждой заготовки становится имя, текст промпта,
+// короткая строка и модель.
 //
-// ⚠️ Переписка стала своей 2026-08-25 и не даром: ключ ветки треда считается от
-// СЛОТА, а не от id кнопки (`__lex_action__<ключ чата>__<слот>`, правило в
-// video-threads.js). До этого ключ брался от id кнопки — он у всех заготовок
-// 'native', — и «Носитель» в том же чате открывал переписку «Лимерика».
-// Требование к id слота отсюда одно: без '__' (newSlotId ниже его и не даёт).
+// ── ХОД ЗАГОТОВКИ — ОБЫЧНЫЙ ХОД УРОКА (2026-09-21) ──────────────────────────
+// Своей переписки у заготовки больше нет. Нажатие пилюли — ход той же беседы и
+// того же дерева, что и обычный вопрос. Промпт заготовки едет к модели ВНУТРИ
+// вопроса и только на этом ходу (указатель promptPrefixRef, текст подставляет
+// сервер); на следующих ходах учитель видит на его месте КОРОТКУЮ СТРОКУ
+// заготовки — одно предложение, которое пишет владелец в отсеке настроек. Без
+// строки заготовку не сохранить и не опубликовать, а её пилюля отказывает до
+// отправки (problemOf ниже, признак hasLine приходит с сервера без самой
+// строки). Прежний режим отдельной ветки снят; его код — тег
+// archive/action-branch-mode.
 //
 // ── ДВА СПИСКА, И ПУТАТЬ ИХ НЕЛЬЗЯ ──────────────────────────────────────────
 //
@@ -89,6 +94,7 @@
   const MAX_PRESETS = 10;          // включая Native
   const TEXT_MAX = 6000;           // потолок промпта, считается в интерфейсе
   const NAME_MAX = 120;            // ровно NAME_MAX из prompts-admin
+  const SHORT_LINE_MAX = 300;      // ровно SHORT_LINE_MAX из prompts-admin
   const SLOT_ID_MAX = 40;          // ровно SLOT_RE из prompts-admin
   const DELETED_PREFIX = '__deleted__';
 
@@ -256,6 +262,24 @@
     return typeof name === 'string' && name.indexOf(DELETED_PREFIX) === 0;
   }
 
+  // Одна заготовка публичного списка — ОДНО правило перекладки на три места:
+  // ответ сервера, сохранённый список и правку из соседней вкладки. Поле,
+  // добавленное не во все три, терялось бы молча.
+  //
+  // hasLine: true / false — ответ сервера; null — список сохранён до того, как
+  // сервер начал отдавать признак. null не запрещает: не знаем — не отказываем,
+  // сервер откажет сам.
+  function presetItem(p) {
+    return {
+      id: p.id,
+      name: typeof p.name === 'string' ? p.name : '',
+      chars: (typeof p.chars === 'number') ? p.chars : null,
+      // Пустая строка = «наследовать модель чата». Не подменять её ничем.
+      modelId: typeof p.modelId === 'string' ? p.modelId : '',
+      hasLine: (typeof p.hasLine === 'boolean') ? p.hasLine : null,
+    };
+  }
+
   // ── ПУБЛИЧНЫЙ СПИСОК: то, что видит человек ──────────────────────────────
 
   // Синхронное «что показывать прямо сейчас»: разметка ряда строится синхронно,
@@ -279,12 +303,7 @@
     const items = Array.isArray(raw.items) ? raw.items : [];
     const clean = items
       .filter((p) => p && typeof p.id === 'string' && p.id)
-      .map((p) => ({
-        id: p.id,
-        name: typeof p.name === 'string' ? p.name : '',
-        chars: (typeof p.chars === 'number') ? p.chars : null,
-        modelId: typeof p.modelId === 'string' ? p.modelId : '',
-      }));
+      .map(presetItem);
     if (!clean.length) return null;
     s.account = account;
     return clean;
@@ -325,13 +344,9 @@
       if (!res || !res.ok || !Array.isArray(res.presets)) return current(scope);
       // Отбор и порядок уже сделаны СЕРВЕРОМ — здесь только перекладка полей.
       // Ни filter, ни sort: любой из них означал бы вторую копию правила.
-      s.list = res.presets.map((x) => ({
-        id: x.slot,
-        name: typeof x.name === 'string' ? x.name : '',
-        chars: typeof x.chars === 'number' ? x.chars : null,
-        // Пустая строка = «наследовать модель чата». Не подменять её ничем.
-        modelId: typeof x.modelId === 'string' ? x.modelId : '',
-      })).filter((x) => typeof x.id === 'string' && x.id);
+      s.list = res.presets
+        .map((x) => presetItem({ ...x, id: x && x.slot }))
+        .filter((x) => typeof x.id === 'string' && x.id);
       s.account = account;
       await remember(scope, s.list, account);
       notify(scope);
@@ -388,6 +403,8 @@
         // ЧЕРНОВАЯ модель — её и рисует выпадашка в отсеке настроек. Локальной
         // копии этого выбора больше нет: единственный источник — каталог.
         modelId: typeof x.modelId === 'string' ? x.modelId : '',
+        // Длина короткой строки черновика: 0 — строки нет, публикация откажет.
+        lineChars: typeof x.lineChars === 'number' ? x.lineChars : null,
         dirty: !!x.dirty,
         published: !!x.published,
       })));
@@ -482,6 +499,19 @@
     return null;
   }
 
+  // Короткая строка заготовки — обязательна, до SHORT_LINE_MAX знаков. Та же
+  // проверка стоит на сервере (prompts-admin put); здесь она ради того, чтобы
+  // форма отказала сразу и сказала, чего не хватает, а не после сети.
+  function normShortLine(line) {
+    return String(line == null ? '' : line).replace(/\s+/g, ' ').trim();
+  }
+  function shortLineProblem(line) {
+    const l = normShortLine(line);
+    if (!l) return 'emptyLine';
+    if (l.length > SHORT_LINE_MAX) return 'lineTooLong';
+    return null;
+  }
+
   // ЧЕРНОВИК И ТОЛЬКО ЧЕРНОВИК (решение владельца 2026-08-25).
   //
   // Здесь раньше стояла пара put+publish в одной функции: заведение и правка
@@ -493,9 +523,9 @@
   //
   // Теперь запись — это put. Публикация отдельным действием и отдельной кнопкой
   // (publishOne ниже), по одной заготовке за раз.
-  async function putDraft(ref, slotId, name, text) {
+  async function putDraft(ref, slotId, name, text, shortLine) {
     const put = await promptsAdmin({
-      action: 'put', scope: ref.scope, cell: ref.cell, slot: slotId, text, name,
+      action: 'put', scope: ref.scope, cell: ref.cell, slot: slotId, text, name, shortLine,
     });
     if (!put || !put.ok) return { error: (put && (put.error || put.status)) || 'put failed' };
     return { ok: true };
@@ -515,7 +545,12 @@
       action: 'publish', scope: c.ref.scope, cell: c.ref.cell, slot: id,
       note: note || 'action preset published',
     });
-    if (!pub || !pub.ok) return { error: (pub && (pub.error || pub.status)) || 'publish failed' };
+    if (!pub || !pub.ok) {
+      // Заготовку без короткой строки сервер не выкладывает — это отдельная
+      // причина со своим текстом, а не «публикация не удалась».
+      if (pub && pub.stage === 'short_line') return { error: 'emptyLine' };
+      return { error: (pub && (pub.error || pub.status)) || 'publish failed' };
+    }
     await refreshBoth(scope);
     return { ok: true };
   }
@@ -534,7 +569,7 @@
     return { ok: true };
   }
 
-  async function create(scope, name, text) {
+  async function create(scope, name, text, shortLine) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
     const problem = nameProblem(name);
@@ -542,17 +577,19 @@
     const body = String(text == null ? '' : text);
     const tp = textProblem(body);
     if (tp) return { error: tp };
+    const lp = shortLineProblem(shortLine);
+    if (lp) return { error: lp };
     const items = await catalog(scope);
     if (items.length >= MAX_PRESETS) return { error: 'limit' };
     const id = newSlotId(items.map((p) => p.id));
     if (!id) return { error: 'no id' };
-    const res = await putDraft(c.ref, id, normName(name), body);
+    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine));
     if (res.error) return res;
     await refreshBoth(scope);
     return { ok: true, id };
   }
 
-  async function update(scope, id, name, text) {
+  async function update(scope, id, name, text, shortLine) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
     const problem = nameProblem(name);
@@ -560,7 +597,9 @@
     const body = String(text == null ? '' : text);
     const tp = textProblem(body);
     if (tp) return { error: tp };
-    const res = await putDraft(c.ref, id, normName(name), body);
+    const lp = shortLineProblem(shortLine);
+    if (lp) return { error: lp };
+    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine));
     if (res.error) return res;
     await refreshBoth(scope);
     return { ok: true };
@@ -624,13 +663,14 @@
     return { ok: true };
   }
 
-  // Текст заготовки — только с сервера: локальной копии текстов больше нет.
-  async function getText(scope, id) {
+  // Промпт и короткая строка заготовки — только с сервера: локальной копии
+  // текстов нет. Для формы редактора; null — прочитать не удалось.
+  async function getDraft(scope, id) {
     const c = cellDesc();
     if (!c || !c.ref) return null;
     const res = await promptsAdmin({ action: 'get', scope: c.ref.scope, cell: c.ref.cell, slot: id });
     if (!res || !res.ok || typeof res.text !== 'string') return null;
-    return res.text;
+    return { text: res.text, shortLine: typeof res.shortLine === 'string' ? res.shortLine : '' };
   }
 
   // Разрешится ли промпт этой заготовки — проверка ДО сети, чтобы ход без
@@ -642,11 +682,20 @@
   // ничего. Теперь в публичном списке лежат ТОЛЬКО те слоты, про которые сервер
   // сказал «опубликовано и текст непустой», а пилюли строятся только из него.
   // Значит «нет в списке» — это уже не незнание, а факт.
-  function resolves(scope, id) {
+  //
+  // Причин отказа две, и у каждой свой текст: у заготовки нет промпта
+  // ('noPrompt' — её нет в списке или длина 0) или нет короткой строки
+  // ('noLine'). null — можно отправлять. Серверный отказ на то же самое
+  // остаётся защитой: список мог устареть.
+  function problemOf(scope, id) {
     const hit = current(scope).find((p) => p.id === id);
-    if (!hit) return false;
-    if (typeof hit.chars === 'number' && hit.chars <= 0) return false;
-    return true;
+    if (!hit) return 'noPrompt';
+    if (typeof hit.chars === 'number' && hit.chars <= 0) return 'noPrompt';
+    if (hit.hasLine === false) return 'noLine';
+    return null;
+  }
+  function resolves(scope, id) {
+    return problemOf(scope, id) === null;
   }
 
   // РАСХОЖДЕНИЕ ЗАГОТОВКИ — целиком серверный признак.
@@ -700,12 +749,7 @@
           }
           s.list = next.items
             .filter((p) => p && typeof p.id === 'string' && p.id)
-            .map((p) => ({
-              id: p.id,
-              name: typeof p.name === 'string' ? p.name : '',
-              chars: (typeof p.chars === 'number') ? p.chars : null,
-              modelId: typeof p.modelId === 'string' ? p.modelId : '',
-            }));
+            .map(presetItem);
           notify(scope);
         });
       });
@@ -718,6 +762,7 @@
     MAX_PRESETS,
     TEXT_MAX,
     NAME_MAX,
+    SHORT_LINE_MAX,
     DELETED_PREFIX,
     cellDesc,
     labelOf,
@@ -733,11 +778,13 @@
     publishOne,
     setModel,
     isDirty,
-    getText,
+    getDraft,
     resolves,
+    problemOf,
     isNativeId,
     nameProblem,
     textProblem,
+    shortLineProblem,
     onChange,
   };
 })(typeof window !== 'undefined' ? window : self);

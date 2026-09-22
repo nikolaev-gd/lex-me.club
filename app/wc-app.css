@@ -1302,6 +1302,8 @@ button { font: inherit; color: inherit; }
 .wc-mode-pill:active { transform: scale(.96); }
 .wc-mode-pill:hover { background: var(--pill-hover); color: var(--fg); }
 .wc-mode-pill[disabled] { opacity: .4; cursor: default; }
+/* Взведена правкой вопроса заготовки: обычная отправка уйдёт через неё. */
+.wc-mode-pill.is-armed { border-color: var(--accent); color: var(--fg); background: var(--pill-hover); }
 
 /* ── Live ⇄ send ──────────────────────────────────────────────────────────
  * One slot, two occupants, stacked. The extension hides one and shows the

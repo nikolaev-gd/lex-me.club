@@ -322,6 +322,27 @@
       return e;
     }
 
+    // ── «У заготовки нет короткой строки» ───────────────────────────────────
+    // llm-proxy отвечает 424 + stage 'preset_line': ход заготовки пришёл, а
+    // строки, которую учитель увидит на её месте на следующих ходах, у неё нет.
+    // Модель не звали, денег не взяли. Обычно до этого не доходит — устройство
+    // отказывает само по признаку из списка пилюль; сюда попадает устаревший
+    // список и правка вопроса заготовки, у которой строку с тех пор сняли.
+    // Стадию читаем и из тела: странице lex-me.club/app заголовок не виден.
+    async function lexPresetNoLineError(response) {
+      if (!response || response.status !== 424) return null;
+      const headerStage = (response.headers && typeof response.headers.get === 'function')
+        ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
+      let stage = headerStage;
+      if (!stage) {
+        try { stage = String((JSON.parse(await response.clone().text()) || {}).stage || ''); } catch (_) { stage = ''; }
+      }
+      if (stage !== 'preset_line') return null;
+      const e = new Error('LEX_PRESET_NO_LINE');
+      e.lexPromptMissing = true;
+      return e;
+    }
+
     // ── «У модели нет цены» ─────────────────────────────────────────────────
     // llm-proxy отвечает 424 + stage 'pricing', когда у выбранной модели нет
     // строки цены (или в ней пусто): вызов к поставщику не ушёл, денег не
@@ -696,6 +717,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const noLine = await lexPresetNoLineError(response);
+        if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
@@ -1040,6 +1063,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const noLine = await lexPresetNoLineError(response);
+        if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
@@ -1326,6 +1351,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const noLine = await lexPresetNoLineError(response);
+        if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
@@ -1511,6 +1538,8 @@
         if (gateErr) throw gateErr;
         const promptMissing = lexPromptMissingError(response);
         if (promptMissing) throw promptMissing;
+        const noLine = await lexPresetNoLineError(response);
+        if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
         const overflow = lexContextOverflowError(response);
@@ -2120,12 +2149,10 @@
           // Поле УСЛОВНЫМ спредом не оборачивается и от opId не зависит:
           // материал обязан доезжать на любом пути записи реплик, включая те,
           // где номера операции нет вовсе (листалка вариантов, переспрос другой
-          // моделью). Ключ, по которому материала не бывает (ветка заготовки,
-          // ветка произношения), сервер отсеет сам по форме.
+          // моделью). Ключ, по которому материала не бывает (ветка
+          // произношения), сервер отсеет сам по форме.
           // Ключ берётся с приоритетом: явный materialKey поверхности →
-          // ключ записи реплик → ключ треда. Разница не косметическая: у хода
-          // заготовки поверхность обязана назвать ключ ВЕТКИ, иначе ветка
-          // получит материал родителя, а она изолирована в обе стороны.
+          // ключ записи реплик → ключ треда.
           materialKey: (chatOptions && (chatOptions.materialKey || chatOptions.chatKey)) || videoId || null,
           // Ролик, о котором разговор, когда ключ беседы его не называет
           // (маленькое окно чата на странице YouTube). Пусто у урока и у
@@ -2230,8 +2257,7 @@
           // Ключ беседы ЦЕЛИКОМ, и именно тот, под которым поверхность пишет
           // строки. Отдельным полем, потому что videoId выше обрезан
           // extractRealVideoId до голого id ролика — по нему беседу не найти.
-          // У хода заготовки здесь ключ ВЕТКИ, а не родителя: деньги считаются
-          // на беседу, а строки ложатся в ветку, и серверу нужна вторая.
+          // У хода заготовки — тот же ключ беседы, что у обычного хода.
           chatKey: (chatOptions && chatOptions.chatKey) || null,
           // Что человек сделал. По конверту это не выводится: и на первый
           // вопрос, и на переспрос приезжает вся переписка целиком.
@@ -2260,9 +2286,17 @@
         // событием. Поверхность кладёт его в свою копию беседы вместо видимого
         // текста: следующий ход обязан прислать ровно то, что прочитал учитель
         // (кэш начала беседы у поставщика и сам вопрос в памяти учителя).
+        //
+        // У хода заготовки тем же кадром едет laterText — как учитель прочтёт
+        // этот вопрос на следующих ходах (короткая строка и фраза). Страница
+        // кладёт его в свой список вместо вопроса, голос расширения — тоже.
         proxy.onServerTurn = (d) => {
           const userText = d && typeof d.userText === 'string' ? d.userText : null;
-          if (userText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText });
+          const laterText = d && typeof d.laterText === 'string' && d.laterText ? d.laterText : null;
+          // Ход заготовки из одной картинки: текста вопроса нет, а короткая
+          // строка есть — кадр всё равно уходит, иначе следующий ход страницы
+          // прислал бы на месте этого вопроса пустую реплику.
+          if (userText || laterText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText: userText || '', ...(laterText ? { laterText } : {}) });
         };
         // Итоговое тело запроса от сервера — в журнал обмена, на место того,
         // которое собрало устройство. Тело приходит строкой, уже без байтов

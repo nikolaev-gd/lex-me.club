@@ -47,6 +47,12 @@
   const PRESETS = () => global.LexActionPresets || null;
   let presetScope = null;        // 'shorts-main' — из описания ячейки, не литералом
   let presetPillEls = [];        // текущие кнопки ряда — syncButton() гасит/включает все разом
+  // Заготовка, через которую уйдёт ОБЫЧНАЯ отправка (круглая кнопка, Enter).
+  // Взводит её «Edit» у вопроса, заданного заготовкой: текст ложится в поле, и
+  // правка уходит той же заготовкой (решение владельца 2026-09-21). Её пилюля
+  // подсвечена, пока взведено, — отправка через заготовку не бывает невидимой.
+  // Снимается отправкой, нажатием любой пилюли и опустевшим полем.
+  let armedPresetSlot = null;
 
   // Подпись «Native» — запасная: её отдаёт labelOf(), пока имя первой заготовки
   // в каталоге не тронуто человеком. У расширения на её месте строка перевода,
@@ -72,17 +78,23 @@
   // здесь по той же причине, что и раньше, нет.
   function sendWithPreset(p) {
     const slotId = p && p.id;
-    // ОТКАЗ ВМЕСТО ОТВЕТА БЕЗ ИНСТРУКЦИИ. Весь смысл заготовки в её
-    // промпте: ход без него — не «чуть хуже», а совсем не то, что просили.
-    // Проверка локальная и до отправки (LexActionPresets.resolves): слот
-    // обязан быть в списке, а если каталог отвечал — ещё и с непустым
-    // текстом. Каталог не отвечал (не редактор, офлайн) — не запрещаем:
-    // чужих строк мы не видим, и запрет по незнанию был бы хуже.
+    // ОТКАЗ ВМЕСТО ОТВЕТА БЕЗ ИНСТРУКЦИИ. Весь смысл заготовки в её промпте, а
+    // на следующих ходах — в её короткой строке: ход без одного из них — не
+    // «чуть хуже», а совсем не то, что просили. Проверка локальная и до
+    // отправки (LexActionPresets.problemOf): слот обязан быть в списке, с
+    // непустым промптом и с короткой строкой. Сервер откажет на то же самое
+    // сам, до денег; здесь — чтобы вопрос не лёг в ленту без ответа.
     const P = PRESETS();
-    if (P && presetScope && !P.resolves(presetScope, slotId)) {
-      toast('«' + presetLabel(p) + '» has no prompt yet', { error: true });
+    const problem = (P && presetScope) ? P.problemOf(presetScope, slotId) : null;
+    if (problem) {
+      toast(problem === 'noLine'
+        ? '«' + presetLabel(p) + '» has no short line yet — nothing was sent. The owner has to add it in the preset settings.'
+        : '«' + presetLabel(p) + '» has no prompt yet', { error: true });
+      // Взвод НЕ снимается: иначе следующий Enter отправил бы правленый
+      // вопрос заготовки обычным вопросом.
       return;
     }
+    armPreset(null);
     // ⚠️ ЗДЕСЬ ПИСАЛСЯ activeNativePromptId_<scope>. Ключа больше нет
     // (2026-09-02): «активной» заготовки не бывает, слот едет с ходом.
     // Модель — тоже готовым значением из строки списка, а не по имени ключа,
@@ -107,10 +119,22 @@
       btn.setAttribute('aria-label', btn.title);
       btn.textContent = lbl;
       btn.addEventListener('click', () => sendWithPreset(p));
+      if (armedPresetSlot && p.id === armedPresetSlot) btn.classList.add('is-armed');
       elModeSplit.appendChild(btn);
       return btn;
     });
     syncButton();   // выставить disabled по текущему полю сразу, не только на input
+  }
+
+  // Взвести (slotId) или снять (null) заготовку обычной отправки. Взводится
+  // и заготовка, которой в ряду уже нет (её удалили после хода): правленый
+  // вопрос заготовки обязан уйти ею или не уйти вовсе, а не обычным вопросом
+  // (решение владельца 2026-09-21, вариант «б»). Отказ даёт submit.
+  function armPreset(slotId) {
+    const next = slotId || null;
+    if (next === armedPresetSlot) return;
+    armedPresetSlot = next;
+    presetPillEls.forEach((btn) => btn.classList.toggle('is-armed', !!next && btn.dataset.presetId === next));
   }
 
   // Сборка органа. БЕЗ СЕТИ и без ожидания: ряд обязан быть живым с первого
@@ -234,6 +258,19 @@
       return;
     }
     if (!canSend()) return;
+    // Обычная отправка при взведённой заготовке уходит через неё — как нажатие
+    // её пилюли (там же проверка промпта и строки).
+    if (!(opts && opts.mode) && armedPresetSlot) {
+      const p = presetList().find((x) => x.id === armedPresetSlot);
+      if (!p) {
+        // Заготовки больше нет: текст остаётся в поле, взвод тоже — человек
+        // сам решает, стереть ли текст (взвод снимется) или скопировать его.
+        toast('The preset of this question is no longer available — nothing was sent.', { error: true });
+        return;
+      }
+      sendWithPreset(p);
+      return;
+    }
     const text = elInput.value.trim();
     elInput.value = '';
     autoGrow();
@@ -619,7 +656,11 @@
 
       elForm.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
 
-      elInput.addEventListener('input', () => { autoGrow(); syncButton(); });
+      elInput.addEventListener('input', () => {
+        autoGrow(); syncButton();
+        // Поле стёрли — взведённая правкой заготовка больше ни к чему.
+        if (!elInput.value.trim()) armPreset(null);
+      });
 
       // Что делает Enter — решает общий модуль, один на четыре места
       // (`lex-composer-input.js`): на столе отправляет, на телефоне переносит
@@ -769,7 +810,14 @@
       elInput.value = text || '';
       autoGrow();
       syncButton();
+      // Поле очистили снаружи (новая беседа, другая беседа) — взведённая
+      // правкой заготовка к нему больше не относится.
+      if (!elInput.value.trim()) armPreset(null);
     },
+
+    // «Edit» вопроса, заданного заготовкой: следующая обычная отправка уйдёт
+    // через неё. null — снять.
+    armPreset(slotId) { armPreset(slotId || null); },
 
     text() { return elInput.value; },
   };

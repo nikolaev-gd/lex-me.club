@@ -84,14 +84,11 @@
   }
 
   // ── Ход ЗАГОТОВКИ в ленте ────────────────────────────────────────────────
-  // Под вопросом заготовки нет «Edit»: правка кладёт текст в поле и уходит
-  // обычным вопросом учителю, а не в ветку заготовки. Под ОТВЕТОМ заготовки
-  // строка та же, что под любым ответом: переспрос выбором модели уходит в её
-  // ветку и с её инструкцией (wc-backend.js WC_REGENERATE) — так же, как в
-  // расширении и на айфоне.
-  const ACTION_CLASS = 'wc-turn-action';
-  const isActionTurn = (node) => !!(node && node.classList && node.classList.contains(ACTION_CLASS));
-
+  // Вопрос, заданный заготовкой, — обычный вопрос беседы. «Edit» у него есть:
+  // текст ложится в поле, а пилюля той же заготовки подсвечивается, и
+  // отправка уходит через неё (wc-app.js editTurn). Слот заготовки — на узле.
+  // Под ОТВЕТОМ заготовки строка та же, что под любым ответом: переспрос
+  // сервер отправит той же заготовкой сам.
   function userMessageMenu(anchor, bubble, opts) {
     WcUI.menu(anchor, [
       {
@@ -102,10 +99,10 @@
           catch (_) { toast('The browser refused clipboard access', { error: true }); }
         },
       },
-      (opts && opts.action) ? null : {
+      {
         label: 'Edit',
         icon: 'edit',
-        onSelect: () => hooks.onEdit && hooks.onEdit(userText(bubble)),
+        onSelect: () => hooks.onEdit && hooks.onEdit(userText(bubble), (opts && opts.presetSlot) || null),
       },
     ]);
   }
@@ -127,7 +124,7 @@
     // ниоткуда.
     onHold(bubble, (e) => userMessageMenu(e.currentTarget || bubble, bubble, opts));
     const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
-    if (opts && opts.action) turn.classList.add(ACTION_CLASS);
+    if (opts && opts.presetSlot) turn.dataset.presetSlot = String(opts.presetSlot);
     return turn;
   }
 
@@ -273,18 +270,11 @@
           // ни пузыря, ни картинки.
           const hasImage = Array.isArray(t.images) && t.images.length > 0;
           if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          const node = userTurn(visible, t.images, { action: !!t.branchKey });
+          const node = userTurn(visible, t.images, { presetSlot: t.presetSlot || null });
           if (t.uid) node.dataset.uid = String(t.uid);
           elTurns.append(node);
         } else {
           const { turn } = assistantTurn(t.text);
-          // Ход, пришедший из ветки заготовки, узнаётся по ключу ветки рядом с
-          // репликой — его проставил тот, кто сшивал ленту (wc-backend.js).
-          // Ключ остаётся на узле: переспрос ответа заготовки уходит в её ветку.
-          if (t.branchKey) {
-            turn.classList.add(ACTION_CLASS);
-            turn.dataset.branchKey = t.branchKey;
-          }
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
           // Модель ответа (из денег беседы) — подпись кнопки модели.
@@ -313,8 +303,7 @@
     // Переспрос пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: это
     // замена ответа, а не ещё один. Прежний текст и модель запоминаются —
     // переспрос без единого слова возвращает их на место (restorePrevious).
-    // Возвращает, что нужно серверной части: ветку заготовки, если это её
-    // ответ. false — переспрашивать нечего (не последний ответ, голосовой).
+    // false — переспрашивать нечего (не последний ответ, голосовой).
     beginRetry(requestId, turn) {
       const all = [...elTurns.querySelectorAll('.wc-turn-assistant')];
       const last = all.pop();
@@ -332,10 +321,7 @@
       live.set(requestId, { turn: last, bubble, text: '', retry });
       syncFeet();
       maybeStick();
-      return {
-        branchKey: last.dataset.branchKey || null,
-        slotId: last.dataset.slot || null,
-      };
+      return true;
     },
 
     // Opened before the first token so the reader sees the answer start.
@@ -343,9 +329,6 @@
       setEmpty(false);
       const { turn, bubble } = assistantTurn('');
       turn.classList.add('is-streaming');
-      if (opts && opts.action) turn.classList.add(ACTION_CLASS);
-      // Слот заготовки — на узел: переспрос её ответа уходит в её ветку.
-      if (opts && opts.slotId) turn.dataset.slot = String(opts.slotId);
       elTurns.append(turn);
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,
@@ -489,7 +472,7 @@
       const regenGone = !gate && typeof LexErrorText.isRegenTargetGone === 'function'
         && LexErrorText.isRegenTargetGone(text);
       const shown = regenGone ? LexErrorText.regenTargetGone()
-        : promptMissing ? LexErrorText.promptMissing()
+        : promptMissing ? LexErrorText.promptMissing(text)
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)
           : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 

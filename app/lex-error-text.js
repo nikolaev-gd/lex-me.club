@@ -43,6 +43,7 @@
     'topup.errAmount': 'Enter an amount between ${min} and ${max}.',
     'topup.errProvider': 'Could not start the payment. Nothing was charged — please try again.',
     'err.prompt.notPublished': 'This preset has not been published yet — the teacher has no instructions. You were not charged.',
+    'err.preset.noLine': 'This preset has no short line yet — nothing was sent and you were not charged. The owner has to add it in the preset settings.',
     'err.model.unpriced': 'This model is unavailable right now — pick another one. You were not charged.',
     'err.chat.conversationReset': 'This conversation was reset — reopen it to continue. You were not charged.',
     'err.chat.regenTargetGone': 'This answer has already changed — reopen the conversation to see the latest one. You were not charged.',
@@ -161,12 +162,17 @@
   // Отдельным текстом от «ответ не пришёл»: это не сбой и не перегрузка, а
   // состояние, которое чинится действием владельца (опубликовать заготовку), и
   // человеку важно, что денег с него не взяли.
+  //
+  // Тем же путём идёт отказ «у заготовки нет короткой строки» (424 + stage
+  // 'preset_line', маркер `LEX_PRESET_NO_LINE`): тоже заготовка, которую
+  // владелец не дописал, тоже без денег, но свой текст — чего именно нет.
   function isPromptMissing(raw) {
-    return str(raw).includes('LEX_PROMPT_MISSING');
+    const s = str(raw);
+    return s.includes('LEX_PROMPT_MISSING') || s.includes('LEX_PRESET_NO_LINE');
   }
 
-  function promptMissing() {
-    return t('err.prompt.notPublished');
+  function promptMissing(raw) {
+    return str(raw).includes('LEX_PRESET_NO_LINE') ? t('err.preset.noLine') : t('err.prompt.notPublished');
   }
 
   // ── 4а. У модели нет цены ────────────────────────────────────────────────
