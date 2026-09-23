@@ -149,6 +149,13 @@
     recordAnyCall: async () => null,
     logTextCallRequest: () => null,
     logTextCallResponse: () => {},
+    // Переписать тело запроса в местном журнале вызовов — журнал только у
+    // расширения (logTextCallRequest выше здесь пустой, писать некуда). Ядро
+    // учителя требует эту функцию с 2026-09-20 (48cf5280): без неё
+    // LexTeacherCore.create бросал ошибку, и страница не запускалась вовсе
+    // («Could not start: WcBackend is not defined») — lex-me.club/app и
+    // программа для Мака стояли с выкладки 2026-09-20 20:24.
+    replaceTextCallRequestBody: () => {},
     buildIoResponse: () => null,
     extractEffectiveCallParams: () => ({}),
     lexNotifyBalanceMaybeChanged: () => {
