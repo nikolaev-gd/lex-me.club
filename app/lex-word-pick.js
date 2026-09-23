@@ -319,6 +319,30 @@
     return picks.length ? picks[0].source : null;
   }
 
+  // Замок ИЗ ДРУГОГО ДОКУМЕНТА. Набор один на экран, а документов у Lex два,
+  // когда открыта боковая панель: слова вкладки (субтитры, текст страницы,
+  // карандаш над выделением) живут в наборе вкладки, слова ленты чата — в
+  // наборе панели. Правило «один набор — один источник» держится поперёк них
+  // этим замком: пока в том документе набор не пуст, здесь слово другого
+  // источника не ложится (lex-word-to-chat.js передаёт его по каналу панели).
+  let foreignLock = null;
+  function setForeignLock(source) {
+    foreignLock = source ? String(source) : null;
+  }
+
+  // Набор изменился — для того, кто передаёт его замок в другой документ.
+  const changeListeners = new Set();
+  function onChange(fn) {
+    if (typeof fn !== 'function') return () => {};
+    changeListeners.add(fn);
+    return () => changeListeners.delete(fn);
+  }
+  function emitChange() {
+    for (const fn of Array.from(changeListeners)) {
+      try { fn(); } catch (_) { /* слушатель не мешает набору */ }
+    }
+  }
+
   function normalizePick(pick) {
     if (!pick) return null;
     const key = pick.key == null ? '' : String(pick.key);
@@ -344,7 +368,7 @@
   function add(pick) {
     const item = normalizePick(pick);
     if (!item) return false;
-    const locked = lockedSource();
+    const locked = lockedSource() || (foreignLock !== item.source ? foreignLock : null);
     if (locked !== null && locked !== item.source) {
       // Не ошибка и не сбой: так и задумано. След в логе нужен затем, что для
       // человека нажатие просто «ничего не сделало».
@@ -360,6 +384,7 @@
     pickKeys.add(item.key);
     lastSource = item.source;
     refreshHighlight();
+    emitChange();
     return true;
   }
 
@@ -373,6 +398,7 @@
     picks.splice(at, 1);
     pickKeys = new Set(picks.map((p) => p.key));
     refreshHighlight();
+    emitChange();
     return true;
   }
 
@@ -388,6 +414,7 @@
     picks.length = 0;
     pickKeys = new Set();
     refreshHighlight();
+    emitChange();
     return true;
   }
 
@@ -775,6 +802,10 @@
   }
 
   function isDragRelease(e) {
+    // Нажатие, пришедшее из копии блока субтитров в боковой панели
+    // (lex-dom-mirror.js): протяжку там уже отсеяли по выделению и нажатию
+    // ТОГО документа, здесь их нет.
+    if (e && e.__lexMirrored) return false;
     if (!e || !lastDownAt) return false;
     const dx = e.clientX - lastDownAt.x;
     const dy = e.clientY - lastDownAt.y;
@@ -825,6 +856,8 @@
     items,
     lockedSource,
     notifySent,
+    setForeignLock,
+    onChange,
     // предел ряда фишек и общий замер ряда в DOM
     MAX_CHIP_ROWS,
     measureChipRows,
