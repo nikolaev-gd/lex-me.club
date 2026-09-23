@@ -38,13 +38,20 @@
 //   efforts         text only — accepted reasoning-effort / thinkingLevel values
 //   defaultEffort   text only — default effort
 //   hidden          text only — kept for compat, not shown in the bar
+//   replacedBy      text only, hidden models — apiModel of the model that
+//                   superseded this one (same class). A chain is followed to
+//                   the visible end (5.5 → 5.6 Sol → 6 Sol). The same pairs
+//                   live in public.models.replaced_by — the server moves
+//                   people's model choice by that column (lex_model_defaults);
+//                   here it moves the extension's own stored cells
+//                   (successorModelId below).
 //   vision          text only, ОБЯЗАТЕЛЬНОЕ — принимает ли модель картинку на
 //                   входе. Умолчания нет намеренно: новая модель без этого
 //                   поля роняет реестр на загрузке (см. assertVisionDeclared
 //                   ниже), потому что молчаливое «наверное, не умеет» человек
 //                   увидел бы как недоступный пункт «прикрепить файл» и
 //                   списал бы на баг интерфейса. Сегодня true у всех
-//                   восемнадцати: у каждого из трёх провайдеров картинку на
+//                   текстовых моделей: у каждого из трёх провайдеров картинку на
 //                   входе принимает всё текстовое семейство. Живьём (одна
 //                   картинка 1600 px через сервер, 2026-08-06) проверено по
 //                   одной модели на провайдера — см. docs/UNIFIED-CONTEXT.md §7;
@@ -73,6 +80,18 @@
   const LEX_MODELS = [
     // ── OpenAI · text ────────────────────────────────────────────────
     {
+      // GPT-6 Luna — added 2026-09-23, replaces 5.6 Luna (hidden below).
+      // developers.openai.com/api/docs/models/gpt-6-luna and the pricing page,
+      // checked 2026-09-23: 0.10 in / 0.01 cached / 0.125 cache write / 0.50
+      // out; long context (>272K input, whole request) 0.20 / 0.02 / 0.25 /
+      // 0.75. Effort ladder none … max, same as 5.6; Lex keeps 'none' as its
+      // default. Image input — yes. The price lives in public.models only.
+      apiModel: 'gpt-6-luna', provider: 'openai', type: 'text', label: '6 Luna',
+      vision: true,
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'none',
+    },
+    {
       // Live-verified 2026-07-12 via the Responses API: 'minimal' rejected
       // (HTTP 400, unsupported_value — same quirk as 5.4/5.5 below), full
       // ['none','low','medium','high','xhigh'] range otherwise accepted.
@@ -85,6 +104,11 @@
       // none / low / medium (their default) / high / xhigh / max for all three
       // 5.6 variants; the 2026-07-12 live check predates 'max' existing. Lex
       // keeps 'none' as ITS default — cheapest turn, not OpenAI's suggestion.
+      // Hidden 2026-09-23 — superseded by 6 Luna. Kept in the registry so
+      // history, charges and old installs that still name it resolve. Whoever
+      // had it chosen is moved to 6 Luna by the server (public.models
+      // .replaced_by, read by lex_model_defaults).
+      hidden: true, replacedBy: 'gpt-6-luna',
       apiModel: 'gpt-5.6-luna', provider: 'openai', type: 'text', label: '5.6 Luna',
       vision: true,
       efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -114,6 +138,19 @@
       ],
     },
     {
+      // GPT-6 Sol — added 2026-09-23, replaces 5.6 Sol (hidden below).
+      // developers.openai.com/api/docs/models/gpt-6-sol and the pricing page,
+      // checked 2026-09-23: 2.00 in / 0.20 cached / 2.50 cache write / 10.00
+      // out; long context (>272K input, whole request) 4.00 / 0.40 / 5.00 /
+      // 15.00. Same effort ladder and image input as 6 Luna.
+      apiModel: 'gpt-6-sol', provider: 'openai', type: 'text', label: '6 Sol',
+      vision: true,
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'none',
+    },
+    {
+      // Hidden 2026-09-23 — superseded by 6 Sol, same convention as 5.6 Luna.
+      hidden: true, replacedBy: 'gpt-6-sol',
       // Live-verified 2026-07-12, same effort surface as Luna/Terra.
       // 2026-08-25: OpenAI cut Sol to 4.00 / 0.40 / 20.00 (was 5.00 / 0.50 /
       // 30.00 — the figure this row and the Supabase mirror both still carried,
@@ -134,7 +171,7 @@
     {
       // Hidden 2026-07-12 — superseded by 5.6 Sol. Kept in the registry
       // (not deleted) so historical telemetry rows referencing it stay valid.
-      hidden: true,
+      hidden: true, replacedBy: 'gpt-5.6-sol',
       apiModel: 'gpt-5.5', provider: 'openai', type: 'text', label: '5.5',
       vision: true,
       // 'minimal' rejected by the Responses API (HTTP 400, unsupported_value) —
@@ -160,7 +197,7 @@
       // Hidden 2026-07-12 — superseded by 5.6 Sol. Kept in the registry
       // (not deleted) so historical telemetry rows referencing it stay valid.
       // Pro is reasoning-only — Responses API exclusive, min effort 'medium'.
-      hidden: true,
+      hidden: true, replacedBy: 'gpt-5.6-sol',
       apiModel: 'gpt-5.5-pro', provider: 'openai', type: 'text', label: '5.5 Pro',
       vision: true,
       efforts: ['medium', 'high', 'xhigh'],
@@ -179,7 +216,7 @@
     {
       // Hidden 2026-07-12 — superseded by 5.6 Terra. Kept in the registry
       // (not deleted) so historical telemetry rows referencing it stay valid.
-      hidden: true,
+      hidden: true, replacedBy: 'gpt-5.6-terra',
       apiModel: 'gpt-5.4', provider: 'openai', type: 'text', label: '5.4',
       vision: true,
       efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -198,7 +235,7 @@
       // (not deleted) so historical telemetry rows referencing it stay valid.
       // registryEntries (incl. the preprocess-gpt-5-4-m-off preset) stay —
       // content.js PREPROCESS_MODELS still references that id.
-      hidden: true,
+      hidden: true, replacedBy: 'gpt-5.6-luna',
       apiModel: 'gpt-5.4-mini', provider: 'openai', type: 'text', label: '5.4 mini',
       vision: true,
       efforts: ['none', 'low', 'medium', 'high', 'xhigh'],
@@ -216,7 +253,7 @@
       // registryEntries (incl. the preprocess-gpt-5-4-n-off preset) stay —
       // content.js PREPROCESS_MODELS still references that id.
       // nano ignores reasoning_effort — only the 'none' button is shipped.
-      hidden: true,
+      hidden: true, replacedBy: 'gpt-5.6-luna',
       apiModel: 'gpt-5.4-nano', provider: 'openai', type: 'text', label: '5.4 nano',
       vision: true,
       efforts: ['none'],
@@ -1136,6 +1173,26 @@
     return hit.id;
   }
 
+  // Сменённая модель → её преемник: синтетический `provider:apiModel:effort`
+  // или null, если модель никем не сменена (или id не распознан). Понимает обе
+  // формы сохранённого значения — синтетическую и легаси-имя вида
+  // `preprocess-gpt-5-6-luna-off`. Цепочка проходится до конца (5.5 → 5.6 Sol →
+  // 6 Sol). Ступень сохраняется, если преемник её умеет, иначе — его ступень
+  // по умолчанию. Выбор человека переводит сервер (lex_model_defaults по
+  // public.models.replaced_by); здесь это нужно ячейкам, которые хранит только
+  // само расширение (модель очистки субтитров, думающая модель голоса).
+  function successorModelId(stored) {
+    const facts = resolveModelFacts(stored);
+    if (!facts) return null;
+    let m = MODELS_BY_API[facts.apiModel];
+    if (!m || !m.replacedBy) return null;
+    for (let i = 0; i < 8 && m.replacedBy && MODELS_BY_API[m.replacedBy]; i++) m = MODELS_BY_API[m.replacedBy];
+    if (m.apiModel === facts.apiModel) return null;
+    const effort = facts.effort && (m.efforts || []).includes(facts.effort)
+      ? facts.effort : (m.defaultEffort || 'none');
+    return m.provider + ':' + m.apiModel + ':' + effort;
+  }
+
   // Размышляет ли модель всегда, что бы мы ни послали. modelId — синтетический
   // `provider:apiModel:effort` или легаси-имя; неизвестный id → false.
   // Единственный потребитель — callAnthropicStream: он берёт из этого потолок
@@ -1307,6 +1364,8 @@
     // очистка субтитров: перечень выводится из реестра, а не хранится отдельно
     preprocessModelOptions,
     normalizePreprocessModelId,
+    // сменённая модель → преемник того же класса
+    successorModelId,
     // вложения: умеет ли модель читать картинку
     visionSupported,
     voiceKnobAvailability: VOICE_KNOB_AVAILABILITY,
