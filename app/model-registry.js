@@ -8,20 +8,10 @@
 // world and plain Node (used by syntax/equivalence tests).
 //
 // ─────────────────────────────────────────────────────────────────────
-// HOW TO ADD A MODEL: add one entry to LEX_MODELS below. A text model
-// then shows up in every model bar (chat / tutor / future surfaces),
-// gets its effort dropdown, pricing pill and routing automatically —
-// no other file needs editing. registryEntries is back-compat only:
-// the legacy named MODEL_REGISTRY ids + preprocess presets. New models
-// do NOT need registryEntries — the UI drives them via synthetic
-// `provider:apiModel:effort` ids.
-//
-// ⚠️ ПРАВИЛО (2026-09-07): заменяя или добавляя модель, сверь её настройки —
-// ступени размышления, принимаемые ручки, цену — с ДОКУМЕНТАЦИЕЙ ПРОВАЙДЕРА
-// и впиши модель И сюда, И в серверную таблицу `public.models`, одним
-// коммитом. Клиентской строки мало: сервер (`llm-proxy`) роутит и считает
-// деньги по своей таблице, и модель без строки там НЕ РАБОТАЕТ — сервер
-// отказывает до поставщика («модель недоступна», с 2026-09-11).
+// КАК ДОБАВИТЬ ИЛИ ЗАМЕНИТЬ МОДЕЛЬ — CLAUDE.md, раздел «„Добавь модель X“ —
+// делаешь всё сам». Правило живёт только там; здесь — лишь поля записи
+// (ниже). Кратко: запись сюда И строка цены в `public.models` одной задачей,
+// иначе сервер модель не пустит.
 //
 // ЦЕН ЗДЕСЬ НЕТ (2026-09-11, решение владельца: цены только на сервере,
 // расчёт в одном месте — supabase/functions/_shared/model-pricing.ts). Цена,
