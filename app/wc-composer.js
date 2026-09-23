@@ -281,6 +281,17 @@
       sendWithPreset(p);
       return;
     }
+    // Выбраны слова в ленте — обычная отправка уходит заготовкой по умолчанию
+    // (LexActionPresets.pickDefaultOf, решение владельца 2026-09-23), как
+    // нажатие её пилюли. Взведённая заготовка выше важнее. Не перехватываем
+    // во время живого разговора и когда заготовка неотправима — тогда ход
+    // уходит обычным вопросом, а не отказом.
+    if (!(opts && opts.mode) && !voiceActive
+      && global.WcWordPick && WcWordPick.count() > 0) {
+      const P = PRESETS();
+      const p = (P && presetScope && typeof P.pickDefaultOf === 'function') ? P.pickDefaultOf(presetScope) : null;
+      if (p) { sendWithPreset(p); return; }
+    }
     const text = elInput.value.trim();
     elInput.value = '';
     autoGrow();
