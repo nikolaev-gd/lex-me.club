@@ -82,3 +82,27 @@
   opacity: 0.5;
   font-size: 12px;
 }
+/* Строка-действие под моделями (tailRow) — за тонкой чертой: это не выбор
+   модели. Спрятанная строка (пока под ней открыто подтверждение) не должна
+   оставаться flex-строкой. */
+.ytvocab-model-picker-row[hidden] {
+  display: none;
+}
+.ytvocab-model-picker-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--lex-menu-line, rgba(255, 255, 255, 0.14));
+}
+/* Подтверждение под пунктом «Transcribe audio» (chat-account-menu.js
+   openTranscribeInMenu): та же разметка, что у кнопки в разделе Debug, в
+   обёртке .lex-fields (lex-settings-fields.css — цвета, рамки, красная
+   кнопка). Ширина — у самих рядов, а не у обёртки: свёрнутое подтверждение
+   не держит меню широким. Вопрос длинный — переносится внутри ширины. */
+.ytvocab-model-picker-transcribe .lex-field-extra,
+.ytvocab-model-picker-transcribe .lex-field-note {
+  box-sizing: border-box;
+  width: 240px;
+  max-width: calc(100vw - 24px);
+  margin: 4px 0 4px;
+  padding: 0 8px 4px;
+}

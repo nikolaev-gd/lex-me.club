@@ -56,6 +56,12 @@
   // One open picker at a time, tracked module-wide so opening a second one
   // (or clicking outside, or Escape) always closes whatever was open first.
   let active = null;
+  // Номер последнего open(): open() ждёт ответов (getSelected, leadRow, а у
+  // меню под блоком «Subtitles» — tailRow.isVisible, до 1,5 с), и второе
+  // нажатие за это время начинает новое открытие. Показывает меню только
+  // последнее — иначе первое вставало бы на экран мимо `active` и его нечем
+  // было бы закрыть.
+  let openSeq = 0;
 
   function closeActive() {
     if (!active) return;
@@ -73,7 +79,24 @@
   });
   // A scroll anywhere invalidates the fixed-position panel/submenu
   // coordinates — simplest correct behaviour is to just close.
-  document.addEventListener('scroll', () => { if (active) closeActive(); }, true);
+  //
+  // Except for a menu opened with config.keepOnUnrelatedScroll (only the one
+  // under the Subtitles block, shared.js subsPickerConfig): it closes only on a
+  // scroll that can move its anchor — the page itself (target = document) or
+  // an element that holds the anchor. The menu's own list scrolling and a
+  // neighbour that scrolls by itself do not close it: the transcript panel
+  // follows the playing video line by line, and closing on that shut the menu
+  // — and the «Transcribe audio» confirm inside it — every couple of seconds
+  // while the video played.
+  document.addEventListener('scroll', (e) => {
+    if (!active) return;
+    const t = e.target;
+    if (active.keepOnUnrelatedScroll && t && t.nodeType === 1) {
+      if (active.contains(t)) return;
+      if (active.anchor && active.anchor.isConnected && !t.contains(active.anchor)) return;
+    }
+    closeActive();
+  }, true);
 
   function clampIntoViewport(el, preferLeft, preferTop) {
     const r = el.getBoundingClientRect();
@@ -107,6 +130,9 @@
   // opts.selected: {provider, apiModel} | null — which row gets the checkmark.
   // opts.leadRow: {label, selected, onPick()} | null — optional first row
   //   above the models (a choice that is not a model and has no efforts).
+  // opts.tailRow: {label, onPick(row)} | null — optional last row below the
+  //   models: an action, not a choice. It does not close the menu — onPick
+  //   decides what happens next (see tailRow in open()).
   // opts.getEffort(apiModel): () => Promise<string|null> — persisted effort.
   // opts.onPick(provider, apiModel, effort): called on a committed choice.
   function populateModelRows(container, opts) {
@@ -248,6 +274,32 @@
       }
     }
 
+    // opts.tailRow — необязательная последняя строка под моделями, за чертой:
+    // действие, а не выбор модели (пункт «Transcribe audio» под блоком
+    // «Subtitles»). Ни галочки, ни ступеней; меню она не закрывает — что
+    // дальше, решает onPick (пункт раскрывает под собой подтверждение).
+    if (opts.tailRow) {
+      const tail = opts.tailRow;
+      const sep = document.createElement('div');
+      sep.className = 'ytvocab-model-picker-sep';
+      container.appendChild(sep);
+      const row = document.createElement('div');
+      row.className = 'ytvocab-model-picker-row ytvocab-model-picker-tail-row';
+      const check = document.createElement('span');
+      check.className = 'ytvocab-model-picker-check';
+      const label = document.createElement('span');
+      label.className = 'ytvocab-model-picker-label';
+      label.textContent = tail.label;
+      row.appendChild(check);
+      row.appendChild(label);
+      row.addEventListener('mouseenter', closeSubmenu);
+      row.addEventListener('click', () => {
+        closeSubmenu();
+        tail.onPick(row);
+      });
+      container.appendChild(row);
+    }
+
     return {
       closeSubmenu,
       containsNode(node) {
@@ -257,15 +309,44 @@
   }
 
   function openPanel(trigger, opts) {
+    closeActive();
     const panel = document.createElement('div');
     panel.className = 'ytvocab-model-picker-panel';
     document.body.appendChild(panel);
+
+    // Закрыть именно это меню, если оно ещё открыто (не то, что открыли после).
+    const closeThis = () => { if (active && active.panel === panel) closeActive(); };
+    // Место на экране: под якорем, внизу места нет — над ним. Зовётся ещё раз,
+    // когда меню меняет размер (последняя строка раскрыла подтверждение).
+    const place = () => {
+      if (!trigger.isConnected) {
+        // Якорь перерисовали, пока меню открыто: остаёмся где стоим, только в
+        // пределах окна.
+        clampIntoViewport(panel, parseFloat(panel.style.left) || 4, parseFloat(panel.style.top) || 4);
+        return;
+      }
+      const tr = trigger.getBoundingClientRect();
+      // Внизу места нет (якорь у нижнего края, например «+» композера) — вверх.
+      if (opts.side) {
+        // Сбоку от строки чужого меню, как подменю: вправо, не влезает — влево.
+        let left = tr.right + 2;
+        if (left + panel.offsetWidth > window.innerWidth - 4) left = tr.left - panel.offsetWidth - 2;
+        clampIntoViewport(panel, left, tr.top);
+      } else {
+        const below = tr.bottom + 4;
+        const fitsBelow = below + panel.offsetHeight <= window.innerHeight - 4;
+        clampIntoViewport(panel, tr.left, fitsBelow ? below : tr.top - panel.offsetHeight - 4);
+      }
+    };
 
     const rows = populateModelRows(panel, {
       selected: opts.selected,
       provider: opts.provider,
       leadRow: opts.leadRow
         ? { ...opts.leadRow, onPick: () => { closeActive(); opts.leadRow.onPick(); } }
+        : null,
+      tailRow: opts.tailRow
+        ? { label: opts.tailRow.label, onPick: (row) => opts.tailRow.onPick({ row, panel, relayout: place, close: closeThis }) }
         : null,
       getEffort: opts.getEffort,
       onPick: (provider, apiModel, effort) => {
@@ -274,22 +355,13 @@
       },
     });
 
-    const tr = trigger.getBoundingClientRect();
     panel.style.position = 'fixed';
-    // Внизу места нет (якорь у нижнего края, например «+» композера) — вверх.
-    if (opts.side) {
-      // Сбоку от строки чужого меню, как подменю: вправо, не влезает — влево.
-      let left = tr.right + 2;
-      if (left + panel.offsetWidth > window.innerWidth - 4) left = tr.left - panel.offsetWidth - 2;
-      clampIntoViewport(panel, left, tr.top);
-    } else {
-      const below = tr.bottom + 4;
-      const fitsBelow = below + panel.offsetHeight <= window.innerHeight - 4;
-      clampIntoViewport(panel, tr.left, fitsBelow ? below : tr.top - panel.offsetHeight - 4);
-    }
+    place();
 
     active = {
       anchor: trigger,
+      panel,
+      keepOnUnrelatedScroll: !!opts.keepOnUnrelatedScroll,
       contains(node) {
         return trigger.contains(node) || panel.contains(node) || rows.containsNode(node);
       },
@@ -310,6 +382,13 @@
   //   checked) or an effort row in the submenu (effort = that explicit pick).
   // opts.leadRow: {label, isSelected(): Promise<bool>, onPick()} — optional
   //   first row above the models, e.g. «(same as main chat)» of an action mode.
+  // opts.tailRow: {label (string | () => string), isVisible(): bool |
+  //   Promise<bool>, onPick(ctl)} — optional last row below the models, an
+  //   action rather than a model («Transcribe audio» under the Subtitles
+  //   block). isVisible is asked on every open; onPick gets
+  //   ctl = {row, panel, relayout(), close()} and the menu stays open.
+  // opts.keepOnUnrelatedScroll: true — close on a scroll only when it can move
+  //   the trigger (see the scroll listener at the top).
   function mount(trigger, config) {
     trigger.classList.add('ytvocab-model-picker-trigger');
     trigger.addEventListener('click', async (e) => {
@@ -327,6 +406,13 @@
   async function open(anchor, config, openOpts) {
       if (openOpts && openOpts.side && active && active.anchor === anchor) return;
       closeActive();
+      const seq = ++openSeq;
+      // config.tailRow — { label, isVisible(), onPick(ctl) }: строка под
+      // моделями. Показывать ли её, спрашивается на каждое открытие и сразу —
+      // параллельно с остальными вопросами: ответ может идти до секунды.
+      const tailShown = config.tailRow
+        ? Promise.resolve().then(() => config.tailRow.isVisible()).then((v) => !!v, () => false)
+        : null;
       let selected = null;
       try { selected = await config.getSelected(); } catch (_) { /* noop */ }
       // config.provider — строка или функция: вкладка настроек считает её на
@@ -341,13 +427,22 @@
         try { leadSelected = !!(await config.leadRow.isSelected()); } catch (_) { /* noop */ }
         leadRow = { label: config.leadRow.label, selected: leadSelected, onPick: config.leadRow.onPick };
       }
+      let tailRow = null;
+      if (tailShown && await tailShown) {
+        const label = (typeof config.tailRow.label === 'function') ? config.tailRow.label() : config.tailRow.label;
+        tailRow = { label: String(label || ''), onPick: config.tailRow.onPick };
+      }
+      // Пока ждали, началось другое открытие — показывает оно.
+      if (seq !== openSeq) return;
       openPanel(anchor, {
         selected,
         provider,
         leadRow,
+        tailRow,
         getEffort: config.getEffort,
         onPick: config.onPick,
         side: !!(openOpts && openOpts.side),
+        keepOnUnrelatedScroll: !!config.keepOnUnrelatedScroll,
       });
   }
 
