@@ -20,7 +20,8 @@
 //
 // Loaded via manifest content_scripts AFTER model-registry.js and BEFORE
 // chat-model-picker.js. Exposes globalThis.LexModelPickerDropdown =
-// { mount, populateModelRows }.
+// { mount, open, close, populateModelRows, scrollClosesMenu, takeEscapeForMenu }
+// — the last two are the close rules every anchored menu shares (see below).
 
 (function (global) {
   'use strict';
@@ -69,33 +70,58 @@
     active = null;
   }
 
+  // ── When a menu opened at a button closes ──────────────────────────────
+  //
+  // ONE rule for every menu anchored to a button: the model menus of this file
+  // (model buttons in settings, the model tree off the «+» menu, the Subtitles
+  // block, the answer's model on lex-me.club) and the menus of chat-surface.js
+  // openAnchoredMenu (the model under an answer, «+», the voice mode, action
+  // presets). chat-surface calls these two functions — there is no second copy.
+
+  // A scroll closes the menu only when it can move the menu's button: the page
+  // itself (target = document) or an element that holds the button (the chat
+  // feed, the settings window). The menu's own list and a neighbour that
+  // scrolls by itself do not: the transcript panel follows the playing video
+  // line by line, and closing on that shut every menu within a couple of
+  // seconds of a playing video (until v1.262.0 the Subtitles block's too).
+  // A button redrawn while the menu is open has no known place any more — then
+  // any scroll closes it, as before.
+  // isInside(node) — the node belongs to the menu (its list, its submenu).
+  function scrollClosesMenu(target, anchor, isInside) {
+    if (!target || target.nodeType !== 1) return true;
+    if (isInside && isInside(target)) return false;
+    if (!anchor || !anchor.isConnected) return true;
+    return target.contains(anchor);
+  }
+
+  // Escape closes the open menu — and only it: the event is marked handled
+  // (preventDefault) and stopped, so the settings window under the menu, the
+  // small Lex window and YouTube itself do not act on the same press. Called
+  // from capture-phase listeners: the small window and the side panel stop key
+  // bubbling at their root (chat-surface isolateEvents), and a bubbling
+  // listener never heard an Escape pressed inside them — the window closed
+  // and the menu stayed hanging on the page. The price window (LexDialog) sits
+  // above everything; its Escape is its own. Returns true when it took the key.
+  function takeEscapeForMenu(e, close) {
+    if (e.key !== 'Escape' || e.defaultPrevented) return false;
+    try { if (global.LexDialog && typeof global.LexDialog.isOpen === 'function' && global.LexDialog.isOpen()) return false; } catch (_) { /* noop */ }
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+    return true;
+  }
+
   document.addEventListener('mousedown', (e) => {
     if (!active) return;
     if (active.contains(e.target)) return;
     closeActive();
   }, true);
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeActive();
-  });
-  // A scroll anywhere invalidates the fixed-position panel/submenu
-  // coordinates — simplest correct behaviour is to just close.
-  //
-  // Except for a menu opened with config.keepOnUnrelatedScroll (only the one
-  // under the Subtitles block, shared.js subsPickerConfig): it closes only on a
-  // scroll that can move its anchor — the page itself (target = document) or
-  // an element that holds the anchor. The menu's own list scrolling and a
-  // neighbour that scrolls by itself do not close it: the transcript panel
-  // follows the playing video line by line, and closing on that shut the menu
-  // — and the «Transcribe audio» confirm inside it — every couple of seconds
-  // while the video played.
+    if (active) takeEscapeForMenu(e, closeActive);
+  }, true);
   document.addEventListener('scroll', (e) => {
     if (!active) return;
-    const t = e.target;
-    if (active.keepOnUnrelatedScroll && t && t.nodeType === 1) {
-      if (active.contains(t)) return;
-      if (active.anchor && active.anchor.isConnected && !t.contains(active.anchor)) return;
-    }
-    closeActive();
+    if (scrollClosesMenu(e.target, active.anchor, (n) => active.contains(n))) closeActive();
   }, true);
 
   function clampIntoViewport(el, preferLeft, preferTop) {
@@ -361,7 +387,6 @@
     active = {
       anchor: trigger,
       panel,
-      keepOnUnrelatedScroll: !!opts.keepOnUnrelatedScroll,
       contains(node) {
         return trigger.contains(node) || panel.contains(node) || rows.containsNode(node);
       },
@@ -387,8 +412,6 @@
   //   action rather than a model («Transcribe audio» under the Subtitles
   //   block). isVisible is asked on every open; onPick gets
   //   ctl = {row, panel, relayout(), close()} and the menu stays open.
-  // opts.keepOnUnrelatedScroll: true — close on a scroll only when it can move
-  //   the trigger (see the scroll listener at the top).
   function mount(trigger, config) {
     trigger.classList.add('ytvocab-model-picker-trigger');
     trigger.addEventListener('click', async (e) => {
@@ -442,9 +465,11 @@
         getEffort: config.getEffort,
         onPick: config.onPick,
         side: !!(openOpts && openOpts.side),
-        keepOnUnrelatedScroll: !!config.keepOnUnrelatedScroll,
       });
   }
 
-  global.LexModelPickerDropdown = { mount, open, close: closeActive, populateModelRows };
+  global.LexModelPickerDropdown = {
+    mount, open, close: closeActive, populateModelRows,
+    scrollClosesMenu, takeEscapeForMenu,
+  };
 })(typeof self !== 'undefined' ? self : globalThis);
