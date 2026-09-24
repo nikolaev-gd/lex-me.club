@@ -773,6 +773,34 @@
     return parts.phrase ? (parts.line + '\n\n' + parts.phrase) : parts.line;
   }
 
+  // ── Пузырь вопроса «translate» из выбранного материала ──────────────────
+  //
+  // Решение владельца 2026-09-25: короткой строки заготовки в таком пузыре
+  // нет. Две части: материал (слова-фишки и кусок карандаша) — красным, тем же
+  // цветом, что текущая строка субтитров, — и через пустую строку то, что
+  // человек допечатал. Какая часть какая, решает сервер: первым кадром хода
+  // (bubblePick / bubbleRest) и при чтении беседы (bubble_pick / bubble_rest,
+  // supabase/migrations/translate_bubble_pick.sql). Здесь — только рисунок,
+  // общий для расширения и страницы.
+  const PICK_BUBBLE_CLASS = 'lex-bubble-pick';
+  function pickBubbleText(pick, rest) {
+    const p = String(pick == null ? '' : pick);
+    const r = String(rest == null ? '' : rest);
+    return r ? (p + '\n\n' + r) : p;
+  }
+  // Пузырь целиком заменяется: красный кусок и, если есть, допечатанное.
+  // Нарезка на слова (клик по словам в ленте) идёт после и режет текстовые
+  // узлы на месте — красный кусок она не снимает.
+  function paintPickBubble(el, pick, rest) {
+    if (!el) return;
+    const span = document.createElement('span');
+    span.className = PICK_BUBBLE_CLASS;
+    span.textContent = String(pick == null ? '' : pick);
+    el.replaceChildren(span);
+    const r = String(rest == null ? '' : rest);
+    if (r) el.appendChild(document.createTextNode('\n\n' + r));
+  }
+
   // Ход, который показывать нечего — по УЖЕ очищенному видимому тексту. Два
   // случая: скрытая часть съела его целиком (легаси-инструкция выключенного
   // лексического попапа) и кодовая метка ⟦, которой в написанном человеком не
@@ -872,6 +900,10 @@
     isHiddenOnlyText,
     splitPresetLater,
     presetBubbleText,
+    // пузырь «translate» из выбранного материала: красная часть и допечатанное
+    PICK_BUBBLE_CLASS,
+    pickBubbleText,
+    paintPickBubble,
     // подсветка
     decorateLine,
     refreshHighlight,

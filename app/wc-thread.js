@@ -126,11 +126,22 @@
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
+    // Пузырь «translate» из выбранного материала (решение владельца
+    // 2026-09-25): материал красным, пустая строка, допечатанное — без строки
+    // заготовки. Части присылает сервер; «Edit» правит допечатанное.
+    const pick = (opts && typeof opts.pick === 'string' && opts.pick && global.LexWordPick) ? opts.pick : '';
+    if (pick) {
+      const rest = typeof opts.rest === 'string' ? opts.rest : '';
+      global.LexWordPick.paintPickBubble(bubble, pick, rest);
+      bubble.dataset.lexPick = pick;
+      bubble.dataset.lexRest = rest;
+      bubble.dataset.editText = rest;
+    }
     // Ход человека приходит текстом целиком, поэтому режется сразу — ждать
     // тут нечего. `ready` кладёт на пузырь исходник даже при выключенном
     // режиме: включение посреди беседы иначе нашло бы пузыри без исходника и
     // не смогло бы потом снять с них нарезку.
-    if (global.WcWordPick) WcWordPick.ready(bubble, text, 'text');
+    if (global.WcWordPick) WcWordPick.ready(bubble, text, pick ? 'pick' : 'text');
     const parts = [];
     if (images && images.length) {
       parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
@@ -251,6 +262,7 @@
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
         else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
         else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
+        else if (msg.type === 'STREAM_USER_TEXT' && msg.bubblePick) WcThread.setLastUserPick(msg.bubblePick, msg.bubbleRest || '');
         else if (msg.type === 'STREAM_USER_TEXT' && msg.laterText) WcThread.setLastUserPreset(msg.laterText);
       });
     },
@@ -281,8 +293,12 @@
           // же: беседа из расширения читается здесь и наоборот).
           let visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
           let editText;
-          const pp = t.presetSlot ? presetParts(t.later) : null;
-          if (pp && pp.line) {
+          const bub = (t.bubble && t.bubble.pick) ? t.bubble : null;
+          const pp = (!bub && t.presetSlot) ? presetParts(t.later) : null;
+          if (bub) {
+            visible = global.LexWordPick.pickBubbleText(bub.pick, bub.rest);
+            editText = bub.rest;
+          } else if (pp && pp.line) {
             visible = global.LexWordPick.presetBubbleText(pp);
             editText = pp.phrase;
           }
@@ -295,7 +311,10 @@
           // ни пузыря, ни картинки.
           const hasImage = Array.isArray(t.images) && t.images.length > 0;
           if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          const node = userTurn(visible, t.images, { presetSlot: t.presetSlot || null, editText });
+          const node = userTurn(visible, t.images, {
+            presetSlot: t.presetSlot || null, editText,
+            ...(bub ? { pick: bub.pick, rest: bub.rest } : {}),
+          });
           if (t.uid) node.dataset.uid = String(t.uid);
           elTurns.append(node);
         } else {
@@ -328,6 +347,19 @@
       const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
       const node = userTurn(global.LexWordPick.presetBubbleText(pp), imgs,
         { presetSlot: old.dataset.presetSlot, editText: pp.phrase });
+      if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
+      old.replaceWith(node);
+    },
+
+    // Пузырь «translate» из выбранного материала — материалом и допечатанным:
+    // сразу при нажатии (wc-app.js) и первым кадром ответа от сервера.
+    setLastUserPick(pick, rest) {
+      const all = [...elTurns.querySelectorAll('.wc-turn-user')];
+      const old = all.pop();
+      if (!old || !old.dataset.presetSlot || !pick) return;
+      const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
+      const node = userTurn(global.LexWordPick.pickBubbleText(pick, rest), imgs,
+        { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
       old.replaceWith(node);
     },

@@ -275,6 +275,11 @@ button,
   user-select: none;
 }
 
+/* Вопрос «translate» из выбранного материала (2026-09-25): сам материал —
+   тем же красным, что текущее слово субтитров в расширении (styles.css
+   .lex-bubble-pick). Класс ставит LexWordPick.paintPickBubble. */
+.wc-bubble .lex-bubble-pick { color: #ff6b6b; }
+
 /* The teacher's answer: ordinary selectable text, said out loud so no
    inherited `none` can take it away. Owner's direct requirement. */
 .wc-turn-assistant .wc-bubble,

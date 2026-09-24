@@ -2311,7 +2311,13 @@
           // Ход заготовки из одной картинки: текста вопроса нет, а короткая
           // строка есть — кадр всё равно уходит, иначе следующий ход страницы
           // прислал бы на месте этого вопроса пустую реплику.
-          if (userText || laterText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText: userText || '', ...(laterText ? { laterText } : {}) });
+          // Пузырь «translate» из выбранного материала: красная часть и
+          // допечатанное. Есть — поверхность рисует пузырь по нему, а не по
+          // laterText (у того первая половина — строка для учителя).
+          const bubblePick = d && typeof d.bubblePick === 'string' && d.bubblePick ? d.bubblePick : null;
+          const bubble = bubblePick
+            ? { bubblePick, bubbleRest: typeof d.bubbleRest === 'string' ? d.bubbleRest : '' } : {};
+          if (userText || laterText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText: userText || '', ...(laterText ? { laterText } : {}), ...bubble });
         };
         // Итоговое тело запроса от сервера — в журнал обмена, на место того,
         // которое собрало устройство. Тело приходит строкой, уже без байтов

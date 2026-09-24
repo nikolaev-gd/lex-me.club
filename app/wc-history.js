@@ -386,6 +386,10 @@
     // Слот заготовки, которой задан вопрос: «Edit» такого вопроса отправляет
     // правку той же заготовкой.
     presetSlot: (typeof r.preset_slot === 'string' && r.preset_slot) || null,
+    // Пузырь «translate» из выбранного материала: красная часть и допечатанное
+    // (lex_turn_pick_bubble на сервере). Нет — пузырь по-старому.
+    bubble: (typeof r.bubble_pick === 'string' && r.bubble_pick)
+      ? { pick: r.bubble_pick, rest: typeof r.bubble_rest === 'string' ? r.bubble_rest : '' } : null,
     uid: r.turn_uid || null,
     authoredAt: r.authored_at || r.created_at || null,
     // Файлы реплики приезжают ПУТЯМИ в бакете. Ключ блоба здесь не появляется

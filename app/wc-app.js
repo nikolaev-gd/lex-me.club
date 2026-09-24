@@ -303,9 +303,18 @@
     WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null });
     // Ход заготовки: пузырь сразу строкой и фразой, по строке из списка пилюль.
     // Первый кадр ответа (laterText) перерисует его серверной версией.
-    const localLater = (mode && slotId && opts && typeof opts.laterOf === 'function')
-      ? opts.laterOf(turn.visible) : '';
-    if (localLater) WcThread.setLastUserPreset(localLater);
+    // Заготовка выбранного материала («translate») со словами — пузырь сразу
+    // словами и допечатанным, без строки; кадр сервера поставит свою версию.
+    const P = global.LexActionPresets;
+    const pickDefault = (turn.picks && mode && slotId && P && typeof P.pickDefaultOf === 'function' && opts && opts.presetScope)
+      ? P.pickDefaultOf(opts.presetScope) : null;
+    if (pickDefault && pickDefault.id === slotId && turn.words) {
+      WcThread.setLastUserPick(turn.words, turn.typed || '');
+    } else {
+      const localLater = (mode && slotId && opts && typeof opts.laterOf === 'function')
+        ? opts.laterOf(turn.visible) : '';
+      if (localLater) WcThread.setLastUserPreset(localLater);
+    }
     WcComposer.refresh();
 
     const requestId = nextRequestId();

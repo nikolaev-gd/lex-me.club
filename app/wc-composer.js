@@ -108,6 +108,9 @@
     // только показ, кадр сервера со строкой перерисует его своей версией.
     submit({
       mode: 'native', slotId, modelId: (p && p.modelId) || '',
+      // Набор заготовок — чтобы страница узнала заготовку выбранного
+      // материала (pickDefaultOf) и нарисовала её пузырь без строки.
+      presetScope,
       laterOf: (phrase) => ((P && presetScope && typeof P.laterOf === 'function')
         ? P.laterOf(presetScope, slotId, phrase) : ''),
     });

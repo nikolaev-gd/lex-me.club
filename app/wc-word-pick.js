@@ -192,6 +192,8 @@
     const src = bubble.dataset.lexSrc;
     if (src == null) return;
     if (bubble.dataset.lexKind === 'markdown') global.WcMarkdown.into(bubble, src);
+    // Пузырь «translate» из выбранного материала: красная часть и допечатанное.
+    else if (bubble.dataset.lexKind === 'pick') WP.paintPickBubble(bubble, bubble.dataset.lexPick || '', bubble.dataset.lexRest || '');
     else bubble.textContent = src;
   }
 
@@ -336,13 +338,15 @@
   function takeTurn(typed) {
     const mine = WP.lockedSource() === SOURCE && WP.size() > 0;
     const plain = String(typed || '').trim();
-    if (!mine) return { visible: plain, sent: plain, picks: null };
+    if (!mine) return { visible: plain, sent: plain, picks: null, words: '' };
     const words = WP.text();
     const picks = WP.sendPicks();
     const visible = words ? (words + ' ' + String(typed || '')).trim() : plain;
     WP.clear();
     changed();
-    return { visible, sent: visible, picks };
+    // words и typed — для пузыря «translate» в момент нажатия (wc-app.js):
+    // материал и допечатанное, до кадра сервера.
+    return { visible, sent: visible, picks, words, typed: plain };
   }
 
   const WcWordPick = {
@@ -413,7 +417,7 @@
       if (!bubble) return;
       if (bubble.dataset) {
         bubble.dataset.lexSrc = String(src == null ? '' : src);
-        bubble.dataset.lexKind = (kind === 'markdown') ? 'markdown' : 'text';
+        bubble.dataset.lexKind = (kind === 'markdown' || kind === 'pick') ? kind : 'text';
       }
       sliceBubble(bubble);
     },
