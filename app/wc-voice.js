@@ -71,6 +71,14 @@
   let startedAt = 0;
   let closed = true;
   let connecting = false;
+  // Номер попытки старта. teardown() его сдвигает, и старт, который ждал
+  // сервера или микрофона, узнаёт, что его уже отменили (stale() в start()).
+  // Одного флага connecting для этого мало: «положил трубку и сразу нажал
+  // снова» заводит новую попытку, и её connecting=true старая приняла бы за
+  // свой. Сервер держит старт до срока замены, пока ждёт прежний разговор, —
+  // окно для такого нажатия стало долгим. Тот же приём, что у айфона
+  // (VoiceSession.swift, `run == generation`).
+  let attempt = 0;
   let hooks = {};
   // Whether the READER muted themselves, kept apart from the first-turn guard
   // holding the microphone. Two different reasons for one track being off, and
@@ -96,6 +104,9 @@
     // окно» здесь говорить нельзя: никакого другого окна нет, эта формулировка
     // была домыслом клиента о коде 409 — см. разбор у места повтора.
     race: 'Could not start the conversation. Press again.',
+    // Другой живой разговор этого аккаунта — во второй вкладке, в программе
+    // для Мака, на телефоне. Закончить его может только тот, кто его ведёт.
+    elsewhere: 'A voice conversation is already running in another window or on another device. End it there first.',
     no_listener: 'The server could not open the billing session — try again.',
     // Сервер ждал места в очереди платных вызовов аккаунта (до 30 с,
     // supabase/functions/_shared/call-slot.ts) и не дождался. Текст — общий
@@ -616,6 +627,11 @@
   async function start(opts) {
     if (!closed || connecting) return;
     connecting = true;
+    const my = ++attempt;
+    // Отменена ли эта попытка (stop → teardown, возможно уже с новой попыткой
+    // поверх). Отменённая попытка общего состояния модуля не трогает: оно
+    // уже принадлежит teardown или новой попытке.
+    const stale = () => my !== attempt;
     hooks = (opts && opts.hooks) || {};
     state.items.clear();
     state.turns = 0;
@@ -639,10 +655,15 @@
       // bound session so the listener's row can never have a null session_id,
       // which is exactly what keeps it able to bill.
       const sessionId = await WcBus.call('WC_ENSURE_SESSION').then((r) => r && r.sessionId);
+      if (stale()) return;
       if (sessionId == null) throw new Error('could not create a session for the conversation');
 
       // Mic first: a refused microphone should stop us before any server work.
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, MIC_AUDIO) });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: Object.assign({}, MIC_AUDIO) });
+      // Отменили, пока ждали микрофон (или окошко разрешения), — микрофон,
+      // взятый уже после отмены, сразу отпускаем, а не оставляем гореть.
+      if (stale()) { try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {} return; }
+      localStream = stream;
       micTrack = localStream.getAudioTracks()[0];
       if (!micTrack) throw new Error('the microphone yielded no track');
       // Held from the very first frame, before the track is even attached to
@@ -704,7 +725,9 @@
       // NO createDataChannel — see the header. An m=application line in the
       // offer is refused by the broker.
       const offer = await pc.createOffer();
+      if (stale()) return;
       await pc.setLocalDescription(offer);
+      if (stale()) return;
 
       const promptRefs = {
         base: { scope: SCOPE, cell: 'chatPrompts', slot: await activeSlot('activeChatPromptId', 'chatB1') },
@@ -748,31 +771,54 @@
         },
       });
 
+      // Отменили, пока читали слоты промптов, — звонок не заказываем вовсе.
+      if (stale()) return;
       let r = await открыть(sessionId);
 
-      // ⚠️ 409 БЫВАЕТ ДВУХ ВИДОВ, и различает их `stage`.
+      // ⚠️ 409 БЫВАЕТ ТРЁХ ВИДОВ, и различает их `stage`.
       //
       //   · stage 'session'    — `no_session`, гонка привязки. Сервер сам
-      //     называет её временной и просит повторить (llm-proxy:234-239).
+      //     называет её временной и просит повторить (gateReasonToResp в
+      //     llm-proxy).
+      //   · stage 'voice_retry' — прежний разговор аккаунта замолчал, но
+      //     закрыть его сервер пока не смог, или замок строки перехватил
+      //     другой старт. Тоже временный.
       //   · stage 'voice_busy' — у аккаунта УЖЕ ЕСТЬ живая строка
-      //     `voice_sessions` со status='active' (llm-proxy:2590).
+      //     `voice_sessions` со status='active', и она подаёт сигнал «я на
+      //     линии».
       //
-      // Второй — это то, что видел владелец. И это не «в другом окне»: окно
+      // Третий — это то, что видел владелец. И это не «в другом окне»: окно
       // одно, а строка осталась от ЕГО ЖЕ предыдущего разговора, потому что
-      // раньше мы не сообщали серверу об отбое вовсе. Сама она снимается
-      // только по устареванию — через пять минут.
+      // раньше мы не сообщали серверу об отбое вовсе. Сама она снималась
+      // только по сроку присутствия; теперь её заменяет следующий старт, если
+      // от неё больше нет сигналов (правило замены на сервере).
       //
       // Настоящее лечение — закрывать строку на отбое (см. `endCallOnServer`
-      // в stop()). Повтор оставлен для первого вида 409 и для случая, когда
-      // отчёт об отбое не дошёл.
+      // в stop()). Повтор — для обоих временных видов 409. Последний сервер
+      // решает сам: ждёт прежний разговор и заменяет его, если тот замолчал
+      // (правило замены, supabase/functions/_shared/voice-replace.ts), а
+      // «занято» отвечает, только когда прежний жив, — повтор лишь оттягивал бы
+      // отказ.
       const ПАУЗЫ = [800, 1800];
-      for (let i = 0; i < ПАУЗЫ.length && !r.ok && r.status === 409; i++) {
-        log('409 no_session — binding race, retrying', i + 1);
+      for (let i = 0; i < ПАУЗЫ.length && !stale() && !r.ok && r.status === 409 && !(r.json && r.json.stage === 'voice_busy'); i++) {
+        log('409 ' + ((r.json && r.json.stage) || '') + ' — temporary, retrying', i + 1);
         if (hooks.onStage) hooks.onStage('connecting');
         await new Promise((res) => setTimeout(res, ПАУЗЫ[i]));
+        if (stale()) return;
         let sid2 = null;
         try { sid2 = await WcBus.call('WC_ENSURE_SESSION').then((x) => x && x.sessionId); } catch (_) {}
+        if (stale()) return;
         r = await открыть(sid2 == null ? sessionId : sid2);
+      }
+
+      // Человек нажал «положить трубку», пока ждал ответа сервера (и, может
+      // быть, уже нажал голос снова): stop() снёс всё на странице. Сервер ответа
+      // не отменяет — он мог и ждать прежний разговор аккаунта по правилу
+      // замены, и поставить звонок. Звонок, который никто не ждёт, кладём сразу,
+      // а не оставляем серверу искать его по сроку присутствия.
+      if (stale()) {
+        if (r.ok && r.json && r.json.callId) await endCallOnServer(r.json.callId, { startedAt: 0 });
+        return;
       }
 
       if (!r.ok) {
@@ -784,6 +830,10 @@
           : r.status === 402 ? 'balance'
           : (r.status === 429 && stage === 'inflight') ? 'busy'
           : r.status === 429 ? 'cap'
+          // voice_busy — у аккаунта идёт ДРУГОЙ живой разговор: сервер ждал
+          // его сигнала и дождался (правило замены). «Нажми ещё раз» здесь
+          // неправда — повтор получит тот же отказ, пока тот разговор идёт.
+          : (r.status === 409 && stage === 'voice_busy') ? 'elsewhere'
           : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'
           : null;
@@ -798,6 +848,9 @@
       startPresenceBeat();
       if (hooks.onStage) hooks.onStage('negotiating');
       await pc.setRemoteDescription({ type: 'answer', sdp: r.json.answerSdp });
+      // Отбой во время согласования: teardown уже положил этот звонок
+      // (stop видел его callId), остальное здесь уже не наше.
+      if (stale()) return;
 
       connectServerEvents(callId);
 
@@ -806,6 +859,7 @@
       const maxTokens = live ? null : (Number(knobs.voiceMaxResponseTokens) || null);
       if (maxTokens) {
         await sendServerCmd([{ type: 'session.update', session: { type: 'realtime', max_output_tokens: maxTokens } }]);
+        if (stale()) return;
       }
 
       connecting = false;
@@ -820,8 +874,19 @@
       log('connected', callId, r.json.apiModel);
       return { callId };
     } catch (err) {
+      // Ошибка отменённой попытки — не новость для человека и не повод сносить
+      // состояние, которое уже принадлежит новой попытке.
+      if (stale()) return;
+      // Сервер мог уже поставить звонок (callId есть), а сломалось согласование
+      // на странице: звонок кладём сразу, как при отбое, — иначе строка
+      // разговора жила бы до срока присутствия, и следующее нажатие ждало бы
+      // её по правилу замены.
+      // Без ожидания: пока отчёт в пути, человек может нажать голос снова, и
+      // отложенная ошибка закрыла бы экран уже нового разговора.
+      const failedCallId = callId;
       connecting = false;
       await teardown();
+      if (failedCallId) endCallOnServer(failedCallId).catch(() => {});
       throw err;
     }
   }
@@ -858,9 +923,12 @@
   // authority, и наш отчёт при этом пишет ноль. Поле `accumulatorLost` мы не
   // ставим — именно оно, и только оно, поднимает на сервере тревогу «EMPTY
   // REPORT» (llm-proxy:1876-1880).
-  async function endCallOnServer(id) {
+  // opts.startedAt — начало ИМЕННО этого звонка; звонок отменённой попытки
+  // (он не начинался) — 0, а не время прошлого разговора из startedAt.
+  async function endCallOnServer(id, opts) {
     if (!id) return;
-    const durationMs = startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+    const from = (opts && 'startedAt' in opts) ? opts.startedAt : startedAt;
+    const durationMs = from ? Math.max(0, Date.now() - from) : 0;
     try {
       const r = await post('/functions/v1/llm-proxy/voice-usage-report', {
         model: activeVoiceModelId || DEFAULT_VOICE_MODEL,
@@ -880,7 +948,14 @@
     const reason = (opts && opts.reason) || 'manual';
     // Снимаем id ДО сноса: teardown обнуляет его, а отчёт без id бесполезен.
     const endingCallId = callId;
+    // И обработчики с числом ходов — тоже до сноса: пока ниже идёт отчёт об
+    // отбое, человек может нажать голос снова, и start() заменит модульные
+    // hooks и state.turns на свои. Старый stop() зовёт обработчик СВОЕГО
+    // разговора, а не нового.
+    const endingHooks = hooks;
+    const endingTurns = state.turns;
     await teardown();
+    const myEnd = attempt;
     // AWAITED: «stop() вернулся» обязано значить «шлюз свободен». Иначе
     // человек, нажавший микрофон сразу после отбоя, упирается в собственную
     // же незакрытую сессию.
@@ -889,8 +964,12 @@
     // gets written to the account, and "stop() resolved" has to mean "nothing
     // is still in flight". Without the await a caller that checks the
     // conversation right after hanging up reads it before the write lands.
-    if (hooks.onDisconnected) await hooks.onDisconnected({ reason, turns: state.turns });
-    log('stopped', reason, 'turns', state.turns);
+    //
+    // superseded — за время отчёта уже начат новый разговор (attempt ушёл
+    // дальше того, что оставил teardown): экран и кнопки теперь его, и
+    // обработчик их не трогает, только дописывает своё.
+    if (endingHooks.onDisconnected) await endingHooks.onDisconnected({ reason, turns: endingTurns, superseded: attempt !== myEnd });
+    log('stopped', reason, 'turns', endingTurns);
   }
 
   async function teardown() {
@@ -926,6 +1005,7 @@
     }
     callId = null;
     connecting = false;
+    attempt++;
   }
 
   const WcVoice = {

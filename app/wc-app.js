@@ -586,6 +586,12 @@
     WcVoiceScreen.micHeld(WcVoice.micHeld());
   }
 
+  // Номер нажатия голоса. Растёт синхронно в toggleVoice — раньше любого
+  // ожидания (беседа, микрофон, сервер), — и конец разговора (onDisconnected)
+  // по нему узнаёт, что экран и кнопки уже принадлежат следующему нажатию,
+  // даже если то ещё заводит беседу и до WcVoice.start не дошло.
+  let voiceSeq = 0;
+
   async function toggleVoice(opts) {
     // Push-to-talk is not a different transport — it is the same live session
     // started with the microphone closed, opened only while the reader holds
@@ -606,6 +612,12 @@
       if (!WcVoiceScreen.isOpen()) openVoiceScreen();
       return;
     }
+    const mySeq = ++voiceSeq;
+    // Пузыри прошлого разговора дописываются здесь, если его конец этого не
+    // сделал (человек нажал голос снова, пока уходил отчёт об отбое, — тот
+    // конец экран не трогает). Прошлый разговор к этому мигу уже снесён, и
+    // поздних расшифровок для его пузырей не будет: канал событий закрыт.
+    WcThread.endVoice();
 
     openVoiceScreen();
     WcVoiceScreen.stage('mic');
@@ -626,12 +638,19 @@
           WcSidebar.setActive(convId);
         }
       } catch (err) {
+        // Экран уже принадлежит следующему нажатию — его не трогаем.
+        if (mySeq !== voiceSeq) return;
         WcVoiceScreen.close();
         WcComposer.setVoiceActive(false);
         WcHeader.setVoiceActive(false);
         toast('Could not start the conversation: ' + (err && err.message), { error: true });
         return;
       }
+      // Пока заводилась беседа, человек успел положить трубку и нажать голос
+      // снова: разговор начинает последнее нажатие, со своим экраном. Это
+      // выходит, ничего не начав, — иначе разговор пошёл бы под чужим экраном,
+      // и его конец этот экран бы не убрал (mySeq !== voiceSeq ниже).
+      if (mySeq !== voiceSeq) return;
     }
 
     // What has been said so far, KEYED BY item_id and in the order the server
@@ -732,7 +751,7 @@
           // line to write an error into (2026-08-19, the call screen looks
           // like the ordinary chat now).
           onError: (msg) => toast('Error: ' + msg, { error: true }),
-          onDisconnected: async ({ reason, turns }) => {
+          onDisconnected: async ({ reason, turns, superseded }) => {
             // ЭКРАН УХОДИТ ПЕРВЫМ, до записи в историю. Раньше здесь сначала
             // ждали flushExchange() — сетевой заход, — и всё это время крестик
             // выглядел ненажатым: человек жал, ничего не происходило, он жал
@@ -740,10 +759,17 @@
             // потом дописывается то, что не успело записаться. На бухгалтерию
             // это не влияет — деньги считает серверный слушатель, а не эта
             // функция, и await ниже по-прежнему держит вызывающего.
-            WcVoiceScreen.close();
-            WcComposer.setVoiceActive(false);
-            WcHeader.setVoiceActive(false);
-            WcThread.endVoice();
+            //
+            // superseded — человек уже нажал голос снова, пока уходил отчёт
+            // об отбое этого разговора (WcVoice.stop): экран, кнопки и пузыри
+            // принадлежат новому разговору, и снимать их здесь нельзя —
+            // крестик нажатия (onEnd) свой вид уже убрал.
+            if (!superseded && mySeq === voiceSeq) {
+              WcVoiceScreen.close();
+              WcComposer.setVoiceActive(false);
+              WcHeader.setVoiceActive(false);
+              WcThread.endVoice();
+            }
             await flushExchange();
             if (reason && !VOICE_END_BY_READER.has(reason)) toast(WcVoice.endedText(reason));
             // The debit is made by the server-side listener after the call
