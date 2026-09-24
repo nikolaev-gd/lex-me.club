@@ -238,7 +238,7 @@
       maxTokens: tk('knobMaxTokens'),
       seed: tk('knobSeed'),
       verbosity: tk('knobVerbosity'),
-      serviceTier: tk('knobServiceTier'),
+      serviceTier: global.LexSettingsCells.serviceTier(tk('knobServiceTier')),
       voiceName: voiceMap.openai || 'marin',
       voiceSpeed: tk('knobVoiceSpeed'),
       voiceMaxResponseTokens: tk('knobVoiceMaxResponseTokens'),

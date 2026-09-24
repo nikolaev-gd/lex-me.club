@@ -414,6 +414,12 @@
           if (r[cell] === undefined) updates[cell] = (r[k] !== undefined) ? r[k] : KNOB_DEFAULTS[k];
         });
       });
+      // Снятое значение ручки очереди — в auto, и в ячейках окон, и в общей:
+      // иначе редактор опубликовал бы его заново из своего хранилища.
+      ['knobServiceTier'].concat(KNOB_SCOPES.map((s) => 'knobServiceTier_' + s)).forEach((cell) => {
+        const v = cell in updates ? updates[cell] : r[cell];
+        if (v !== undefined && v !== serviceTier(v)) updates[cell] = serviceTier(v);
+      });
       return updates;
     }, 'Per-surface knob storage seeded', deps);
   }
@@ -562,6 +568,11 @@
   const LIVE_ASR_OOB = 'out_of_band';
   const LIVE_ASR_MODELS = [LIVE_ASR_VOICE_MODEL, 'gpt-live-transcribe', 'gemini-3.5-transcribe-live', LIVE_ASR_OOB];
   function liveAsrModel(v) { return LIVE_ASR_MODELS.indexOf(v) >= 0 ? v : LIVE_ASR_VOICE_MODEL; }
+  // Очередь OpenAI (ручка «Service tier»). Priority снят 2026-09-24: сервер его
+  // выбрасывает (_shared/provider-body.ts — цена считается по обычной очереди,
+  // а Priority у OpenAI в 2,5 раза дороже). Всё, кроме auto и flex, — auto.
+  const SERVICE_TIERS = ['auto', 'flex'];
+  function serviceTier(v) { return SERVICE_TIERS.indexOf(v) >= 0 ? v : 'auto'; }
   // Правило одно на окно и на разговор: какие пункты годятся голосовой модели.
   // Google — блока нет, и рядом ничего не запускается (только своя расшифровка).
   function liveAsrOptions(provider, transport) {
@@ -741,6 +752,7 @@
     LIVE_ASR_MODELS,
     LIVE_ASR_OOB,
     liveAsrModel,
+    serviceTier,
     liveAsrOptions,
     liveAsrEffective,
     liveAsrIsService,
