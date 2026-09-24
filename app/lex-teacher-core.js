@@ -2118,8 +2118,23 @@
       // Не сообщила — прежнее правило по поверхности (голос, легаси-пути).
       const bucketForProxy = (chatOptions && chatOptions.sessionBucket)
         || (surfaceForProxy === 'standalone' ? 'standalone' : 'video');
-      if (useProxy && bucketForProxy !== 'standalone' && typeof tabId === 'number') {
-        await ensureSessionForTab(tabId);
+      // Вкладка, через сеанс которой идут деньги этого хода. Обычно — та, с
+      // которой пришёл ход; чат у видео в боковой панели Chrome — вкладка с
+      // роликом (background.js lexSessionTabFor): ключ урока заведён её
+      // сеансом, и допуск к оплате проверяет его же.
+      const sessionTab = (chatOptions && typeof chatOptions.sessionTabId === 'number' && bucketForProxy !== 'standalone')
+        ? chatOptions.sessionTabId : tabId;
+      // Сеанс урока, названный вызывающим (расширение: номер в ключе урока
+      // видео, background.js lexLessonSessionOfTurn): платим через него, а не
+      // через сеанс вкладки — его же проверяет запись хода, и сброшенный урок
+      // отказывает до денег. Вкладка к этому моменту может быть уже на другом
+      // ролике, и заводить её сеанс ради этого хода не нужно. Страница
+      // lex-me.club/app его не передаёт — там прежний путь.
+      const lessonSessionId = (chatOptions && Number.isSafeInteger(chatOptions.lessonSessionId)
+        && chatOptions.lessonSessionId > 0 && bucketForProxy !== 'standalone')
+        ? chatOptions.lessonSessionId : null;
+      if (useProxy && bucketForProxy !== 'standalone' && typeof sessionTab === 'number' && lessonSessionId == null) {
+        await ensureSessionForTab(sessionTab);
       }
       // Метка хода. Придумывается ДО запроса, уезжает на сервер в конверте и
       // ложится в строку журнала вызовов. Нужна ровно для одного: чтобы лента
@@ -2137,7 +2152,7 @@
           // old raw read misattributed a superchat call on a video tab to the video
           // session, and sent null off-video → finalizeCall dropped it unbilled
           // (calls.session_id is NOT NULL). See docs/BILLING-METERING-DESIGN.md §2.4.
-          sessionId: resolveCallSessionId(tabId, surfaceForProxy, bucketForProxy),
+          sessionId: lessonSessionId != null ? lessonSessionId : resolveCallSessionId(sessionTab, surfaceForProxy, bucketForProxy),
           videoId: extractRealVideoId(videoId),
           // ── Материал урока ───────────────────────────────────────────────
           // Ключ беседы ЦЕЛИКОМ и НЕОБРЕЗАННЫЙ: по его форме сервер решает, что
@@ -2768,7 +2783,9 @@
             await runAdapter(previousResponseIdToUse);
             return;
           } catch (err) {
-            if (err && err.lexNoSession && !sessionGateRetried && typeof tabId === 'number') {
+            // Сеанс урока, удержанного с нажатия, другим не заменяется: ход
+            // принадлежит этому уроку.
+            if (err && err.lexNoSession && !sessionGateRetried && typeof tabId === 'number' && lessonSessionId == null) {
               sessionGateRetried = true;
               // Surface-aware re-ensure: a standalone (superchat) call must re-bind to
               // its OWN standalone session. ensureSessionForTab mints/binds a VIDEO
@@ -2782,10 +2799,10 @@
               // ownerless sessions; mandatory once the predicate is tightened (шаг 16),
               // which is why it lands first.
               if (bucketForProxy === 'standalone') forgetStandaloneSessionId(tabId);
-              else forgetSessionId(tabId);
+              else forgetSessionId(sessionTab);
               const sid = bucketForProxy === 'standalone'
                 ? await ensureStandaloneSessionForTab(tabId)
-                : await ensureSessionForTab(tabId);
+                : await ensureSessionForTab(sessionTab);
               if (sid != null) {
                 if (proxy && proxy.meta) proxy.meta.sessionId = sid;
                 // Reset partial telemetry from the refused attempt.
@@ -2810,7 +2827,7 @@
             // заход помнится в самой странице, и забыть его значило бы
             // завести новый под старый ключ.
             if (err && err.lexConversationReset && typeof lexForgetResetConversation === 'function') {
-              try { await lexForgetResetConversation(videoId, tabId); } catch (_) { /* noop */ }
+              try { await lexForgetResetConversation(videoId, sessionTab); } catch (_) { /* noop */ }
             }
             throw err;
           }

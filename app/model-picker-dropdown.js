@@ -69,6 +69,11 @@
     active.cleanup();
     active = null;
   }
+  // Close the open menu only if it was opened from inside `root` — a window
+  // that is being hidden takes its own menu with it and leaves a neighbour's.
+  function closeIfInside(root) {
+    if (active && root && active.anchor && root.contains(active.anchor)) closeActive();
+  }
 
   // ── When a menu opened at a button closes ──────────────────────────────
   //
@@ -85,12 +90,15 @@
   // line by line, and closing on that shut every menu within a couple of
   // seconds of a playing video (until v1.262.0 the Subtitles block's too).
   // A button redrawn while the menu is open has no known place any more — then
-  // any scroll closes it, as before.
+  // any scroll closes it, as before. The same for a button that is in the page
+  // but not on screen (its window was hidden: the side panel switched between
+  // its ordinary window and the video chat by a click on the page).
   // isInside(node) — the node belongs to the menu (its list, its submenu).
   function scrollClosesMenu(target, anchor, isInside) {
     if (!target || target.nodeType !== 1) return true;
     if (isInside && isInside(target)) return false;
     if (!anchor || !anchor.isConnected) return true;
+    if (typeof anchor.getClientRects === 'function' && anchor.getClientRects().length === 0) return true;
     return target.contains(anchor);
   }
 
@@ -469,7 +477,7 @@
   }
 
   global.LexModelPickerDropdown = {
-    mount, open, close: closeActive, populateModelRows,
+    mount, open, close: closeActive, closeIfInside, populateModelRows,
     scrollClosesMenu, takeEscapeForMenu,
   };
 })(typeof self !== 'undefined' ? self : globalThis);
