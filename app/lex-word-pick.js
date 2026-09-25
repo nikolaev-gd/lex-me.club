@@ -697,6 +697,48 @@
     return { zone, blocks, units };
   }
 
+  // Куски карандаша БЕЗ места в размеченном тексте — выделенные в блоке
+  // субтитров чата у видео и в его копии в боковой панели (selection-lookup.js).
+  // Слова этого блока в набор страницы не входят, и до 2026-09-25 такой кусок
+  // уходил учителю голым текстом поля: ни строк Selection/Context/Source, ни
+  // красной части в пузыре «translate» — сервер не знал, что это материал.
+  // Теперь каждый кусок — отдельное место: в словах блока вокруг выделения,
+  // если карандаш их отдал (block: { words, from, to } — selection-lookup.js
+  // buildContextBlock), иначе в собственных словах куска (тот же запасной
+  // кусок, что у единицы без живого текста, fallbackOf). Слова блока режутся
+  // до PICK_BLOCK_MARGIN с каждой стороны — окно учителю вырезает сервер, как
+  // у выбранных слов; он же называет кусок Selection, ищет его в полном тексте
+  // ролика и красит в пузыре. pieces: [{ text, zone, block? }]. Кусок другой
+  // зоны, чем уже выбранное, не добавляется: зоны в одном ходе не смешиваются.
+  function addLoosePieces(picks, pieces) {
+    let out = picks ? { zone: picks.zone, blocks: picks.blocks.slice(), units: picks.units.slice() } : null;
+    (Array.isArray(pieces) ? pieces : []).forEach((p) => {
+      const zone = p && typeof p.zone === 'string' ? p.zone : '';
+      const cut = (w) => (w.length > PICK_TOKEN_MAX ? w.slice(0, PICK_TOKEN_MAX) : w);
+      const own = String((p && p.text) || '').split(/\s+/).filter(Boolean).map(cut);
+      if (!zone || !own.length || !isWord(own.join(' '))) return;
+      if (out && out.zone !== zone) return;
+      let words = own;
+      let from = 0;
+      let to = own.length - 1;
+      const b = p.block;
+      if (b && Array.isArray(b.words) && Number.isInteger(b.from) && Number.isInteger(b.to)
+          && b.from >= 0 && b.to >= b.from && b.to < b.words.length) {
+        const lo = Math.max(0, b.from - PICK_BLOCK_MARGIN);
+        const hi = Math.min(b.words.length - 1, b.to + PICK_BLOCK_MARGIN);
+        const ws = b.words.slice(lo, hi + 1).map((w) => cut(String(w == null ? '' : w)));
+        if (ws.every((w) => w && !/\s/.test(w)) && isWord(ws.slice(b.from - lo, b.to - lo + 1).join(' '))) {
+          words = ws; from = b.from - lo; to = b.to - lo;
+        }
+      }
+      if (!out) out = { zone, blocks: [], units: [] };
+      const bi = out.blocks.length;
+      out.blocks.push({ words });
+      out.units.push({ block: bi, from, to, chip: false, via: 'selection' });
+    });
+    return out;
+  }
+
   // ── Обратная операция: снять скрытую часть с сохранённого хода ───────────
   //
   // ПЕРЕЕХАЛО СЮДА ИЗ chat-surface.js (2026-08-23) — тело буква в букву.
@@ -894,6 +936,7 @@
     chips,
     sourceZone,
     sendPicks,
+    addLoosePieces,
     PICK_BLOCK_MARGIN,
     // обратная операция к сборке вопроса: что из сохранённого хода видит человек
     stripHiddenPickPrefix,
