@@ -1,0 +1,41 @@
+/* lex-composer-box.css — геометрия окошка ввода (поле сверху, ряд кнопок под
+ * ним). Один файл на расширение и на страницу lex-me.club/app (её же
+ * показывает программа для Мака); айфон держит те же пропорции своими числами
+ * в ChatScreen.swift (`composer`).
+ *
+ * Пропорции сняты с окошка ввода Claude (приложение для айфона, снимок
+ * Геннадия, 2026-09-25) в долях диаметра круглой кнопки ряда — B:
+ *   высота окошка в одну строку            2.7 B
+ *   от верхней рамки до середины строки     0.8 B
+ *   от верхней рамки до верха кнопок        1.5 B
+ *   от нижней рамки до низа кнопок          0.2 B
+ *   от боковой рамки до крайней кнопки      0.23 B
+ * Размер кнопок отсюда не задаётся — только отступы вокруг них.
+ *
+ * Окно задаёт на рамке окошка свои переменные:
+ *   --lex-composer-btn    диаметр круглой кнопки ряда (32px; на странице под
+ *                         пальцем 40px);
+ *   --lex-composer-line   высота строки текста в поле (line-height);
+ *   --lex-composer-field  высота поля в одну строку (его min-height);
+ *   --lex-composer-pad-x  боковой отступ поля от рамки (14px).
+ * Расчёты предполагают рамку толщиной 1px и зазор 6px между полем и рядом —
+ * так стоит у обоих окон. Селекторы — той же силы, что правила окна в
+ * styles.css / wc-app.css, и эти правила отступов окошка больше не задают. */
+
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper,
+.wc-composer {
+  --lex-composer-pad-top: calc(var(--lex-composer-btn) * 0.8 - 1px - var(--lex-composer-line) / 2);
+  padding: var(--lex-composer-pad-top)
+           var(--lex-composer-pad-x)
+           calc(var(--lex-composer-btn) * 0.2 - 1px);
+}
+
+/* Ряд кнопок: сверху добирает до 1.5 B от рамки, по бокам выходит за отступ
+   поля, чтобы крайние кнопки встали в 0.23 B от рамки. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-actions,
+.wc-composer-actions {
+  margin-top: calc(var(--lex-composer-btn) * 1.5 - 1px - var(--lex-composer-pad-top)
+                   - var(--lex-composer-field) - 6px);
+  margin-left: calc(var(--lex-composer-btn) * 0.23 - 1px - var(--lex-composer-pad-x));
+  margin-right: calc(var(--lex-composer-btn) * 0.23 - 1px - var(--lex-composer-pad-x));
+}

@@ -1191,15 +1191,19 @@ button { font: inherit; color: inherit; }
  * hairline that goes to 30% on focus, 16px corners. No shadow and no ring:
  * the border doing the work is the whole idea. */
 /* A column, not a row — the extension's shape: the field on top, a row of
- * controls under it. 10/14 padding and a 6px gap are its numbers exactly
- * (styles.css .ytvocab-chat-input-wrapper). */
+ * controls under it, a 6px gap (styles.css .ytvocab-chat-input-wrapper).
+ * The padding and the row's offsets come from ../lex-composer-box.css, shared
+ * with the extension; this page only states its own numbers for it. */
 .wc-composer {
+  --lex-composer-btn: 32px;
+  --lex-composer-line: 23.2px;  /* 16px × 1.45, #wc-input below */
+  --lex-composer-field: 24px;   /* #wc-input min-height */
+  --lex-composer-pad-x: 14px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   max-width: 760px;
   margin: 0 auto;
-  padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--bg-bubble);
@@ -1774,6 +1778,8 @@ button { font: inherit; color: inherit; }
      the two circles overflow the box they are absolutely placed in. */
   .wc-composer-btn { width: 40px; height: 40px; }
   .wc-send-slot, .wc-round { width: 40px; height: 40px; }
+  /* Отступы окошка считаются от диаметра кнопки (lex-composer-box.css). */
+  .wc-composer { --lex-composer-btn: 40px; }
   .wc-mode-pill { height: 30px; font-size: 13px; padding: 0 12px; }
   .wc-conv { padding-top: 11px; padding-bottom: 11px; }
   /* 40 and not 36: a 36px target inside a list you scroll with the same thumb
