@@ -1,41 +1,110 @@
-/* lex-composer-box.css — геометрия окошка ввода (поле сверху, ряд кнопок под
- * ним). Один файл на расширение и на страницу lex-me.club/app (её же
- * показывает программа для Мака); айфон держит те же пропорции своими числами
- * в ChatScreen.swift (`composer`).
+/* lex-composer-box.css — окошко ввода (поле сверху, ряд кнопок под ним) как
+ * модуль: его размеры, скругление, кегль поля и отступы снаружи — одни на все
+ * поверхности. Файл грузят расширение (content_scripts в manifest.json и
+ * LexSurfaceDeps.styles — боковая панель и маленькое окно) и страница
+ * lex-me.club/app (её же показывает программа для Мака). Айфон читает простые
+ * числа из блока ниже при сборке (dev-tools/ios-composer-box.mjs) и считает
+ * свою полосу ввода по тем же правилам в ChatScreen.swift (ComposerBox).
+ * Подсказка в пустом поле — в соседнем lex-composer-box.js.
  *
- * Пропорции сняты с окошка ввода Claude (приложение для айфона, снимок
- * Геннадия, 2026-09-25) в долях диаметра круглой кнопки ряда — B:
- *   высота окошка в одну строку            2.7 B
- *   от верхней рамки до середины строки     0.8 B
- *   от верхней рамки до верха кнопок        1.5 B
- *   от нижней рамки до низа кнопок          0.2 B
- *   от боковой рамки до крайней кнопки      0.23 B
- * Размер кнопок отсюда не задаётся — только отступы вокруг них.
+ * Образец — программа для Мака (решение владельца 2026-09-25). Пропорции сняты
+ * с окошка ввода Claude в долях диаметра круглой кнопки ряда — B:
+ *   от верхней рамки до середины строки текста   0.8 B
+ *   от верхней рамки до верха кнопок             1.5 B
+ *   от боковой рамки до крайней кнопки           0.23 B
+ * Низ ряда считается по видимой пилюле-заготовке высотой P: её низ — в 0.2 P
+ * от нижней рамки, но не ниже, чем позволяет кнопка — квадрат B (подсветка
+ * «+» и микрофона при наведении, круг отправки) встаёт самое большее на
+ * внутренний край рамки и за рамку не выходит. При B 32 и P 22 это 6 px от
+ * рамки до низа пилюли (0.2 P = 4.4 не достать), при B 40 и P 30 — 6 px ровно.
+ * Высота окошка в одну строку получается 1.5 B + (B + P) / 2 + этот низ:
+ * 81 px при B 32, 101 px при B 40.
+ * Размер кнопок и пилюль отсюда не задаётся — только отступы вокруг них.
  *
- * Окно задаёт на рамке окошка свои переменные:
+ * Окно задаёт свои входные числа на рамке окошка:
  *   --lex-composer-btn    диаметр круглой кнопки ряда (32px; на странице под
  *                         пальцем 40px);
- *   --lex-composer-line   высота строки текста в поле (line-height);
+ *   --lex-composer-pill   высота пилюли-заготовки (22px; под пальцем 30px);
  *   --lex-composer-field  высота поля в одну строку (его min-height);
- *   --lex-composer-pad-x  боковой отступ поля от рамки (14px).
- * Расчёты предполагают рамку толщиной 1px и зазор 6px между полем и рядом —
- * так стоит у обоих окон. Селекторы — той же силы, что правила окна в
- * styles.css / wc-app.css, и эти правила отступов окошка больше не задают. */
+ * а расширение ещё и свою рамку окна, из которой вычитаются отступы снаружи:
+ *   --lex-composer-frame-x       от края окна до его содержимого сбоку;
+ *   --lex-composer-frame-bottom  то же снизу. */
 
+/* ── Числа модуля ──────────────────────────────────────────────────────────
+ * Каждое — отдельной строкой «имя: число;»: так их находит сборка айфона.
+ * Стоят на корне окна, а не на самом окошке: отступы снаружи нужны его
+ * родителю (ряду окна в расширении, полосе ввода на странице). */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat),
+.wc-composer-wrap {
+  --lex-composer-radius: 16px;       /* скругление рамки */
+  --lex-composer-border: 1px;        /* толщина рамки */
+  --lex-composer-pad-x: 14px;        /* текст поля от боковой рамки */
+  --lex-composer-gap: 6px;           /* зазор между полем и рядом кнопок */
+  --lex-composer-font: 16px;         /* кегль поля и подсказки */
+  --lex-composer-k-line: 0.8;        /* середина строки текста от верхней рамки, в B */
+  --lex-composer-k-row: 1.5;         /* верх кнопок от верхней рамки, в B */
+  --lex-composer-k-side: 0.23;       /* крайняя кнопка от боковой рамки, в B */
+  --lex-composer-k-pill: 0.2;        /* низ пилюли от нижней рамки, в P */
+  --lex-composer-out-x: 12px;        /* окошко от боковых краёв окна */
+  --lex-composer-out-top: 10px;      /* окошко от ленты над ним */
+  --lex-composer-out-bottom: 14px;   /* окошко от нижнего края окна */
+}
+
+/* ── Окошко ───────────────────────────────────────────────────────────────── */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper,
 .wc-composer {
-  --lex-composer-pad-top: calc(var(--lex-composer-btn) * 0.8 - 1px - var(--lex-composer-line) / 2);
-  padding: var(--lex-composer-pad-top)
-           var(--lex-composer-pad-x)
-           calc(var(--lex-composer-btn) * 0.2 - 1px);
+  --lex-composer-line: calc(var(--lex-composer-font) * 1.45);
+  --lex-composer-pad-top: calc(var(--lex-composer-btn) * var(--lex-composer-k-line)
+                               - var(--lex-composer-border) - var(--lex-composer-line) / 2);
+  --lex-composer-pad-bottom: max(0px, calc(var(--lex-composer-pill) * var(--lex-composer-k-pill)
+                                           - var(--lex-composer-border)
+                                           - (var(--lex-composer-btn) - var(--lex-composer-pill)) / 2));
+  padding: var(--lex-composer-pad-top) var(--lex-composer-pad-x) var(--lex-composer-pad-bottom);
+  border-style: solid;
+  border-width: var(--lex-composer-border);
+  border-radius: var(--lex-composer-radius);
+  gap: var(--lex-composer-gap);
+}
+
+/* Поле: кегль и строка — как в программе для Мака. У страницы по id: её
+   правило поля (#wc-input, wc-app.css) сбрасывает шрифт через font: inherit. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-textarea,
+.wc-composer #wc-input {
+  font-size: var(--lex-composer-font);
+  line-height: var(--lex-composer-line);
 }
 
 /* Ряд кнопок: сверху добирает до 1.5 B от рамки, по бокам выходит за отступ
    поля, чтобы крайние кнопки встали в 0.23 B от рамки. */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-actions,
 .wc-composer-actions {
-  margin-top: calc(var(--lex-composer-btn) * 1.5 - 1px - var(--lex-composer-pad-top)
-                   - var(--lex-composer-field) - 6px);
-  margin-left: calc(var(--lex-composer-btn) * 0.23 - 1px - var(--lex-composer-pad-x));
-  margin-right: calc(var(--lex-composer-btn) * 0.23 - 1px - var(--lex-composer-pad-x));
+  margin-top: calc(var(--lex-composer-btn) * var(--lex-composer-k-row) - var(--lex-composer-border)
+                   - var(--lex-composer-pad-top) - var(--lex-composer-field) - var(--lex-composer-gap));
+  margin-left: calc(var(--lex-composer-btn) * var(--lex-composer-k-side) - var(--lex-composer-border)
+                    - var(--lex-composer-pad-x));
+  margin-right: calc(var(--lex-composer-btn) * var(--lex-composer-k-side) - var(--lex-composer-border)
+                     - var(--lex-composer-pad-x));
+}
+
+/* ── Отступы снаружи ──────────────────────────────────────────────────────────
+ * Расширение: ряд с окошком стоит внутри рамки окна (её поля и линия —
+ * --lex-composer-frame-*), и из отступов вычитается она. Два числа ниже —
+ * переменными, потому что их же берёт развёрнутое окошко попапа
+ * произношения (styles.css, .is-composer-expanded). */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) {
+  --lex-composer-row-pad-top: var(--lex-composer-out-top);
+  --lex-composer-row-pad-bottom: calc(var(--lex-composer-out-bottom) - var(--lex-composer-frame-bottom, 0px));
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-row {
+  padding: var(--lex-composer-row-pad-top) 0 var(--lex-composer-row-pad-bottom);
+  margin-left: calc(var(--lex-composer-out-x) - var(--lex-composer-frame-x, 0px));
+  margin-right: calc(var(--lex-composer-out-x) - var(--lex-composer-frame-x, 0px));
+}
+/* Страница: полоса ввода во всю ширину окна; вырез экрана айфона сбоку и
+   полоска «домой» снизу добавляются к отступу. */
+.wc-composer-wrap {
+  padding: var(--lex-composer-out-top)
+           max(var(--lex-composer-out-x), env(safe-area-inset-right))
+           calc(var(--lex-composer-out-bottom) + env(safe-area-inset-bottom))
+           max(var(--lex-composer-out-x), env(safe-area-inset-left));
 }

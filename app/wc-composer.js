@@ -21,6 +21,14 @@
 
   const { menu, toast } = WcUI;
 
+  // The empty field's hint — one text for every surface, kept in
+  // ../lex-composer-box.js. Set the moment this file runs (the field is
+  // already in the document), not in init(), which waits for the session.
+  (function setHint() {
+    const field = document.getElementById('wc-input');
+    if (field && global.LexComposerBox) field.placeholder = global.LexComposerBox.placeholder('en');
+  })();
+
   let elForm, elInput, elSend, elVoice, elMic, elPlus, elModeSplit, elNote;
   let hooks = {};
   let streaming = false;
