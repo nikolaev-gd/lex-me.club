@@ -1285,6 +1285,17 @@
     return { ok: true, appended: m.turns.length };
   });
 
+  // Переписка открытой беседы — для голоса Google (webchat/wc-voice.js): он,
+  // как в расширении, досылает её учителю после подключения. Только роль и
+  // текст; беседа не та, что открыта, — пусто.
+  WcBus.on('WC_OPEN_TURNS', async (m) => {
+    if (!m || !m.conversationId || openId !== m.conversationId) return { ok: true, turns: [] };
+    const turns = openTurns
+      .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string' && t.text.trim())
+      .map((t) => ({ role: t.role, content: t.text }));
+    return { ok: true, turns };
+  });
+
   WcBus.on('WC_STOP', async (m) => {
     const entry = inflightStreams.get(m.requestId);
     if (!entry || !entry.abort) return { ok: false, error: 'nothing to stop' };

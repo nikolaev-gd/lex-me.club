@@ -663,15 +663,24 @@
         voiceBubbles.set(itemId, entry);
       }
       entry.turn.dataset.raw = text;
-      // PLAIN TEXT, not Markdown — the realtime models' live transcript
-      // (gpt-live sends no live text to this page; its turns arrive from the
-      // server and render through WcMarkdown). Running a half-arrived
-      // transcript through a parser makes stray asterisks and underscores
-      // flicker as formatting; the extension's gpt-live feed hides a marker
-      // still waiting for its pair (chat-surface.js hideOpenMarkers).
-      entry.bubble.textContent = text;
+      // С разметкой уже по ходу речи — так же, как эта реплика выглядит после
+      // перезагрузки (WcMarkdown) и как в расширении: **give up** жирным,
+      // звёздочки на экран не выходят. Пометка, у которой пара ещё не
+      // доехала, не показывается (lex-open-markers.js — правило общее с
+      // расширением), иначе полупришедший текст мигал бы звёздочками.
+      WcMarkdown.into(entry.bubble, global.LexOpenMarkers ? global.LexOpenMarkers.hide(text) : text);
       syncFeet();
       maybeStick();
+    },
+
+    // Голос Google: ответ набежал на экран, а не прозвучало из него ничего
+    // (обрыв раньше первого звука хода) — в беседу он не лёг, пузырь уходит.
+    dropVoiceAssistant(itemId) {
+      const entry = itemId && voiceBubbles.get(itemId);
+      if (!entry || entry.role !== 'assistant') return;
+      entry.turn.remove();
+      voiceBubbles.delete(itemId);
+      syncFeet();
     },
 
     // Called once when the whole conversation ends, not per turn: a bubble has
@@ -684,7 +693,13 @@
         // Сказанное — тоже сообщение в этой ленте, и слова в нём нажимаются
         // так же. Режем ЗДЕСЬ, а не по ходу разговора: пока он идёт, обе
         // стороны переписывают свои пузыри на каждом кадре расшифровки.
-        else if (global.WcWordPick) WcWordPick.ready(entry.bubble, entry.bubble.textContent, 'text');
+        // Ответ учителя нарисован разметкой (voiceAssistantText) — источник
+        // для слов тот же сырой текст и тот же вид, что у напечатанного
+        // ответа: иначе выключенные слова склеили бы абзацы и сняли жирное.
+        else if (global.WcWordPick) {
+          if (entry.role === 'assistant' && entry.turn.dataset.raw) WcWordPick.ready(entry.bubble, entry.turn.dataset.raw, 'markdown');
+          else WcWordPick.ready(entry.bubble, entry.bubble.textContent, 'text');
+        }
       });
       voiceBubbles.clear();
     },

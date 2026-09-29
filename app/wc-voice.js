@@ -33,7 +33,9 @@
 // the extension — the broker refuses to hand back an answer until a shift has
 // reported that it is attached and counting.
 //
-// Gemini voice is excluded from this surface entirely — owner's decision.
+// Gemini voice lives only in the extension (voice/gemini-live.js). This page
+// speaks OpenAI only; the turns of a Gemini conversation reach it as ordinary
+// server-written voice turns.
 (function (global) {
   'use strict';
 
@@ -114,7 +116,18 @@
     busy: (typeof LexErrorText !== 'undefined' && LexErrorText.busy)
       ? LexErrorText.busy()
       : 'The service is overloaded right now. Please try again in a minute.',
+    // Голосовая модель, которой этот экран говорить не умеет, или сервер
+    // отказал в самой модели (400 stage 'model'). Сырое «unknown or non-openai
+    // voice model» на экран не идёт.
+    model: 'This voice model is not available for a conversation here.',
+    // Промпт по указателям не нашёлся (424) — тот же текст, что у чата.
+    prompt: 'The teacher’s instructions are not published yet. Try again later.',
+    generic: 'Could not start the conversation. Please try again.',
   };
+  // Реплика разговора не дошла до сервера и после повторов (voice/call-server.js):
+  // в беседе её нет, и учитель в тексте её не увидит. Тот же текст, что у
+  // расширения (voice.status.turnNotSaved).
+  const TURN_NOT_SAVED = 'A phrase from this voice conversation was not saved to the chat — the teacher won’t see it later in text.';
 
   // Why a conversation ended without the reader ending it, in words — one line
   // per reason the server sends with lex.session.ended (voice-watch and
@@ -147,6 +160,17 @@
     'connection-failed': {
       en: 'The conversation ended: the connection failed.',
       ru: 'Разговор закончился: связь не удалось удержать.',
+    },
+    // Noticed by the voice module (voice/call-server.js, strict): the server
+    // stopped confirming a Gemini conversation — the presence beat went
+    // unanswered for 10 s or a turn was not accepted. No server, no Lex.
+    server_silent: {
+      en: 'The conversation ended: the Lex server stopped confirming it. Press to start again.',
+      ru: 'Разговор закончился: сервер Lex перестал его подтверждать. Нажмите, чтобы начать заново.',
+    },
+    signed_out: {
+      en: 'The conversation ended: you were signed out. Sign in and press to start again.',
+      ru: 'Разговор закончился: вы вышли из аккаунта. Войдите и нажмите, чтобы начать заново.',
     },
     // Detected by this page: another app took the microphone (lex-mic-watch.js).
     mic_lost: {
@@ -651,6 +675,13 @@
       const knobs = await global.WcBackend.readKnobs();
       const voiceName = knobs.voiceName || 'marin';
 
+      // Голос Google — общий модуль voice/gemini-live.js, тот же, что в
+      // расширении (ниже, startGemini). Модель, которой нет ни у OpenAI, ни у
+      // Google, — понятная фраза, а не сырой отказ сервера.
+      const provider = voiceProviderOf(voiceModelId);
+      if (provider === 'google') return await startGemini(opts, voiceModelId, knobs, stale);
+      if (provider !== 'openai') { const e = new Error(GATE_TEXT.model); e.gate = 'model'; throw e; }
+
       // A conversation must exist before a paid call: llm-proxy requires a
       // bound session so the listener's row can never have a null session_id,
       // which is exactly what keeps it able to bill.
@@ -836,8 +867,12 @@
           : (r.status === 409 && stage === 'voice_busy') ? 'elsewhere'
           : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'
+          : (r.status === 400 && stage === 'model') ? 'model'
+          : r.status === 424 ? 'prompt'
           : null;
-        const err = new Error(GATE_TEXT[gate] || ((r.json && r.json.error) || ('voice did not come up: HTTP ' + r.status)));
+        // Сырой ответ сервера на экран не идёт — только в консоль.
+        if (!gate) warn('voice did not come up:', r.status, r.json && r.json.error);
+        const err = new Error(GATE_TEXT[gate] || GATE_TEXT.generic);
         err.gate = gate;
         throw err;
       }
@@ -889,6 +924,297 @@
       if (failedCallId) endCallOnServer(failedCallId).catch(() => {});
       throw err;
     }
+  }
+
+  // ── Голос Google на странице (2026-09-26) ────────────────────────────────
+  //
+  // Тот же модуль, что в расширении: voice/gemini-live.js со своими
+  // спутниками (voice/call-server.js — пульс, отбой, пары реплик с повтором;
+  // voice/gemini-knobs.js — пороги слуха из тех же настроек). Звук идёт от
+  // страницы к Google напрямую, по ключу, который выпускает сервер (в нём
+  // зашиты инструкции учителя — страница их не видит). Каждый ход — пара
+  // реплик с расходом — уходит на сервер сразу (voice-cmd, тело turn); сервер
+  // пишет её в беседу и списывает деньги.
+  //
+  // Различие с расширением одно: у страницы нет воркера. Поэтому «розетка»
+  // модуля (LexVoiceHost) здесь своя: сообщения модуля превращаются в прямые
+  // запросы к серверу, копию беседы ведёт wc-app.js по событиям экрана, а
+  // окно, закрытое без отбоя, сервер закрывает по сроку присутствия.
+  let gem = null;          // ручка модуля текущего разговора Google
+
+  function voiceProviderOf(voiceModelId) {
+    const reg = global.LexModelRegistry;
+    try {
+      const facts = reg && reg.resolveModelFacts ? reg.resolveModelFacts(voiceModelId) : null;
+      if (facts && facts.provider) return facts.provider;
+    } catch (_) { /* below */ }
+    const id = String(voiceModelId || '');
+    if (/^gemini-/.test(id)) return 'google';
+    if (/^gpt-/.test(id)) return 'openai';
+    return null;
+  }
+
+  function promptMeta(refs) {
+    if (!refs || !refs.base) return {};
+    return {
+      promptSource: 'server',
+      promptScope: refs.base.scope, promptCell: refs.base.cell, promptSlot: refs.base.slot || '',
+      ...(refs.content ? { promptContentScope: refs.content.scope, promptContentCell: refs.content.cell, promptContentSlot: refs.content.slot || '' } : {}),
+      ...(refs.voice ? { promptVoiceScope: refs.voice.scope, promptVoiceCell: refs.voice.cell, promptVoiceSlot: refs.voice.slot || '' } : {}),
+    };
+  }
+
+  // Розетка модуля на странице: те же сообщения, что в расширении уходят
+  // воркеру, здесь — прямые запросы к серверу своим пропуском. Своя на
+  // каждый разговор: беседа и сеанс — ЭТОГО разговора. Общая на страницу
+  // отдала бы отчёт о конце прежнего разговора с сеансом нового, если новый
+  // начали, пока прежний досчитывал последний ответ.
+  function makePageHost(gemSession) {
+    return {
+    kind: 'page',
+    async send(msg) {
+      try {
+        if (msg.type === 'VOICE_TOKEN_GEMINI') {
+          const meta0 = msg.meta || {};
+          const r = await post('/functions/v1/llm-proxy/voice-token-gemini', {
+            model: msg.model,
+            knobs: msg.knobs || null,
+            voiceName: msg.voiceName || null,
+            ptt: msg.ptt === true,
+            meta: {
+              sessionId: gemSession ? gemSession.sessionId : null,
+              videoId: meta0.videoId || null,
+              surface: meta0.surface || 'standalone',
+              pageType: 'text',
+              ...promptMeta(msg.promptRefs),
+            },
+          });
+          const j = r.json || {};
+          if (!r.ok) {
+            const queueBusy = r.status === 429 && j.stage === 'inflight';
+            return { ok: false, status: r.status, stage: j.stage || null, queueBusy, over: r.status === 429 && !queueBusy, error: j.error || null };
+          }
+          return { ok: true, callId: j.callId, token: j.token, apiModel: j.apiModel, provider: j.provider };
+        }
+        if (msg.type === 'VOICE_CMD') {
+          const body = { callId: msg.callId };
+          if (msg.ping === true) body.ping = true;
+          else if (msg.end === true) { body.end = true; if (msg.reason) body.reason = msg.reason; }
+          else if (msg.said) body.said = msg.said;
+          else if (msg.turn) body.turn = msg.turn;
+          else body.commands = msg.commands || [];
+          const r = await post('/functions/v1/voice-cmd', body);
+          return Object.assign({}, r.json || {}, { ok: r.ok, status: r.status });
+        }
+      } catch (e) {
+        // Нет пропуска (вышел из аккаунта) или сеть: ответа нет — модуль
+        // решит сам (пару повторит, пульс пропустит).
+        if (e && e.gate === 'login') return { ok: false, __gate: 'login' };
+        return null;
+      }
+      return null;
+    },
+    post(msg) {
+      if (msg.type === 'VOICE_CMD') { this.send(msg); return; }
+      if (msg.type === 'VOICE_SESSION_END' && msg.callId) {
+        // Отчёт о конце: закрывает строку разговора, если отбой не дошёл, и
+        // добирает пару, которая до сервера не дошла (итог пар — от модуля).
+        const convId = gemSession ? gemSession.conversationId : null;
+        post('/functions/v1/llm-proxy/voice-usage-report', {
+          model: msg.model,
+          durationMs: Number(msg.durationMs) || 0,
+          usage: msg.usage || {},
+          meta: {
+            sessionId: gemSession ? gemSession.sessionId : null,
+            videoId: convId, chatKey: convId, surface: 'standalone', pageType: 'text',
+            callId: msg.callId,
+            reportId: (global.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
+          },
+        }).then((r) => { if (!r.ok) warn('voice report not accepted:', r.status, r.json && r.json.error); })
+          .catch((e) => warn('voice report not sent:', e && e.message));
+      }
+      // Копию беседы, журнал и учёт на странице ведёт не модуль: реплики —
+      // wc-app.js по событиям экрана (тем же уидом 'voice:<…>'), деньги —
+      // сервер по парам.
+    },
+    connect() { return null; },
+    };
+  }
+
+  // Коды отказа модуля → слова для человека (те же, что у голоса OpenAI).
+  const GEM_GATE = {
+    __LEX_VOICE_LOGIN__: 'login',
+    __LEX_VOICE_BALANCE__: 'balance',
+    __LEX_VOICE_QUEUE_BUSY__: 'busy',
+    __LEX_VOICE_CAP__: 'cap',
+    __LEX_VOICE_BUSY__: 'elsewhere',
+    __LEX_VOICE_RETRY__: 'race',
+    __LEX_VOICE_PROMPT_MISSING__: 'prompt',
+    __LEX_VOICE_MINT_FAILED__: 'generic',
+  };
+
+  async function startGemini(opts, voiceModelId, knobs, stale) {
+    const Gemini = global.LexVoiceGeminiLive;
+    if (!Gemini) { const e = new Error(GATE_TEXT.model); e.gate = 'model'; throw e; }
+    const sessionId = await WcBus.call('WC_ENSURE_SESSION').then((r) => r && r.sessionId);
+    if (stale()) return;
+    if (sessionId == null) throw new Error('could not create a session for the conversation');
+    const convId = (opts && opts.conversationId) || null;
+    const host = makePageHost({ sessionId, conversationId: convId });
+    // Обработчики ЭТОГО разговора: следующий start() заменит модульные hooks
+    // своими, а надпись «реплика не записалась» относится к этому.
+    const myHooks = hooks;
+    const promptRefs = {
+      base: { scope: SCOPE, cell: 'chatPrompts', slot: await activeSlot('activeChatPromptId', 'chatB1') },
+      content: { scope: SCOPE, cell: 'contentTypePrompts', slot: 'text' },
+      voice: { scope: SCOPE, cell: 'voicePrompts', slot: await activeSlot('activeVoicePromptId', 'voice1') },
+    };
+    if (stale()) return;
+    // Голос у каждого поставщика свой: у Google — из той же карты голосов.
+    const voiceMap = (await WcStore.one('voiceNamesByProvider_' + SCOPE, null)) || {};
+    const gemKnobs = Object.assign({}, knobs, { voiceName: voiceMap.google || 'Kore' });
+    let handle = null;
+    const mine = () => gem === handle && handle !== null;
+    // «Держи и говори» — режим «нажми и говори» модуля: слух Google выключен,
+    // реплику открывает первый звук после нажатия, закрывает отпускание
+    // (holdStart / holdEnd ниже). Раньше страница держала живой разговор и на
+    // «отпустил» глушила микрофон, и ответ ждал паузы, которую насчитает слух
+    // Google.
+    const holdToTalk = !!(opts && opts.mode === 'ptt');
+    handle = await Gemini.create({
+      surfaceId: 'webchat',
+      mode: holdToTalk ? 'ptt' : 'voice',
+      // Микрофон — только пока палец на кнопке (после ответа он сам не открывается).
+      holdToTalk,
+      voiceModelId,
+      voiceApiModel: resolveVoiceApiModel(voiceModelId),
+      surface: 'standalone',
+      host,
+      // Учёт и журнал расширения здесь не ведутся: деньги считает сервер по
+      // парам, копию беседы — wc-app.js.
+      recordCall: false,
+      videoIdProvider: () => convId,
+      instructionRefsProvider: async () => promptRefs,
+      knobsProvider: async () => gemKnobs,
+      // Переписка до разговора — из памяти открытой беседы, как в расширении
+      // её берут из копии беседы на устройстве.
+      historyProvider: async () => {
+        try {
+          const r = await WcBus.call('WC_OPEN_TURNS', { conversationId: convId });
+          return (r && Array.isArray(r.turns)) ? r.turns : [];
+        } catch (_) { return []; }
+      },
+      // Тишину и предел времени у разговора Google считает устройство (линии
+      // к нему у сервера нет) — те же числа, что в расширении.
+      idleTimeoutMs: (Number(knobs.voiceIdleTimeoutSec) || 60) * 1000,
+      maxDurationMs: 5 * 60 * 1000,
+      onConnecting: () => { if (hooks.onStage) hooks.onStage('connecting'); },
+      onLocalStream: (stream) => { localStream = stream; if (hooks.onLocalStream) hooks.onLocalStream(stream); },
+      onConnected: () => {
+        if (!mine()) return;
+        connecting = false;
+        closed = false;
+        callId = handle.callId();
+        startedAt = Date.now();
+        if (hooks.onConnected) hooks.onConnected({ callId, apiModel: voiceModelId });
+        if (hooks.onStage) hooks.onStage('ready');
+        log('gemini connected', callId);
+      },
+      // ⚠️ ВСЕ СЛОВА — ТОЛЬКО ПОКА РАЗГОВОР ЭТОТ И ЖИВОЙ (mine). После отбоя
+      // модуль ещё до 3,5 с досчитывает последний ответ и шлёт события, а
+      // лента страницы к тому мигу уже закрыта (endVoice), и модульные hooks
+      // и state могли перейти к новому разговору: поздние слова заводили бы
+      // в ленте второй пузырь того же ответа и писали бы в чужую беседу. Итог
+      // прозвучавшего страница берёт у модуля сама, в миг отбоя
+      // (heardNow в stopGemini).
+      onUserSpeechStarted: ({ itemId }) => { if (mine() && itemId && hooks.onUserStart) hooks.onUserStart(itemId); },
+      onUserTranscriptDelta: ({ itemId, text }) => { if (mine() && itemId && hooks.onUserDelta) hooks.onUserDelta(itemId, appendTo(itemId, 'user', text)); },
+      onUserTranscriptComplete: ({ itemId, finalText }) => {
+        if (!mine() || !itemId) return;
+        state.items.set(itemId, { role: 'user', text: finalText });
+        if (hooks.onUserDone) hooks.onUserDone(itemId, finalText);
+      },
+      onAssistantTranscriptDelta: ({ itemId, text }) => { if (mine() && itemId && hooks.onAssistantDelta) hooks.onAssistantDelta(itemId, appendTo(itemId, 'assistant', text)); },
+      onAssistantTranscriptComplete: ({ itemId, finalText }) => {
+        if (!mine() || !itemId) return;
+        state.items.set(itemId, { role: 'assistant', text: finalText });
+        if (hooks.onAssistantDone) hooks.onAssistantDone(itemId, finalText);
+      },
+      onAssistantTranscriptDropped: ({ itemId }) => {
+        if (!mine() || !itemId) return;
+        state.items.delete(itemId);
+        if (hooks.onAssistantDrop) hooks.onAssistantDrop(itemId);
+      },
+      onAssistantTurnComplete: () => { if (!mine()) return; state.turns++; if (hooks.onTurnDone) hooks.onTurnDone(); },
+      onTeacherSpeaking: (on) => { if (mine() && hooks.onTeacherSpeaking) hooks.onTeacherSpeaking(on); },
+      onTurnNotSaved: () => { if (myHooks.onNotice) myHooks.onNotice(TURN_NOT_SAVED); },
+      onError: (err) => { if (mine() && hooks.onError) hooks.onError(String((err && err.message) || err)); },
+      // Конец, который модуль заметил сам (сервер закрыл разговор, сокет
+      // оборвался, тишина, предел): страница сносит своё тем же путём, что и
+      // по кнопке. Конец по кнопке сюда не доходит — ручка к тому мигу уже
+      // снята (stopGemini).
+      onDisconnected: ({ reason }) => { if (mine() && !/^gate-/.test(String(reason || ''))) stopGemini({ reason }, true); },
+    });
+    if (stale()) return;
+    gem = handle;
+    activeVoiceModelId = voiceModelId;
+    try {
+      await handle.start();
+    } catch (err) {
+      const code = String((err && err.message) || '');
+      // Состояние модуля страницы сносит start() (его catch → teardown);
+      // здесь только ручка — её больше нет.
+      if (gem === handle) gem = null;
+      if (Object.prototype.hasOwnProperty.call(GEM_GATE, code)) {
+        const e = new Error(GATE_TEXT[GEM_GATE[code]]);
+        e.gate = GEM_GATE[code];
+        throw e;
+      }
+      warn('gemini voice did not come up:', code);
+      throw new Error(GATE_TEXT.generic);
+    }
+    return { callId };
+  }
+
+  // Отбой разговора Google. fromModule — модуль уже снёс себя сам (сервер
+  // закрыл разговор, сокет оборвался): ручку не трогаем, только своё.
+  async function stopGemini(opts, fromModule) {
+    const h = gem;
+    if (!h) return;
+    gem = null;
+    const reason = (opts && opts.reason) || 'manual';
+    const endingHooks = hooks;
+    let endingTurns = state.turns;
+    const endingCallId = callId || (h.callId && h.callId());
+    if (!fromModule) { try { await h.stop({ reason }); } catch (_) {} }
+    // Ответ, который учитель договаривал, — в том виде, в каком он ляжет в
+    // беседу (только прозвучавшее), ДО закрытия ленты: поздних событий
+    // модуля страница уже не слушает (mine() выше).
+    const heard = h.heardNow ? h.heardNow() : null;
+    if (heard && heard.itemId) {
+      if (heard.text) {
+        endingTurns++;   // ход досчитан здесь, а не событием модуля
+        state.items.set(heard.itemId, { role: 'assistant', text: heard.text });
+        if (endingHooks.onAssistantDone) endingHooks.onAssistantDone(heard.itemId, heard.text);
+      } else {
+        state.items.delete(heard.itemId);
+        if (endingHooks.onAssistantDrop) endingHooks.onAssistantDrop(heard.itemId);
+      }
+    }
+    closed = true;
+    connecting = false;
+    callId = null;
+    localStream = null;
+    attempt++;
+    const myEnd = attempt;
+    // AWAITED, как у голоса OpenAI: «stop() вернулся» значит «строка разговора
+    // закрыта», и следующее нажатие не упирается в собственный разговор.
+    if (endingCallId) {
+      await makePageHost(null).send(Object.assign({ type: 'VOICE_CMD', callId: endingCallId, end: true },
+        (reason === 'silence' || reason === 'time_cap') ? { reason } : {}));
+    }
+    if (endingHooks.onDisconnected) await endingHooks.onDisconnected({ reason, turns: endingTurns, superseded: attempt !== myEnd });
+    log('gemini stopped', reason, 'turns', endingTurns);
   }
 
   async function activeSlot(key, fallback) {
@@ -944,6 +1270,7 @@
   }
 
   async function stop(opts) {
+    if (gem) return stopGemini(opts);
     if (closed && !connecting) return;
     const reason = (opts && opts.reason) || 'manual';
     // Снимаем id ДО сноса: teardown обнуляет его, а отчёт без id бесполезен.
@@ -1039,7 +1366,22 @@
     // greeting would defeat the very protection they cannot see.
     mute(on) {
       userMuted = !!on;
+      if (gem) { gem.mute(userMuted); return; }
       if (micTrack && !firstTurn.armed) micTrack.enabled = !userMuted;
+    },
+    // «Держи и говори»: палец на кнопке и палец снят. У голоса Google это
+    // начало и конец реплики (модуль сам обрывает ответ, если учитель ещё
+    // говорит, и закрывает реплику — ответ идёт сразу). У голоса OpenAI — как
+    // было: та же живая сессия, микрофон открыт и закрыт.
+    holdStart() {
+      userMuted = false;
+      if (gem && gem.talkPress) { gem.talkPress(); return; }
+      WcVoice.mute(false);
+    },
+    holdEnd() {
+      userMuted = true;
+      if (gem && gem.talkRelease) { gem.talkRelease(); return; }
+      WcVoice.mute(true);
     },
     // What the BUTTON should say — the reader's intent, not the track's state.
     // While the guard holds the track the two disagree on purpose, and showing
@@ -1052,7 +1394,9 @@
     micHeld() { return firstTurn.armed; },
 
     // Barge-in: stop the model talking over you.
-    cancel() { return sendServerCmd([{ type: 'response.cancel' }]); },
+    // У разговора Google отменить ответ командой нельзя — учитель замолкает,
+    // когда человек заговорит.
+    cancel() { if (gem) return Promise.resolve(null); return sendServerCmd([{ type: 'response.cancel' }]); },
 
     // ⚠️ NO settingsFields() ANY MORE — «Голос учителя» is the owner's control,
     // not the reader's, and this page was the only place it leaked out.

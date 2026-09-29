@@ -565,9 +565,10 @@
   function openVoiceScreen() {
     WcVoiceScreen.open({
       onToggleMute: () => { WcVoice.mute(!WcVoice.muted()); WcVoiceScreen.muted(WcVoice.muted()); },
-      // «Держи и говори»: дорожка открыта ровно пока палец на кнопке.
-      onHoldStart: () => { WcVoice.mute(false); WcVoiceScreen.muted(false); WcHaptics.tap(); },
-      onHoldEnd: () => { WcVoice.mute(true); WcVoiceScreen.muted(true); },
+      // «Держи и говори»: палец на кнопке — реплика идёт, отпустил — реплика
+      // закончена (у голоса Google — сразу ответ, WcVoice.holdEnd).
+      onHoldStart: () => { WcVoice.holdStart(); WcVoiceScreen.muted(false); WcHaptics.tap(); },
+      onHoldEnd: () => { WcVoice.holdEnd(); WcVoiceScreen.muted(true); },
       // Разговорный вид уходит ПО НАЖАТИЮ, а не по ответу сервера. Иначе
       // между нажатием и закрытием проходило больше полусекунды: WcVoice.stop()
       // сначала гасит сессию и отправляет её конец, и только потом зовёт
@@ -708,6 +709,10 @@
     try {
       await WcVoice.start({
         conversationId: convId,
+        // «Держи и говори» у голоса Google — свой режим разговора (слух Google
+        // выключен, конец реплики отмечает кнопка); у OpenAI — та же живая
+        // сессия с закрытым микрофоном.
+        mode: ptt ? 'ptt' : 'live',
         hooks: {
           // 'ready' приходит СЮДА ЖЕ, вместе с остальными ступенями. Здесь
           // стоял отдельный onConnected со stage('ready') — и надпись
@@ -740,6 +745,9 @@
 
           onAssistantDelta: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
           onAssistantDone: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
+          // Голос Google: из ответа не прозвучало ничего — ни пузыря, ни
+          // строки в памяти беседы (сервер её тоже не записал).
+          onAssistantDrop: (id) => { said.delete(id); WcThread.dropVoiceAssistant(id); },
 
           // response.done — весь ход завершён, можно записывать. Строку хода
           // слушатель сервера пишет вслед за ответом — деньги перечитываются.
@@ -751,6 +759,9 @@
           // line to write an error into (2026-08-19, the call screen looks
           // like the ordinary chat now).
           onError: (msg) => toast('Error: ' + msg, { error: true }),
+          // Спокойная надпись без ошибки: например, «реплика не записалась в
+          // переписку» (голос Google, voice/call-server.js).
+          onNotice: (msg) => toast(msg),
           onDisconnected: async ({ reason, turns, superseded }) => {
             // ЭКРАН УХОДИТ ПЕРВЫМ, до записи в историю. Раньше здесь сначала
             // ждали flushExchange() — сетевой заход, — и всё это время крестик
