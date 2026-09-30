@@ -33,9 +33,8 @@
 // the extension — the broker refuses to hand back an answer until a shift has
 // reported that it is attached and counting.
 //
-// Gemini voice lives only in the extension (voice/gemini-live.js). This page
-// speaks OpenAI only; the turns of a Gemini conversation reach it as ordinary
-// server-written voice turns.
+// Gemini voice on this page is the extension's own module (voice/gemini-live.js,
+// see startGemini below); this header is about the OpenAI path.
 (function (global) {
   'use strict';
 
@@ -161,9 +160,11 @@
       en: 'The conversation ended: the connection failed.',
       ru: 'Разговор закончился: связь не удалось удержать.',
     },
-    // Noticed by the voice module (voice/call-server.js, strict): the server
-    // stopped confirming a Gemini conversation — the presence beat went
-    // unanswered for 10 s or a turn was not accepted. No server, no Lex.
+    // The server stopped confirming the conversation — either voice. Noticed
+    // by the voice module (voice/call-server.js: the presence beat went
+    // unanswered for 10 s or a turn was not accepted) or, for OpenAI voice, by
+    // the server-side listener that could not write a turn or charge for it
+    // and hung up. No server, no Lex.
     server_silent: {
       en: 'The conversation ended: the Lex server stopped confirming it. Press to start again.',
       ru: 'Разговор закончился: сервер Lex перестал его подтверждать. Нажмите, чтобы начать заново.',
@@ -183,6 +184,9 @@
       ru: 'Разговор закончился.',
     },
   };
+  // Концы, которые заметило устройство потому, что сервер перестал отвечать
+  // или пускать: его ответа на отбой такой конец не ждёт.
+  const SERVER_GONE = new Set(['server_silent', 'signed_out']);
   function endedText(reason, lang) {
     const row = Object.prototype.hasOwnProperty.call(ENDED_TEXT, reason) ? ENDED_TEXT[reason] : ENDED_TEXT.other;
     return row[lang === 'ru' ? 'ru' : 'en'];
@@ -302,7 +306,11 @@
         }
         if (inner.type === 'lex.session.ended') {
           log('server ended session:', inner.reason);
-          stop({ reason: inner.reason || 'server-ended' });
+          // Через общий модуль (voice/call-server.js): причину «пропал
+          // собеседник» при неподтверждённом пульсе он читает как «сервер
+          // молчит». Модуля нет, только пока номер звонка не назван.
+          if (callServer) callServer.endedByServer(inner.reason || 'server-ended');
+          else stop({ reason: inner.reason || 'server-ended' });
           return;
         }
         handleServerEvent(inner);
@@ -341,39 +349,42 @@
   // строка разговора закрывалась через 36-38 с, и всё это время следующее
   // нажатие упиралось в собственное «занято».
   //
-  // Раз в 3 с при пороге 10 с на сервере: три пропущенных удара. Заводится СРАЗУ
-  // по получении call_id, а не когда разговор «пошёл», — срок на сервере
-  // взводится ПЕРВЫМ ударом, и дыра между ним и вторым не должна быть длиннее
-  // порога.
+  // Сам пульс — общий модуль voice/call-server.js, тот же, что у расширения и
+  // у голоса Google на этой странице (до 2026-09-30 у голоса OpenAI здесь был
+  // свой, и он знал только ответ 404). Раз в 3 с при пороге 10 с на сервере.
+  // Заводится СРАЗУ по получении call_id, а не когда разговор «пошёл», — срок
+  // на сервере взводится ПЕРВЫМ ударом, и дыра между ним и вторым не должна
+  // быть длиннее порога.
   //
-  // Сам таймер — общий LexPulse (lex-pulse.js, тот же, что у расширения):
-  // первый удар сразу, дальше по расписанию, упавший удар пульс не гасит.
-  // Здесь — только частота и то, что и куда несёт удар.
-  const PRESENCE_BEAT_MS = 3000;
-  let presence = null;
+  // Модуль несёт и страховку «сервер молчит»: пульс не подтверждён 10 с (нет
+  // ответа, сбой сервера, вышел из аккаунта) — разговор кончается здесь, с
+  // надписью ENDED_TEXT.server_silent (или signed_out). Звук идёт к OpenAI
+  // мимо нашего сервера, и без этого учитель продолжал бы говорить, пока
+  // сервер лежит, а ходы этого времени не записывались бы и не списывались.
+  // На старте она ничего не ждёт: отсчёт идёт от мига, когда сервер назвал
+  // номер звонка.
+  //
+  // 404 на пульс — у сервера этого разговора больше нет. Запасной путь к
+  // событию lex.session.ended: широковещание не повторяется, и если в миг
+  // отбоя канал событий переподключался, страница иначе узнала бы о конце
+  // только когда WebRTC сам сочтёт связь потерянной — через десятки секунд и с
+  // чужой причиной. Причину сервер кладёт в ответ.
+  let callServer = null;
   function startPresenceBeat() {
-    if (presence || !callId) return;
-    presence = global.LexPulse.start({
-      everyMs: PRESENCE_BEAT_MS,
-      beat: () => {
-        if (closed || !callId) return;
-        const beatId = callId;
-        return post('/functions/v1/voice-cmd', { callId: beatId, ping: true }).then((r) => {
-          // 404 — у сервера этого разговора больше нет. Запасной путь к
-          // событию lex.session.ended: широковещание не повторяется, и если в
-          // миг отбоя канал событий переподключался, страница иначе узнала бы
-          // о конце только когда WebRTC сам сочтёт связь потерянной — через
-          // десятки секунд и с чужой причиной. Причину сервер кладёт в ответ.
-          if (r && r.status === 404 && !closed && callId === beatId) {
-            log('presence beat: 404 — the server has no live conversation', r.json && r.json.reason);
-            stop({ reason: (r.json && r.json.reason) || 'server-ended' });
-          }
-        });
-      },
+    if (callServer || !callId) return;
+    const id = callId;
+    const mine = () => !closed && callId === id;
+    callServer = global.LexVoiceCallServer.create({
+      log, warn,
+      host: makePageHost(null),
+      isClosed: () => !mine(),
+      onServerEnded: (reason) => { if (mine()) stop({ reason: reason || 'server-ended' }); },
+      onServerFailure: (info) => { if (mine()) stop({ reason: (info && info.reason) || 'server_silent' }); },
     });
+    callServer.setCallId(id);
   }
   function stopPresenceBeat() {
-    if (presence) { presence.stop(); presence = null; }
+    if (callServer) { callServer.stopPresence(); callServer = null; }
   }
 
   // ── What the reader sees while talking ───────────────────────────────────
@@ -414,12 +425,19 @@
 
     switch (ev.type) {
       case 'input_audio_buffer.speech_started':
+      case 'input_audio_buffer.committed':
         // Open the reader's bubble HERE, not on the transcript. The recognizer is
         // slower than the server's voice-activity detector, so the answer
         // starts streaming before the question is transcribed — a bubble
         // created on the transcript lands UNDER the reply it answers. This is
         // the documented moment the detector has confirmed speech.
-        if (!id) break;
+        //
+        // `committed` (the person finished the phrase) is the same place taken
+        // a second time, for a phrase whose `speech_started` never arrived:
+        // events are broadcast once, and a phrase begun in the first fraction
+        // of a second — before this page joined the call's channel — loses it.
+        // It still comes before the reply is created, so the order holds.
+        if (!id || state.items.has(id)) break;
         state.items.set(id, { role: 'user', text: '' });
         if (hooks.onUserStart) hooks.onUserStart(id);
         break;
@@ -868,7 +886,12 @@
           : r.status === 409 ? 'race'
           : r.status === 401 ? 'login'
           : (r.status === 400 && stage === 'model') ? 'model'
-          : r.status === 424 ? 'prompt'
+          // 424 бывает двух родов, и слова у них разные: промпт по указателям
+          // не нашёлся (stage 'prompt') — и у модели или её расшифровки нет
+          // цены (stage 'pricing'; сюда же попадало имя режима расшифровки,
+          // посланное как имя модели). Второе — про модель, не про промпт.
+          : (r.status === 424 && stage === 'prompt') ? 'prompt'
+          : r.status === 424 ? 'model'
           : null;
         // Сырой ответ сервера на экран не идёт — только в консоль.
         if (!gate) warn('voice did not come up:', r.status, r.json && r.json.error);
@@ -1208,8 +1231,10 @@
     attempt++;
     const myEnd = attempt;
     // AWAITED, как у голоса OpenAI: «stop() вернулся» значит «строка разговора
-    // закрыта», и следующее нажатие не упирается в собственный разговор.
-    if (endingCallId) {
+    // закрыта», и следующее нажатие не упирается в собственный разговор. Кроме
+    // конца «сервер перестал подтверждать»: его ответа не ждём (см. stop), а
+    // отбой с причиной модуль уже отправил сам.
+    if (endingCallId && !SERVER_GONE.has(reason)) {
       await makePageHost(null).send(Object.assign({ type: 'VOICE_CMD', callId: endingCallId, end: true },
         (reason === 'silence' || reason === 'time_cap') ? { reason } : {}));
     }
@@ -1283,10 +1308,24 @@
     const endingTurns = state.turns;
     await teardown();
     const myEnd = attempt;
-    // AWAITED: «stop() вернулся» обязано значить «шлюз свободен». Иначе
-    // человек, нажавший микрофон сразу после отбоя, упирается в собственную
-    // же незакрытую сессию.
-    await endCallOnServer(endingCallId);
+    if (SERVER_GONE.has(reason)) {
+      // Разговор кончился, потому что сервер перестал его подтверждать. Ждать
+      // его ответа на отбой нельзя: запрос к повисшему серверу не отвечает
+      // вовсе, и надпись «сервер перестал подтверждать» человек увидел бы
+      // только когда запрос сам истечёт. Отбой (с причиной) и отчёт уходят
+      // вдогонку — дойдут, если сервер в этот миг отвечает. Отчёт — после
+      // отбоя, а не рядом с ним: строку закрывает первый дошедший, и отчёт,
+      // обогнав отбой, записал бы конец как «человек».
+      const named = endingCallId
+        ? makePageHost(null).send({ type: 'VOICE_CMD', callId: endingCallId, end: true, reason })
+        : Promise.resolve(null);
+      named.catch(() => null).then(() => endCallOnServer(endingCallId)).catch(() => {});
+    } else {
+      // AWAITED: «stop() вернулся» обязано значить «шлюз свободен». Иначе
+      // человек, нажавший микрофон сразу после отбоя, упирается в собственную
+      // же незакрытую сессию.
+      await endCallOnServer(endingCallId);
+    }
     // AWAITED, not fired and forgotten: the handler is where the last exchange
     // gets written to the account, and "stop() resolved" has to mean "nothing
     // is still in flight". Without the await a caller that checks the

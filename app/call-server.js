@@ -22,18 +22,26 @@
 // же, сервер запишет её один раз). Не дошла и после повторов — это не
 // проходит молча: поверхность получает onTurnNotSaved и говорит человеку.
 //
-// Строгий разговор (strict: true — голос Gemini, 2026-09-29). Правило
-// Геннадия: не работает сервер — не работает Lex. У разговора Gemini сервер
-// узнаёт о ходах и деньгах только от устройства, поэтому разговор, который
-// сервер перестал подтверждать, дальше не идёт — он кончается, и человек
-// видит почему (onServerFailure → причина server_silent или signed_out):
+// Сервер молчит — разговор кончается (голос Gemini — 2026-09-29, голос OpenAI —
+// 2026-09-30). Правило Геннадия: не работает сервер — не работает Lex. Звук у
+// обоих голосов идёт к поставщику мимо нашего сервера, и пока сервер лежит,
+// поставщик продолжает говорить и брать деньги, а ходы этого времени не
+// записываются и не списываются. Поэтому разговор, который сервер перестал
+// подтверждать, дальше не идёт — он кончается, и человек видит почему
+// (onServerFailure → причина server_silent или signed_out):
 //   • пульс не подтверждён дольше PRESENCE_DEAD_MS (нет ответа, сбой сервера,
 //     вышел из аккаунта) — столько же сервер ждёт пульса сам, прежде чем
 //     закрыть строку разговора;
-//   • пара реплик не принята и после повторов (не записана, не списана,
-//     отказ по сути).
-// У голоса OpenAI модуль прежний: там ходы пишет и списывает слушатель на
-// сервере, и эта страховка не включена (docs/BACKLOG.md).
+//   • реплика или пара реплик не принята и после повторов (не записана, не
+//     списана, отказ по сути).
+// Выключателя у этого нет: голос, который завёл бы модуль без страховки, был бы
+// ошибкой, а не вариантом. На старте страховка ничего не ждёт — отсчёт идёт от
+// мига, когда сервер назвал номер звонка, и первый отказ возможен не раньше чем
+// через PRESENCE_DEAD_MS после него.
+// У голоса OpenAI ходы пишет и списывает слушатель на сервере, и устройство о
+// его отказе узнать само не может. Там слушатель, не сумевший записать ход или
+// списать деньги, кладёт трубку сам с причиной server_silent
+// (supabase/functions/voice-watch) — устройство показывает ту же надпись.
 //
 // Модуль без DOM и без состояния на уровне файла: у каждого разговора свой
 // экземпляр. К Chrome он не обращается: всё уходит через «розетку»
@@ -57,11 +65,19 @@
   // Повторы реплики: сразу, через 1 с, через 3 с. Сервер держит дверь для
   // реплик закрытого разговора две минуты — повторы укладываются с запасом.
   const TURN_RETRY_DELAYS_MS = [1000, 3000];
-  // Строгий разговор: сколько пульс может не подтверждаться, прежде чем
-  // разговор кончится. Столько же (voice_presence_grace_sec) сервер ждёт пульса
+  // Сколько пульс может не подтверждаться, прежде чем разговор кончится. Столько же (voice_presence_grace_sec) сервер ждёт пульса
   // сам. Перезапуск воркера расширения (MV3) — доля секунды, один-два
   // пропущенных удара сюда не дотягивают.
   const PRESENCE_DEAD_MS = 10000;
+  // Пульс «давно не подтверждён», когда сервер закрыл разговор по пропаже
+  // пульса: два удара с запасом. Свой срок сервер отсчитывает от последнего
+  // принятого удара, так что к его «собеседник пропал» неподтверждённому
+  // пульсу устройства уже около десяти секунд; при живой двери пульса — не
+  // больше трёх.
+  const PRESENCE_UNCONFIRMED_MS = 7000;
+  // Причины конца, которые устройство замечает само и называет серверу в
+  // отбое (voice-cmd, тело end). Остальное сервер записывает как «человек».
+  const DEVICE_END_REASONS = ['silence', 'time_cap', 'server_silent'];
 
   function create(opts) {
     const o = opts || {};
@@ -69,24 +85,41 @@
     const warn = o.warn || (() => {});
     const isClosed = typeof o.isClosed === 'function' ? o.isClosed : () => false;
     const host = o.host || global.LexVoiceHost;
-    const strict = o.strict === true;
 
     let callId = null;
 
-    // ── Строгий разговор: сервер перестал подтверждать ────────────────────
+    // ── Сервер перестал подтверждать разговор ─────────────────────────────
     // Один раз за разговор. signed_out — ответ «не вошёл» (пропуск не
     // продлился): тогда и надпись другая.
     let failTold = false;
-    // true — разговор кончен по этой причине; false — нечего кончать (уже
-    // закрыт или не строгий), и о потерянной паре говорит onTurnNotSaved.
+    // true — разговор кончен по этой причине; false — кончать нечего (он уже
+    // закрыт), и о потерянной реплике говорит onTurnNotSaved.
     function serverFailed(kind, r) {
-      if (!strict || isClosed()) return false;
+      if (isClosed()) return false;
       if (failTold) return true;
       failTold = true;
       const reason = (r && r.__gate === 'login') ? 'signed_out' : 'server_silent';
       warn(`the server does not confirm the conversation (${kind}: ${(r && (r.status || r.error || r.__gate)) || 'no response'}) — ending it`);
       try { o.onServerFailure && o.onServerFailure({ kind, reason, status: r ? r.status : null }); } catch (_) {}
       return true;
+    }
+
+    // Сервер сам закрыл разговор и назвал причину (событие lex.session.ended,
+    // 404 на пульс, «клади трубку» в ответе на пару). Причина уходит
+    // поверхности как есть — кроме одной. client_gone значит «от устройства
+    // нет пульса»; а если устройство пульс слало и всё это время не получало
+    // подтверждений, пропал не собеседник — сервер перестал принимать пульс.
+    // Это тот же случай, что и «пульс не подтверждён 10 с», только слушатель
+    // на сервере (у голоса OpenAI он жив, пока лежит одна дверь пульса)
+    // досчитал свой срок на секунду-другую раньше устройства. Человеку
+    // говорится одно и то же: сервер перестал подтверждать разговор.
+    function endedByServer(reason) {
+      if (isClosed()) return;
+      if (reason === 'client_gone' && lastConfirmedAt && Date.now() - lastConfirmedAt > PRESENCE_UNCONFIRMED_MS) {
+        serverFailed('presence', lastFailure);
+        return;
+      }
+      try { o.onServerEnded && o.onServerEnded(reason || 'server-ended'); } catch (_) {}
     }
 
     // ── Связь с воркером на время звонка ──────────────────────────────────
@@ -149,9 +182,9 @@
     // кладёт в тот же ответ, и окно говорит человеку то же, что сказало бы по
     // событию сервера.
     let presence = null;
-    // Строгий разговор: миг последнего подтверждённого пульса (или начала).
-    // Время, а не счёт отказов: запрос к повисшему серверу не отвечает вовсе,
-    // и отказов было бы не насчитать.
+    // Миг последнего подтверждённого пульса (или начала). Время, а не счёт
+    // отказов: запрос к повисшему серверу не отвечает вовсе, и отказов было бы
+    // не насчитать.
     let lastConfirmedAt = 0;
     let lastFailure = null;
     function startPresence() {
@@ -161,12 +194,12 @@
         everyMs: PRESENCE_BEAT_MS,
         beat: () => {
           if (isClosed() || !callId) return;
-          if (strict && Date.now() - lastConfirmedAt > PRESENCE_DEAD_MS) { serverFailed('presence', lastFailure); return; }
+          if (Date.now() - lastConfirmedAt > PRESENCE_DEAD_MS) { serverFailed('presence', lastFailure); return; }
           const beatCallId = callId;
           host.send({ type: 'VOICE_CMD', callId: beatCallId, ping: true }).then((r) => {
             if (r && r.status === 404 && !isClosed() && callId === beatCallId) {
               log('presence beat: 404 — the server has no live conversation;', r.reason || 'no reason');
-              try { o.onServerEnded && o.onServerEnded(r.reason || 'server-ended'); } catch (_) {}
+              endedByServer(r.reason || 'server-ended');
               return;
             }
             if (r && r.ok) { lastConfirmedAt = Date.now(); lastFailure = null; }
@@ -182,14 +215,17 @@
     // ── Отбой ─────────────────────────────────────────────────────────────
     // Серверу СРАЗУ, отдельной короткой командой: строка разговора
     // закрывается в миг нажатия, и следующее нажатие не упирается в «разговор
-    // уже идёт». reason — только то, что заметило само устройство (у Gemini —
-    // тишина и предел времени); без него сервер пишет «человек».
+    // уже идёт». reason — только то, что заметило само устройство
+    // (DEVICE_END_REASONS: у Gemini — тишина и предел времени; у обоих голосов
+    // — сервер перестал подтверждать разговор); любая другая причина и её
+    // отсутствие — сервер пишет «человек».
     // Возвращает, ушёл ли отбой (его ждёт closeLink).
     function hangup(reason) {
       stopPresence();
       if (!callId) return false;
+      const named = DEVICE_END_REASONS.indexOf(reason) >= 0 ? reason : null;
       try {
-        host.post(Object.assign({ type: 'VOICE_CMD', callId, end: true }, reason ? { reason } : {}));
+        host.post(Object.assign({ type: 'VOICE_CMD', callId, end: true }, named ? { reason: named } : {}));
         return true;
       } catch (_) { return false; }
     }
@@ -227,18 +263,18 @@
           warn(`${kind} ${id} not saved on the server (attempt ${attempt + 1}):`, (r && (r.error || r.status)) || 'no response');
         }
         if (r && r.ok) {
-          if (r.end) { try { o.onServerEnded && o.onServerEnded(r.end); } catch (_) {} }
+          if (r.end) endedByServer(r.end);
           return r;
         }
         // 409 у реплики человека OpenAI — её пишет слушатель: это не потеря.
         if (r && r.status === 409 && kind === 'said') { log('said', id, 'is the listener\'s to write'); return r; }
         warn(`${kind} ${id} NOT saved on the server:`, (r && (r.error || r.status)) || 'no response');
-        // Строгий разговор: пара не принята (не записана, не списана, отказ) —
-        // разговор дальше не идёт. 404 — разговора на сервере уже нет: это
-        // конец по серверу, причину скажет пульс или событие.
-        // Пара, досланная после отбоя (ход, досчитанный при отбое), разговор уже
-        // не кончает — о ней, как и раньше, говорит onTurnNotSaved.
-        if (strict && !(r && r.status === 404) && serverFailed(kind, r)) return r;
+        // Реплика не принята (не записана, не списана, отказ) — разговор
+        // дальше не идёт. 404 — разговора на сервере уже нет: это конец по
+        // серверу, причину скажет пульс или событие.
+        // Реплика, досланная после отбоя (ход, досчитанный при отбое), разговор
+        // уже не кончает — о ней, как и раньше, говорит onTurnNotSaved.
+        if (!(r && r.status === 404) && serverFailed(kind, r)) return r;
         if (!notSavedTold) {
           notSavedTold = true;
           try { o.onTurnNotSaved && o.onTurnNotSaved({ kind, id, status: r ? r.status : null }); } catch (_) {}
@@ -283,7 +319,7 @@
 
     return {
       openLink, closeLink, setCallId, startPresence, stopPresence, hangup,
-      sendCommands, sendSaid, sendTurn, drained,
+      sendCommands, sendSaid, sendTurn, drained, endedByServer,
       get linkId() { return linkId; },
       get callId() { return callId; },
       get linkOpen() { return !!link; },

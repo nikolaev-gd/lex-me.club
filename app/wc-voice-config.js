@@ -67,7 +67,12 @@
     const reduction = (reductionType && reductionType !== 'off') ? { type: reductionType } : null;
 
     // Режим вне полосы (out_of_band) новый чат не поддерживает: он гасит
-    // встроенную расшифровку, а именно из неё здесь строятся пузыри.
+    // встроенную расшифровку, а именно из неё здесь строятся пузыри. Поэтому
+    // оба слова-режима расширения (`out_of_band` — расшифровывает сама
+    // голосовая модель, `none` — встроенная расшифровка выключена) здесь
+    // значат встроенную расшифровку. Посланные как имя модели, они получали
+    // отказ сервера, и разговор не начинался вовсе (в опубликованном наборе с
+    // 2026-09-25 стоит `out_of_band`).
     // Снятые с продажи распознаватели чинятся на месте — тем же перечнем,
     // что в chat-knobs.js (RETIRED_TRANSCRIPTION_MODELS). У страницы нет
     // редактора настроек: она берёт опубликованный набор владельца, и пока
@@ -78,6 +83,8 @@
       'gpt-4o-mini-transcribe-2025-12-15': 'gpt-transcribe',
       'gpt-4o-mini-transcribe': 'gpt-transcribe',
       'gpt-4o-transcribe': 'gpt-transcribe',
+      out_of_band: 'gpt-transcribe',
+      none: 'gpt-transcribe',
     };
     const transcription = {
       model: RETIRED[k.voiceTranscriptionModel] || k.voiceTranscriptionModel || 'gpt-transcribe',
