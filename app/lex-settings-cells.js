@@ -707,6 +707,12 @@
     const k = cleanupPatchTextOf(kind);
     return k === 'diff' ? it.diff : (k === 'full' ? it.author : it.id);
   }
+  // ── Промпт очистки субтитров, схема «Автор первым» ─────────────────────────
+  // Один слот серверной ячейки preprocessPrompts и один вид ответа в отпечатке
+  // оплаченного (llm-proxy CLEANUP_FORMS). Модуль схемы — subtitles/author-first.js
+  // (его SLOT и FORM — те же значения; dev-tools/test-author-first.mjs сверяет).
+  const CLEANUP_AUTHOR_SLOT = 'preprocessAuthorFirst';
+  const CLEANUP_AUTHOR_FORM = 'author-first';
   // Вид ответа для отпечатка на сервере — тем же выбором, что слот.
   function cleanupPatchForm(id, kind) {
     const it = cleanupPatchItem(id) || cleanupPatchItem(CLEANUP_PATCH_DEFAULT);
@@ -724,6 +730,8 @@
     cleanupPatchSlots,
     cleanupPatchSlot,
     cleanupPatchForm,
+    CLEANUP_AUTHOR_SLOT,
+    CLEANUP_AUTHOR_FORM,
     SUBTITLE_ASR_KNOB_KEYS,
     SUBTITLE_ASR_WIRE_KEYS,
     SUBTITLE_ASR_CHUNK_MINUTES,
