@@ -167,6 +167,38 @@
     const sessionUsage = { textInput: 0, audioInput: 0, textCachedInput: 0, audioCachedInput: 0, textOutput: 0, audioOutput: 0, thoughtsOutput: 0 };
     let sessionMs = 0;
 
+    // ── Путь через сервер (2026-10-02) ───────────────────────────────────
+    // Какой путь у разговора, решает сервер на старте (llm-proxy
+    // voice-token-gemini): прямой — ключ Google и сокет к Google; через
+    // сервер — сокет к нашей функции voice-talk и пароль разговора. На пути
+    // через сервер кадры Google приходят те же и разбираются тем же кодом
+    // ниже, но:
+    //   • переписку и инструкции Google шлёт сервер — посева отсюда нет;
+    //   • пару реплик и деньги за ход ведёт сервер — sendTurn отсюда нет, а
+    //     копия беседы на устройстве пишется по его ответу {lex:{turn}};
+    //   • номер пары назначает сервер ({lex:{pair}}): ход закрывает он, и
+    //     таймер перебивания здесь не нужен;
+    //   • ответ обрывает у Google сервер; отсюда — только «что прозвучало»
+    //     ({type:'heard'}) и отбой ({type:'end'});
+    //   • сервер живёт сменами (предел платформы 150 с): по {lex:{shift}}
+    //     модуль поднимает сокет следующей смены и переезжает на него в тишине
+    //     между ходами; звук, сказанный за доли секунды переезда, копится и
+    //     уходит новой смене;
+    //   • связь с сервером оборвалась не по нашей воле — разговор кончается
+    //     сразу, той же строкой, что «сервер перестал подтверждать».
+    let viaServer = false;
+    let relayAuth = null;          // { url, secret }
+    let nextShift = null;          // сокет следующей смены до переезда
+    let audioHold = null;          // кадры, накопленные за переезд
+    let relayPing = null;
+    const RELAY_PING_MS = 3000;
+    const RELAY_END_WAIT_MS = 6000;
+    // Сколько ждать, пока следующая смена возьмёт разговор после «переезжай»:
+    // она может продолжать сеанс Google (до 3 с) и открывать свежий (до 4 с).
+    // Старая смена держит связь 10 с (MOVED_WAIT_MS в voice-talk).
+    const RELAY_GO_WAIT_MS = 9000;
+    const utf8 = typeof TextDecoder === 'function' ? new TextDecoder() : null;
+
     const server = global.LexVoiceCallServer.create({
       log, warn, host,
       isClosed: () => closed,
@@ -316,6 +348,13 @@
       if (turnHeardSec === null && playbackCtx) {
         const queued = Math.max(0, nextStartTime - playbackCtx.currentTime);
         turnHeardSec = Math.max(0, turnAudioSec - queued);
+        // Путь через сервер: ход пишет сервер, а сколько из ответа прозвучало,
+        // знает только устройство. Текст оборванного ответа дальше не растёт
+        // (outputTranscription ниже), поэтому прозвучавшее известно уже сейчас.
+        const streamed = turnAssistantText.trim();
+        if (viaServer && streamed) {
+          relaySend({ type: 'heard', pair: pairId(), text: heardText(streamed, turnAudioSec, turnHeardSec) });
+        }
       }
       if (speakingTimer) { clearTimeout(speakingTimer); speakingTimer = null; }
       setTeacherSpeaking(false);
@@ -376,7 +415,9 @@
       }
 
       // Pre-fetch history BEFORE socket open so seedAfterSetupComplete
-      // has it ready.
+      // has it ready. На пути через сервер переписку Google шлёт сервер, но
+      // какой путь, станет известно только из ответа на старт, — поэтому
+      // переписка читается всё равно (она нужна и журналу).
       let priorTurns = null;
       if (typeof cfg.historyProvider === 'function') {
         try { priorTurns = await cfg.historyProvider(); } catch (_) { priorTurns = null; }
@@ -427,6 +468,8 @@
       const auth = googleCallOf(resp, cb);
       callId = auth.callId;
       if (auth.apiModel) voiceApiModel = auth.apiModel;
+      viaServer = auth.route === 'server';
+      relayAuth = viaServer ? { url: auth.relayUrl, secret: auth.secret } : null;
       // Первый кадр сокета обязан быть настройкой, но всё, кроме модели, Google
       // берёт из ключа, а присланное здесь игнорирует (проверено 2026-09-25).
       const clientSetup = { model: `models/${voiceApiModel}` };
@@ -448,6 +491,12 @@
       } catch (err) { warn('mic analyser failed:', err && err.message); }
       playbackAnalyser = null;
 
+      if (viaServer) {
+        ws = openRelay(false, priorTurns);
+        // Сигнал «на линии» по самому сокету: в «нажми и говори» между
+        // репликами звука нет, и без него функция на сервере простаивала бы.
+        relayPing = setInterval(() => relaySend({ type: 'ping' }), RELAY_PING_MS);
+      } else {
       // WS handshake: the v1alpha *Constrained* method with ?access_token=
       // (NOT plain BidiGenerateContent + ?key= — that 404s the token). The
       // token carries the whole setup; the frame below is ignored by Google
@@ -504,6 +553,7 @@
           try { cb.onDisconnected && cb.onDisconnected({ reason: 'ws-closed', code: event.code }); } catch (_) {}
         }
       };
+      }
 
       // Mic loop.
       micProc.onaudioprocess = (e) => {
@@ -522,7 +572,7 @@
         // first chunk of a new turn (AAD is disabled).
         if (isPtt && !pttActivityOpen) {
           try {
-            ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
+            sendFrame(JSON.stringify({ realtimeInput: { activityStart: {} } }));
             pttActivityOpen = true;
             pttChunksSinceStart = 0;
             if (segmentRecorder) { lastUserSegmentWav = null; segmentRecorder.beginSegment(); segStartTs = Date.now(); }
@@ -543,7 +593,7 @@
         const int16 = global.LexVoiceMicrophone.floatToInt16(float);
         const b64 = global.LexVoiceMicrophone.arrayBufferToBase64(int16.buffer);
         try {
-          ws.send(JSON.stringify({
+          sendFrame(JSON.stringify({
             realtimeInput: {
               audio: { data: b64, mimeType: 'audio/pcm;rate=16000' },
             },
@@ -553,6 +603,160 @@
           warn('ws.send (audio) failed:', err);
         }
       };
+    }
+
+    // ── Путь через сервер: сокет, кадры сервера, смены ───────────────────
+    // Кадр в текущий сокет. На переезде между сменами — в копилку: её отдадут
+    // новой смене, как только та возьмёт разговор.
+    function sendFrame(str) {
+      if (audioHold) {
+        // Потолок — ~30 с звука: переезд длится доли секунды, и копилка
+        // больше этого значит, что новая смена не ответила (её сторожит таймер).
+        if (audioHold.length < 300) audioHold.push(str);
+        return;
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(str);
+    }
+    function relaySend(obj, sock) {
+      const s = sock || ws;
+      try { if (viaServer && s && s.readyState === WebSocket.OPEN) s.send(JSON.stringify(obj)); } catch (_) {}
+    }
+    // Связь с сервером пропала не по нашей воле — разговор кончается сразу,
+    // той же строкой, что «сервер перестал подтверждать» (правило Геннадия: не
+    // работает сервер — не работает Lex).
+    function relayLost(why) {
+      if (closed) return;
+      warn('the Lex server dropped the conversation:', why);
+      stop({ reason: 'server_silent', source: 'device' });
+    }
+    let relayEndResolve = null;
+    let goTimer = null;
+    // Последний текст, который модуль показал в пузырях хода, — чтобы ответ
+    // сервера правил пузырь, только если записанное отличается от показанного.
+    const shownByItem = new Map();
+    function noteShown(itemId, text) {
+      shownByItem.set(itemId, text);
+      if (shownByItem.size > 40) shownByItem.delete(shownByItem.keys().next().value);
+    }
+    function openRelay(isNext, priorTurns) {
+      const sock = new WebSocket(relayAuth.url);
+      // Кадры Google сервер шлёт двоичными, свои — текстом. Двоичные читаются
+      // синхронно: асинхронное чтение могло бы пропустить вперёд текстовый
+      // кадр сервера, пришедший следом (номер новой пары — после «ход закончен»).
+      sock.binaryType = 'arraybuffer';
+      sock.onopen = () => {
+        try { sock.send(JSON.stringify({ type: 'start', callId, secret: relayAuth.secret, shift: isNext })); } catch (_) {}
+        log(isNext ? 'next server shift: start sent' : 'through the Lex server: start sent, call =', callId);
+      };
+      sock.onmessage = (event) => {
+        let data;
+        try { data = JSON.parse(typeof event.data === 'string' ? event.data : utf8.decode(event.data)); } catch (_) { return; }
+        if (!data) return;
+        if (data.lex) { handleLex(data.lex, sock); return; }
+        if (sock !== ws) return;
+        handleServerMessage(data, priorTurns);
+      };
+      sock.onerror = () => {};
+      sock.onclose = (event) => {
+        if (sock === nextShift) { nextShiftLost(`the next shift closed before taking over (code ${event.code})`); return; }
+        if (sock !== ws) return;
+        if (relayEndResolve) { const r = relayEndResolve; relayEndResolve = null; r(); return; }
+        if (!closed) relayLost(`socket closed, code ${event.code}`);
+      };
+      return sock;
+    }
+    function handleLex(lex, sock) {
+      if (lex.turn) { relayTurnSaved(lex.turn); return; }
+      if (closed) return;
+      // Отказ или конец от следующей смены — это не конец разговора: он идёт
+      // на текущей, а следующую она попросит поднять снова.
+      if ((lex.error || lex.end) && sock === nextShift) { nextShiftLost(`next shift: ${lex.error || lex.end}`); return; }
+      if (lex.error) { warn('the Lex server refused the start:', lex.error); stop({ reason: 'connection-failed', source: 'device' }); return; }
+      if (lex.end) { stop({ reason: String(lex.end), source: 'server' }); return; }
+      // Кадры смены тоже несут номер пары — разбираются раньше простого номера.
+      if (lex.shift) { shiftEvent(lex.shift, lex, sock); return; }
+      if (typeof lex.pair === 'number' && sock === ws) {
+        // Ход закрыл сервер сам — своим таймером после «перебит» или обрывом
+        // на вынужденной пересменке, без «ход закончен» от Google: пузыри
+        // этого хода закрываются под его номером, до нового. После обычного
+        // «ход закончен» открытого хода здесь уже нет.
+        if (turnInterrupted || turnUserText.trim() || turnAssistantText.trim() || turnUsage || pendingTyped) finalizeTurn();
+        pairSeq = lex.pair;
+        // Человек заговорил поверх учителя: пузырь его реплики — уже под
+        // новым номером (на прямом пути это делает finalizeTurn).
+        armNextSpeech();
+      }
+    }
+    // Следующая смена не поднялась или отказала до переезда — разговор идёт
+    // на текущей; та попросит поднять следующую снова. После «переезжай»
+    // (копилка уже идёт) — разговору дальше некуда.
+    function nextShiftLost(why) {
+      const sock = nextShift;
+      nextShift = null;
+      try { if (sock) { sock.onclose = null; sock.close(); } } catch (_) {}
+      if (audioHold) { relayLost(why); return; }
+      warn(why, '— staying on the current shift');
+      relaySend({ type: 'shift-failed' });
+    }
+    function shiftEvent(kind, lex, sock) {
+      if (kind === 'prepare' && sock === ws) {
+        if (!nextShift) nextShift = openRelay(true, null);
+        return;
+      }
+      if (kind === 'ready' && sock === nextShift) { relaySend({ type: 'shift-ready' }); return; }
+      // Текущая смена перестала пересылать звук Google: копить с этого мига.
+      if (kind === 'hold' && sock === ws) { if (!audioHold) audioHold = []; return; }
+      if (kind === 'go' && sock === ws) {
+        if (!nextShift || nextShift.readyState !== WebSocket.OPEN) { relayLost('no next shift when the move began'); return; }
+        // Кадры, которые текущая смена получила, уже перестав пересылать, — в
+        // начало копилки: они сказаны раньше.
+        const unsent = Array.isArray(lex.unsent) ? lex.unsent.filter((f) => typeof f === 'string') : [];
+        audioHold = unsent.concat(audioHold || []);
+        relaySend({ type: 'go', pair: typeof lex.pair === 'number' ? lex.pair : null, activityOpen: lex.activityOpen === true }, nextShift);
+        goTimer = setTimeout(() => { goTimer = null; if (audioHold) relayLost('the next shift did not take over'); }, RELAY_GO_WAIT_MS);
+        return;
+      }
+      if (kind === 'live' && sock === nextShift) {
+        if (goTimer) { clearTimeout(goTimer); goTimer = null; }
+        const old = ws;
+        ws = nextShift;
+        nextShift = null;
+        if (typeof lex.pair === 'number') pairSeq = lex.pair;
+        const held = audioHold || [];
+        audioHold = null;
+        for (const f of held) { try { ws.send(f); } catch (_) {} }
+        relaySend({ type: 'moved' }, old);
+        try { old.onmessage = old.onclose = old.onerror = null; old.close(); } catch (_) {}
+        log('moved to the next server shift; frames held over the move:', held.length);
+        return;
+      }
+      if (kind === 'failed' && sock === nextShift) { nextShiftLost('the next shift failed'); }
+    }
+    // Сервер записал и оплатил ход. Копия беседы на устройстве — его текстом и
+    // под его номером; пузыри правятся, только если записанное отличается от
+    // показанного (обычно — то же самое).
+    function relayTurnSaved(t) {
+      const id = typeof t.id === 'string' ? t.id : '';
+      if (!id) return;
+      const user = typeof t.user === 'string' ? t.user : '';
+      const teacher = typeof t.teacher === 'string' ? t.teacher : '';
+      if (user && shownByItem.get(`${id}-u`) !== user) {
+        try { cb.onUserTranscriptComplete && cb.onUserTranscriptComplete({ itemId: `${id}-u`, finalText: user }); } catch (_) {}
+      }
+      if (teacher && shownByItem.get(`${id}-a`) !== teacher) {
+        try { cb.onAssistantTranscriptComplete && cb.onAssistantTranscriptComplete({ itemId: `${id}-a`, finalText: teacher }); } catch (_) {}
+      }
+      const videoId = resolveVideoId(cfg);
+      if (videoId && (user || teacher)) {
+        const items = [];
+        if (user) items.push({ role: 'user', text: user, uid: `voice:${id}-u` });
+        if (teacher) items.push({ role: 'assistant', text: teacher, uid: `voice:${id}-a` });
+        global.LexVoiceThreadWriter.flushItemsViaSW({
+          videoId, items,
+          noPersistentThread: cfg.noPersistentThread === true,
+          marker: cfg.threadTurnMarker || null,
+        });
+      }
     }
 
     function handleServerMessage(data, priorTurns) {
@@ -575,8 +779,9 @@
           const fn = pendingSends.shift();
           try { fn(); } catch (_) {}
         }
-        // Seed history if any.
-        if (priorTurns && priorTurns.length > 0) {
+        // Seed history if any. На пути через сервер переписку и материал урока
+        // Google уже прислал сервер — до этого кадра.
+        if (!viaServer && priorTurns && priorTurns.length > 0) {
           global.LexVoiceHistoryInjector.seedAfterSetupComplete(ws, voiceApiModel, priorTurns);
         }
         // text_call_io: log the session-start outgoing context — a LABEL of the
@@ -685,8 +890,12 @@
           // Ход закроется по «ход закончен», который Google шлёт следом вместе
           // с расходом; не пришёл — закрываем сами.
           turnInterrupted = true;
-          if (interruptTimer) clearTimeout(interruptTimer);
-          interruptTimer = setTimeout(() => { interruptTimer = null; if (turnInterrupted) finalizeTurn(); }, INTERRUPT_CLOSE_MS);
+          // На пути через сервер ход закрывает сервер: по «ход закончен» или по
+          // своему таймеру — тогда приходит новый номер пары ({lex:{pair}}).
+          if (!viaServer) {
+            if (interruptTimer) clearTimeout(interruptTimer);
+            interruptTimer = setTimeout(() => { interruptTimer = null; if (turnInterrupted) finalizeTurn(); }, INTERRUPT_CLOSE_MS);
+          }
         }
         if (sc.turnComplete) {
           playbackSuppressed = false;
@@ -768,7 +977,8 @@
         armNextSpeech();
         return;
       }
-      pairSeq += 1;
+      // На пути через сервер номер следующей пары назначает сервер.
+      if (!viaServer) pairSeq += 1;
 
       const breakdown = parseGeminiUsageBreakdown(usage);
       if (breakdown) for (const k of Object.keys(sessionUsage)) sessionUsage[k] += Number(breakdown[k] || 0);
@@ -785,17 +995,21 @@
         interrupted: wasInterrupted,
       };
       if (userText) {
+        noteShown(`${id}-u`, userText);
         try { cb.onUserTranscriptComplete && cb.onUserTranscriptComplete({ itemId: `${id}-u`, finalText: userText }); } catch (_) {}
       }
       if (asstText) {
+        noteShown(`${id}-a`, asstText);
         try { cb.onAssistantTranscriptComplete && cb.onAssistantTranscriptComplete({ itemId: `${id}-a`, finalText: asstText }); } catch (_) {}
       } else {
         dropStreamed();
       }
 
       // Пара — на сервер сразу. Тексты — ровно те, что легли в пузыри; расход
-      // — как его прислал Google, разложенный по видам (звук/текст).
-      server.sendTurn({
+      // — как его прислал Google, разложенный по видам (звук/текст). На пути
+      // через сервер пару пишет и оплачивает сам сервер, а копия беседы
+      // пишется по его ответу (relayTurnSaved).
+      if (!viaServer) server.sendTurn({
         id,
         user: userText ? { text: userText, endedAt: userEndedAt != null ? userEndedAt : performance.now() } : null,
         teacher: asstText ? { text: asstText, endedAt: performance.now() } : null,
@@ -805,7 +1019,7 @@
 
       // Копия беседы на устройстве — под теми же уидами, что у сервера.
       const videoId = resolveVideoId(cfg);
-      if (videoId && (userText || asstText)) {
+      if (!viaServer && videoId && (userText || asstText)) {
         const items = [];
         if (userText) items.push({ role: 'user', text: userText, uid: `voice:${id}-u` });
         if (asstText) items.push({ role: 'assistant', text: asstText, uid: `voice:${id}-a` });
@@ -815,7 +1029,9 @@
           marker: cfg.threadTurnMarker || null,   // '[word]' у попапа по слову
         });
       }
-      armNextSpeech();
+      // Путь через сервер: номер следующей пары приходит от сервера следом
+      // ({lex:{pair}}) — пузырь перебившей реплики встаёт там, под ним.
+      if (!viaServer) armNextSpeech();
 
       // v1.14.x звук: WAV реплики пользователя этого хода.
       if (!lastUserSegmentWav && segmentRecorder && segmentRecorder.isRecording() && !closed) {
@@ -953,10 +1169,15 @@
 
     // reason — почему кончился разговор; серверу из них уходят только те, что
     // заметило само устройство (тишина, предел времени).
+    let endReason = null;
     function teardown(reason) {
       closed = true;
+      endReason = reason || null;
       server.stopPresence();
       clearTimers();
+      if (relayPing) { clearInterval(relayPing); relayPing = null; }
+      if (goTimer) { clearTimeout(goTimer); goTimer = null; }
+      audioHold = null;
       // Отбой — серверу СРАЗУ: строка разговора закрывается в миг нажатия, и
       // следующее нажатие не упирается в «разговор уже идёт». Связь с воркером
       // — сразу за отбоем (done только если отбой ушёл отсюда).
@@ -1006,6 +1227,7 @@
     // у OpenAI. Потом — незакрытый ход (человек договорил, ответа нет) и отчёт
     // о конце разговора.
     async function settleAndReport() {
+      if (viaServer) { await relaySettleAndReport(); return; }
       // Ход у Google уже идёт: учитель заговорил, его перебили, или человек
       // договорил (Google слышал реплику целиком и отвечает — за это он
       // возьмёт деньги, даже если звук ответа ещё не пришёл). Человек
@@ -1040,6 +1262,37 @@
       } catch (_) {}
     }
 
+    // Путь через сервер: ход, который шёл, обрывает у Google и досчитывает
+    // сервер (voice-talk) — отсюда только отбой; «что прозвучало» ушло раньше,
+    // при обрыве звука (stopPlaybackImmediately). Записанный сервером ход
+    // (relayTurnSaved) приходит, пока сервер не закрыл связь. Свой незакрытый
+    // ход модуль закрывает только ПОСЛЕ этого, как на прямом пути после
+    // «ход закончен»: поверхность, которая берёт итог хода сразу после отбоя
+    // (heardNow, страница), должна застать его ещё открытым.
+    async function relaySettleAndReport() {
+      if (nextShift) { try { nextShift.onclose = null; nextShift.close(); } catch (_) {} nextShift = null; }
+      const reason = endReason === 'silence' || endReason === 'time_cap' ? endReason : 'user';
+      relaySend({ type: 'end', reason });
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        await new Promise((resolve) => {
+          relayEndResolve = resolve;
+          setTimeout(() => { if (relayEndResolve === resolve) { relayEndResolve = null; resolve(); } }, RELAY_END_WAIT_MS);
+        });
+      }
+      try { if (ws) { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } } catch (_) {}
+      ws = null;
+      try {
+        if ((turnUserText && turnUserText.trim()) || (turnAssistantText && turnAssistantText.trim()) || turnUsage || pendingTyped) {
+          await Promise.race([finalizeTurn(), new Promise((r) => setTimeout(r, 1500))]);
+        }
+      } catch (_) {}
+      // Отчёт о конце уходит и здесь, но ничего не списывает: деньги этого
+      // разговора считал сервер (voice-usage-report, authority 'listener').
+      try {
+        host.post({ type: 'VOICE_SESSION_END', callId, model: cfg.voiceModelId, surface: cfg.surface || null, turns: pairSeq, usage: sessionUsage, durationMs: sessionMs });
+      } catch (_) {}
+    }
+
     function sendUserText(text) {
       if (closed) return;
       const send = async () => {
@@ -1049,7 +1302,7 @@
         // audio-input игнорирует clientContent.turns history — prior turns
         // вклеиваются в текст этого хода.
         const videoId = resolveVideoId(cfg);
-        if (videoId && global.LexVoiceHistoryInjector
+        if (!viaServer && videoId && global.LexVoiceHistoryInjector
             && global.LexVoiceHistoryInjector.isNativeAudio(voiceApiModel)
             && typeof cfg.historyProvider === 'function') {
           try {
@@ -1067,7 +1320,7 @@
           }
         }
         try {
-          ws.send(JSON.stringify({
+          sendFrame(JSON.stringify({
             clientContent: {
               turns: [{ role: 'user', parts: [{ text: payloadText }] }],
               turnComplete: true,
@@ -1112,7 +1365,7 @@
         try { if (segmentRecorder && segmentRecorder.isRecording()) lastUserSegmentWav = segmentRecorder.endSegment(); } catch (_) {}
         try { if (micTrack) micTrack.enabled = false; } catch (_) {}
         try {
-          ws.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
+          sendFrame(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
         } catch (err) {
           warn('ws.send (activityEnd) failed:', err);
         }
@@ -1133,7 +1386,7 @@
         stopPlaybackImmediately();
         playbackSuppressed = true;
         try {
-          ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
+          sendFrame(JSON.stringify({ realtimeInput: { activityStart: {} } }));
           pttActivityOpen = true;
           pttChunksSinceStart = 0;
         } catch (err) {
@@ -1285,12 +1538,18 @@
       knobs: (extra && extra.knobs) || null,
       voiceName: (extra && extra.voiceName) || null,
       ptt: !!(extra && extra.ptt),
+      // Этот модуль умеет путь через сервер (voice-talk). Без флага сервер
+      // даёт только прямой путь — так он бережёт сборки, которые его не умеют.
+      relay: true,
     });
   }
 
   // Ответ сервера на старт → номер разговора и ключ, либо помеченная ошибка.
   function googleCallOf(resp, cb) {
-    if (resp && resp.ok && resp.token && resp.callId) return { token: resp.token, callId: resp.callId, apiModel: resp.apiModel || null };
+    if (resp && resp.ok && resp.callId && resp.route === 'server' && resp.relayUrl && resp.secret) {
+      return { route: 'server', relayUrl: resp.relayUrl, secret: resp.secret, callId: resp.callId, apiModel: resp.apiModel || null };
+    }
+    if (resp && resp.ok && resp.token && resp.callId) return { route: 'direct', token: resp.token, callId: resp.callId, apiModel: resp.apiModel || null };
     const gate =
       (resp && resp.__gate === 'login') ? ['login', '__LEX_VOICE_LOGIN__'] :
       // 402 = денег нет (llm-proxy): просьба пополнить, а не «голос недоступен».

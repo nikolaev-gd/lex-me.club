@@ -1004,6 +1004,7 @@
             knobs: msg.knobs || null,
             voiceName: msg.voiceName || null,
             ptt: msg.ptt === true,
+            relay: msg.relay === true,
             meta: {
               sessionId: gemSession ? gemSession.sessionId : null,
               videoId: meta0.videoId || null,
@@ -1017,7 +1018,10 @@
             const queueBusy = r.status === 429 && j.stage === 'inflight';
             return { ok: false, status: r.status, stage: j.stage || null, queueBusy, over: r.status === 429 && !queueBusy, error: j.error || null };
           }
-          return { ok: true, callId: j.callId, token: j.token, apiModel: j.apiModel, provider: j.provider };
+          // route 'server' — голос через наш сервер (voice-talk): вместо ключа
+          // Google — адрес сокета voice-talk и пароль разговора.
+          return { ok: true, callId: j.callId, token: j.token, apiModel: j.apiModel, provider: j.provider,
+            route: j.route || 'direct', relayUrl: j.relayUrl || null, secret: j.secret || null };
         }
         if (msg.type === 'VOICE_CMD') {
           const body = { callId: msg.callId };

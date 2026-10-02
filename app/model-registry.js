@@ -1236,6 +1236,8 @@
     voiceLongSessions:          { providers: ['google'] },
     voiceOutputLanguage:        { providers: ['google'] },
     voiceThinkingLevel:         { providers: ['google'], models: ['gemini-3.1-flash-live-preview'] },
+    // Голос Google напрямую или через наш сервер (2026-10-02, voice-talk).
+    voiceRoute:                 { providers: ['google'] },
     // Live-verified 2026-07-12 against gpt-realtime-2.1/-mini AND the old
     // gpt-realtime-2 (not new to 2.1 — Lex just never exposed it): session
     // accepts `reasoning: {effort}` with the full none/minimal/low/medium/
