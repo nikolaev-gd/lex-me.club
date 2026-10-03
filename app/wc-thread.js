@@ -123,6 +123,43 @@
     return (later && WP && typeof WP.splitPresetLater === 'function') ? WP.splitPresetLater(later) : null;
   }
 
+  // ── Отдельный разговор заготовки: подпись над вопросом ──────────────────
+  // Ход заготовки в режиме «отдельный разговор» учитель не видит никогда. Над
+  // вопросом — строка «The teacher doesn't see this» с перечёркнутым глазом, на
+  // узлах вопроса и ответа — ключ беседы заготовки (по нему «заново» идёт в её
+  // беседу). Тот же вид, что в расширении (chat-surface.js markApartBubble).
+  const APART_EYE = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" '
+    + 'stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"/>'
+    + '<path d="M9.9 5.1A9.8 9.8 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3.2 4.3"/>'
+    + '<path d="M6.6 6.6C4.2 8 2.6 10.2 2 12c1 2.5 5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/></svg>';
+  function markApart(turn, key) {
+    if (!turn) return;
+    turn.classList.add('wc-turn-apart');
+    if (key) turn.dataset.threadKey = String(key);
+    if (!turn.classList.contains('wc-turn-user')) return;
+    const box = turn.firstElementChild || turn;
+    if (box.querySelector(':scope > .wc-apart-note')) return;
+    const note = el('.wc-apart-note');
+    note.setAttribute('role', 'note');
+    note.title = 'A separate conversation with this preset: its own history in this chat. The teacher never sees it — neither in text nor in voice.';
+    note.innerHTML = APART_EYE;
+    note.append(el('span', { text: "The teacher doesn't see this" }));
+    box.prepend(note);
+  }
+  function unmarkApart(turn) {
+    if (!turn) return;
+    turn.classList.remove('wc-turn-apart');
+    delete turn.dataset.threadKey;
+    const note = turn.querySelector('.wc-apart-note');
+    if (note) note.remove();
+  }
+  // Пузырь вопроса перерисовывается заменой узла (строка заготовки, материал)
+  // — подпись и ключ переезжают на новый узел.
+  function carryApart(from, to) {
+    if (from && to && from.classList.contains('wc-turn-apart')) markApart(to, from.dataset.threadKey || null);
+  }
+
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
@@ -191,9 +228,23 @@
   // последним ответом, и после каждого добавления, загрузки и отказа её надо
   // перевесить. Под голосовым ответом строки нет вовсе. Правило «какой
   // последний» — общее с расширением (LexAnswerRow.sync).
+  // Чья беседа у ответа: '' — урок; иначе ключ отдельного разговора заготовки
+  // (у ответа, чей кадр ещё не пришёл, — общий знак «отдельный»).
+  function threadOfTurn(t) {
+    if (!t) return '';
+    return t.dataset.threadKey || (t.classList.contains('wc-turn-apart') ? '?apart' : '');
+  }
   function syncFeet() {
     const entries = [];
-    for (const t of elTurns.querySelectorAll('.wc-turn-assistant')) {
+    const turns = [...elTurns.querySelectorAll('.wc-turn-assistant')];
+    // «Последний ответ» — последний В СВОЕЙ беседе: обмены отдельного разговора
+    // стоят в той же ленте и могут оказаться ниже последнего ответа урока, но
+    // переспрос у урока и у каждой беседы заготовки свой (страница переспрашивает
+    // последний ход беседы). В ленте без отдельных разговоров это тот же самый
+    // последний ответ, что и раньше.
+    const lastOf = new Map();
+    for (const t of turns) lastOf.set(threadOfTurn(t), t);
+    for (const t of turns) {
       const foot = t.querySelector('.wc-turn-foot');
       if (t.classList.contains('wc-turn-voice')) {
         // Строки с моделью и копированием под голосовым ответом нет; цена хода
@@ -206,7 +257,8 @@
       const row = foot ? foot.querySelector('.lex-answer-row') : null;
       entries.push({
         row,
-        eligible: !!row && !t.classList.contains('is-streaming')
+        eligible: !!row && lastOf.get(threadOfTurn(t)) === t
+          && !t.classList.contains('is-streaming')
           && !t.classList.contains('wc-turn-error')
           && !t.classList.contains('wc-turn-gate'),
         model: {
@@ -216,7 +268,9 @@
         },
       });
     }
-    global.LexAnswerRow.sync(entries);
+    // Отбор «последний» сделан выше, по беседам; общее правило ленты — только
+    // «готовый текстовый».
+    global.LexAnswerRow.sync(entries, { everyAnswer: true });
   }
 
   // Прежний ответ вернуть на место: переспрос не дал ни слова (отказ, «стоп»
@@ -264,6 +318,9 @@
         else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
         else if (msg.type === 'STREAM_USER_TEXT' && msg.bubblePick) WcThread.setLastUserPick(msg.bubblePick, msg.bubbleRest || '');
         else if (msg.type === 'STREAM_USER_TEXT' && msg.laterText) WcThread.setLastUserPreset(msg.laterText);
+        // После перерисовки пузыря: куда лёг ход — в урок или в отдельный
+        // разговор заготовки (msg.apartKey).
+        if (msg.type === 'STREAM_USER_TEXT') WcThread.settleApart(msg.requestId, msg.apartKey || null);
       });
     },
 
@@ -317,6 +374,7 @@
           });
           if (t.uid) node.dataset.uid = String(t.uid);
           elTurns.append(node);
+          if (t.threadKey) markApart(node, t.threadKey);
         } else {
           const { turn } = assistantTurn(t.text);
           // Сказанное голосом — под ним строки нет (syncFeet).
@@ -325,6 +383,7 @@
           if (t.model) turn.dataset.model = t.model;
           // Уид реплики: по нему встаёт цена хода (paintMoney).
           if (t.uid) turn.dataset.uid = String(t.uid);
+          if (t.threadKey) markApart(turn, t.threadKey);
           elTurns.append(turn);
         }
       });
@@ -349,6 +408,7 @@
         { presetSlot: old.dataset.presetSlot, editText: pp.phrase });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
       old.replaceWith(node);
+      carryApart(old, node);
     },
 
     // Пузырь «translate» из выбранного материала — материалом и допечатанным:
@@ -362,6 +422,27 @@
         { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
       old.replaceWith(node);
+      carryApart(old, node);
+    },
+
+    // Отдельный разговор заготовки. При нажатии пилюли (режим из списка) —
+    // подпись над последним вопросом сразу (key null); первым кадром сервер
+    // говорит, куда ход лёг на самом деле: ключ его беседы — подпись остаётся и
+    // ключ ложится на вопрос и на ответ этого хода; кадр без ключа — ход ушёл
+    // учителю, подпись снимается.
+    markLastUserApart(key) {
+      const old = [...elTurns.querySelectorAll('.wc-turn-user')].pop();
+      if (old) markApart(old, key || null);
+    },
+    settleApart(requestId, key) {
+      const old = [...elTurns.querySelectorAll('.wc-turn-user')].pop();
+      const entry = live.get(requestId);
+      if (key) {
+        if (old) markApart(old, key);
+        if (entry && entry.turn) markApart(entry.turn, key);
+      } else if (old && old.classList.contains('wc-turn-apart') && !old.dataset.threadKey) {
+        unmarkApart(old);
+      }
     },
 
     appendUser(text, images, opts) {
@@ -375,10 +456,13 @@
     // Переспрос пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: это
     // замена ответа, а не ещё один. Прежний текст и модель запоминаются —
     // переспрос без единого слова возвращает их на место (restorePrevious).
-    // false — переспрашивать нечего (не последний ответ, голосовой).
+    // false — переспрашивать нечего (не последний ответ, голосовой); иначе узел ответа.
     beginRetry(requestId, turn) {
+      // Последний ответ ТОЙ ЖЕ беседы (урок или отдельный разговор заготовки):
+      // обмен другой беседы ниже него переспросу не мешает.
       const all = [...elTurns.querySelectorAll('.wc-turn-assistant')];
-      const last = all.pop();
+      const own = turn ? threadOfTurn(turn) : null;
+      const last = (own === null ? all : all.filter((t) => threadOfTurn(t) === own)).pop();
       if (!last || (turn && turn !== last) || last.classList.contains('wc-turn-voice')) return false;
       const bubble = last.querySelector('.wc-bubble');
       if (!bubble) return false;
@@ -393,7 +477,9 @@
       live.set(requestId, { turn: last, bubble, text: '', retry });
       syncFeet();
       maybeStick();
-      return true;
+      // Сам узел ответа (истинное значение): по его ключу беседы «заново»
+      // отдельного разговора заготовки уходит в её беседу.
+      return last;
     },
 
     // Opened before the first token so the reader sees the answer start.

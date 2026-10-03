@@ -15,8 +15,8 @@
 // rename_chat и set_chat_hidden; клиентских прав записи на public.chats нет
 // вовсе, и подделать порядок списка или чужое имя нечем.
 //
-// ЧТО ОСТАЛОСЬ ЗА ЭТИМ ФАЙЛОМ: ОДНА беседа — её реплики и ветки заготовок на
-// чтение, две команды по ней («стоп», «приложил картинку») — и заведение
+// ЧТО ОСТАЛОСЬ ЗА ЭТИМ ФАЙЛОМ: ОДНА беседа — её реплики и переписки её
+// заготовок в режиме «отдельный разговор» (поле apart) на чтение, две команды по ней («стоп», «приложил картинку») — и заведение
 // строки сеанса. Сами реплики страница НЕ ПИШЕТ (шаг 9
 // docs/PLAN-SERVER-HISTORY.md): вопрос и ответ заводит и наполняет llm-proxy
 // по ходу ответа, голосовые реплики — слушатель voice-watch, а права писать в
@@ -363,7 +363,11 @@
   // Порядок задаёт сервер: authored_at, затем turn_uid. Не seq — клиент её не
   // пишет с тех пор, как с колонки сняли NOT NULL.
   //
-  // Возвращает { lesson } — реплики ленты.
+  // Возвращает { lesson, apart } — реплики урока и отдельные разговоры его
+  // заготовок: [{ key, turns }] — у каждой беседы заготовки её реплики на её
+  // выбранной ветке. Где показать вопрос такой беседы, решил сервер (after_uid,
+  // anchor_at); ставит его в ленту LexApart.merge (lex-apart.js). Учителю эти
+  // реплики не уходят: в список для него страница кладёт только урок.
   async function conversation(chatKey) {
     const out = await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey });
     const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
@@ -373,7 +377,17 @@
       if (!key || key !== chatKey) continue;
       lesson.push(toTurn(r));
     }
-    return { lesson };
+    const apart = [];
+    const A = global.LexApart;
+    for (const th of ((out && Array.isArray(out.apart)) ? out.apart : [])) {
+      const key = th && typeof th.key === 'string' ? th.key : '';
+      if (!key || !A || !A.belongsTo(key, chatKey)) continue;
+      const turns = (Array.isArray(th.turns) ? th.turns : [])
+        .filter((r) => r && r.chat_key === key)
+        .map((r) => ({ ...toTurn(r), threadKey: key }));
+      if (turns.length) apart.push({ key, turns });
+    }
+    return { lesson, apart };
   }
 
   const toTurn = (r) => ({
@@ -400,6 +414,12 @@
     // с выбором модели и копированием нет, и после перезагрузки это видно
     // только по этому полю.
     origin: r.origin || null,
+    // Вопрос отдельного разговора заготовки: после какого сообщения урока его
+    // показать и его место среди заданных там же (решает сервер).
+    ...((typeof r.anchor_at === 'string' && r.anchor_at) ? {
+      afterUid: (typeof r.after_uid === 'string' && r.after_uid) || null,
+      anchorAt: r.anchor_at,
+    } : {}),
   });
 
   // Деньги беседы (list_chat_money) — тот же вызов, что у расширения: по

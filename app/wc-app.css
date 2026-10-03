@@ -1987,3 +1987,18 @@ button { font: inherit; color: inherit; }
   .vocab-word { transition: none; }
   .wc-switch-track, .wc-switch-knob { transition: none; }
 }
+
+/* Отдельный разговор заготовки: над вопросом — строка «The teacher doesn't see
+   this» с перечёркнутым глазом (wc-thread.js markApart). Тот же вид, что в
+   расширении: мелко, серым, прижато к стороне человека, вплотную к пузырю. */
+.wc-apart-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.wc-apart-note svg { flex: 0 0 auto; }

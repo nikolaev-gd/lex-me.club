@@ -485,11 +485,15 @@
     // реплики беседы.
     const conv = await WcHistory.conversation(m.id);
     const turns = conv.lesson;
+    // Отдельные разговоры заготовок — свои беседы; их реплики получают
+    // картинки и подписи моделей вместе с уроком, а в ленту встают под своими
+    // сообщениями урока (LexApart.merge).
+    const apartTurns = [].concat(...(conv.apart || []).map((th) => th.turns));
     // Пути в бакете приезжают вместе с репликой, ключи блобов лежат здесь.
     // Берём и то и другое: ключ — быстрая местная дорожка, путь — то, что
     // работает на другом устройстве и после повторного входа.
     const imgs = await turnImages();
-    for (const t of turns) {
+    for (const t of turns.concat(apartTurns)) {
       const ref = (t.uid && imgs[t.uid]) || null;
       const srv = (t.attachments || []).find((a) => a && a.kind === 'image' && a.path) || null;
       if (!ref && !srv) continue;
@@ -525,14 +529,17 @@
           byUid.set(String(a.uid), global.LexAnswerRow.modelIdOfCharge(a.model, a.effort));
         }
       }
-      for (const t of turns) {
+      for (const t of turns.concat(apartTurns)) {
         if (t.role === 'assistant' && t.uid && byUid.has(t.uid)) t.model = byUid.get(t.uid);
       }
     } catch (err) {
       console.warn(TAG, 'chat money not read:', err && err.message);
     }
-    setOpen(m.id, turns);
-    return { ok: true, turns, money };
+    setOpen(m.id, turns, conv.apart);
+    // Лента — урок и под его сообщениями ходы заготовок. В памяти для учителя
+    // (openTurns) — только урок.
+    const shown = global.LexApart ? global.LexApart.merge(turns, conv.apart || []) : turns;
+    return { ok: true, turns: shown, money };
   });
 
   // Деньги открытой беседы — одни, без переписки: интерфейс перечитывает их
@@ -548,7 +555,8 @@
   // interface keeps "which conversation am I in" in one place.
   WcBus.on('WC_NEW_CONVERSATION', async () => {
     sessionId = null;
-    setOpen(null, []);
+    // Новый чат — и отдельные разговоры заготовок с нуля: они живут в чате.
+    setOpen(null, [], []);
     return { ok: true };
   });
 
@@ -637,6 +645,11 @@
   // conversation is opened.
   let openId = null;
   let openTurns = [];
+  // Отдельные разговоры заготовок открытой беседы: ключ беседы заготовки →
+  // её реплики в памяти (переспрос ответа заготовки берёт пару отсюда). В
+  // список для учителя они не идут НИКОГДА — ни текстом, ни голосом
+  // (WC_OPEN_TURNS читает только openTurns).
+  let openApart = new Map();
 
   // В список для учителя вопрос, заданный заготовкой, ложится ЗАМЕНОЙ —
   // короткой строкой заготовки и фразой (её присылает сервер, поле later), а
@@ -645,9 +658,10 @@
   const normalizeTurns = (turns) => (turns || [])
     .map((t) => ({ role: t.role, text: (t.role === 'user' && t.later) || t.text, uid: t.uid || WcHistory.newUid(), model: t.model || null }));
 
-  function setOpen(id, turns) {
+  function setOpen(id, turns, apart) {
     openId = id;
     openTurns = normalizeTurns(turns);
+    openApart = new Map((apart || []).map((th) => [th.key, normalizeTurns(th.turns)]));
   }
 
   // ── Заготовки действий: ОДНА кнопка, много заготовок ─────────────────────
@@ -961,14 +975,22 @@
       setOpen(convId, []);
     } else if (openId !== convId) {
       // Opened from history in another tab, or the page reloaded mid-thread.
-      setOpen(convId, (await WcHistory.conversation(convId)).lesson);
+      const conv = await WcHistory.conversation(convId);
+      setOpen(convId, conv.lesson, conv.apart);
     }
 
-    // Ход заготовки — ход той же беседы: тот же ключ, тот же список для
-    // учителя. Под этим ключом сервер ведёт строки хода, на него же
+    // Ход заготовки «учитель видит» — ход той же беседы: тот же ключ, тот же
+    // список для учителя. Под этим ключом сервер ведёт строки хода, на него же
     // докладывается путь картинки.
-    const writeKey = convId;
-    const buf = openTurns;
+    //
+    // Отдельный разговор заготовки — своя беседа. Переспрос в ней приходит с её
+    // ключом (m.threadKey) и её списком; нажатие пилюли уходит как обычно, а
+    // куда ход лёг, сервер скажет первым кадром (apartKey) — тогда вопрос и
+    // ответ переезжают из списка урока в беседу заготовки.
+    const apartOwn = (m.threadKey && global.LexApart && global.LexApart.belongsTo(m.threadKey, convId)) ? m.threadKey : null;
+    let writeKey = apartOwn || convId;
+    let buf = apartOwn ? (openApart.get(apartOwn) || []) : openTurns;
+    if (apartOwn && !openApart.has(apartOwn)) openApart.set(apartOwn, buf);
 
     const prompt = await WcStore.get(['activeChatPromptId']);
     const slot = prompt.activeChatPromptId || 'chatB1';
@@ -1009,7 +1031,17 @@
       throw new Error('This model does not read images. Remove the attachment or switch models.');
     }
 
-    buf.push({ role: 'user', text: m.text, uid: userUid });
+    // Нажатие заготовки, которая по списку пилюль ведёт отдельный разговор:
+    // вопрос в список урока НЕ кладётся вовсе — ни на время, ни на случай
+    // обрыва. Иначе оборванный до первого кадра ход (нет денег, отказ
+    // поставщика, сеть) оставил бы фразу в списке, и следующий обычный вопрос
+    // унёс бы её учителю. Серверу вопрос уходит последней репликой, как всегда;
+    // куда его положить, решает первый кадр (apartKey — в беседу заготовки,
+    // без него — в урок: режим поменяли после того, как пришёл список).
+    const apartPress = !isRegen && !apartOwn && m.mode === 'native' && m.presetMode === 'separate';
+    const question = { role: 'user', text: m.text, uid: userUid };
+    let placed = !apartPress;
+    if (placed) buf.push(question);
 
     // Everything the model sees, inline. There is no server-side thread to
     // chain onto — every text surface ships the whole conversation now.
@@ -1020,7 +1052,7 @@
     // prefix, and one image per message. Older turns keep their text only —
     // re-sending every picture of a long conversation on every turn would
     // multiply the bill by the number of pictures in it.
-    const messages = buf.map((t) => ({ role: t.role, content: t.text }));
+    const messages = (placed ? buf : buf.concat([question])).map((t) => ({ role: t.role, content: t.text }));
     // Обещание загрузки картинки в бакет; null, когда картинки нет.
     let uploading = null;
     if (attachment) {
@@ -1061,14 +1093,32 @@
       // вопрос прочтёт учитель на следующих ходах: короткая строка и фраза. В
       // список ложится она: промпта заготовки в нём не бывает.
       if (msg.type === 'STREAM_USER_TEXT' && (msg.laterText || msg.userText)) {
+        question.text = msg.laterText || msg.userText;
         const q = buf.find((t) => t.uid === userUid);
-        if (q) q.text = msg.laterText || msg.userText;
+        if (q) q.text = question.text;
+        // Ход ушёл в отдельный разговор заготовки: вопрос — из списка урока в
+        // беседу заготовки; ответ ляжет туда же. Учитель его не увидит.
+        const apartKey = (typeof msg.apartKey === 'string' && global.LexApart
+          && global.LexApart.belongsTo(msg.apartKey, convId)) ? msg.apartKey : '';
+        if (apartKey && buf === openTurns) {
+          const i = openTurns.findIndex((t) => t.uid === userUid);
+          const moved = i >= 0 ? openTurns.splice(i, 1) : [];
+          if (!openApart.has(apartKey)) openApart.set(apartKey, []);
+          buf = openApart.get(apartKey);
+          buf.push(...moved);
+          writeKey = apartKey;
+        }
+        if (!placed) { buf.push(question); placed = true; }
         return;
       }
       if (msg.type === 'STREAM_CHUNK' && msg.text) { answer += msg.text; return; }
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
       serverOps.delete(m.requestId);
       unsubscribe();
+      // Нажатие отдельного разговора без первого кадра: куда лёг ход, сервер
+      // не сказал. В список урока не кладётся ни вопрос, ни ответ — учитель
+      // их не должен увидеть; беседу заготовки перечитает следующее открытие.
+      if (!placed) return;
       // Переспрос не дал ни слова (отказ, «стоп» до первого слова): прежний
       // ответ остался в беседе на сервере — возвращаем пару в контекст.
       if (!answer && Array.isArray(m.restoreOnFail)) {
@@ -1211,7 +1261,10 @@
   // заготовкой, сервер знает сам (по заменяемому ответу) и отправит его снова с
   // её промптом, своим текстом вместо замены.
   WcBus.on('WC_REGENERATE', async (m) => {
-    const buf = openTurns;
+    // Ответ отдельного разговора заготовки переспрашивается в её беседе: пара —
+    // из её списка, ключ хода — её ключ (runSend по m.threadKey).
+    const apartKey = (m.threadKey && openApart.has(m.threadKey)) ? m.threadKey : null;
+    const buf = apartKey ? openApart.get(apartKey) : openTurns;
     if (!buf.length) throw new Error('Nothing to retry.');
     const last = buf[buf.length - 1];
     if (!last || last.role !== 'assistant') throw new Error('The last turn is not an answer.');
@@ -1234,6 +1287,7 @@
       return await runSend({
         requestId: m.requestId,
         conversationId: openId,
+        ...(apartKey ? { threadKey: apartKey } : {}),
         text: prev.text,
         images: [],
         modelOverride,

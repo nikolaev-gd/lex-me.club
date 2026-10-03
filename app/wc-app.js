@@ -301,6 +301,9 @@
     // would blank the picture the reader just sent.
     // Слот заготовки — на пузырь: «Edit» такого вопроса уйдёт той же заготовкой.
     WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null });
+    // Заготовка в режиме «отдельный разговор» — подпись «учитель этого не
+    // видит» сразу; кадр сервера её подтвердит или снимет (WcThread.settleApart).
+    if (mode && opts && opts.presetMode === 'separate') WcThread.markLastUserApart(null);
     // Ход заготовки: пузырь сразу строкой и фразой, по строке из списка пилюль.
     // Первый кадр ответа (laterText) перерисует его серверной версией.
     // Заготовка выбранного материала («translate») со словами — пузырь сразу
@@ -348,6 +351,9 @@
         mode,
         slotId,
         modelId,
+        // Режим заготовки по списку пилюль: «отдельный разговор» страница не
+        // кладёт в список урока до кадра сервера (wc-backend.js runSend).
+        presetMode: (mode && opts && opts.presetMode) || null,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
@@ -482,6 +488,8 @@
       await WcBus.call('WC_REGENERATE', {
         requestId,
         modelId: modelId || null,
+        // Ответ отдельного разговора заготовки переспрашивается в её беседе.
+        threadKey: (target && target.dataset && target.dataset.threadKey) || null,
       });
     } catch (err) {
       WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });

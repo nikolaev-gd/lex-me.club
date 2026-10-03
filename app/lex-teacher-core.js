@@ -2317,7 +2317,12 @@
           const bubblePick = d && typeof d.bubblePick === 'string' && d.bubblePick ? d.bubblePick : null;
           const bubble = bubblePick
             ? { bubblePick, bubbleRest: typeof d.bubbleRest === 'string' ? d.bubbleRest : '' } : {};
-          if (userText || laterText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText: userText || '', ...(laterText ? { laterText } : {}), ...bubble });
+          // Ход ушёл в отдельный разговор заготовки (так решил сервер по её
+          // режиму): ключ беседы заготовки и сообщение урока, под которым он
+          // стоит. Поверхность кладёт ход туда, а не в урок.
+          const apart = (d && typeof d.apartKey === 'string' && d.apartKey)
+            ? { apartKey: d.apartKey, anchorUid: typeof d.anchorUid === 'string' ? d.anchorUid : '' } : {};
+          if (userText || laterText) emit(tabId, { type: 'STREAM_USER_TEXT', requestId, userText: userText || '', ...(laterText ? { laterText } : {}), ...bubble, ...apart });
         };
         // Итоговое тело запроса от сервера — в журнал обмена, на место того,
         // которое собрало устройство. Тело приходит строкой, уже без байтов

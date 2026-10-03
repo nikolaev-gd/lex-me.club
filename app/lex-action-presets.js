@@ -96,6 +96,14 @@
   const TEXT_MAX = 6000;           // потолок промпта, считается в интерфейсе
   const NAME_MAX = 120;            // ровно NAME_MAX из prompts-admin
   const SHORT_LINE_MAX = 300;      // ровно SHORT_LINE_MAX из prompts-admin
+  // Режим заготовки (колонка mode каталога, prompts-admin): 'teacher_sees' —
+  // ход заготовки — обычный ход урока; 'separate' — отдельный разговор, свой в
+  // каждом чате, учитель его не видит. Записан у каждой заготовки явно;
+  // новая заготовка заводится с 'teacher_sees'. Куда уходит ход, решает
+  // сервер по каталогу — здесь режим нужен подписи пузыря и редактору.
+  const MODES = ['teacher_sees', 'separate'];
+  const MODE_DEFAULT_NEW = 'teacher_sees';
+  function modeOf(v) { return (typeof v === 'string' && MODES.indexOf(v) >= 0) ? v : null; }
   const SLOT_ID_MAX = 40;          // ровно SLOT_RE из prompts-admin
   const DELETED_PREFIX = '__deleted__';
 
@@ -270,7 +278,16 @@
   // hasLine: true / false — ответ сервера; null — список сохранён до того, как
   // сервер начал отдавать признак. null не запрещает: не знаем — не отказываем,
   // сервер откажет сам.
-  function presetItem(p) {
+  //
+  // mode — обязателен у списка С СЕРВЕРА (strict): заготовка без режима — это
+  // поломка каталога, а не значение, и режим за владельца здесь не выбирается —
+  // presetItem бросает, и список не меняется (refresh). Сохранённый до появления
+  // режима список его не знает (null) — его loadRemembered выбрасывает целиком.
+  function presetItem(p, strict) {
+    const mode = modeOf(p && p.mode);
+    if (strict && !mode) {
+      throw new Error(`[LexActionPresets] preset ${p && p.id} came without a mode`);
+    }
     return {
       id: p.id,
       name: typeof p.name === 'string' ? p.name : '',
@@ -282,6 +299,7 @@
       // ответа. Пусто = не знаем (список сохранён до 2026-09-23) — тогда
       // пузырь ждёт кадр сервера, как раньше.
       shortLine: typeof p.shortLine === 'string' ? p.shortLine : '',
+      mode,
     };
   }
 
@@ -308,8 +326,12 @@
     const items = Array.isArray(raw.items) ? raw.items : [];
     const clean = items
       .filter((p) => p && typeof p.id === 'string' && p.id)
-      .map(presetItem);
+      .map((p) => presetItem(p, false));
     if (!clean.length) return null;
+    // Список сохранён до того, как сервер начал отдавать режим заготовки, —
+    // устаревшая копия, а не повод подставить режим: не показываем её, ждём
+    // ответа сервера.
+    if (clean.some((p) => !p.mode)) return null;
     s.account = account;
     return clean;
   }
@@ -349,9 +371,17 @@
       if (!res || !res.ok || !Array.isArray(res.presets)) return current(scope);
       // Отбор и порядок уже сделаны СЕРВЕРОМ — здесь только перекладка полей.
       // Ни filter, ни sort: любой из них означал бы вторую копию правила.
-      s.list = res.presets
-        .map((x) => presetItem({ ...x, id: x && x.slot }))
-        .filter((x) => typeof x.id === 'string' && x.id);
+      let fresh;
+      try {
+        fresh = res.presets
+          .filter((x) => x && typeof x.slot === 'string' && x.slot)
+          .map((x) => presetItem({ ...x, id: x.slot }, true));
+      } catch (e) {
+        // Явная ошибка, а не подставленный режим: ряд остаётся прежним.
+        console.error(e && e.message ? e.message : e);
+        return current(scope);
+      }
+      s.list = fresh;
       s.account = account;
       await remember(scope, s.list, account);
       notify(scope);
@@ -410,6 +440,9 @@
         modelId: typeof x.modelId === 'string' ? x.modelId : '',
         // Длина короткой строки черновика: 0 — строки нет, публикация откажет.
         lineChars: typeof x.lineChars === 'number' ? x.lineChars : null,
+        // Режим черновика — по нему строка отсека рисует значок отдельного
+        // разговора. У заготовки он обязан быть (каталог без него — поломка).
+        mode: modeOf(x.mode),
         dirty: !!x.dirty,
         published: !!x.published,
       })));
@@ -528,9 +561,9 @@
   //
   // Теперь запись — это put. Публикация отдельным действием и отдельной кнопкой
   // (publishOne ниже), по одной заготовке за раз.
-  async function putDraft(ref, slotId, name, text, shortLine) {
+  async function putDraft(ref, slotId, name, text, shortLine, mode) {
     const put = await promptsAdmin({
-      action: 'put', scope: ref.scope, cell: ref.cell, slot: slotId, text, name, shortLine,
+      action: 'put', scope: ref.scope, cell: ref.cell, slot: slotId, text, name, shortLine, mode,
     });
     if (!put || !put.ok) return { error: (put && (put.error || put.status)) || 'put failed' };
     return { ok: true };
@@ -574,9 +607,13 @@
     return { ok: true };
   }
 
-  async function create(scope, name, text, shortLine) {
+  // mode — режим новой заготовки: «+ Preset» заводит её с 'teacher_sees'
+  // (MODE_DEFAULT_NEW), форма может сразу выбрать другой.
+  async function create(scope, name, text, shortLine, mode) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
+    const m = modeOf(mode === undefined ? MODE_DEFAULT_NEW : mode);
+    if (!m) return { error: 'noMode' };
     const problem = nameProblem(name);
     if (problem) return { error: problem };
     const body = String(text == null ? '' : text);
@@ -588,15 +625,18 @@
     if (items.length >= MAX_PRESETS) return { error: 'limit' };
     const id = newSlotId(items.map((p) => p.id));
     if (!id) return { error: 'no id' };
-    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine));
+    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine), m);
     if (res.error) return res;
     await refreshBoth(scope);
     return { ok: true, id };
   }
 
-  async function update(scope, id, name, text, shortLine) {
+  async function update(scope, id, name, text, shortLine, mode) {
     const c = cellDesc();
     if (!c || !c.ref) return { error: 'no cell' };
+    // Режим при правке — тот, что в форме; его форма берёт из черновика.
+    const m = modeOf(mode);
+    if (!m) return { error: 'noMode' };
     const problem = nameProblem(name);
     if (problem) return { error: problem };
     const body = String(text == null ? '' : text);
@@ -604,7 +644,7 @@
     if (tp) return { error: tp };
     const lp = shortLineProblem(shortLine);
     if (lp) return { error: lp };
-    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine));
+    const res = await putDraft(c.ref, id, normName(name), body, normShortLine(shortLine), m);
     if (res.error) return res;
     await refreshBoth(scope);
     return { ok: true };
@@ -675,7 +715,13 @@
     if (!c || !c.ref) return null;
     const res = await promptsAdmin({ action: 'get', scope: c.ref.scope, cell: c.ref.cell, slot: id });
     if (!res || !res.ok || typeof res.text !== 'string') return null;
-    return { text: res.text, shortLine: typeof res.shortLine === 'string' ? res.shortLine : '' };
+    return {
+      text: res.text,
+      shortLine: typeof res.shortLine === 'string' ? res.shortLine : '',
+      // Режим черновика: у заготовки он записан всегда; null — сломанный
+      // каталог, и форма его не подставляет (сохранить без выбора не даст).
+      mode: modeOf(res.mode),
+    };
   }
 
   // Разрешится ли промпт этой заготовки — проверка ДО сети, чтобы ход без
@@ -782,7 +828,7 @@
           }
           s.list = next.items
             .filter((p) => p && typeof p.id === 'string' && p.id)
-            .map(presetItem);
+            .map((p) => presetItem(p, false));
           notify(scope);
         });
       });
@@ -797,6 +843,8 @@
     NAME_MAX,
     SHORT_LINE_MAX,
     DELETED_PREFIX,
+    MODES,
+    MODE_DEFAULT_NEW,
     cellDesc,
     labelOf,
     // Публичный список — ряд пилюль.
