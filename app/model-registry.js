@@ -63,6 +63,16 @@
 //                   Opus 5 упёрся бы в потолок и оборвался на середине —
 //                   выглядит как баг модели, а не как забытое поле. Читает
 //                   `thinkingAlwaysOn(modelId)` ниже, зовёт callAnthropicStream.
+//   thinkingOffUpTo text only, только у моделей с thinkingAlwaysOn — самая
+//                   высокая ступень усилия, при которой Anthropic ещё принимает
+//                   `thinking:{type:'disabled'}` (выше — 400). Нет поля —
+//                   выключить нельзя совсем (Fable). Читает
+//                   `thinkingOffAllowed(modelId)` ниже, зовёт
+//                   buildPreprocessRequest: очистке субтитров размышление не
+//                   нужно, а у этих моделей пропущенное поле `thinking` значит
+//                   «думай» (2026-09-23 очистка на Sonnet 5 low потратила все
+//                   16 000 токенов ответа на размышление, 134 с, и не вернула
+//                   текста).
 
 (function (global) {
   'use strict';
@@ -442,6 +452,9 @@
       efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       defaultEffort: 'high',
       thinkingAlwaysOn: true,
+      // disabled принимается только до 'high' включительно (живой запрос
+      // 2026-10-09: xhigh + disabled → 400).
+      thinkingOffUpTo: 'high',
       knobQuirks: { temperature: false },
     },
     {
@@ -518,10 +531,45 @@
       // pricing page, checked 2026-08-25: "The $2/$10 … announced at launch as
       // introductory pricing through August 31, 2026, is now the standard
       // price. The previously scheduled increase to $3/$15 … will not occur."
+      //
+      // ⚠ Thinking is ON when the `thinking` field is omitted — same as Opus 5.
+      // Live check 2026-10-09: effort low, no `thinking` field → the response
+      // carries a thinking block and usage.output_tokens_details.thinking_tokens
+      // > 0; with thinking:{type:'disabled'} → text only, 0 thinking tokens.
+      // This row used to lack thinkingAlwaysOn, so chat capped max_tokens at
+      // 1024 and subtitle cleanup sent no `thinking` at all believing that
+      // meant "off" — one cleanup chunk (2026-09-23) spent all 16 000 output
+      // tokens on reasoning and returned nothing. disabled is accepted at every
+      // effort, max included (same live check).
       apiModel: 'claude-sonnet-5', provider: 'anthropic', type: 'text', label: 'Sonnet 5',
       vision: true,
       efforts: ['low', 'medium', 'high', 'max', 'xhigh'],
       defaultEffort: 'low',
+      thinkingAlwaysOn: true,
+      thinkingOffUpTo: 'max',
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Claude Haiku 5.5 — added 2026-10-09, successor of Haiku 4.5 (removed
+      // from the product 2026-09-07, see below). Pricing checked 2026-10-09 on
+      // platform.claude.com/docs/en/about-claude/pricing: two rate cards by
+      // prompt length — up to 100 000 tokens 0.10 in / 0.01 cache read / 0.125
+      // 5m cache write / 0.50 out; over 100 000 (whole prompt, cache reads and
+      // writes included; strict) 0.50 / 0.05 / 0.625 / 2.50. That is the
+      // long_* tariff in public.models, threshold 100000.
+      //   Live check 2026-10-09: adaptive thinking is on when `thinking` is
+      // omitted (the model may still choose not to think on an easy turn);
+      // effort low…max, provider default `medium`; disabled accepted up to
+      // 'high', 400 at xhigh. Sampling params: only the defaults are accepted
+      // (temperature 1) — Lex never sends temperature here. No assistant
+      // prefill, no server-side refusal fallback. Image input — yes.
+      // Lex default `low`: the cheap, fast slot.
+      apiModel: 'claude-haiku-5-5', provider: 'anthropic', type: 'text', label: 'Haiku 5.5',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+      thinkingAlwaysOn: true,
+      thinkingOffUpTo: 'high',
       knobQuirks: { temperature: false },
     },
     // Claude Haiku 4.5 — УДАЛЕНА ИЗ ПРОДУКТА 2026-09-07 (решение владельца:
@@ -531,6 +579,9 @@
     // с моделью. Это единственная модель, которую мы не «скрыли», а удалили:
     // скрытые остаются ради исторической телеметрии и роутинга сохранённых
     // настроек, а здесь владелец потребовал убрать совсем.
+    // 2026-10-09: строка цены Haiku 4.5 в public.models получила replaced_by =
+    // Haiku 5.5 — выбор, который всё ещё её называет (старые установки,
+    // дев-сценарии), сервер отдаёт преемником.
 
     // ── Hidden text models — compat only, not shown in the bar ──
     {
@@ -1195,6 +1246,22 @@
     return !!(model && model.thinkingAlwaysOn);
   }
 
+  // Можно ли выключить размышление полем thinking:{type:'disabled'}. Только
+  // для моделей, которые без поля думают сами (thinkingAlwaysOn) и умеют
+  // выключаться (thinkingOffUpTo); ступень выше порога → нельзя (400 у
+  // Anthropic). Ступень не названа — у провайдера по умолчанию она не выше
+  // 'high', это не выше любого порога. Потребитель — buildPreprocessRequest.
+  const EFFORT_RANK = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
+  function thinkingOffAllowed(modelId) {
+    const facts = resolveModelFacts(modelId);
+    if (!facts) return false;
+    const model = MODELS_BY_API[facts.apiModel];
+    if (!model || !model.thinkingAlwaysOn || !model.thinkingOffUpTo) return false;
+    if (!facts.effort || facts.effort === 'none') return true;
+    const rank = EFFORT_RANK[facts.effort];
+    return rank != null && rank <= EFFORT_RANK[model.thinkingOffUpTo];
+  }
+
   // Is a text-mode knob (temperature / maxTokens / seed / verbosity /
   // serviceTier) supported for the given modelId?
   function textKnobSupported(knobName, modelId) {
@@ -1353,6 +1420,7 @@
     textKnobSupported,
     // размышление, которое провайдер включает сам
     thinkingAlwaysOn,
+    thinkingOffAllowed,
     // очистка субтитров: перечень выводится из реестра, а не хранится отдельно
     preprocessModelOptions,
     normalizePreprocessModelId,
