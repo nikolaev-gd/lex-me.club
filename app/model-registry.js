@@ -65,9 +65,12 @@
 //                   `thinkingAlwaysOn(modelId)` ниже, зовёт callAnthropicStream.
 //   thinkingOffUpTo text only, только у моделей с thinkingAlwaysOn — самая
 //                   высокая ступень усилия, при которой Anthropic ещё принимает
-//                   `thinking:{type:'disabled'}` (выше — 400). Нет поля —
-//                   выключить нельзя совсем (Fable). Читает
-//                   `thinkingOffAllowed(modelId)` ниже, зовёт
+//                   выключение размышления (выше — 400). Нет поля — выключить
+//                   нельзя совсем (Fable, Opus 5.5).
+//   thinkingOffType text only — каким словом выключается размышление:
+//                   'disabled' (по умолчанию) или 'between_tools' (Sonnet 5.5:
+//                   на `disabled` отвечает 400 и сам называет это слово). Оба
+//                   поля читает `thinkingOffBody(modelId)` ниже, зовёт
 //                   buildPreprocessRequest: очистке субтитров размышление не
 //                   нужно, а у этих моделей пропущенное поле `thinking` значит
 //                   «думай» (2026-09-23 очистка на Sonnet 5 low потратила все
@@ -436,6 +439,29 @@
       knobQuirks: { temperature: false },
     },
     {
+      // Claude Opus 5.5 — added 2026-10-09, replaces Opus 5 (hidden below).
+      // Pricing checked 2026-10-09 on platform.claude.com/docs/en/about-claude/
+      // pricing: 4 in / 0.20 cache read / 5 cache write (5m) / 20 out — cheaper
+      // than Opus 5 (5 / 0.50 / 6.25 / 25). No long-context tariff.
+      //   Live check 2026-10-09: thinking is on when `thinking` is omitted and
+      // CANNOT be turned off — {type:'disabled'} is a 400 at every effort
+      // ("Use adaptive and output_config.effort"). So no thinkingOffUpTo:
+      // subtitle cleanup on this model reasons; pick effort low there. Effort
+      // low…max, provider default `medium` — Lex keeps `medium`. Sampling
+      // params rejected. Lex never replays thinking blocks (history is sent
+      // as text), so "preserved thinking" does not touch it.
+      apiModel: 'claude-opus-5-5', provider: 'anthropic', type: 'text', label: 'Opus 5.5',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'medium',
+      thinkingAlwaysOn: true,
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Hidden 2026-10-09 — superseded by Opus 5.5 (cheaper, newer). Kept in
+      // the registry so history, charges and old installs resolve; the server
+      // moves any stored choice to Opus 5.5 (public.models.replaced_by).
+      hidden: true, replacedBy: 'claude-opus-5-5',
       // Claude Opus 5 — added 2026-08-25. Pricing checked 2026-08-25 on the
       // official pricing page: 5 / 0.50 / 6.25 / 25 — identical to Opus 4.8.
       //
@@ -520,6 +546,30 @@
       ],
     },
     {
+      // Claude Sonnet 5.5 — added 2026-10-09, replaces Sonnet 5 (hidden below).
+      // Pricing checked 2026-10-09 on the pricing page: 2 in / 0.10 cache read /
+      // 2.50 cache write (5m) / 10 out — Sonnet 5's price with half the cache
+      // read. No long-context tariff.
+      //   Live check 2026-10-09: with `thinking` omitted the model may think
+      // (effort max → thinking tokens; low → none on an easy turn).
+      // {type:'disabled'} is a 400 that names the replacement: thinking off is
+      // {type:'between_tools'}, accepted up to effort 'high' (xhigh → 400).
+      // Effort low…max, provider default `high`, levels recalibrated from
+      // Sonnet 5 — Lex keeps Sonnet 5's `low`. Sampling params: only defaults.
+      apiModel: 'claude-sonnet-5-5', provider: 'anthropic', type: 'text', label: 'Sonnet 5.5',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+      thinkingAlwaysOn: true,
+      thinkingOffUpTo: 'high',
+      thinkingOffType: 'between_tools',
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Hidden 2026-10-09 — superseded by Sonnet 5.5 (same price, cheaper cache
+      // reads). Kept for history and old installs; stored choices move to
+      // Sonnet 5.5 via public.models.replaced_by.
+      hidden: true, replacedBy: 'claude-sonnet-5-5',
       // Sonnet 5 — released 2026-06. Full effort range incl. xhigh/max (first
       // Sonnet-tier model with them). Sampling params (temperature/top_p/top_k)
       // are rejected entirely regardless of thinking state — unlike Sonnet 4.6,
@@ -1246,20 +1296,23 @@
     return !!(model && model.thinkingAlwaysOn);
   }
 
-  // Можно ли выключить размышление полем thinking:{type:'disabled'}. Только
+  // Можно ли выключить размышление и каким полем. Только
   // для моделей, которые без поля думают сами (thinkingAlwaysOn) и умеют
   // выключаться (thinkingOffUpTo); ступень выше порога → нельзя (400 у
   // Anthropic). Ступень не названа — у провайдера по умолчанию она не выше
   // 'high', это не выше любого порога. Потребитель — buildPreprocessRequest.
   const EFFORT_RANK = { low: 1, medium: 2, high: 3, xhigh: 4, max: 5 };
-  function thinkingOffAllowed(modelId) {
+  // Ответ — само поле `thinking`, которым это делается у этой модели
+  // ({type:'disabled'} или {type:'between_tools'}), либо null — нельзя.
+  function thinkingOffBody(modelId) {
     const facts = resolveModelFacts(modelId);
-    if (!facts) return false;
+    if (!facts) return null;
     const model = MODELS_BY_API[facts.apiModel];
-    if (!model || !model.thinkingAlwaysOn || !model.thinkingOffUpTo) return false;
-    if (!facts.effort || facts.effort === 'none') return true;
+    if (!model || !model.thinkingAlwaysOn || !model.thinkingOffUpTo) return null;
+    const body = { type: model.thinkingOffType || 'disabled' };
+    if (!facts.effort || facts.effort === 'none') return body;
     const rank = EFFORT_RANK[facts.effort];
-    return rank != null && rank <= EFFORT_RANK[model.thinkingOffUpTo];
+    return (rank != null && rank <= EFFORT_RANK[model.thinkingOffUpTo]) ? body : null;
   }
 
   // Is a text-mode knob (temperature / maxTokens / seed / verbosity /
@@ -1420,7 +1473,7 @@
     textKnobSupported,
     // размышление, которое провайдер включает сам
     thinkingAlwaysOn,
-    thinkingOffAllowed,
+    thinkingOffBody,
     // очистка субтитров: перечень выводится из реестра, а не хранится отдельно
     preprocessModelOptions,
     normalizePreprocessModelId,
