@@ -334,7 +334,6 @@ header .brand{text-decoration:none}
 .acct-card{margin:0 0 36px}
 .acct-card .balance-amt{font-size:44px}
 .acct-card .balance-amt.is-zero{color:#ff8a8a}
-.acct-soon{color:var(--video-muted);font-size:13px;margin:14px 0 0}
 #ledger td:last-child,#ledger th:last-child{text-align:right;white-space:nowrap}
 #ledger td.neg{color:var(--muted)}
 #ledger td.pos{color:var(--ok);font-weight:600}

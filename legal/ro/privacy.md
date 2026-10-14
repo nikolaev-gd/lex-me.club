@@ -1,4 +1,4 @@
-**Ultima actualizare: 18 iulie 2026**
+**Ultima actualizare: 14 octombrie 2026**
 
 Prelucrăm datele cu caracter personal în conformitate cu Legea nr. 133/2011
 privind protecția datelor cu caracter personal. Operator este
@@ -9,9 +9,7 @@ Republica Moldova, nikolaev.gd@gmail.com.
 
 - **Adresa de e-mail** — pentru crearea contului și pentru autentificare.
 - **Istoricul plăților și al soldului** — pentru evidența comenzilor.
-- **Conținutul lecțiilor** — mesajele schimbate cu profesorul virtual, subtitrările
-  videoclipurilor pe care le vizionați și, dacă activați modul vocal sau exercițiile
-  de pronunție, înregistrările audio corespunzătoare.
+- **Conținutul lecțiilor** — mesajele schimbate cu profesorul virtual, subtitrările videoclipurilor pe care le vizionați și, dacă folosiți modul vocal sau dictarea, înregistrările audio corespunzătoare.
 
 Nu colectăm datele cardului dumneavoastră. Plata se efectuează pe pagina
 prestatorului de servicii de plată, iar datele cardului nu ajung la noi.
@@ -26,6 +24,15 @@ plăților.
 Pentru ca profesorul virtual să poată răspunde, conținutul lecției este transmis
 furnizorilor de modele de inteligență artificială — **OpenAI, Anthropic și
 Google** — care îl prelucrează pentru a genera răspunsul.
+
+Pentru a transforma vorbirea în text, sunetul este transmis serviciilor de
+recunoaștere a vorbirii: dictarea dumneavoastră — către **Microsoft**, OpenAI sau
+Google; coloana sonoră a unui videoclip fără subtitrări în limba engleză — către
+**Microsoft**, **Deepgram** sau Google.
+
+E-mailurile cu codurile de confirmare și de resetare a parolei sunt trimise prin
+serviciul **Resend**, căruia i se transmite în acest scop adresa dumneavoastră de
+e-mail.
 
 Datele sunt stocate pe serverele Supabase, în Uniunea Europeană (Frankfurt,
 Germania).

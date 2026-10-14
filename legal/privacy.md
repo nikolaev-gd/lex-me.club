@@ -1,4 +1,4 @@
-**Last updated: 18 July 2026**
+**Last updated: 14 October 2026**
 
 We process personal data in accordance with Legea nr. 133/2011 on the protection of personal data. The operator is **A.I. Ghenadi Nicolaev**, IDNO 1026023035183, Congaz village, str. Pionierii 5, Republic of Moldova, nikolaev.gd@gmail.com.
 
@@ -6,7 +6,7 @@ We process personal data in accordance with Legea nr. 133/2011 on the protection
 
 - **Email address** — to create your account and to sign in.
 - **Payment and balance history** — to keep a record of orders.
-- **Lesson content** — the messages you exchange with the virtual teacher, the subtitles of the videos you watch and, if you turn on voice mode or the pronunciation exercises, the corresponding audio recordings.
+- **Lesson content** — the messages you exchange with the virtual teacher, the subtitles of the videos you watch and, if you use voice mode or dictation, the corresponding audio recordings.
 
 We do not collect your card details. Payment takes place on the page of the payment service provider, and card details never reach us.
 
@@ -17,6 +17,10 @@ To provide the service to you, to give you access to your account and to keep a 
 ## Who we share it with
 
 So that the virtual teacher can reply, the lesson content is transmitted to providers of artificial intelligence models — **OpenAI, Anthropic and Google** — which process it in order to generate the response.
+
+To turn speech into text, audio is transmitted to speech recognition services: your dictation — to **Microsoft**, OpenAI or Google; the soundtrack of a video that has no English subtitles — to **Microsoft**, **Deepgram** or Google.
+
+Emails with confirmation and password reset codes are sent through **Resend**, which receives your email address for that purpose.
 
 The data is stored on Supabase servers, in the European Union (Frankfurt, Germany).
 

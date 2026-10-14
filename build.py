@@ -184,8 +184,7 @@ ACCOUNT = {
         "bad": "Wrong email or password.",
         "no_account": "No account yet? Install the extension and create one there.",
         "install": "Get Lex for Chrome",
-        "balance": "Balance", "topup": "Top up", "topup_soon":
-        "Card payment is not connected yet. It is being set up.",
+        "balance": "Balance", "topup": "Top up",
         "signout": "Sign out", "history": "History",
         "date": "Date", "what": "What", "amount": "Amount",
         "row_topup": "Top-up", "row_lesson": "Lessons", "empty": "Nothing yet.",
@@ -198,8 +197,7 @@ ACCOUNT = {
         "bad": "E-mail sau parolă greșită.",
         "no_account": "Nu aveți încă un cont? Instalați extensia și creați-l acolo.",
         "install": "Instalați Lex pentru Chrome",
-        "balance": "Sold", "topup": "Alimentează", "topup_soon":
-        "Plata cu cardul nu este încă activată. Este în curs de configurare.",
+        "balance": "Sold", "topup": "Alimentează",
         "signout": "Ieșire", "history": "Istoric",
         "date": "Data", "what": "Operațiune", "amount": "Sumă",
         "row_topup": "Alimentare", "row_lesson": "Lecții", "empty": "Încă nimic.",
@@ -212,8 +210,7 @@ ACCOUNT = {
         "bad": "Неверная почта или пароль.",
         "no_account": "Ещё нет аккаунта? Установите расширение и создайте его там.",
         "install": "Установить Lex для Chrome",
-        "balance": "Баланс", "topup": "Пополнить", "topup_soon":
-        "Оплата картой пока не подключена, идёт настройка.",
+        "balance": "Баланс", "topup": "Пополнить",
         "signout": "Выйти", "history": "История",
         "date": "Дата", "what": "Операция", "amount": "Сумма",
         "row_topup": "Пополнение", "row_lesson": "Занятия", "empty": "Пока пусто.",
@@ -291,7 +288,6 @@ def account_page(lang):
         <div class="bctas">
           <a class="btn btn-topup" href="{HREF[lang]}checkout/">{a['topup']}</a>
         </div>
-        <p class="acct-soon">{a['topup_soon']}</p>
       </div>
 
       <h2>{a['history']}</h2>
