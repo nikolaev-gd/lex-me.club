@@ -219,6 +219,18 @@ section{padding:82px 0}
 .shot .cap{padding:16px 18px}
 .shot .cap h3{font-size:17px;margin-bottom:5px}
 .shot .cap p{color:var(--muted);font-size:14.5px}
+.shot-photo{display:block;aspect-ratio:16/10;background:var(--video);border-bottom:1px solid var(--line);overflow:hidden}
+.shot-photo img{width:100%;height:100%;object-fit:cover;display:block}
+/* real captures and clips (2026-10-14) */
+.clip{margin:0}
+.clip-main{margin-top:44px}
+.clip-main + .shots{margin-top:28px}
+.clip video{width:100%;height:auto;display:block;border-radius:var(--r);border:1px solid var(--line);background:var(--video)}
+.clip .shot-photo{border:1px solid var(--line);border-radius:var(--r)}
+.clip figcaption{color:var(--muted);font-size:14.5px;margin-top:10px}
+.clip figcaption strong{color:var(--ink)}
+.clip-pair{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:44px}
+.clip-note{color:var(--muted);font-size:13px;margin-top:22px}
 
 /* teacher compare */
 .teacher{background:var(--paper-2)}
@@ -339,45 +351,6 @@ header .brand{text-decoration:none}
 #ledger td.pos{color:var(--ok);font-weight:600}
 .ledger-empty{color:var(--muted)}
 
-/* ---------- product mockups ---------- */
-/* Drawn, not photographed. Real screenshots would carry a frame of somebody
- * else's YouTube video onto a commercial page; these show Lex's own interface
- * and nothing else. Swap for real captures once there is a video we own. */
-.mock{
-  aspect-ratio:4/3;background:var(--video);border-bottom:1px solid var(--line);
-  padding:18px;display:flex;flex-direction:column;gap:10px;overflow:hidden;
-  font-size:13px;line-height:1.45;
-}
-.mock-label{
-  font-family:"JetBrains Mono",monospace;font-size:9.5px;letter-spacing:.09em;
-  text-transform:uppercase;color:var(--video-muted);
-}
-.mock-line{color:var(--video-muted);opacity:.72}
-.mock-line.on{color:var(--video-text);opacity:1;font-weight:500}
-.mock-line.on .mark{background:var(--hl);color:var(--ink-fixed);border-radius:3px;padding:0 3px}
-
-.mock-bubble{
-  align-self:flex-end;max-width:78%;background:var(--brand);color:#fff;
-  padding:8px 11px;border-radius:12px 12px 4px 12px;font-weight:500;
-}
-.mock-answer{
-  background:var(--video-2);color:var(--video-text);border:1px solid var(--video-line);
-  padding:10px 12px;border-radius:12px 12px 12px 4px;
-}
-.mock-answer .mark{background:var(--hl);color:var(--ink-fixed);border-radius:3px;padding:0 3px;font-weight:600}
-
-.mock-spacer{flex:1}
-.mock-voice{
-  display:flex;align-items:center;gap:10px;background:var(--video-2);
-  border:1px solid var(--video-line);border-radius:999px;padding:9px 14px;
-}
-.mock-wave{display:flex;align-items:center;gap:3px;flex:1;height:22px}
-.mock-wave i{flex:1;background:var(--hl);border-radius:2px;opacity:.85;display:block}
-.mock-dot{width:8px;height:8px;border-radius:50%;background:#34c759;flex:none}
-.mock-live{
-  font-family:"JetBrains Mono",monospace;font-size:10px;color:var(--video-muted);
-  letter-spacing:.06em;flex:none;
-}
 
 /* ---------- language switcher ---------- */
 /* Plain links, no scripting and no country guessing: English is what everyone
@@ -397,6 +370,7 @@ header .brand{text-decoration:none}
   .money-grid{grid-template-columns:1fr;gap:32px}
   .steps{grid-template-columns:1fr}
   .shots{grid-template-columns:1fr}
+  .clip-pair{grid-template-columns:1fr}
 }
 @media (max-width:640px){
   body{font-size:16px}

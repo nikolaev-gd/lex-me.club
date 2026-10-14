@@ -71,7 +71,13 @@
     "foot_support": "Support",
     "foot_privacy": "Privacy",
     "foot_terms": "Terms",
-    "foot_copy": "Lex — English on the videos you already watch. © 2026"
+    "foot_copy": "Lex — English on the videos you already watch. © 2026",
+    "clip_lesson_cap": "A real lesson in one minute: the spoken word lights up as the video plays, you tap the words you want, ask, and compare answers from two AI models.",
+    "clip_voice_h": "Talk out loud.",
+    "clip_voice_p": "Two spoken questions about the video — the teacher answers by voice and writes everything down in the chat. Turn the sound on.",
+    "platforms_h": "Not only in the browser.",
+    "platforms_p": "The lesson you start next to a video continues in the web version at lex-me.club/app. Apps for Mac and iPhone are in testing.",
+    "clips_note": "Recorded in Lex as it is today. The picture of the video is blurred on purpose — it belongs to its author; everything sharp is Lex."
   },
   "ro": {
     "page_title": "Lex — un profesor de engleză în YouTube-ul tău",
@@ -145,7 +151,13 @@
     "foot_support": "Asistență",
     "foot_privacy": "Confidențialitate",
     "foot_terms": "Termeni",
-    "foot_copy": "Lex — engleză pe videoclipurile pe care oricum le vezi. © 2026"
+    "foot_copy": "Lex — engleză pe videoclipurile pe care oricum le vezi. © 2026",
+    "clip_lesson_cap": "O lecție reală, într-un minut: cuvântul rostit se aprinde pe măsură ce rulează videoclipul, dai clic pe cuvintele care te interesează, întrebi și compari răspunsurile a două modele de inteligență artificială.",
+    "clip_voice_h": "Vorbește cu voce tare.",
+    "clip_voice_p": "Două întrebări rostite despre videoclip — profesorul răspunde cu voce și notează totul în chat. Pornește sunetul.",
+    "platforms_h": "Nu doar în browser.",
+    "platforms_p": "Lecția începută lângă un videoclip continuă în versiunea web, pe lex-me.club/app. Aplicațiile pentru Mac și iPhone sunt în testare.",
+    "clips_note": "Filmat în Lex așa cum este acum. Imaginea videoclipului e estompată intenționat — aparține autorului; tot ce e clar este Lex."
   },
   "ru": {
     "page_title": "Lex — учитель английского внутри твоего YouTube",
@@ -219,6 +231,12 @@
     "foot_support": "Поддержка",
     "foot_privacy": "Конфиденциальность",
     "foot_terms": "Условия",
-    "foot_copy": "Lex — английский на тех видео, которые ты и так смотришь. © 2026"
+    "foot_copy": "Lex — английский на тех видео, которые ты и так смотришь. © 2026",
+    "clip_lesson_cap": "Настоящий урок за минуту: произносимое слово подсвечивается по ходу видео, ты нажимаешь нужные слова, спрашиваешь и сравниваешь ответы двух моделей ИИ.",
+    "clip_voice_h": "Говори вслух.",
+    "clip_voice_p": "Два вопроса голосом про видео — учитель отвечает голосом и всё записывает в чат. Включи звук.",
+    "platforms_h": "Не только в браузере.",
+    "platforms_p": "Урок, начатый рядом с видео, продолжается в веб-версии на lex-me.club/app. Приложения для Mac и iPhone сейчас в тестировании.",
+    "clips_note": "Снято в Lex в его нынешнем виде. Картинка ролика размыта нарочно — она принадлежит автору; всё чёткое — это Lex."
   }
 }

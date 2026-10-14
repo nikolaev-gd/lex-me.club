@@ -62,39 +62,16 @@ SUB_LINE = [
     ("breathing", 0), ("down", 0), ("her", 0), ("neck", 0),
 ]
 
-# Drawn mockups of Lex's own interface, in place of real screenshots. A real
-# capture would put a frame of somebody else's YouTube video on a commercial
-# page — every video in the test set is a copyrighted clip, most of them
-# political. These are pure CSS, carry no third-party content, and get replaced
-# with real captures once Gennady supplies a video we are free to show.
-# Sample sentences below are invented for the mockup, not taken from any video.
-WAVE = "".join(
-    f'<i style="height:{h}%"></i>' for h in
-    [28, 52, 88, 44, 70, 96, 36, 60, 82, 30, 48, 74, 92, 40, 26, 56, 78, 34]
-)
-
-MOCKS = {
-    "en": [
-        f"""<div class="mock-label">Subtitles by Lex</div>
-        <div class="mock-line">And that is roughly where the whole idea came from.</div>
-        <div class="mock-line on">She kept <span class="mark">putting it off</span> until the deadline was breathing down her neck.</div>
-        <div class="mock-line">By then there was no clean way out of it.</div>
-        <div class="mock-line">So we did the only thing that was left.</div>""",
-
-        f"""<div class="mock-label">Lex</div>
-        <div class="mock-bubble">What does “breathing down her neck” mean here?</div>
-        <div class="mock-answer">It is pressure that is close and constant — the deadline is not far off any more, it is right behind her. Same shape as <span class="mark">running out of time</span>, but it puts a person or a date at your shoulder.</div>""",
-
-        f"""<div class="mock-label">Voice</div>
-        <div class="mock-answer">Try saying it back to me — when did you last put something off?</div>
-        <div class="mock-spacer"></div>
-        <div class="mock-voice"><span class="mock-dot"></span><span class="mock-wave">{WAVE}</span><span class="mock-live">LIVE</span></div>""",
-    ],
-}
-# Romanian and Russian reuse the same drawn interface: the subtitles and the
-# teacher's reply are English because that is what is being learned.
-MOCKS["ro"] = MOCKS["en"]
-MOCKS["ru"] = MOCKS["en"]
+# Real captures of Lex (2026-10-14) in place of the drawn mockups. The video
+# picture inside them is blurred on purpose: it is somebody else's YouTube
+# video (TED-Ed, licensed for non-commercial use only), and this page sells a
+# service. Everything sharp is Lex's own interface. Swap for captures over a
+# video we are free to show once there is one. Files live in assets/media/;
+# the sources and the unblurred originals are in the extension repo, marketing/.
+def shot_img(name, alt):
+    return (f'<a class="shot-photo" href="/assets/media/{name}.jpg" target="_blank" rel="noopener">'
+            f'<img src="/assets/media/{name}-960.jpg" srcset="/assets/media/{name}-960.jpg 960w, /assets/media/{name}.jpg 1920w" '
+            f'sizes="(max-width:900px) 100vw, 360px" width="960" height="600" loading="lazy" alt="{alt}"></a>')
 
 # Redirect decision, inlined in <head> and synchronous, so it runs BEFORE the
 # browser paints anything. With the script at the end of <body> a Russian
@@ -681,24 +658,39 @@ def page(lang):
   </div>
 </section>
 
-<section style="padding-top:0">
+<section style="padding-top:0" id="inside">
   <div class="wrap">
     <div class="kicker">{c['shots_kicker']}</div>
     <h2 class="sec-title">{c['shots_title']}</h2>
+    <figure class="clip clip-main">
+      <video id="lesson-clip" src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
+      <figcaption>{c['clip_lesson_cap']}</figcaption>
+    </figure>
     <div class="shots">
       <div class="shot">
-        <div class="mock">{MOCKS[lang][0]}</div>
+        {shot_img('shot-subtitles', c['shot1_h'])}
         <div class="cap"><h3>{c['shot1_h']}</h3><p>{c['shot1_p']}</p></div>
       </div>
       <div class="shot">
-        <div class="mock">{MOCKS[lang][1]}</div>
+        {shot_img('shot-teacher', c['shot2_h'])}
         <div class="cap"><h3>{c['shot2_h']}</h3><p>{c['shot2_p']}</p></div>
       </div>
       <div class="shot">
-        <div class="mock">{MOCKS[lang][2]}</div>
+        {shot_img('shot-voice', c['shot3_h'])}
         <div class="cap"><h3>{c['shot3_h']}</h3><p>{c['shot3_p']}</p></div>
       </div>
     </div>
+    <div class="clip-pair">
+      <figure class="clip">
+        <video src="/assets/media/voice.mp4" poster="/assets/media/voice-poster.jpg" controls playsinline preload="none" width="1920" height="1200"></video>
+        <figcaption><strong>{c['clip_voice_h']}</strong> {c['clip_voice_p']}</figcaption>
+      </figure>
+      <figure class="clip">
+        <a class="shot-photo" href="/assets/media/platforms.jpg" target="_blank" rel="noopener"><img src="/assets/media/platforms-960.jpg" srcset="/assets/media/platforms-960.jpg 960w, /assets/media/platforms.jpg 1920w" sizes="(max-width:900px) 100vw, 520px" width="960" height="600" loading="lazy" alt="{c['platforms_h']}"></a>
+        <figcaption><strong>{c['platforms_h']}</strong> {c['platforms_p']}</figcaption>
+      </figure>
+    </div>
+    <p class="clip-note">{c['clips_note']}</p>
   </div>
 </section>
 
@@ -775,6 +767,16 @@ def page(lang):
 
 <script src="/assets/lang.js"></script>
 <script src="/assets/balance.js"></script>
+<script>
+(function () {{
+  var v = document.getElementById('lesson-clip');
+  if (!v || !('IntersectionObserver' in window)) return;
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  new IntersectionObserver(function (es) {{
+    es.forEach(function (en) {{ if (en.isIntersecting) {{ v.play().catch(function () {{}}); }} else {{ v.pause(); }} }});
+  }}, {{ threshold: 0.4 }}).observe(v);
+}})();
+</script>
 </body>
 </html>
 """

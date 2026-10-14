@@ -103,33 +103,39 @@
   </div>
 </section>
 
-<section style="padding-top:0">
+<section style="padding-top:0" id="inside">
   <div class="wrap">
     <div class="kicker">ВНУТРИ LEX</div>
     <h2 class="sec-title">Что именно ты получаешь</h2>
+    <figure class="clip clip-main">
+      <video id="lesson-clip" src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
+      <figcaption>Настоящий урок за минуту: произносимое слово подсвечивается по ходу видео, ты нажимаешь нужные слова, спрашиваешь и сравниваешь ответы двух моделей ИИ.</figcaption>
+    </figure>
     <div class="shots">
       <div class="shot">
-        <div class="mock"><div class="mock-label">Subtitles by Lex</div>
-        <div class="mock-line">And that is roughly where the whole idea came from.</div>
-        <div class="mock-line on">She kept <span class="mark">putting it off</span> until the deadline was breathing down her neck.</div>
-        <div class="mock-line">By then there was no clean way out of it.</div>
-        <div class="mock-line">So we did the only thing that was left.</div></div>
+        <a class="shot-photo" href="/assets/media/shot-subtitles.jpg" target="_blank" rel="noopener"><img src="/assets/media/shot-subtitles-960.jpg" srcset="/assets/media/shot-subtitles-960.jpg 960w, /assets/media/shot-subtitles.jpg 1920w" sizes="(max-width:900px) 100vw, 360px" width="960" height="600" loading="lazy" alt="Субтитры, которые читаются"></a>
         <div class="cap"><h3>Субтитры, которые читаются</h3><p>Lex собирает к видео собственные субтитры — живые предложения, нормальная пунктуация, глаз не спотыкается. Кликни по строке — видео вернётся к этому моменту.</p></div>
       </div>
       <div class="shot">
-        <div class="mock"><div class="mock-label">Lex</div>
-        <div class="mock-bubble">What does “breathing down her neck” mean here?</div>
-        <div class="mock-answer">It is pressure that is close and constant — the deadline is not far off any more, it is right behind her. Same shape as <span class="mark">running out of time</span>, but it puts a person or a date at your shoulder.</div></div>
+        <a class="shot-photo" href="/assets/media/shot-teacher.jpg" target="_blank" rel="noopener"><img src="/assets/media/shot-teacher-960.jpg" srcset="/assets/media/shot-teacher-960.jpg 960w, /assets/media/shot-teacher.jpg 1920w" sizes="(max-width:900px) 100vw, 360px" width="960" height="600" loading="lazy" alt="Учитель, у которого есть всё видео"></a>
         <div class="cap"><h3>Учитель, у которого есть всё видео</h3><p>В чате уже есть и само видео, и его субтитры, так что вопроса «а что она этим хотела сказать?» уже достаточно, чтобы начать разговор. Если некогда печатать, кликни по слову прямо в субтитрах: это тот же вопрос, только короче.</p></div>
       </div>
       <div class="shot">
-        <div class="mock"><div class="mock-label">Voice</div>
-        <div class="mock-answer">Try saying it back to me — when did you last put something off?</div>
-        <div class="mock-spacer"></div>
-        <div class="mock-voice"><span class="mock-dot"></span><span class="mock-wave"><i style="height:28%"></i><i style="height:52%"></i><i style="height:88%"></i><i style="height:44%"></i><i style="height:70%"></i><i style="height:96%"></i><i style="height:36%"></i><i style="height:60%"></i><i style="height:82%"></i><i style="height:30%"></i><i style="height:48%"></i><i style="height:74%"></i><i style="height:92%"></i><i style="height:40%"></i><i style="height:26%"></i><i style="height:56%"></i><i style="height:78%"></i><i style="height:34%"></i></span><span class="mock-live">LIVE</span></div></div>
+        <a class="shot-photo" href="/assets/media/shot-voice.jpg" target="_blank" rel="noopener"><img src="/assets/media/shot-voice-960.jpg" srcset="/assets/media/shot-voice-960.jpg 960w, /assets/media/shot-voice.jpg 1920w" sizes="(max-width:900px) 100vw, 360px" width="960" height="600" loading="lazy" alt="Или скажи вслух"></a>
         <div class="cap"><h3>Или скажи вслух</h3><p>Переключись на голос и поговори с учителем о видео. Контекст тот же, но теперь на английском нужно говорить самому, а не просто узнавать знакомое.</p></div>
       </div>
     </div>
+    <div class="clip-pair">
+      <figure class="clip">
+        <video src="/assets/media/voice.mp4" poster="/assets/media/voice-poster.jpg" controls playsinline preload="none" width="1920" height="1200"></video>
+        <figcaption><strong>Говори вслух.</strong> Два вопроса голосом про видео — учитель отвечает голосом и всё записывает в чат. Включи звук.</figcaption>
+      </figure>
+      <figure class="clip">
+        <a class="shot-photo" href="/assets/media/platforms.jpg" target="_blank" rel="noopener"><img src="/assets/media/platforms-960.jpg" srcset="/assets/media/platforms-960.jpg 960w, /assets/media/platforms.jpg 1920w" sizes="(max-width:900px) 100vw, 520px" width="960" height="600" loading="lazy" alt="Не только в браузере."></a>
+        <figcaption><strong>Не только в браузере.</strong> Урок, начатый рядом с видео, продолжается в веб-версии на lex-me.club/app. Приложения для Mac и iPhone сейчас в тестировании.</figcaption>
+      </figure>
+    </div>
+    <p class="clip-note">Снято в Lex в его нынешнем виде. Картинка ролика размыта нарочно — она принадлежит автору; всё чёткое — это Lex.</p>
   </div>
 </section>
 
@@ -210,5 +216,15 @@
 
 <script src="/assets/lang.js"></script>
 <script src="/assets/balance.js"></script>
+<script>
+(function () {
+  var v = document.getElementById('lesson-clip');
+  if (!v || !('IntersectionObserver' in window)) return;
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  new IntersectionObserver(function (es) {
+    es.forEach(function (en) { if (en.isIntersecting) { v.play().catch(function () {}); } else { v.pause(); } });
+  }, { threshold: 0.4 }).observe(v);
+})();
+</script>
 </body>
 </html>
