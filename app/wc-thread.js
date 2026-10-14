@@ -796,6 +796,13 @@
     // True while any stream is open — the composer asks before deciding
     // whether its button says "send" or "stop".
     isStreaming() { return live.size > 0; },
+    // Текст реплики с этим уидом на экране — или null, если её там нет.
+    // Сверка ленты с беседой после голосового разговора (voice/feed-check.js).
+    shownTextOf(uid) {
+      const turn = [...elTurns.querySelectorAll('.wc-turn[data-uid]')].find((t) => t.dataset.uid === String(uid));
+      const bubble = turn && turn.querySelector('.wc-bubble');
+      return bubble ? (bubble.textContent || '') : null;
+    },
 
     // Сколько знаков ответа человек УЖЕ ВИДИТ на экране. Печатающего буфера у
     // страницы нет — пришедшее рисуется сразу, — поэтому увиденное и есть весь

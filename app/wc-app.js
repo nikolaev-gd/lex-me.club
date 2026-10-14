@@ -163,6 +163,40 @@
       console.warn('[wc] model defaults:', err && err.message));
   }
 
+  // Прочитанную беседу — на экран. Общий у открытия беседы и у сверки ленты
+  // после голосового разговора.
+  function paintConversation(r) {
+    resetMoney();
+    WcThread.renderTurns(r.turns);
+    // Деньги беседы пришли тем же заходом — цены под ответами и итог.
+    if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+  }
+
+  // Разговор голосом кончился — лента сверяется с беседой на сервере
+  // (2026-10-14). Реплики разговора пишет в беседу серверный слушатель, а на
+  // экран они едут событиями по каналу разговора, и событие может не доехать:
+  // канал переподключался, слушатель встал на звонок поздно, рассылка стояла.
+  // Не хватает реплик — беседа рисуется заново, как при открытии; всё сошлось
+  // — не трогаем ничего. Правило сравнения — общее с расширением
+  // (voice/feed-check.js).
+  function reconcileAfterVoice(id) {
+    if (!id || !global.LexVoiceFeedCheck) return;
+    // Лента уже не про этот разговор: другая беседа, новый разговор или ответ
+    // учителя текстом — их пузыри перерисовка снесла бы.
+    const moved = () => state.conversationId !== id || WcThread.isStreaming()
+      || !!(global.WcVoice && (WcVoice.active || WcVoice.connecting));
+    const check = async () => {
+      if (moved()) return;
+      const r = await WcBus.call('WC_LOAD_CONVERSATION', { id }).catch(() => null);
+      if (!r || !r.ok || moved()) return;
+      const missing = global.LexVoiceFeedCheck.missingVoiceTurns(r.turns, (uid) => WcThread.shownTextOf(uid));
+      if (!missing.length) return;
+      console.warn(`[wc-voice] the feed lacked ${missing.length} voice turn(s) the server wrote — repainting from the conversation`, missing);
+      paintConversation(r);
+    };
+    for (const ms of global.LexVoiceFeedCheck.DELAYS_MS) setTimeout(() => { check().catch(() => {}); }, ms);
+  }
+
   async function openConversation(id) {
     if (WcThread.isStreaming()) {
       // Leaving a conversation mid-answer would orphan the stream — the tokens
@@ -189,10 +223,7 @@
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     state.conversationId = id;
-    resetMoney();
-    WcThread.renderTurns(r.turns);
-    // Деньги беседы пришли тем же заходом — цены под ответами и итог.
-    if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+    paintConversation(r);
     WcSidebar.setActive(id);
     WcSidebar.close();
     syncTitle();
@@ -800,6 +831,7 @@
             // доезжают.
             requestMoney({ settleMs: 30000 });
             if (turns) refreshConversations();
+            if (!superseded && !/^gate-/.test(String(reason || ''))) reconcileAfterVoice(convId);
           },
         },
       });
