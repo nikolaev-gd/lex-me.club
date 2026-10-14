@@ -54,19 +54,7 @@
           <div class="url"><span class="lock"></span>youtube.com/watch</div>
           <div class="lex-chip"><span class="dot"></span>Lex</div>
         </div>
-        <div class="screen">
-          <div class="play"></div>
-          <div class="frame-glow"></div>
-        </div>
-        <div class="subs">
-          <div class="popover">
-            <div class="pw">put off <span class="tag">phrasal verb</span></div>
-            <div class="tr">Откладывать то, за что браться не хочется.</div>
-            <div class="ex">I&#x27;ve been putting off that email since Tuesday.</div>
-          </div>
-          <div class="sub-label">СУБТИТРЫ ОТ LEX</div>
-          <div class="sub-line"><span class="w plain">She</span> <span class="w plain">kept</span> <span class="w mark">putting</span> <span class="w mark">it</span> <span class="w mark">off</span> <span class="w plain">until</span> <span class="w plain">the</span> <span class="w plain">deadline</span> <span class="w plain">was</span> <span class="w plain">breathing</span> <span class="w plain">down</span> <span class="w plain">her</span> <span class="w plain">neck</span>.</div>
-        </div>
+        <video class="hero-clip" data-autoplay src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline preload="metadata" width="1920" height="1200" aria-label="Настоящий урок за минуту: произносимое слово подсвечивается по ходу видео, ты нажимаешь нужные слова, спрашиваешь и сравниваешь ответы двух моделей ИИ."></video>
       </div>
     </div>
   </div>
@@ -108,7 +96,7 @@
     <div class="kicker">ВНУТРИ LEX</div>
     <h2 class="sec-title">Что именно ты получаешь</h2>
     <figure class="clip clip-main">
-      <video id="lesson-clip" src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
+      <video data-autoplay src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
       <figcaption>Настоящий урок за минуту: произносимое слово подсвечивается по ходу видео, ты нажимаешь нужные слова, спрашиваешь и сравниваешь ответы двух моделей ИИ.</figcaption>
     </figure>
     <div class="shots">
@@ -218,12 +206,13 @@
 <script src="/assets/balance.js"></script>
 <script>
 (function () {
-  var v = document.getElementById('lesson-clip');
-  if (!v || !('IntersectionObserver' in window)) return;
+  var vids = document.querySelectorAll('video[data-autoplay]');
+  if (!vids.length || !('IntersectionObserver' in window)) return;
   if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  new IntersectionObserver(function (es) {
-    es.forEach(function (en) { if (en.isIntersecting) { v.play().catch(function () {}); } else { v.pause(); } });
-  }, { threshold: 0.4 }).observe(v);
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (en) { if (en.isIntersecting) { en.target.play().catch(function () {}); } else { en.target.pause(); } });
+  }, { threshold: 0.4 });
+  vids.forEach(function (v) { io.observe(v); });
 })();
 </script>
 </body>

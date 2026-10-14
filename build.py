@@ -54,14 +54,6 @@ LEGAL_NAV = {
 
 STORE_URL = "https://chromewebstore.google.com/detail/lex/bfdbiphpcnjbofngcnjjdbnolcgaaidl"
 
-# The demo subtitle line stays English in every version: it is a sample of the
-# English subtitles Lex builds. Marked words are the phrasal verb being taught.
-SUB_LINE = [
-    ("She", 0), ("kept", 0), ("putting", 1), ("it", 1), ("off", 1),
-    ("until", 0), ("the", 0), ("deadline", 0), ("was", 0),
-    ("breathing", 0), ("down", 0), ("her", 0), ("neck", 0),
-]
-
 # Real captures of Lex (2026-10-14) in place of the drawn mockups. The video
 # picture inside them is blurred on purpose: it is somebody else's YouTube
 # video (TED-Ed, licensed for non-commercial use only), and this page sells a
@@ -109,14 +101,6 @@ TITLE_ATTR = {"en": "English", "ro": "Română", "ru": "Русский"}
 def e(s):
     """Escape for HTML text/attribute content, keeping typographic quotes."""
     return html.escape(str(s), quote=True)
-
-
-def sub_line_html():
-    parts = []
-    for word, marked in SUB_LINE:
-        cls = "w mark" if marked else "w plain"
-        parts.append(f'<span class="{cls}">{e(word)}</span>')
-    return " ".join(parts) + "."
 
 
 def lang_switch(current):
@@ -609,19 +593,7 @@ def page(lang):
           <div class="url"><span class="lock"></span>youtube.com/watch</div>
           <div class="lex-chip"><span class="dot"></span>Lex</div>
         </div>
-        <div class="screen">
-          <div class="play"></div>
-          <div class="frame-glow"></div>
-        </div>
-        <div class="subs">
-          <div class="popover">
-            <div class="pw">{c['demo_pop_word']} <span class="tag">{c['demo_pop_tag']}</span></div>
-            <div class="tr">{c['demo_pop_gloss']}</div>
-            <div class="ex">{c['demo_pop_example']}</div>
-          </div>
-          <div class="sub-label">{c['demo_sub_label']}</div>
-          <div class="sub-line">{sub_line_html()}</div>
-        </div>
+        <video class="hero-clip" data-autoplay src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline preload="metadata" width="1920" height="1200" aria-label="{c['clip_lesson_cap']}"></video>
       </div>
     </div>
   </div>
@@ -663,7 +635,7 @@ def page(lang):
     <div class="kicker">{c['shots_kicker']}</div>
     <h2 class="sec-title">{c['shots_title']}</h2>
     <figure class="clip clip-main">
-      <video id="lesson-clip" src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
+      <video data-autoplay src="/assets/media/lesson.mp4" poster="/assets/media/lesson-poster.jpg" muted loop playsinline controls preload="none" width="1920" height="1200"></video>
       <figcaption>{c['clip_lesson_cap']}</figcaption>
     </figure>
     <div class="shots">
@@ -769,12 +741,13 @@ def page(lang):
 <script src="/assets/balance.js"></script>
 <script>
 (function () {{
-  var v = document.getElementById('lesson-clip');
-  if (!v || !('IntersectionObserver' in window)) return;
+  var vids = document.querySelectorAll('video[data-autoplay]');
+  if (!vids.length || !('IntersectionObserver' in window)) return;
   if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  new IntersectionObserver(function (es) {{
-    es.forEach(function (en) {{ if (en.isIntersecting) {{ v.play().catch(function () {{}}); }} else {{ v.pause(); }} }});
-  }}, {{ threshold: 0.4 }}).observe(v);
+  var io = new IntersectionObserver(function (es) {{
+    es.forEach(function (en) {{ if (en.isIntersecting) {{ en.target.play().catch(function () {{}}); }} else {{ en.target.pause(); }} }});
+  }}, {{ threshold: 0.4 }});
+  vids.forEach(function (v) {{ io.observe(v); }});
 }})();
 </script>
 </body>
