@@ -68,8 +68,12 @@
     for (const para of String(text || '').split(/\n{2,}/)) {
       if (!para.trim()) continue;
       const p = make('p', 'lex-news-text-para');
-      if (para.startsWith('• ')) p.classList.add('is-point');
-      para.split('\n').forEach((line, i) => {
+      const point = para.startsWith('• ');
+      if (point) {
+        p.classList.add('is-point');
+        p.appendChild(make('span', 'lex-news-point-mark', '• '));
+      }
+      (point ? para.slice(2) : para).split('\n').forEach((line, i) => {
         if (i) p.appendChild(document.createElement('br'));
         addLine(p, line);
       });

@@ -286,6 +286,8 @@
 .lex-news-text-bold { font-weight: 650; }
 /* A point of a list hangs on its dot. */
 .lex-news-text-para.is-point { padding-left: 1em; text-indent: -1em; }
+/* The first line starts where the next ones do, whatever the width of the point. */
+.lex-news-point-mark { display: inline-block; width: 1em; text-indent: 0; }
 .lex-news-text-para.is-point + .lex-news-text-para.is-point { margin-top: -.3em; }
 
 .lex-news-settings {
