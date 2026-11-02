@@ -944,6 +944,8 @@
     return { ok: true, text };
   });
 
+  let profiChat = null;
+
   async function runSend(m) {
     // Слот приезжает С ХОДОМ: имя на кнопке и то, что уходит модели, обязаны
     // относиться к одной и той же заготовке.
@@ -960,7 +962,10 @@
     const native = (m.mode === 'native') ? nativeTurnConfig(m.slotId, m.modelId) : null;
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
-    const modelId = m.modelOverride || (native && native.model) || await activeModelId();
+    // An order chat of the Profi.ru section writes with the monitor's model: the server
+    // refuses any other, and the person does not choose it.
+    const profiModel = (profiChat && m.conversationId === profiChat.key) ? profiChat.modelId : null;
+    const modelId = profiModel || m.modelOverride || (native && native.model) || await activeModelId();
     // Модель хода — ленте: ею подписана кнопка модели под ответом.
     WcBus.broadcast({ type: 'WC_TURN_MODEL', requestId: m.requestId, modelId });
 
@@ -1215,6 +1220,8 @@
         surface: 'standalone',
         source: 'webchat',
         turnIndex: buf.length - 1,
+        // An order chat is built by the server: the monitor writes turns into it too.
+        ...(profiModel ? { tree: true, messages: messages.slice(-1) } : {}),
         // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
         // самому. chatKey — ключ, под которым строки реально ложатся (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).
@@ -1238,6 +1245,12 @@
   }
 
   WcBus.on('WC_SEND', runSend);
+
+  // The order chat that is open: its key and the model of the monitor (lex-profi.js).
+  WcBus.on('WC_PROFI_CHAT', (m) => {
+    profiChat = m && m.key ? { key: m.key, modelId: m.modelId } : null;
+    return true;
+  });
 
   // К чему привязана беседа — страница или видео. null, если ни к чему.
   WcBus.on('WC_ATTACHMENT', async (m) => {

@@ -49,7 +49,11 @@
   // беседы: открытая беседа обязана прикрепиться к своему сеансу, иначе
   // следующее сообщение уедет в новый и лента разорвётся надвое.
   function sessionIdOfKey(id) {
-    if (typeof id !== 'string' || id.indexOf(STANDALONE_PREFIX) !== 0) return null;
+    if (typeof id !== 'string') return null;
+    // An order chat of the Profi.ru section keeps its session the same way.
+    const profi = id.match(/^__lex_profi__(\d+)$/);
+    if (profi) return Number(profi[1]);
+    if (id.indexOf(STANDALONE_PREFIX) !== 0) return null;
     const tail = id.slice(STANDALONE_PREFIX.length);
     return /^\d+$/.test(tail) ? Number(tail) : null;
   }

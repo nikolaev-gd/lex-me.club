@@ -1,0 +1,130 @@
+/* lex-profi.css — the look of the Profi.ru section (lex-profi.js) on the page. It stands
+ * next to News and looks like it: rows on hairlines. Colours are the page's variables. */
+
+.wc-profi-host { flex: 1; min-height: 0; padding-top: var(--wc-topbar-h, 52px); }
+.wc-main.is-profi .wc-thread,
+.wc-main.is-profi .wc-composer-wrap { display: none; }
+
+.lex-profi {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  color: var(--fg);
+  font-size: 15px;
+  line-height: 1.4;
+  text-align: left;
+}
+.lex-profi-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.lex-profi-title { flex: 1 1 auto; min-width: 0; font-size: 18px; font-weight: 600; }
+.lex-profi-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 24px; }
+.lex-profi-back, .lex-profi-gear {
+  -webkit-appearance: none; appearance: none;
+  flex: 0 0 auto; margin: 0; padding: 7px 14px; border: 0; border-radius: 999px;
+  background: var(--bg-hover); color: var(--fg);
+  font: inherit; font-size: 13px; font-weight: 500; line-height: 1.2; cursor: pointer;
+}
+.lex-profi-note { padding: 10px 16px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-note.is-error { color: var(--danger); }
+.lex-profi-empty { padding: 16px; color: var(--fg-muted); font-size: 14px; }
+.lex-profi-text { padding: 16px; white-space: pre-wrap; font-size: 14px; }
+
+.lex-profi-row {
+  -webkit-appearance: none; appearance: none;
+  display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 12px 16px;
+  border: 0; border-bottom: 1px solid var(--line); background: transparent;
+  color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+.lex-profi-row:hover { background: var(--bg-hover); }
+.lex-profi-row.is-first { font-weight: 600; }
+.lex-profi-row-top { display: flex; align-items: baseline; gap: 10px; }
+.lex-profi-row-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
+.lex-profi-row-sub {
+  display: block; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  color: var(--fg-muted); font-size: 13px; font-weight: 400;
+}
+.lex-profi-mark {
+  flex: 0 0 auto; padding: 2px 8px; border-radius: 999px;
+  background: var(--fg); color: var(--bg); font-size: 12px; font-weight: 600; line-height: 1.4;
+}
+
+.lex-profi-btn {
+  -webkit-appearance: none; appearance: none;
+  margin: 0; padding: 7px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: transparent; color: var(--fg);
+  font: inherit; font-size: 14px; font-weight: 500; line-height: 1.2; cursor: pointer;
+}
+.lex-profi-btn:hover { background: var(--bg-hover); }
+.lex-profi-btn:disabled { opacity: .5; cursor: default; }
+.lex-profi-btn.is-main { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+.lex-profi-btn.is-danger { border-color: var(--danger); color: var(--danger); }
+
+.lex-profi-order { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.lex-profi-order-flag { margin-bottom: 4px; color: var(--danger); font-size: 12px; font-weight: 700; }
+.lex-profi-order-title { display: block; color: var(--fg); font-weight: 600; text-decoration: none; }
+.lex-profi-order-title:hover { text-decoration: underline; }
+.lex-profi-order-desc { margin-top: 6px; color: var(--fg-muted); font-size: 14px; white-space: pre-wrap; }
+.lex-profi-order-draft {
+  margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg-hover);
+  font-size: 14px; white-space: pre-wrap;
+}
+.lex-profi-order-price { margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-order-state { margin-top: 8px; font-size: 14px; font-weight: 600; }
+.lex-profi-order-state[data-state="sent"] { color: var(--fg-muted); font-weight: 400; }
+.lex-profi-order-state[data-state="failed"], .lex-profi-order-state[data-state="unknown"] { color: var(--danger); }
+.lex-profi-order-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.lex-profi-block { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.lex-profi-block-title { color: var(--fg-muted); font-size: 13px; font-weight: 600; }
+.lex-profi-line { font-size: 14px; }
+.lex-profi-line.is-error { color: var(--danger); }
+.lex-profi-mac { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 14px; }
+
+/* An order chat: the head stands over the first message and outside it. */
+.lex-profi-head { margin: 0 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--line); text-align: left; }
+.lex-profi-head-client { font-weight: 700; }
+.lex-profi-head-title { margin-top: 2px; font-weight: 600; }
+.lex-profi-head-desc { margin-top: 8px; color: var(--fg-muted); font-size: 14px; white-space: pre-wrap; }
+.lex-profi-head-line { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-link { color: inherit; text-decoration: underline; }
+
+.lex-profi-msg { display: flex; flex-direction: column; max-width: 80%; margin-bottom: 14px; text-align: left; }
+.lex-profi-msg.is-client { align-self: flex-start; margin-right: auto; }
+.lex-profi-msg.is-sent { align-self: flex-end; margin-left: auto; }
+.lex-profi-msg-who { margin: 0 12px 3px; color: var(--fg-muted); font-size: 12px; }
+.lex-profi-msg-text { padding: 9px 12px; border-radius: 14px; background: var(--bg-hover); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-profi-msg.is-sent .lex-profi-msg-text { background: var(--fg); color: var(--bg); }
+
+.lex-profi-box { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
+.lex-profi-box.is-writing { opacity: .75; }
+.lex-profi-box.is-sent { background: var(--bg-hover); }
+.lex-profi-box-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-profi-box-price { margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-box-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.lex-profi-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-box-note:empty { display: none; }
+
+/* Only the correspondence: the discussion leaves the screen, the model still reads it. */
+.lex-profi-only-client .wc-turn:not([data-client]) { display: none; }
+
+/* An order chat is a chat with the monitor's model: no words to pick, no presets, no voice,
+ * no choice of model and no second version of an answer. */
+.wc-main.is-profi-chat #wc-plus,
+.wc-main.is-profi-chat #wc-mode-split,
+.wc-main.is-profi-chat #wc-talk,
+.wc-main.is-profi-chat .wc-new-chat,
+.wc-main.is-profi-chat .lex-answer-row { display: none !important; }
+
+.wc-profi-bar { display: flex; gap: 8px; justify-content: center; padding: 0 16px 8px; }
+.wc-profi-bar[hidden] { display: none; }
+/* The thread scrolls under the bar: the buttons need their own background to stay legible. */
+.wc-profi-bar .lex-profi-btn { background: var(--bg); }
+.wc-profi-bar .lex-profi-btn:hover { background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--bg); }

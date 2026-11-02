@@ -31,6 +31,7 @@
   }
 
   const ENTRY_ICON = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg>';
+  const ENTRY_ICON_PROFI = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H4l2.3-3A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14h4"/></svg>';
   const ENTRY_CHEVRON = '<svg class="lex-news-entry-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
   function newOpId() {
@@ -95,7 +96,7 @@
     for (const s of Array.isArray(sections) ? sections : []) {
       const b = make('button', 'lex-news-entry');
       b.type = 'button';
-      b.innerHTML = ENTRY_ICON;
+      b.innerHTML = s.id === 'profi' ? ENTRY_ICON_PROFI : ENTRY_ICON;
       b.appendChild(make('span', 'lex-news-entry-title', s.title));
       b.insertAdjacentHTML('beforeend', ENTRY_CHEVRON);
       b.dataset.section = s.id;

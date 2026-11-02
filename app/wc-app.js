@@ -225,7 +225,9 @@
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     if (opts && opts.wanted && !opts.wanted()) return;
     leaveNews();
+    leaveProfi();
     state.conversationId = id;
+    if (opts && opts.profi) enterProfiChat(opts.profi);
     paintConversation(r, opts);
     WcSidebar.setActive(id);
     WcSidebar.close();
@@ -296,11 +298,12 @@
   }
   async function loadSections() {
     let sections = [];
-    try { sections = await newsRpc('lex_home_sections', {}); } catch (err) {
+    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web' }); } catch (err) {
       console.warn('[wc] sections:', err && err.message);
     }
     global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
       if (id === 'news') showNews();
+      if (id === 'profi') showProfi();
     });
   }
   // The text of a card is here already: it goes on screen in the moment of the press,
@@ -327,6 +330,7 @@
   async function showNews() {
     const { main, host, back } = newsEls();
     await endVoiceOnLeave('news');
+    leaveProfi();
     main.classList.remove('is-news-opening');
     if (!newsFeed) {
       newsFeed = global.LexNews.createFeed({
@@ -353,6 +357,110 @@
     WcSidebar.close();
     await newsFeed.show();
   }
+
+  // ── Profi.ru ─────────────────────────────────────────────────────────────
+  // The list, the chat of new orders and the settings are lex-profi.js. An order chat is
+  // an ordinary conversation that opens here: the thread draws it through the object of
+  // the chat, and the section keeps watching the server while it is open.
+  let profiSection = null;
+  let profiChat = null;
+  function profiEls() {
+    return {
+      main: document.querySelector('.wc-main'),
+      host: document.getElementById('wc-profi-host'),
+      back: document.getElementById('wc-news-back'),
+      bar: document.getElementById('wc-profi-bar'),
+      only: document.getElementById('wc-profi-only'),
+      lower: document.getElementById('wc-profi-lower'),
+    };
+  }
+  function leaveProfi() {
+    const { main, host, bar, only } = profiEls();
+    host.hidden = true;
+    bar.hidden = true;
+    main.classList.remove('is-profi', 'is-profi-chat');
+    document.getElementById('wc-thread').classList.remove('lex-profi-only-client');
+    only.textContent = 'Client only';
+    if (profiChat) {
+      profiChat = null;
+      WcThread.setProfiChat(null);
+      WcBus.call('WC_PROFI_CHAT', {}).catch(() => {});
+    }
+    if (profiSection) profiSection.unwatch();
+  }
+  async function showProfi() {
+    const { main, host, back } = profiEls();
+    await endVoiceOnLeave('news');
+    if (WcThread.isStreaming()) stopStream();
+    leaveNews();
+    leaveProfi();
+    if (!profiSection) {
+      profiSection = global.LexProfi.createSection({
+        rpc: newsRpc,
+        openOrder: (order) => openProfiOrder(order),
+        onChange: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
+      });
+      host.appendChild(profiSection.el);
+    }
+    back.hidden = true;
+    host.hidden = false;
+    main.classList.add('is-profi');
+    WcSidebar.close();
+    await profiSection.show();
+  }
+  function enterProfiChat(chat) {
+    const { main, bar, back } = profiEls();
+    profiChat = chat;
+    WcThread.setProfiChat(chat);
+    main.classList.add('is-profi-chat');
+    bar.hidden = false;
+    back.hidden = false;
+    back.title = 'Back to Profi.ru';
+    back.setAttribute('aria-label', 'Back to Profi.ru');
+    syncProfiBar();
+    profiSection.watch();
+  }
+  function syncProfiBar() {
+    const { lower } = profiEls();
+    lower.hidden = !(profiChat && profiChat.data && profiChat.data.waits);
+  }
+  async function openProfiOrder(order) {
+    let data = await newsRpc('profi_open', { p_order: order });
+    if (!data || !data.chatKey) {
+      // An order from a list of the day has no chat yet: it opens the way Reply yourself does.
+      await newsRpc('profi_command', { p_op_id: global.LexProfi.newOpId(), p_kind: 'reply_self', p_order: order, p_args: {} });
+      data = await newsRpc('profi_open', { p_order: order });
+    }
+    if (!data || !data.chatKey) { toast('The chat did not open', { error: true }); return; }
+    const chat = global.LexProfi.createChat({
+      rpc: newsRpc,
+      copy: (text) => navigator.clipboard.writeText(text).then(() => true, () => false),
+      order,
+      reload: () => { refreshProfiChat().catch(() => {}); },
+    });
+    chat.data = data;
+    await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
+    await openConversation(data.chatKey, { profi: chat });
+  }
+  // The server changed something: boxes, new turns, whether the client waits. The answer
+  // being written stays as it is; its turn comes with the next change.
+  async function refreshProfiChat() {
+    const chat = profiChat;
+    if (!chat) return;
+    const data = await newsRpc('profi_open', { p_order: chat.order });
+    if (!data || profiChat !== chat) return;
+    if (data.modelId !== chat.data.modelId) await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
+    chat.data = data;
+    syncProfiBar();
+    if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
+    const r = await WcBus.call('WC_LOAD_CONVERSATION', { id: state.conversationId });
+    if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming()) return;
+    const shown = new Set(WcThread.shownUids());
+    if (r.turns.every((t) => !t.uid || shown.has(t.uid))) { WcThread.paintProfiBoxes(); return; }
+    WcThread.repaintKeepingPlace(r.turns, { newsHead });
+    if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+  }
+
   function newsSettings() {
     const block = global.LexNews.createSettings({
       rpc: newsRpc,
@@ -372,6 +480,7 @@
     await endVoiceOnLeave('new-chat');
     if (newsFeed) newsFeed.stopOpening();
     leaveNews();
+    leaveProfi();
     state.conversationId = null;
     WcThread.clear();
     resetMoney();
@@ -1455,7 +1564,17 @@
   async function enterApp() {
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
-    document.getElementById('wc-news-back').onclick = () => showNews();
+    document.getElementById('wc-news-back').onclick = () => (profiChat ? showProfi() : showNews());
+    document.getElementById('wc-profi-only').onclick = (e) => {
+      if (!profiChat) return;
+      const only = profiChat.toggleOnlyClient(document.getElementById('wc-thread'));
+      e.currentTarget.textContent = only ? 'All messages' : 'Client only';
+    };
+    document.getElementById('wc-profi-lower').onclick = async () => {
+      if (!profiChat) return;
+      await newsRpc('profi_lower', { p_order: profiChat.order }).catch((err) => toast((err && err.message) || 'It did not work.', { error: true }));
+      if (profiChat) { profiChat.data.waits = false; syncProfiBar(); }
+    };
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
@@ -1611,6 +1730,7 @@
           WcComposer.setStreaming(false);
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
+        if (msg.type === 'STREAM_DONE' && profiChat) refreshProfiChat().catch(() => {});
         // Цена хода встанет, когда сервер запишет строку расхода: под ответом,
         // а у пустого ответа — под вопросом. Остановленный ответ сервер
         // дочитывает до конца и пишет позже; после первого хода беседы ещё

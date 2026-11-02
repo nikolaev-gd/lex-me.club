@@ -15,6 +15,8 @@
   let elThread, elTurns, elEmpty, elJump;
   let hooks = {};
   let stickToBottom = true;
+  // The order chat of the Profi.ru section that is open, or null (lex-profi.js).
+  let profiChat = null;
   // The streaming turn, keyed by requestId: {node, bubble, text}. A map rather
   // than one variable because a stopped stream can still deliver a trailing
   // frame after the next one has started.
@@ -99,7 +101,8 @@
           catch (_) { toast('The browser refused clipboard access', { error: true }); }
         },
       },
-      {
+      // An order chat has no second version of a message.
+      ...(profiChat ? [] : [{
         label: 'Edit',
         icon: 'edit',
         // У хода заготовки правится только фраза: строку заготовки править
@@ -111,7 +114,7 @@
             (opts && opts.presetSlot) || null,
             (turn && turn.dataset.uid) || null);
         },
-      },
+      }]),
     ]);
   }
 
@@ -178,7 +181,7 @@
     // тут нечего. `ready` кладёт на пузырь исходник даже при выключенном
     // режиме: включение посреди беседы иначе нашло бы пузыри без исходника и
     // не смогло бы потом снять с них нарезку.
-    if (global.WcWordPick) WcWordPick.ready(bubble, text, pick ? 'pick' : 'text');
+    if (global.WcWordPick && !profiChat) WcWordPick.ready(bubble, text, pick ? 'pick' : 'text');
     const parts = [];
     if (images && images.length) {
       parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
@@ -232,7 +235,7 @@
     // поток, его режет done() по концу. Резать во время потока бессмысленно по
     // построению: WcMarkdown.into на каждом кадре делает replaceChildren, то
     // есть стирает нарезку предыдущего кадра вместе со всей разметкой.
-    if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'markdown');
+    if (text && global.WcWordPick && !profiChat) WcWordPick.ready(bubble, text, 'markdown');
     return { turn, bubble, foot };
   }
 
@@ -346,6 +349,32 @@
       setEmpty(true);
     },
 
+    // The order chat that is open, or null (lex-profi.js createChat).
+    setProfiChat(chat) { profiChat = chat; },
+
+    // The boxes of an order chat, from what the server says now.
+    paintProfiBoxes() {
+      if (!profiChat) return;
+      for (const t of elTurns.querySelectorAll('.wc-turn-assistant[data-uid]')) {
+        if (t.classList.contains('is-streaming') || !t.dataset.raw) continue;
+        const bubble = t.querySelector('.wc-bubble');
+        if (bubble && t.querySelector(':scope > .lex-profi-boxes')) profiChat.paintAnswer(t, bubble, t.dataset.raw, WcMarkdown, false);
+      }
+    },
+
+    // Turns came while the chat is open: the screen stays where the person reads.
+    repaintKeepingPlace(turns, opts) {
+      const atEnd = elThread.scrollTop + elThread.clientHeight >= elThread.scrollHeight - 80;
+      const top = elThread.scrollTop;
+      WcThread.renderTurns(turns, opts);
+      if (!atEnd) {
+        stickToBottom = false;
+        requestAnimationFrame(() => { elThread.scrollTop = top; });
+      }
+    },
+
+    shownUids() { return [...elTurns.querySelectorAll('.wc-turn[data-uid]')].map((t) => t.dataset.uid); },
+
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
 
@@ -355,7 +384,13 @@
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
       elTurns.replaceChildren();
+      if (profiChat) elTurns.append(profiChat.head());
       (turns || []).forEach((t) => {
+        // The monitor's turns of an order chat: a message of the client, what went to him.
+        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent')) {
+          elTurns.append(profiChat.messageNode(t));
+          return;
+        }
         // t.images is a list of ready object URLs — the backend resolved them
         // from this browser's picture store while loading the conversation.
         if (t.role === 'user') {
@@ -402,6 +437,7 @@
           // Уид реплики: по нему встаёт цена хода (paintMoney).
           if (t.uid) turn.dataset.uid = String(t.uid);
           if (t.threadKey) markApart(turn, t.threadKey);
+          if (profiChat) profiChat.paintAnswer(turn, turn.querySelector('.wc-bubble'), t.text, WcMarkdown, false);
           elTurns.append(turn);
         }
       });
@@ -535,7 +571,8 @@
       if (!msg.text) return;
       entry.text += msg.text;
       entry.turn.dataset.raw = entry.text;
-      WcMarkdown.into(entry.bubble, entry.text);
+      if (profiChat) profiChat.paintAnswer(entry.turn, entry.bubble, entry.text, WcMarkdown, true);
+      else WcMarkdown.into(entry.bubble, entry.text);
       maybeStick();
     },
 
@@ -608,7 +645,7 @@
       syncFeet();
       // Ответ дописан — вот теперь его можно резать на слова. Раньше нельзя:
       // каждый кадр потока перерисовывает пузырь целиком.
-      if (entry.text && global.WcWordPick) WcWordPick.ready(entry.bubble, entry.text, 'markdown');
+      if (entry.text && global.WcWordPick && !profiChat) WcWordPick.ready(entry.bubble, entry.text, 'markdown');
       // An answer that ended without a single token is a failure the reader
       // must see; an empty bubble reads as "the model had nothing to say".
       if (!entry.text) {
