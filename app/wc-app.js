@@ -167,7 +167,7 @@
   // после голосового разговора.
   function paintConversation(r) {
     resetMoney();
-    WcThread.renderTurns(r.turns);
+    WcThread.renderTurns(r.turns, { newsHead });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
@@ -264,7 +264,24 @@
   // and the arrow in the top bar comes back. The feed stays alive under the chat,
   // so it comes back at the same place.
   const newsRpc = (name, args) => WcBus.call('WC_NEWS_RPC', { name, args });
+  const newsPost = (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body });
   let newsFeed = null;
+  // What stands over the first message of a news chat. Reading the chat again leaves
+  // the arrow back to the feed as it was.
+  function newsHead() {
+    const chatKey = state.conversationId;
+    return global.LexNews.createChatHead({
+      chatKey, rpc: newsRpc, post: newsPost,
+      reload: async (title) => {
+        const { host, back } = newsEls();
+        if (state.conversationId !== chatKey || !host.hidden || WcThread.isStreaming()) return;
+        const was = back.hidden;
+        await openConversation(chatKey);
+        back.hidden = was;
+        WcHeader.setTitle(title);
+      },
+    });
+  }
   function newsEls() {
     return {
       main: document.querySelector('.wc-main'),
@@ -294,7 +311,7 @@
     if (!newsFeed) {
       newsFeed = global.LexNews.createFeed({
         rpc: newsRpc,
-        post: (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body }),
+        post: newsPost,
         openChat: async ({ chatKey, title }) => {
           await openConversation(chatKey);
           if (state.conversationId !== chatKey) return;

@@ -524,7 +524,8 @@ button { font: inherit; color: inherit; }
 .wc-sidebar-head:has(.wc-sections:not([hidden])) { flex-wrap: wrap; }
 .wc-sidebar-head:has(.wc-sections:not([hidden])) .wc-sidebar-title { flex-basis: 100%; padding-left: 12px; }
 .wc-sections { flex: 1; min-width: 0; }
-.wc-sections, .wc-news-host, .lex-news-settings {
+.wc-sections, .wc-news-host, .lex-news-settings, .wc-turn-news {
+  --lex-news-menu:   var(--bg-raised);
   --lex-news-fg:     var(--fg);
   --lex-news-muted:  var(--fg-muted);
   --lex-news-line:   var(--line);

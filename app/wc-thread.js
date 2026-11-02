@@ -213,10 +213,10 @@
   // The first message of a news chat: words of the letter, not a teacher's
   // answer. No Markdown (it would restyle them) and no row under it: no model
   // wrote it, so there is nothing to copy-and-repeat with another model.
-  function newsTurn(text) {
+  function newsTurn(text, head) {
     const bubble = el('.wc-bubble');
     global.LexNews.renderText(bubble, text);
-    const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, [bubble]);
+    const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, head ? [head, bubble] : [bubble]);
     turn.dataset.raw = text || '';
     if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'news');
     return { turn, bubble };
@@ -349,7 +349,7 @@
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
 
-    renderTurns(turns) {
+    renderTurns(turns, opts) {
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
       // и обязан уйти вместе с ними.
       if (global.WcWordPick) WcWordPick.forgetAll();
@@ -392,7 +392,9 @@
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
-          const { turn } = t.origin === 'news' ? newsTurn(t.text) : assistantTurn(t.text);
+          const { turn } = t.origin === 'news'
+            ? newsTurn(t.text, opts && opts.newsHead ? opts.newsHead() : null)
+            : assistantTurn(t.text);
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
           // Модель ответа (из денег беседы) — подпись кнопки модели.

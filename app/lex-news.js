@@ -9,6 +9,8 @@
 //   rpc(name, args)     a call of a database function under the person's pass
 //   post(kind, body)    a call of llm-proxy/<kind>
 //   openChat({ chatKey, title })   open this chat where chats open
+//   reload(title)       read the open chat again after Process again in its head, unless
+//                       the person left it or an answer is being written
 //   copy(text)          put text on the clipboard, returns true when it worked
 //   pickModel(anchor, modelId, onPick)   the common model menu
 (function (global) {
@@ -111,6 +113,7 @@
       status.textContent = text || '';
       status.hidden = !text;
       status.classList.toggle('is-error', !!isError);
+      status.classList.toggle('is-busy', !!text && !isError && busy);
     };
 
     function cardNode(card) {
@@ -124,29 +127,14 @@
       return b;
     }
 
+    // A letter has no header of its own: the feed is one list of cards. It stays a
+    // node only so that a next page does not bring a letter twice.
     function blockNode(block) {
       const art = make('article', 'lex-news-block');
       art.dataset.letter = String(block.id);
-      const bar = make('header', 'lex-news-block-head');
-      let name;
-      if (block.webUrl) {
-        name = make('a', 'lex-news-block-title', block.title);
-        name.href = block.webUrl;
-        name.target = '_blank';
-        name.rel = 'noopener noreferrer';
-      } else {
-        name = make('div', 'lex-news-block-title', block.title);
-      }
-      const who = make('div', 'lex-news-block-who');
-      who.append(name, make('div', 'lex-news-block-date', block.date));
-      const again = make('button', 'lex-news-again', 'Process again');
-      again.type = 'button';
-      again.addEventListener('click', () => processAgain(block.id, block.title));
-      bar.append(who, again);
-      art.appendChild(bar);
       if (block.state === 'failed') {
         art.appendChild(make('div', 'lex-news-failed',
-          `This letter was not processed. ${block.error || ''} Refresh tries it again.`));
+          `${block.title} was not processed. ${block.error || ''} Refresh tries it again.`));
       }
       for (const c of block.cards || []) art.appendChild(cardNode(c));
       return art;
@@ -185,14 +173,11 @@
       }
     }
 
-    // The first card of a letter stands with the header of its letter, the rest stand
-    // at the top edge themselves.
+    const cardNodeOf = (itemId) => (itemId ? blocksEl.querySelector(`.lex-news-card[data-id="${itemId}"]`) : null);
+
     function standOn(itemId) {
-      const node = itemId && blocksEl.querySelector(`.lex-news-card[data-id="${itemId}"]`);
-      if (!node) return;
-      const block = node.closest('.lex-news-block');
-      const target = block.querySelector('.lex-news-card') === node ? block : node;
-      scroller.scrollTop += target.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      const node = cardNodeOf(itemId);
+      if (node) scroller.scrollTop += node.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
     }
 
     // The place in the feed is a card, because pixels mean nothing on another
@@ -240,6 +225,7 @@
       let done = 0;
       let failed = [];
       let stopped = null;
+      let end;
       try {
         for (let i = 0; i < 300; i++) {
           const r = await deps.post('news-refresh', { round });
@@ -259,44 +245,25 @@
           setStatus(r.remaining > 0 ? `Processing letters… ${r.remaining} left` : 'Processing letters…');
         }
         await load();
-        if (stopped) setStatus(stopped, true);
-        else if (failed.length) setStatus(`Not processed: ${[...new Set(failed)].join(', ')}.`, true);
-        else if (done) setStatus(done === 1 ? 'One new letter.' : `${done} new letters.`);
-        else setStatus('No new letters.');
+        if (stopped) end = [stopped, true];
+        else if (failed.length) end = [`Not processed: ${[...new Set(failed)].join(', ')}.`, true];
+        else if (done) end = [done === 1 ? 'One new letter.' : `${done} new letters.`];
+        else end = ['No new letters.'];
       } catch (e) {
-        setStatus('Refresh failed. ' + ((e && e.message) || ''), true);
-      } finally {
-        busy = false;
-        refreshBtn.disabled = false;
+        end = ['Refresh failed. ' + ((e && e.message) || ''), true];
       }
+      busy = false;
+      refreshBtn.disabled = false;
+      setStatus(...end);
     }
     refreshBtn.addEventListener('click', refresh);
-
-    async function processAgain(letterId, name) {
-      if (busy) return;
-      busy = true;
-      refreshBtn.disabled = true;
-      setStatus(`Processing ${name} again…`);
-      try {
-        const r = await deps.post('news-refresh', { round: newOpId(), letterId, opId: newOpId() });
-        await load();
-        if (r.status === 'processed' && !r.cards) setStatus('The model found no cards. The cards stay as they were.');
-        else if (r.status === 'processed') setStatus(r.cards === 1 ? 'Done: one card.' : `Done: ${r.cards} cards.`);
-        else if (r.status === 'busy') setStatus('This letter is being processed.');
-        else setStatus(r.error || 'The letter was not processed.', true);
-      } catch (e) {
-        setStatus('Process again failed. ' + ((e && e.message) || ''), true);
-      } finally {
-        busy = false;
-        refreshBtn.disabled = false;
-      }
-    }
 
     return {
       el: root,
       refresh,
-      // Show the feed. The first time it stands on the saved place; after a
-      // chat it comes back to where it was, with the card marked.
+      // Show the feed. The first time it stands on the saved place. Later it reads the
+      // feed again, because letters come by themselves now, and what was on screen
+      // stays where it was even when new cards came above it.
       async show() {
         if (!opened) {
           opened = true;
@@ -308,12 +275,117 @@
             opened = false;
             setStatus('The feed did not load. ' + ((e && e.message) || ''), true);
           }
-        } else {
-          scroller.scrollTop = savedTop;
+          return;
+        }
+        scroller.scrollTop = savedTop;
+        if (busy) return;
+        const keep = cardNodeOf(topCard());
+        const id = keep && keep.dataset.id;
+        const was = keep ? keep.getBoundingClientRect().top : 0;
+        try {
+          const r = await load({ toAnchor: true });
+          const now = cardNodeOf(id);
+          if (now) scroller.scrollTop += now.getBoundingClientRect().top - was;
+          else standOn(r.anchor); // Process again gave the cards new numbers
+        } catch (e) {
+          console.warn('[news] feed:', e && e.message);
         }
       },
       hide() { savedTop = scroller.scrollTop; },
     };
+  }
+
+  // ── the head of a news chat ────────────────────────────
+  // Stands over the first message and outside it: the title of the card and a small
+  // gray line of where it came from. So the message stays the words of the letter, and
+  // word picking counts them as ever. The server answers null for a chat that is not
+  // news, and then nothing shows. A window gives chatKey, rpc, post and reload.
+  function createChatHead(deps) {
+    const root = make('header', 'lex-news-chat-head');
+    root.hidden = true;
+    const title = make('h2', 'lex-news-chat-title');
+    const line = make('div', 'lex-news-chat-source');
+    const note = make('div', 'lex-news-chat-note');
+    note.setAttribute('role', 'status');
+    note.hidden = true;
+    root.append(title, line, note);
+    let busy = false;
+
+    const say = (text, isError) => {
+      note.textContent = text || '';
+      note.hidden = !text;
+      note.classList.toggle('is-error', !!isError);
+      note.classList.toggle('is-busy', !!text && busy);
+    };
+
+    function moreNode(letterId) {
+      const wrap = make('span', 'lex-news-chat-more');
+      const btn = make('button', 'lex-news-chat-more-btn', '•••');
+      btn.type = 'button';
+      btn.title = 'More';
+      btn.setAttribute('aria-label', 'More');
+      const menu = make('div', 'lex-news-chat-menu');
+      menu.hidden = true;
+      const again = make('button', 'lex-news-chat-menu-item', 'Process again');
+      again.type = 'button';
+      menu.appendChild(again);
+      wrap.append(btn, menu);
+      const close = (e) => {
+        if (e && e.target && btn.contains(e.target)) return;
+        menu.hidden = true;
+        document.removeEventListener('click', close, true);
+      };
+      btn.addEventListener('click', () => {
+        if (!menu.hidden) { close(); return; }
+        menu.hidden = false;
+        // A narrow window has no room to the right of the dots.
+        menu.classList.toggle('is-left', menu.getBoundingClientRect().right > root.getBoundingClientRect().right);
+        document.addEventListener('click', close, true);
+      });
+      again.addEventListener('click', () => processAgain(letterId));
+      return wrap;
+    }
+
+    async function processAgain(letterId) {
+      if (busy) return;
+      busy = true;
+      say('Processing the letter again…');
+      let end = [''];
+      try {
+        const r = await deps.post('news-refresh', { round: newOpId(), letterId, opId: newOpId() });
+        if (r.status === 'processed' && r.cards) await deps.reload(title.textContent);
+        else if (r.status === 'processed') end = ['The model found no cards. The cards stay as they were.'];
+        else if (r.status === 'busy') end = ['This letter is being processed.'];
+        else end = [r.error || 'The letter was not processed.', true];
+      } catch (e) {
+        end = ['Process again failed. ' + ((e && e.message) || ''), true];
+      }
+      busy = false;
+      say(...end);
+    }
+
+    function paint(head) {
+      title.textContent = head.title || '';
+      line.replaceChildren();
+      let name;
+      if (head.webUrl) {
+        name = make('a', 'lex-news-chat-newsletter', head.newsletter);
+        name.href = head.webUrl;
+        name.target = '_blank';
+        name.rel = 'noopener noreferrer';
+      } else {
+        name = make('span', 'lex-news-chat-newsletter', head.newsletter);
+      }
+      line.append(name, make('span', '', head.date));
+      if (head.author) line.appendChild(make('span', '', head.author));
+      line.appendChild(moreNode(head.letterId));
+      root.hidden = false;
+    }
+
+    deps.rpc('news_chat_head', { p_chat_key: deps.chatKey })
+      .then((head) => { if (head) paint(head); })
+      .catch((e) => console.warn('[news] head:', e && e.message));
+    return root;
   }
 
   // ── settings ────────────────────────────────────────────────────────────────
@@ -438,6 +510,6 @@
     };
   }
 
-  const api = { createFeed, createSettings, renderEntries, renderText, plainText, newOpId };
+  const api = { createFeed, createChatHead, createSettings, renderEntries, renderText, plainText, newOpId };
   global.LexNews = api;
 })(typeof window !== 'undefined' ? window : globalThis);
