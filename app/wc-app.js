@@ -367,18 +367,14 @@
       main: document.querySelector('.wc-main'),
       host: document.getElementById('wc-profi-host'),
       back: document.getElementById('wc-news-back'),
-      bar: document.getElementById('wc-profi-bar'),
       only: document.getElementById('wc-profi-only'),
-      lower: document.getElementById('wc-profi-lower'),
     };
   }
   function leaveProfi() {
-    const { main, host, bar, only } = profiEls();
+    const { main, host, only } = profiEls();
     host.hidden = true;
-    bar.hidden = true;
+    only.hidden = true;
     main.classList.remove('is-profi', 'is-profi-chat');
-    document.getElementById('wc-thread').classList.remove('lex-profi-only-client');
-    only.textContent = 'Client only';
     if (profiChat) {
       profiChat = null;
       WcThread.setProfiChat(null);
@@ -396,6 +392,8 @@
       profiSection = global.LexProfi.createSection({
         rpc: newsRpc,
         openOrder: (order) => openProfiOrder(order),
+        moreButton: (onClick) => WcUI.iconBtn('dots', 'More', onClick, 'lex-profi-row-more'),
+        menu: (anchor, items) => WcUI.menu(anchor, items),
         onChange: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       });
       host.appendChild(profiSection.el);
@@ -407,20 +405,36 @@
     await profiSection.show();
   }
   function enterProfiChat(chat) {
-    const { main, bar, back } = profiEls();
+    const { main, back, only } = profiEls();
     profiChat = chat;
     WcThread.setProfiChat(chat);
     main.classList.add('is-profi-chat');
-    bar.hidden = false;
+    only.hidden = false;
     back.hidden = false;
     back.title = 'Back to Profi.ru';
     back.setAttribute('aria-label', 'Back to Profi.ru');
-    syncProfiBar();
+    syncProfiOnly();
     profiSection.watch();
   }
-  function syncProfiBar() {
-    const { lower } = profiEls();
-    lower.hidden = !(profiChat && profiChat.data && profiChat.data.waits);
+  function syncProfiOnly() {
+    const { only } = profiEls();
+    const on = !!(profiChat && profiChat.data && (profiChat.data.hiddenTurns || []).length);
+    only.classList.toggle('is-on', on);
+    only.setAttribute('aria-pressed', String(on));
+  }
+  // Clears the discussion off the screen. What decides is the server, on every press.
+  async function pressProfiOnly() {
+    const chat = profiChat;
+    if (!chat) return;
+    try {
+      const r = await newsRpc('profi_hide_discussion', { p_op_id: global.LexProfi.newOpId(), p_order: chat.order });
+      if (profiChat !== chat) return;
+      chat.data = Object.assign({}, chat.data, { hiddenTurns: (r && r.hiddenTurns) || [] });
+      syncProfiOnly();
+      WcThread.paintProfiHidden();
+    } catch (err) {
+      toast((err && err.message) || 'It did not work.', { error: true });
+    }
   }
   async function openProfiOrder(order) {
     let data = await newsRpc('profi_open', { p_order: order });
@@ -445,11 +459,11 @@
   async function refreshProfiChat() {
     const chat = profiChat;
     if (!chat) return;
-    const data = await newsRpc('profi_open', { p_order: chat.order });
+    const data = await newsRpc('profi_open', { p_order: chat.order, p_on_screen: document.visibilityState === 'visible' });
     if (!data || profiChat !== chat) return;
     if (data.modelId !== chat.data.modelId) await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
     chat.data = data;
-    syncProfiBar();
+    syncProfiOnly();
     if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
     const r = await WcBus.call('WC_LOAD_CONVERSATION', { id: state.conversationId });
     if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming()) return;
@@ -458,6 +472,11 @@
     WcThread.repaintKeepingPlace(r.turns, { newsHead });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
+
+  // A chat left open behind other windows gets read when the person comes back to it.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshProfiChat().catch(() => {});
+  });
 
   function newsSettings() {
     const block = global.LexNews.createSettings({
@@ -1563,16 +1582,7 @@
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
     document.getElementById('wc-news-back').onclick = () => (profiChat ? showProfi() : showNews());
-    document.getElementById('wc-profi-only').onclick = (e) => {
-      if (!profiChat) return;
-      const only = profiChat.toggleOnlyClient(document.getElementById('wc-thread'));
-      e.currentTarget.textContent = only ? 'All messages' : 'Client only';
-    };
-    document.getElementById('wc-profi-lower').onclick = async () => {
-      if (!profiChat) return;
-      await newsRpc('profi_lower', { p_order: profiChat.order }).catch((err) => toast((err && err.message) || 'It did not work.', { error: true }));
-      if (profiChat) { profiChat.data.waits = false; syncProfiBar(); }
-    };
+    document.getElementById('wc-profi-only').onclick = pressProfiOnly;
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.

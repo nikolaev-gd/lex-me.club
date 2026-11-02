@@ -9,6 +9,8 @@
 //   rpc(name, args)        a call of a database function under the person's pass
 //   openOrder(order)       open the chat of this order where chats open
 //   copy(text)             put text on the clipboard, returns true when it worked
+//   moreButton(onClick)    the three dots of a row, as at a chat in Chats
+//   menu(anchor, items)    the menu they open: [{label, onSelect}]
 (function (global) {
   'use strict';
 
@@ -122,32 +124,41 @@
   }
 
   // ── an order chat ───────────────────────────────────────────────────────────
-  // deps: rpc, copy, order, reload(), lower()
+  // deps: rpc, copy, order, reload()
   function createChat(deps) {
     let data = null;
-    let onlyClient = false;
     const self = {
       order: deps.order,
       get data() { return data; },
       set data(v) { data = v; },
-      isOnlyClient() { return onlyClient; },
 
+      // The order the way Profi shows it. On top what matters at a glance, then its blocks,
+      // below what is seen less often. What stands where is the monitor's and the server's word.
       head() {
         const root = make('header', 'lex-profi-head');
         if (!data) return root;
-        root.appendChild(make('div', 'lex-profi-head-client', data.client || 'Client'));
         root.appendChild(make('div', 'lex-profi-head-title', data.title || ''));
-        if (data.description) root.appendChild(make('div', 'lex-profi-head-desc', data.description));
         const line = make('div', 'lex-profi-head-line');
-        if (data.budget) line.appendChild(make('span', '', data.budget));
+        const add = (node) => {
+          if (line.childElementCount) line.appendChild(make('span', '', '·'));
+          line.appendChild(node);
+        };
+        if (data.client) add(make('span', '', data.client));
+        if (data.budget) add(make('span', '', data.budget));
         if (data.chatUrl) {
           const a = make('a', 'lex-profi-link', 'Chat on Profi');
           a.href = data.chatUrl;
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
-          line.appendChild(a);
+          add(a);
         }
-        root.appendChild(line);
+        if (line.childElementCount) root.appendChild(line);
+        if ((data.facts || []).length) root.appendChild(make('div', 'lex-profi-head-facts', data.facts.join(' · ')));
+        for (const s of data.sections || []) {
+          root.appendChild(make('div', 'lex-profi-head-block', s.title));
+          root.appendChild(make('div', 'lex-profi-head-text', s.text));
+        }
+        if ((data.foot || []).length) root.appendChild(make('div', 'lex-profi-head-foot', data.foot.join(' · ')));
         return root;
       },
 
@@ -155,7 +166,6 @@
       messageNode(t) {
         const out = t.origin === 'profi_sent';
         const root = make('div', `wc-turn lex-profi-msg ${out ? 'is-sent' : 'is-client'}`);
-        root.dataset.client = '1';
         if (t.uid) root.dataset.uid = String(t.uid);
         const when = t.authoredAt ? new Date(t.authoredAt) : null;
         const stamp = when && !Number.isNaN(when.getTime())
@@ -183,11 +193,13 @@
           { rpc: deps.rpc, copy: deps.copy, refresh: deps.reload })));
       },
 
-      // The button under the chat: only what passed between the client and Gennady.
-      toggleOnlyClient(thread) {
-        onlyClient = !onlyClient;
-        thread.classList.toggle('lex-profi-only-client', onlyClient);
-        return onlyClient;
+      // What the server keeps off the screen: the discussion up to the last press of the
+      // button in the corner. The model still reads it.
+      paintHidden(thread) {
+        const hidden = new Set((data && data.hiddenTurns) || []);
+        for (const t of thread.querySelectorAll('.wc-turn[data-uid]')) {
+          t.classList.toggle('lex-profi-hidden', hidden.has(t.dataset.uid));
+        }
       },
     };
     return self;
@@ -243,14 +255,28 @@
 
     // ── home ─────────────────────────────────────────────────────────────────
     function rowNode(title, sub, opts) {
-      const b = button('lex-profi-row', null, opts.onClick);
+      const row = make('div', 'lex-profi-row');
+      if (opts.first) row.classList.add('is-first');
+      if (opts.dot) row.classList.add('is-unread');
+      const b = button('lex-profi-row-main', null, opts.onClick);
       const top = make('div', 'lex-profi-row-top');
       top.appendChild(make('span', 'lex-profi-row-title', title));
       if (opts.mark) top.appendChild(make('span', 'lex-profi-mark', opts.mark));
       b.appendChild(top);
       if (sub) b.appendChild(make('span', 'lex-profi-row-sub', sub));
-      if (opts.first) b.classList.add('is-first');
-      return b;
+      row.appendChild(b);
+      if (opts.more) row.appendChild(deps.moreButton((e) => deps.menu(e.currentTarget, opts.more)));
+      return row;
+    }
+
+    async function lower(order) {
+      try {
+        await deps.rpc('profi_lower', { p_order: order });
+        await reloadHome();
+        paint();
+      } catch (e) {
+        say((e && e.message) || 'It did not work.', true);
+      }
     }
 
     function monitorSilent() {
@@ -275,7 +301,8 @@
       }));
       for (const c of home.chats || []) {
         list.appendChild(rowNode(c.title, c.last || '', {
-          mark: c.waits ? 'Client wrote' : '', onClick: () => deps.openOrder(c.order),
+          dot: c.unread, onClick: () => deps.openOrder(c.order),
+          more: [{ label: 'Nothing to answer', onSelect: () => lower(c.order) }],
         }));
       }
       body.appendChild(list);
