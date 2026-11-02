@@ -281,7 +281,9 @@
 .lex-news-chat-head .lex-news-chat-note.is-busy { display: flex; align-items: center; gap: 8px; }
 
 /* The first message of a news chat. */
-.lex-news-text-para { margin: 0 0 .8em; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A page under the small window can style every paragraph of the page: example.com makes
+   the second one and on smaller and dim. Ours stay as the panel has them. */
+.lex-news-text-para { margin: 0 0 .8em; font: inherit; color: inherit; opacity: 1; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
 .lex-news-text-para:last-child { margin-bottom: 0; }
 .lex-news-text-bold { font-weight: 650; }
 /* A point of a list hangs on its dot. */
