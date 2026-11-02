@@ -23,6 +23,9 @@
     return n;
   }
 
+  const ENTRY_ICON = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg>';
+  const ENTRY_CHEVRON = '<svg class="lex-news-entry-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
   function newOpId() {
     if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
     return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
@@ -66,8 +69,11 @@
   function renderEntries(host, sections, onPick) {
     host.replaceChildren();
     for (const s of Array.isArray(sections) ? sections : []) {
-      const b = make('button', 'lex-news-entry', s.title);
+      const b = make('button', 'lex-news-entry');
       b.type = 'button';
+      b.innerHTML = ENTRY_ICON;
+      b.appendChild(make('span', 'lex-news-entry-title', s.title));
+      b.insertAdjacentHTML('beforeend', ENTRY_CHEVRON);
       b.dataset.section = s.id;
       b.addEventListener('click', () => onPick(s.id));
       host.appendChild(b);
@@ -122,20 +128,21 @@
       const art = make('article', 'lex-news-block');
       art.dataset.letter = String(block.id);
       const bar = make('header', 'lex-news-block-head');
-      const label = `${block.title}, ${block.date}`;
       let name;
       if (block.webUrl) {
-        name = make('a', 'lex-news-block-title', label);
+        name = make('a', 'lex-news-block-title', block.title);
         name.href = block.webUrl;
         name.target = '_blank';
         name.rel = 'noopener noreferrer';
       } else {
-        name = make('div', 'lex-news-block-title', label);
+        name = make('div', 'lex-news-block-title', block.title);
       }
+      const who = make('div', 'lex-news-block-who');
+      who.append(name, make('div', 'lex-news-block-date', block.date));
       const again = make('button', 'lex-news-again', 'Process again');
       again.type = 'button';
       again.addEventListener('click', () => processAgain(block.id, block.title));
-      bar.append(name, again);
+      bar.append(who, again);
       art.appendChild(bar);
       if (block.state === 'failed') {
         art.appendChild(make('div', 'lex-news-failed',
