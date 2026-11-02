@@ -276,15 +276,15 @@
   // the arrow back to the feed as it was.
   function newsHead(head) {
     const chatKey = state.conversationId;
+    // Back from a news chat is the feed, however the chat was opened. A chat repainted
+    // under an open feed has no arrow yet.
+    if (newsEls().host.hidden) newsEls().back.hidden = false;
     return global.LexNews.createChatHead({
       chatKey, head, rpc: newsRpc, post: newsPost,
       onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
-        const { host, back } = newsEls();
-        if (state.conversationId !== chatKey || !host.hidden || WcThread.isStreaming()) return;
-        const was = back.hidden;
+        if (state.conversationId !== chatKey || !newsEls().host.hidden || WcThread.isStreaming()) return;
         await openConversation(chatKey);
-        back.hidden = was;
         WcHeader.setTitle(title);
       },
     });
@@ -342,9 +342,7 @@
         cardFailed: (why) => toast('The chat did not open: ' + why, { error: true }),
         openChat: async ({ chatKey, title, shown, wanted }) => {
           await openConversation(chatKey, { keepPlace: shown, wanted });
-          if (!wanted() || state.conversationId !== chatKey) return;
-          WcHeader.setTitle(title);
-          newsEls().back.hidden = false;
+          if (wanted() && state.conversationId === chatKey) WcHeader.setTitle(title);
         },
         keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
         keptFeed: () => WcStore.one(NEWS_KEPT, null).catch(() => null),

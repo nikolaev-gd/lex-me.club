@@ -3,7 +3,12 @@
  * has a thin gray line a little below it. A press lights the word up. The iPhone has
  * the same look in one place of its own, `LexMarkdown.styledLink`. */
 a.lex-link {
+  font: inherit;
   color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  background: none;
+  border: 0;
   text-decoration-line: underline;
   text-decoration-thickness: 1px;
   text-decoration-color: rgba(127, 127, 127, .6);
@@ -11,5 +16,5 @@ a.lex-link {
   border-radius: 3px;
   cursor: pointer;
 }
-a.lex-link:hover { text-decoration-color: currentColor; }
+a.lex-link:hover { color: inherit; text-decoration-color: currentColor; }
 a.lex-link:active { background: rgba(127, 127, 127, .28); }

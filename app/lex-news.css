@@ -203,6 +203,7 @@
 .lex-news .lex-news-card.is-read .lex-news-card-title { font-weight: 400; color: var(--lex-news-fg, inherit); opacity: .82; }
 
 /* The head of a news chat: over the first message, outside it. */
+.lex-news-chat-head, .lex-news-chat-head .lex-news-chat-source { opacity: 1; }
 .lex-news-chat-head { margin: 0 0 14px; color: var(--lex-news-fg, inherit); text-align: left; }
 .lex-news-chat-head[hidden] { display: none; }
 .lex-news-chat-head .lex-news-chat-title {
@@ -210,6 +211,7 @@
   padding: 0;
   border: 0;
   color: inherit;
+  font-family: inherit;
   font-size: 21px;
   font-weight: 650;
   line-height: 1.25;
@@ -225,6 +227,14 @@
   color: var(--lex-news-muted, rgba(127, 127, 127, .95));
   font-size: 12.5px;
   line-height: 1.35;
+}
+.lex-news-chat-head .lex-news-chat-source > * {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
 }
 .lex-news-chat-head a.lex-news-chat-newsletter { color: inherit; text-decoration: none; }
 .lex-news-chat-head a.lex-news-chat-newsletter:hover { color: var(--lex-news-fg, inherit); }
@@ -283,8 +293,28 @@
 /* The first message of a news chat. */
 /* A page under the small window can style every paragraph of the page: example.com makes
    the second one and on smaller and dim. Ours stay as the panel has them. */
-.lex-news-text-para { margin: 0 0 .8em; font: inherit; color: inherit; opacity: 1; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-news-text-para {
+  margin: 0 0 .8em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-indent: 0;
+  text-transform: inherit;
+  opacity: 1;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .lex-news-text-para:last-child { margin-bottom: 0; }
+.lex-news-text-bold, .lex-news-point-mark {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
 .lex-news-text-bold { font-weight: 650; }
 /* A point of a list hangs on its dot. */
 .lex-news-text-para.is-point { padding-left: 1em; text-indent: -1em; }
