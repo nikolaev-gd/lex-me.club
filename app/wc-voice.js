@@ -47,9 +47,8 @@
   const A = () => global.LexWebAuth;
   const SCOPE = 'shorts-main';
 
-  // Same model the extension's own voice scenarios pin. It comes from the
-  // published set when there is one.
-  const DEFAULT_VOICE_MODEL = 'gpt-realtime-mini';
+  // The Gemini voice, when the published set names none.
+  const DEFAULT_VOICE_MODEL = 'gemini-3.1-flash-live-preview';
 
   const log = (...a) => { if (global.lexDebug && global.lexDebug.enabled) console.log(TAG, ...a); };
 
@@ -666,7 +665,11 @@
   }
 
   // ── Start ────────────────────────────────────────────────────────────────
+  // A news chat: the server adds the text of the item to the voice's instructions.
+  let newsChat = false;
+
   async function start(opts) {
+    newsChat = !!(opts && opts.newsChat);
     if (!closed || connecting) return;
     connecting = true;
     const my = ++attempt;
@@ -806,6 +809,7 @@
           videoId: (opts && opts.conversationId) || null,
           surface: 'standalone',
           pageType: 'text',
+          ...(newsChat ? { newsChat: true } : {}),
           promptSource: 'server',
           promptScope: promptRefs.base.scope,
           promptCell: promptRefs.base.cell,
@@ -1010,6 +1014,7 @@
               videoId: meta0.videoId || null,
               surface: meta0.surface || 'standalone',
               pageType: 'text',
+              ...(newsChat ? { newsChat: true } : {}),
               ...promptMeta(msg.promptRefs),
             },
           });

@@ -520,6 +520,18 @@ button { font: inherit; color: inherit; }
   padding: 10px 10px 6px;
 }
 
+/* News stands on the line of the close button; Chats takes the next line. */
+.wc-sidebar-head:has(.wc-sections:not([hidden])) { flex-wrap: wrap; }
+.wc-sidebar-head:has(.wc-sections:not([hidden])) .wc-sidebar-title { flex-basis: 100%; padding-left: 12px; }
+.wc-sections { flex: 1; min-width: 0; }
+.wc-sections, .wc-news-host, .lex-news-settings {
+  --lex-news-fg:     var(--fg);
+  --lex-news-muted:  var(--fg-muted);
+  --lex-news-line:   var(--line);
+  --lex-news-hover:  var(--bg-hover);
+  --lex-news-danger: var(--danger);
+}
+
 .wc-sidebar-title {
   flex: 1;
   min-width: 0;
@@ -845,6 +857,16 @@ button { font: inherit; color: inherit; }
 
 
 /* ── Thread ──────────────────────────────────────────────────────────────── */
+
+.wc-news-host {
+  flex: 1;
+  min-height: 0;
+  padding-top: var(--wc-topbar-h, 52px);
+}
+.wc-main.is-news .wc-thread,
+.wc-main.is-news .wc-composer-wrap { display: none; }
+.wc-news-back svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wc-turn-news .wc-bubble { max-width: 100%; }
 
 .wc-thread {
   flex: 1;

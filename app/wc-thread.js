@@ -210,6 +210,18 @@
     });
   }
 
+  // The first message of a news chat: words of the letter, not a teacher's
+  // answer. No Markdown (it would restyle them) and no row under it: no model
+  // wrote it, so there is nothing to copy-and-repeat with another model.
+  function newsTurn(text) {
+    const bubble = el('.wc-bubble');
+    global.LexNews.renderText(bubble, text);
+    const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, [bubble]);
+    turn.dataset.raw = text || '';
+    if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'news');
+    return { turn, bubble };
+  }
+
   function assistantTurn(text) {
     const bubble = el('.wc-bubble');
     if (text) WcMarkdown.into(bubble, text);
@@ -246,6 +258,7 @@
     for (const t of turns) lastOf.set(threadOfTurn(t), t);
     for (const t of turns) {
       const foot = t.querySelector('.wc-turn-foot');
+      if (t.classList.contains('wc-turn-news')) { entries.push({ row: null, eligible: false }); continue; }
       if (t.classList.contains('wc-turn-voice')) {
         // Строки с моделью и копированием под голосовым ответом нет; цена хода
         // (разработчику) встаёт в свой подвал — paintMoney.
@@ -333,6 +346,9 @@
       setEmpty(true);
     },
 
+    // Is this a news chat? The server wrote its first message.
+    hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
+
     renderTurns(turns) {
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
       // и обязан уйти вместе с ними.
@@ -376,7 +392,7 @@
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
-          const { turn } = assistantTurn(t.text);
+          const { turn } = t.origin === 'news' ? newsTurn(t.text) : assistantTurn(t.text);
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
           // Модель ответа (из денег беседы) — подпись кнопки модели.
@@ -389,10 +405,12 @@
       });
       setEmpty(!elTurns.childElementCount);
       syncFeet();
-      stickToBottom = true;
+      // A chat that is only the news starts at its first line.
+      const newsOnly = !!(turns && turns.length === 1 && turns[0].origin === 'news');
+      stickToBottom = !newsOnly;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
-      requestAnimationFrame(() => scrollToBottom(false));
+      requestAnimationFrame(() => { if (newsOnly) elThread.scrollTop = 0; else scrollToBottom(false); });
     },
 
     // Замена хода заготовки пришла первым кадром — последний свой пузырь

@@ -205,7 +205,7 @@
     // здесь она записана явно, потому что ячейки читаются и там, где реестра
     // нет, а сверять их незачем: значение чинится на чтении
     // (каталог распознавалок, LexDictationCatalog.normalize).
-    knobDictationModel: 'gpt-transcribe',
+    knobDictationModel: 'MAI-Transcribe-2',
     knobDictationLanguages: '',                        // languages: ОДИН язык или 'auto' (прежнее «en,ru» сервер читает как auto)
     knobDictationPrompt: '',                           // prompt: ОПИСАНИЕ записи, не приказ
     knobDictationKeywords: '',                         // keywords у gpt-transcribe: «worktree,Lex» → повторяющееся поле
@@ -286,7 +286,7 @@
   };
 
   // ── Скаляры с проверкой значения ─────────────────────────────────────────
-  const DEFAULT_VOICE_MODEL_ID = 'gpt-realtime';
+  const DEFAULT_VOICE_MODEL_ID = 'gemini-3.1-flash-live-preview';
 
   const VALID_SPEECH_ENGINES = [
     // Web Speech API — синтезирует сам браузер/система. Единственный движок,

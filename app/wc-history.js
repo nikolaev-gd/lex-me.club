@@ -137,6 +137,26 @@
     });
   }
 
+  // News: its database functions and its one server call (lex-news.js).
+  const rpc = (name, args) => post('/rest/v1/rpc/' + name, args || {});
+
+  async function newsPost(kind, body) {
+    const token = await A().validToken();
+    if (!token) throw new Error('no valid session');
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/llm-proxy/' + kind, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: A().anonKey(),
+        Authorization: 'Bearer ' + token,
+      },
+      body: JSON.stringify(body || {}),
+    });
+    const out = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((out && out.error) || ('HTTP ' + resp.status));
+    return out;
+  }
+
   // ── Sessions ─────────────────────────────────────────────────────────────
   // Not optional bookkeeping: llm-proxy refuses a paid call whose meta carries
   // no session id ('no_session'), so a conversation without a row here cannot
@@ -496,6 +516,8 @@
     requestTitle,
     conversation,
     money,
+    rpc,
+    newsPost,
     reportStopped,
     attach,
     newUid,

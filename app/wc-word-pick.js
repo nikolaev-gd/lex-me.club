@@ -192,6 +192,7 @@
     const src = bubble.dataset.lexSrc;
     if (src == null) return;
     if (bubble.dataset.lexKind === 'markdown') global.WcMarkdown.into(bubble, src);
+    else if (bubble.dataset.lexKind === 'news') global.LexNews.renderText(bubble, src);
     // Пузырь «translate» из выбранного материала: красная часть и допечатанное.
     else if (bubble.dataset.lexKind === 'pick') WP.paintPickBubble(bubble, bubble.dataset.lexPick || '', bubble.dataset.lexRest || '');
     else bubble.textContent = src;
@@ -417,7 +418,7 @@
       if (!bubble) return;
       if (bubble.dataset) {
         bubble.dataset.lexSrc = String(src == null ? '' : src);
-        bubble.dataset.lexKind = (kind === 'markdown' || kind === 'pick') ? kind : 'text';
+        bubble.dataset.lexKind = (kind === 'markdown' || kind === 'pick' || kind === 'news') ? kind : 'text';
       }
       sliceBubble(bubble);
     },

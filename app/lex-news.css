@@ -1,0 +1,221 @@
+/* lex-news.css — the look of the News section (lex-news.js). One file for the
+ * extension and the page lex-me.club/app. Colours come from the window through
+ * variables on the container, because the dark panel of the extension and the
+ * light and dark themes of the page differ while the layout does not:
+ *   --lex-news-fg, --lex-news-muted, --lex-news-line, --lex-news-hover,
+ *   --lex-news-danger, --lex-news-bg
+ * Selectors start with a class of this module so the styles of a host page
+ * (YouTube, any site under the small window) do not reach in. */
+
+.lex-news-entry {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lex-news-fg, inherit);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.lex-news-entry:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
+
+.lex-news {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  color: var(--lex-news-fg, inherit);
+  background: var(--lex-news-bg, transparent);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.lex-news .lex-news-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  flex: 0 0 auto;
+}
+.lex-news .lex-news-title { font-size: 18px; font-weight: 600; }
+.lex-news .lex-news-refresh,
+.lex-news .lex-news-again,
+.lex-news-settings .lex-news-mini {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  padding: 5px 10px;
+  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lex-news-fg, inherit);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.lex-news .lex-news-refresh:hover,
+.lex-news .lex-news-again:hover,
+.lex-news-settings .lex-news-mini:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
+.lex-news .lex-news-refresh:disabled { opacity: .5; cursor: default; }
+.lex-news .lex-news-status {
+  flex: 0 0 auto;
+  padding: 0 16px 8px;
+  color: var(--lex-news-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+}
+.lex-news .lex-news-status.is-error { color: var(--lex-news-danger, #d93a3a); }
+.lex-news .lex-news-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px 24px;
+  position: relative;
+}
+.lex-news .lex-news-blocks { max-width: 720px; margin: 0 auto; }
+.lex-news .lex-news-empty { padding: 32px 0; text-align: center; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
+.lex-news .lex-news-block { padding: 12px 0 8px; border-top: 1px solid var(--lex-news-line, rgba(127, 127, 127, .25)); }
+.lex-news .lex-news-block:first-child { border-top: 0; }
+.lex-news .lex-news-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.lex-news a.lex-news-block-title,
+.lex-news .lex-news-block-title {
+  color: var(--lex-news-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.lex-news a.lex-news-block-title:hover { text-decoration: underline; }
+.lex-news .lex-news-again { flex: 0 0 auto; padding: 3px 8px; font-size: 12px; }
+.lex-news .lex-news-failed { padding: 6px 0; color: var(--lex-news-danger, #d93a3a); font-size: 13px; }
+.lex-news .lex-news-card {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lex-news .lex-news-card:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
+.lex-news .lex-news-card-title { display: block; font-weight: 600; }
+.lex-news .lex-news-card-desc { display: block; margin-top: 2px; font-size: 14px; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
+.lex-news .lex-news-card.is-read .lex-news-card-title { font-weight: 400; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
+
+/* The first message of a news chat. */
+.lex-news-text-para { margin: 0 0 .8em; text-align: left; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-news-text-para:last-child { margin-bottom: 0; }
+a.lex-news-text-link { color: inherit; text-decoration: underline; }
+
+.lex-news-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--lex-news-line, rgba(127, 127, 127, .25));
+  color: var(--lex-news-fg, inherit);
+  font-size: 14px;
+  text-align: left;
+}
+.lex-news-settings .lex-news-settings-title { font-size: 15px; font-weight: 600; }
+/* In the extension News is a pane of its own, nothing stands above the block. */
+.ytvocab-settings-news-slot .lex-news-settings { margin-top: 0; padding-top: 0; border-top: 0; }
+.ytvocab-settings-news-slot .lex-news-settings-title { display: none; }
+.lex-news-settings .lex-news-field-label { margin-bottom: 4px; font-weight: 600; font-size: 13px; }
+.lex-news-settings .lex-news-address { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lex-news-settings .lex-news-address-value { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow-wrap: anywhere; font-size: 13px; user-select: all; }
+.lex-news-settings .lex-news-model {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 5px 10px;
+  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.lex-news-settings .lex-news-senders { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.lex-news-settings .lex-news-sender { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.lex-news-settings .lex-news-input,
+.lex-news-settings .lex-news-prompt {
+  box-sizing: border-box;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 5px 8px;
+  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.lex-news-settings .lex-news-prompt { display: block; width: 100%; margin-bottom: 6px; resize: vertical; line-height: 1.4; }
+.lex-news-settings .lex-news-note { min-height: 1.2em; font-size: 12px; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
+.lex-news-settings .lex-news-note.is-error { color: var(--lex-news-danger, #d93a3a); }
+
+/* The extension's windows: the feed takes the place of the chat, and the arrow
+   stands next to the three stripes while a chat opened from a card is on screen. */
+.lex-news-open .ytvocab-chat-history,
+.lex-news-open .ytvocab-chat-scrolldown,
+.lex-news-open .ytvocab-chat-input-row { display: none !important; }
+.lex-news-host[hidden] { display: none; }
+.lex-news-host { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.lex-news-back {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, .7);
+  cursor: pointer;
+}
+.lex-news-back[hidden] { display: none; }
+.lex-news-back:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.lex-news-back svg { width: 18px; height: 18px; }
+
+.ytvocab-chat-drawer-head:has(.ytvocab-chat-drawer-sections:not([hidden])) { flex-wrap: wrap; }
+.ytvocab-chat-drawer-head:has(.ytvocab-chat-drawer-sections:not([hidden])) .ytvocab-chat-drawer-title { flex-basis: 100%; padding-left: 12px; }
+.ytvocab-chat-drawer-sections { flex: 1 1 0; min-width: 0; }
+.ytvocab-chat-drawer-sections[hidden] { display: none; }
+.ytvocab-chat-drawer-sections,
+.lex-news-host,
+.ytvocab-settings-popover .lex-news-settings {
+  --lex-news-fg: rgba(255, 255, 255, .92);
+  --lex-news-muted: rgba(255, 255, 255, .55);
+  --lex-news-line: rgba(255, 255, 255, .16);
+  --lex-news-hover: rgba(255, 255, 255, .08);
+  --lex-news-danger: #ff6b6b;
+}

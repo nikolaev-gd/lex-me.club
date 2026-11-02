@@ -1527,6 +1527,7 @@
       model: cfg.voiceModelId,
       meta: {
         videoId: resolveVideoId(cfg), surface: cfg.surface || null,
+        ...(cfg.newsChatProvider && cfg.newsChatProvider() ? { newsChat: true } : {}),
         // Тип страницы разговора: голос поднимается и в суперчате на
         // произвольном сайте, где 'youtube' был бы неправдой.
         pageType: (global.LexPageType && global.LexPageType.current()) || null,

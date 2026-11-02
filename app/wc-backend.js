@@ -1345,10 +1345,16 @@
   WcBus.on('WC_OPEN_TURNS', async (m) => {
     if (!m || !m.conversationId || openId !== m.conversationId) return { ok: true, turns: [] };
     const turns = openTurns
+      // The text of a news item reaches voice from the server, on every path.
+      .filter((t) => t && t.origin !== 'news')
       .filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string' && t.text.trim())
       .map((t) => ({ role: t.role, content: t.text }));
     return { ok: true, turns };
   });
+
+  // News (lex-news.js): database functions and the one server call.
+  WcBus.on('WC_NEWS_RPC', (m) => WcHistory.rpc(m.name, m.args));
+  WcBus.on('WC_NEWS_POST', (m) => WcHistory.newsPost(m.kind, m.body));
 
   WcBus.on('WC_STOP', async (m) => {
     const entry = inflightStreams.get(m.requestId);

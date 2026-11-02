@@ -1209,7 +1209,7 @@
       } catch (e) { /* log collection must never break the call */ }
     }
 
-    async function callAnthropicStream({ model, systemPrompt, userMessage, messages, serverHistory, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
+    async function callAnthropicStream({ onThinkingStart, model, systemPrompt, userMessage, messages, serverHistory, onChunk, onModel, onUsage, onBilled, onProxyTimings, onRequestBody, onResponseMeta, onRawFrame, signal, effort, thinking, knobs, modelId, __diagMark, proxy }) {
       // `!proxy &&` — как у соседних адаптеров (OpenAI, Google). Ключ читается
       // ТОЛЬКО в прямой ветке ниже (`x-api-key`); на прокси-пути его ставит
       // сервер. Без этого условия любой host, который провайдерских ключей не
@@ -1421,6 +1421,11 @@
           if (typeof u.cache_read_input_tokens === 'number')    cacheReadTokens           = u.cache_read_input_tokens;
           if (typeof u.cache_creation_input_tokens === 'number') cacheCreationTokens      = u.cache_creation_input_tokens;
           if (typeof u.output_tokens === 'number')              outputTokens              = u.output_tokens;
+        }
+        // A model that reasons sends the block's start at once and then nothing until
+        // the thinking is done, so this is the sign that it is working.
+        if (event === 'content_block_start' && parsed.content_block?.type === 'thinking') {
+          onThinkingStart?.();
         }
         if (event === 'content_block_delta' && parsed.delta?.text) {
           onChunk(parsed.delta.text);
@@ -2680,6 +2685,12 @@
         // finishCall. Dispatcher-owned buffers so partial frames survive a throw.
         onRawFrame: (frame) => { if (ioSurface != null) lastIoRawFrames.push(frame); },
         onResponseMeta: (meta) => { if (ioSurface != null) lastIoMeta = meta; },
+        onThinkingStart: () => {
+          if (streamTimer != null) {
+            clearTimeout(streamTimer);
+            streamTimer = null;
+          }
+        },
         onChunk: (text) => {
           if (ttft_ms === null) {
             ttft_ms = Date.now() - requestedAt;

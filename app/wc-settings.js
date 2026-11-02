@@ -181,6 +181,16 @@
         (await WcVoice.settingsFields()).forEach((f) => body.push(f));
       }
 
+      // News, for an account that has it: the server decides, the sheet only
+      // takes the block.
+      if (ctx && ctx.newsSettings) {
+        // The sheet does not wait for the answer: it holds Sign out, and it must
+        // open on a dead network too.
+        const slot = document.createElement('div');
+        body.push(slot);
+        ctx.newsSettings().then((news) => { if (news) slot.appendChild(news); });
+      }
+
       const signOutBtn = el('button.lex-field-btn.lex-field-btn--danger', {
         type: 'button', text: 'Sign out',
         onclick: () => { handle.close(); ctx.onSignOut(); },

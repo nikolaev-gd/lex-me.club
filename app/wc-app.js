@@ -222,6 +222,7 @@
       return;
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
+    leaveNews();
     state.conversationId = id;
     paintConversation(r);
     WcSidebar.setActive(id);
@@ -256,6 +257,69 @@
     WcThread.paintMoney(null);
   }
 
+  // ── News ─────────────────────────────────────────────────────────────────
+  // The feed, its cards and its settings are lex-news.js, the same code as in
+  // the extension. Here is only where they stand on this page: the feed takes
+  // the place of the thread and the composer, a card opens as an ordinary chat,
+  // and the arrow in the top bar comes back. The feed stays alive under the chat,
+  // so it comes back at the same place.
+  const newsRpc = (name, args) => WcBus.call('WC_NEWS_RPC', { name, args });
+  let newsFeed = null;
+  function newsEls() {
+    return {
+      main: document.querySelector('.wc-main'),
+      host: document.getElementById('wc-news-host'),
+      back: document.getElementById('wc-news-back'),
+    };
+  }
+  async function loadSections() {
+    let sections = [];
+    try { sections = await newsRpc('lex_home_sections', {}); } catch (err) {
+      console.warn('[wc] sections:', err && err.message);
+    }
+    global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
+      if (id === 'news') showNews();
+    });
+  }
+  function leaveNews() {
+    const { main, host, back } = newsEls();
+    if (newsFeed && !host.hidden) newsFeed.hide();
+    host.hidden = true;
+    back.hidden = true;
+    main.classList.remove('is-news');
+  }
+  async function showNews() {
+    const { main, host, back } = newsEls();
+    await endVoiceOnLeave('news');
+    if (!newsFeed) {
+      newsFeed = global.LexNews.createFeed({
+        rpc: newsRpc,
+        post: (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body }),
+        openChat: async ({ chatKey, title }) => {
+          await openConversation(chatKey);
+          if (state.conversationId !== chatKey) return;
+          WcHeader.setTitle(title);
+          newsEls().back.hidden = false;
+        },
+      });
+      host.appendChild(newsFeed.el);
+    }
+    back.hidden = true;
+    host.hidden = false;
+    main.classList.add('is-news');
+    WcSidebar.close();
+    await newsFeed.show();
+  }
+  function newsSettings() {
+    const block = global.LexNews.createSettings({
+      rpc: newsRpc,
+      copy: (text) => navigator.clipboard.writeText(text).then(() => true, () => false),
+      modelLabel: (id) => global.LexAnswerRow.modelLabel(id),
+      pickModel: (anchor, id, onPick) => openModelMenu(anchor, id, null, onPick),
+    });
+    return block.load().then((has) => (has ? block.el : null), () => null);
+  }
+
   async function newConversation() {
     if (WcThread.isStreaming()) stopStream();
     refreshPublished();
@@ -263,6 +327,7 @@
     // решение, что в openConversation). Карандаш во время звонка спрятан, но
     // сюда же ведёт удаление открытой беседы из панели (deleteConversation).
     await endVoiceOnLeave('new-chat');
+    leaveNews();
     state.conversationId = null;
     WcThread.clear();
     resetMoney();
@@ -595,7 +660,7 @@
   // 'window-closed' — программа для Мака закрыла или спрятала окно, а
   // крестика разговора на странице не нашла (WebHost.stopVoice): это уход из
   // приложения, надпись в спрятанное окно ни к чему.
-  const VOICE_END_BY_READER = new Set(['manual', 'open-chat', 'new-chat', 'window-closed']);
+  const VOICE_END_BY_READER = new Set(['manual', 'open-chat', 'new-chat', 'window-closed', 'news']);
 
   // The mic button is a toggle over one live session. Everything the reader
   // hears and says lands in the same thread as typing, through the same
@@ -748,6 +813,7 @@
     try {
       await WcVoice.start({
         conversationId: convId,
+        newsChat: WcThread.hasNewsTurn(),
         // «Держи и говори» у голоса Google — свой режим разговора (слух Google
         // выключен, конец реплики отмечает кнопка); у OpenAI — та же живая
         // сессия с закрытым микрофоном.
@@ -847,6 +913,7 @@
     return WcSettings.open({
       account: state.account,
       onSignOut: signOut,
+      newsSettings,
     });
   }
 
@@ -1344,6 +1411,8 @@
   async function enterApp() {
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
+    document.getElementById('wc-news-back').onclick = () => showNews();
+    loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
     // Единственная точка входа в приложение: сюда приходят и форма, и

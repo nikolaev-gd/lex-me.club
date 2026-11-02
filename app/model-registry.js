@@ -715,6 +715,12 @@
     {
       id: 'gpt-transcribe', apiModel: 'gpt-transcribe',
       provider: 'openai', type: 'asr', label: 'GPT Transcribe',
+    },
+    {
+      // Умолчание диктовки — Microsoft (решение Геннадия 2026-09-30). Здесь только
+      // имя для запасного выбора: путь, частоту и ручки знает каталог распознавалок.
+      id: 'MAI-Transcribe-2', apiModel: 'MAI-Transcribe-2',
+      provider: 'microsoft', type: 'asr', label: 'MAI Transcribe 2',
       // Умолчание диктовки: имя, когда настройка его не называет или называет
       // распознавалку, которой в каталоге (строки базы) больше нет.
       dictationDefault: true,
