@@ -84,6 +84,8 @@
   }
 
   // ── the feed ────────────────────────────────────────────────────────────────
+  const NEW_ITEMS_LOOK_MS = 30000;
+
   function createFeed(deps) {
     const root = make('section', 'lex-news');
     const head = make('header', 'lex-news-head');
@@ -94,12 +96,15 @@
     const status = make('div', 'lex-news-status');
     status.setAttribute('role', 'status');
     status.hidden = true;
+    const fresh = make('button', 'lex-news-fresh', 'New items');
+    fresh.type = 'button';
+    fresh.hidden = true;
     const scroller = make('div', 'lex-news-scroll');
     const blocksEl = make('div', 'lex-news-blocks');
-    const empty = make('div', 'lex-news-empty', 'No letters yet.');
+    const empty = make('div', 'lex-news-empty', 'Nothing here yet.');
     empty.hidden = true;
     scroller.append(blocksEl, empty);
-    root.append(head, status, scroller);
+    root.append(head, status, fresh, scroller);
 
     let more = null;
     let loading = false;
@@ -108,6 +113,7 @@
     let savedTop = 0;
     let saveTimer = null;
     let lastSaved = null;
+    let watchTimer = null;
 
     const setStatus = (text, isError) => {
       status.textContent = text || '';
@@ -156,8 +162,30 @@
       });
       paint(r.blocks || [], false);
       more = r.more || null;
+      fresh.hidden = true;
       return r;
     }
+
+    // Items come by themselves. While the feed is on screen it looks whether something
+    // stands above its top item, and only then offers the button. Nothing new, nothing shown.
+    async function lookForNew() {
+      if (busy || document.hidden) return;
+      try {
+        const first = ((await deps.rpc('list_news', { p_limit: 1 })).blocks || [])[0];
+        const top = blocksEl.firstElementChild;
+        fresh.hidden = !first || (!!top && top.dataset.letter === String(first.id));
+      } catch (e) {
+        console.warn('[news] new items:', e && e.message);
+      }
+    }
+    function watchForNew(on) {
+      clearInterval(watchTimer);
+      watchTimer = on ? setInterval(lookForNew, NEW_ITEMS_LOOK_MS) : null;
+    }
+    fresh.addEventListener('click', async () => {
+      await load().catch((e) => setStatus('The feed did not load. ' + ((e && e.message) || ''), true));
+      scroller.scrollTop = 0;
+    });
 
     async function loadMore() {
       if (!more || loading) return;
@@ -220,9 +248,8 @@
       if (busy) return;
       busy = true;
       refreshBtn.disabled = true;
-      setStatus('Looking for new letters…');
+      setStatus('Updating…');
       const round = newOpId();
-      let done = 0;
       let failed = [];
       let stopped = null;
       let end;
@@ -230,25 +257,21 @@
         for (let i = 0; i < 300; i++) {
           const r = await deps.post('news-refresh', { round });
           if (r.mailError && !i) console.warn('[news] mail:', r.mailError);
-          if (r.status === 'processed') {
-            done++;
-            await load();
-          } else if (r.status === 'failed') {
+          if (r.status === 'processed' || r.status === 'failed') {
             await load();
           } else if (r.status === 'stopped') {
-            stopped = r.error || 'The letters were not processed.';
+            stopped = r.error || 'Nothing was processed.';
             break;
           } else if (!r.more) {
             failed = r.failed || [];
             break;
           }
-          setStatus(r.remaining > 0 ? `Processing letters… ${r.remaining} left` : 'Processing letters…');
+          setStatus(r.remaining > 0 ? `Processing… ${r.remaining} left` : 'Processing…');
         }
         await load();
         if (stopped) end = [stopped, true];
         else if (failed.length) end = [`Not processed: ${[...new Set(failed)].join(', ')}.`, true];
-        else if (done) end = [done === 1 ? 'One new letter.' : `${done} new letters.`];
-        else end = ['No new letters.'];
+        else end = [''];
       } catch (e) {
         end = ['Refresh failed. ' + ((e && e.message) || ''), true];
       }
@@ -271,12 +294,14 @@
             const r = await load({ toAnchor: true });
             standOn(r.anchor);
             lastSaved = r.anchor || null;
+            watchForNew(true);
           } catch (e) {
             opened = false;
             setStatus('The feed did not load. ' + ((e && e.message) || ''), true);
           }
           return;
         }
+        watchForNew(true);
         scroller.scrollTop = savedTop;
         if (busy) return;
         const keep = cardNodeOf(topCard());
@@ -291,7 +316,10 @@
           console.warn('[news] feed:', e && e.message);
         }
       },
-      hide() { savedTop = scroller.scrollTop; },
+      hide() {
+        savedTop = scroller.scrollTop;
+        watchForNew(false);
+      },
     };
   }
 

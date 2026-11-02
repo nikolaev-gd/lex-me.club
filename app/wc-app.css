@@ -526,6 +526,7 @@ button { font: inherit; color: inherit; }
 .wc-sections { flex: 1; min-width: 0; }
 .wc-sections, .wc-news-host, .lex-news-settings, .wc-turn-news {
   --lex-news-menu:   var(--bg-raised);
+  --lex-news-bg-on-fg: var(--bg);
   --lex-news-fg:     var(--fg);
   --lex-news-muted:  var(--fg-muted);
   --lex-news-line:   var(--line);
