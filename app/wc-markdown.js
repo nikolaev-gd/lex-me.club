@@ -29,6 +29,7 @@
       re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/,
       make: (m) => {
         const a = el('a', m[1]);
+        a.className = 'lex-link';
         a.href = m[2];
         a.target = '_blank';
         // noopener is the one that matters (the opened page must not get a

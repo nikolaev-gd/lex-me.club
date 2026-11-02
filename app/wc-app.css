@@ -524,6 +524,8 @@ button { font: inherit; color: inherit; }
 .wc-sidebar-head:has(.wc-sections:not([hidden])) { flex-wrap: wrap; }
 .wc-sidebar-head:has(.wc-sections:not([hidden])) .wc-sidebar-title { flex-basis: 100%; padding-left: 12px; }
 .wc-sections { flex: 1; min-width: 0; }
+/* A card is on screen before its chat is ready: the field comes when it can be used. */
+.wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
 .wc-sections, .wc-news-host, .lex-news-settings, .wc-turn-news {
   --lex-news-menu:   var(--bg-raised);
   --lex-news-bg-on-fg: var(--bg);
@@ -1118,10 +1120,6 @@ button { font: inherit; color: inherit; }
   border-left: 3px solid var(--line-strong);
   color: var(--fg-muted);
 }
-/* No coloured accent anywhere means links cannot be "the blue ones". They are
-   underlined instead, which is what distinguishes a link from prose when
-   colour is not available to do it. */
-.wc-bubble a { color: inherit; text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 .wc-bubble table { border-collapse: collapse; margin-bottom: .75em; }
 .wc-bubble th, .wc-bubble td { padding: 5px 10px; border: 1px solid var(--line); }
 

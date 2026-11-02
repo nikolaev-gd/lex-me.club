@@ -407,12 +407,23 @@
       });
       setEmpty(!elTurns.childElementCount);
       syncFeet();
-      // A chat that is only the news starts at its first line.
+      // A chat that is only the news starts at its first line. A card that was on
+      // screen before its chat came stays where the person is reading.
       const newsOnly = !!(turns && turns.length === 1 && turns[0].origin === 'news');
-      stickToBottom = !newsOnly;
+      const place = opts && opts.keepPlace ? elThread.scrollTop : null;
+      stickToBottom = !newsOnly && place === null;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
-      requestAnimationFrame(() => { if (newsOnly) elThread.scrollTop = 0; else scrollToBottom(false); });
+      requestAnimationFrame(() => {
+        if (place !== null) elThread.scrollTop = place;
+        else if (newsOnly) elThread.scrollTop = 0;
+        else scrollToBottom(false);
+      });
+    },
+
+    // Something above the turns came late and pushed them: the bottom is where it was.
+    keepAtBottom() {
+      if (stickToBottom) scrollToBottom(false);
     },
 
     // Замена хода заготовки пришла первым кадром — последний свой пузырь

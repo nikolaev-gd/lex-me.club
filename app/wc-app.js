@@ -165,9 +165,9 @@
 
   // Прочитанную беседу — на экран. Общий у открытия беседы и у сверки ленты
   // после голосового разговора.
-  function paintConversation(r) {
+  function paintConversation(r, opts) {
     resetMoney();
-    WcThread.renderTurns(r.turns, { newsHead });
+    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace) });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
@@ -197,7 +197,7 @@
     for (const ms of global.LexVoiceFeedCheck.DELAYS_MS) setTimeout(() => { check().catch(() => {}); }, ms);
   }
 
-  async function openConversation(id) {
+  async function openConversation(id, opts) {
     if (WcThread.isStreaming()) {
       // Leaving a conversation mid-answer would orphan the stream — the tokens
       // keep arriving for a turn that is no longer on screen, and the account
@@ -214,6 +214,7 @@
     // загрузки: stop() дописывает последний обмен в память беседы, и лента
     // новой не должна рисоваться поверх ещё живого разговора.
     if (id !== state.conversationId) await endVoiceOnLeave('open-chat');
+    if (newsFeed && !(opts && opts.wanted)) newsFeed.stopOpening();
     let r;
     try {
       r = await WcBus.call('WC_LOAD_CONVERSATION', { id });
@@ -222,9 +223,10 @@
       return;
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
+    if (opts && opts.wanted && !opts.wanted()) return;
     leaveNews();
     state.conversationId = id;
-    paintConversation(r);
+    paintConversation(r, opts);
     WcSidebar.setActive(id);
     WcSidebar.close();
     syncTitle();
@@ -265,13 +267,16 @@
   // so it comes back at the same place.
   const newsRpc = (name, args) => WcBus.call('WC_NEWS_RPC', { name, args });
   const newsPost = (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body });
+  // In WcStore: it is the person's, and WcWipe takes it away with everything else of theirs.
+  const NEWS_KEPT = 'lexNewsFeed';
   let newsFeed = null;
   // What stands over the first message of a news chat. Reading the chat again leaves
   // the arrow back to the feed as it was.
-  function newsHead() {
+  function newsHead(head) {
     const chatKey = state.conversationId;
     return global.LexNews.createChatHead({
-      chatKey, rpc: newsRpc, post: newsPost,
+      chatKey, head, rpc: newsRpc, post: newsPost,
+      onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
         const { host, back } = newsEls();
         if (state.conversationId !== chatKey || !host.hidden || WcThread.isStreaming()) return;
@@ -298,26 +303,47 @@
       if (id === 'news') showNews();
     });
   }
+  // The text of a card is here already: it goes on screen in the moment of the press,
+  // and the chat behind it comes after. Without a chat there is nowhere to send to, so
+  // the field waits for it.
+  function showNewsCard({ text, head, title }) {
+    if (WcThread.isStreaming()) return false;
+    leaveNews();
+    resetMoney();
+    WcThread.renderTurns([{ role: 'assistant', origin: 'news', text }], { newsHead: () => newsHead(head) });
+    const { main, back } = newsEls();
+    main.classList.add('is-news-opening');
+    back.hidden = false;
+    WcHeader.setTitle(title);
+    return true;
+  }
   function leaveNews() {
     const { main, host, back } = newsEls();
     if (newsFeed && !host.hidden) newsFeed.hide();
     host.hidden = true;
     back.hidden = true;
-    main.classList.remove('is-news');
+    main.classList.remove('is-news', 'is-news-opening');
   }
   async function showNews() {
     const { main, host, back } = newsEls();
     await endVoiceOnLeave('news');
+    main.classList.remove('is-news-opening');
     if (!newsFeed) {
       newsFeed = global.LexNews.createFeed({
         rpc: newsRpc,
         post: newsPost,
-        openChat: async ({ chatKey, title }) => {
-          await openConversation(chatKey);
-          if (state.conversationId !== chatKey) return;
+        showCard: showNewsCard,
+        // The field stays away until a chat stands behind the text, or a word would go to
+        // the chat before. The arrow leads back, and a press on the card tries again.
+        cardFailed: (why) => toast('The chat did not open: ' + why, { error: true }),
+        openChat: async ({ chatKey, title, shown, wanted }) => {
+          await openConversation(chatKey, { keepPlace: shown, wanted });
+          if (!wanted() || state.conversationId !== chatKey) return;
           WcHeader.setTitle(title);
           newsEls().back.hidden = false;
         },
+        keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
+        keptFeed: () => WcStore.one(NEWS_KEPT, null).catch(() => null),
       });
       host.appendChild(newsFeed.el);
     }
@@ -344,6 +370,7 @@
     // решение, что в openConversation). Карандаш во время звонка спрятан, но
     // сюда же ведёт удаление открытой беседы из панели (deleteConversation).
     await endVoiceOnLeave('new-chat');
+    if (newsFeed) newsFeed.stopOpening();
     leaveNews();
     state.conversationId = null;
     WcThread.clear();

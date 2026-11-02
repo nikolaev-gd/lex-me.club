@@ -8,9 +8,14 @@
 // A window gives:
 //   rpc(name, args)     a call of a database function under the person's pass
 //   post(kind, body)    a call of llm-proxy/<kind>
-//   openChat({ chatKey, title })   open this chat where chats open
+//   showCard({ id, text, head, title })   put a card on screen now, from what the feed
+//                       holds, or answer false when it cannot; no call may stand in between
+//   openChat({ chatKey, title })   open this chat where chats open; a card on screen
+//                       stays where the person is reading
+//   keepFeed(blocks) / keptFeed()   what the device holds between launches, optional
 //   reload(title)       read the open chat again after Process again in its head, unless
 //                       the person left it or an answer is being written
+//   onPaint()           the head came late and pushed the feed: stand where it stood
 //   copy(text)          put text on the clipboard, returns true when it worked
 //   pickModel(anchor, modelId, onPick)   the common model menu
 (function (global) {
@@ -33,36 +38,49 @@
     return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
   }
 
+  // Heads of chats a card opened: the feed knows them, so no call is needed to show one.
+  const knownHeads = new Map();
+
   // The first message of a news chat: words of the letter, shown as they are. The
   // Markdown of teacher answers would eat an asterisk and turn a line into a list,
-  // so this text takes only paragraphs and links, and builds nodes, never HTML.
+  // so this text takes only paragraphs, bold words, points of a list and links, and
+  // builds nodes, never HTML.
+  function addLine(host, line) {
+    line.split(/(?<!\\)\*\*/).forEach((piece, i) => {
+      const into = i % 2 ? host.appendChild(make('strong', 'lex-news-text-bold')) : host;
+      const words = (t) => document.createTextNode(t.replace(/\\\*/g, '*'));
+      let at = 0;
+      for (const m of piece.matchAll(LINK_RE)) {
+        if (m.index > at) into.appendChild(words(piece.slice(at, m.index)));
+        const a = make('a', 'lex-link', m[1].replace(/\\\*/g, '*'));
+        a.href = m[2];
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        into.appendChild(a);
+        at = m.index + m[0].length;
+      }
+      if (at < piece.length) into.appendChild(words(piece.slice(at)));
+    });
+  }
+
   function renderText(host, text) {
     host.replaceChildren();
     for (const para of String(text || '').split(/\n{2,}/)) {
       if (!para.trim()) continue;
       const p = make('p', 'lex-news-text-para');
+      if (para.startsWith('• ')) p.classList.add('is-point');
       para.split('\n').forEach((line, i) => {
         if (i) p.appendChild(document.createElement('br'));
-        let at = 0;
-        for (const m of line.matchAll(LINK_RE)) {
-          if (m.index > at) p.appendChild(document.createTextNode(line.slice(at, m.index)));
-          const a = make('a', 'lex-news-text-link', m[1]);
-          a.href = m[2];
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          p.appendChild(a);
-          at = m.index + m[0].length;
-        }
-        if (at < line.length) p.appendChild(document.createTextNode(line.slice(at)));
+        addLine(p, line);
       });
       host.appendChild(p);
     }
   }
 
-  // Words of the text without the addresses of its links: what word picking and
-  // copying work on.
+  // Words of the text without the addresses of its links and without its marks: what
+  // word picking and copying work on.
   function plainText(text) {
-    return String(text || '').replace(LINK_RE, '$1');
+    return String(text || '').replace(LINK_RE, '$1').replace(/(?<!\\)\*\*/g, '').replace(/\\\*/g, '*');
   }
 
   // ── the line above Chats ────────────────────────────────────────────────────
@@ -85,6 +103,7 @@
 
   // ── the feed ────────────────────────────────────────────────────────────────
   const NEW_ITEMS_LOOK_MS = 30000;
+  const KEPT_LETTERS = 50;
 
   function createFeed(deps) {
     const root = make('section', 'lex-news');
@@ -114,6 +133,8 @@
     let saveTimer = null;
     let lastSaved = null;
     let watchTimer = null;
+    let opening = null;
+    let keptBlocks = null;
 
     const setStatus = (text, isError) => {
       status.textContent = text || '';
@@ -122,14 +143,14 @@
       status.classList.toggle('is-busy', !!text && !isError && busy);
     };
 
-    function cardNode(card) {
+    function cardNode(card, block) {
       const b = make('button', 'lex-news-card');
       b.type = 'button';
       b.dataset.id = card.id;
       b.classList.toggle('is-read', !!card.read);
       b.appendChild(make('span', 'lex-news-card-title', card.title));
       if (card.description) b.appendChild(make('span', 'lex-news-card-desc', card.description));
-      b.addEventListener('click', () => openCard(card.id, b));
+      b.addEventListener('click', () => openCard(card, block, b));
       return b;
     }
 
@@ -139,10 +160,14 @@
       const art = make('article', 'lex-news-block');
       art.dataset.letter = String(block.id);
       if (block.state === 'failed') {
-        art.appendChild(make('div', 'lex-news-failed',
-          `${block.title} was not processed. ${block.error || ''} Refresh tries it again.`));
+        const row = make('div', 'lex-news-failed', `${block.title} was not processed. ${block.error || ''} `);
+        const again = make('button', 'lex-news-failed-again', 'Process again');
+        again.type = 'button';
+        again.addEventListener('click', () => processFailed(block));
+        row.appendChild(again);
+        art.appendChild(row);
       }
-      for (const c of block.cards || []) art.appendChild(cardNode(c));
+      for (const c of block.cards || []) art.appendChild(cardNode(c, block));
       return art;
     }
 
@@ -163,7 +188,14 @@
       paint(r.blocks || [], false);
       more = r.more || null;
       fresh.hidden = true;
+      keptBlocks = (r.blocks || []).slice(0, KEPT_LETTERS);
+      keep(r.anchor || lastSaved);
       return r;
+    }
+
+    // What the device holds between openings: the feed and the place in it.
+    function keep(anchor) {
+      if (deps.keepFeed && keptBlocks) deps.keepFeed({ blocks: keptBlocks, anchor: anchor || null });
     }
 
     // Items come by themselves. While the feed is on screen it looks whether something
@@ -225,23 +257,55 @@
         const id = topCard();
         if (!id || id === lastSaved) return;
         lastSaved = id;
+        keep(id);
         deps.rpc('save_news_position', { p_item_id: id }).catch((e) => console.warn('[news] position:', e && e.message));
       }, 1200);
     }
     scroller.addEventListener('scroll', noteScroll, { passive: true });
 
-    async function openCard(id, node) {
+    // The text is on the device, so the card is on screen in the same moment. The chat
+    // behind it comes after: it writes the mark and brings the field and earlier turns.
+    async function openCard(card, block, node) {
       savedTop = scroller.scrollTop;
+      node.classList.add('is-read');
+      lastSaved = card.id;
+      opening = card.id;
+      const wanted = () => opening === card.id;
+      const head = {
+        letterId: block.id, title: card.title, newsletter: block.title, date: block.date,
+        author: card.author || null, webUrl: block.webUrl || null,
+      };
+      const text = card.body ? card.body + (card.sourceUrl ? `\n\n[Source](${card.sourceUrl})` : '') : '';
+      const shown = !!text && deps.showCard({ id: card.id, text, head, title: card.title }) !== false;
       let r;
       try {
-        r = await deps.rpc('open_news_item', { p_op_id: newOpId(), p_item_id: id });
+        r = await deps.rpc('open_news_item', { p_op_id: newOpId(), p_item_id: card.id });
       } catch (e) {
-        setStatus('The news did not open. ' + ((e && e.message) || ''), true);
+        if (!wanted()) return;
+        if (shown) deps.cardFailed((e && e.message) || '');
+        else setStatus('The news did not open. ' + ((e && e.message) || ''), true);
         return;
       }
-      node.classList.add('is-read');
-      lastSaved = id;
-      deps.openChat({ chatKey: r.chatKey, title: r.title });
+      knownHeads.set(r.chatKey, head);
+      // Back in the feed by now, or on another card: this one stays marked, nothing moves.
+      if (wanted()) deps.openChat({ chatKey: r.chatKey, title: r.title, shown, wanted });
+    }
+
+    async function processFailed(block) {
+      if (busy) return;
+      busy = true;
+      setStatus(`Processing ${block.title} again…`);
+      let end = [''];
+      try {
+        const r = await deps.post('news-refresh', { round: newOpId(), letterId: block.id, opId: newOpId() });
+        if (r.status === 'busy') end = ['This item is being processed.'];
+        else if (r.status !== 'processed') end = [r.error || 'Nothing was processed.', true];
+        await load();
+      } catch (e) {
+        end = ['Process again failed. ' + ((e && e.message) || ''), true];
+      }
+      busy = false;
+      setStatus(...end);
     }
 
     async function refresh() {
@@ -284,12 +348,21 @@
     return {
       el: root,
       refresh,
+      // The person went to another chat: the card being opened stays marked, nothing moves.
+      stopOpening() { opening = null; },
       // Show the feed. The first time it stands on the saved place. Later it reads the
       // feed again, because letters come by themselves now, and what was on screen
       // stays where it was even when new cards came above it.
       async show() {
+        opening = null;
         if (!opened) {
           opened = true;
+          // What the device holds comes first, the server corrects it a moment later.
+          const kept = deps.keptFeed ? await deps.keptFeed() : null;
+          if (kept && kept.blocks && kept.blocks.length) {
+            paint(kept.blocks, false);
+            standOn(kept.anchor);
+          }
           try {
             const r = await load({ toAnchor: true });
             standOn(r.anchor);
@@ -381,7 +454,10 @@
       let end = [''];
       try {
         const r = await deps.post('news-refresh', { round: newOpId(), letterId, opId: newOpId() });
-        if (r.status === 'processed' && r.cards) await deps.reload(title.textContent);
+        if (r.status === 'processed' && r.cards) {
+          knownHeads.delete(deps.chatKey);
+          await deps.reload(title.textContent);
+        }
         else if (r.status === 'processed') end = ['The model found no cards. The cards stay as they were.'];
         else if (r.status === 'busy') end = ['This letter is being processed.'];
         else end = [r.error || 'The letter was not processed.', true];
@@ -397,7 +473,7 @@
       line.replaceChildren();
       let name;
       if (head.webUrl) {
-        name = make('a', 'lex-news-chat-newsletter', head.newsletter);
+        name = make('a', 'lex-news-chat-newsletter', `${head.newsletter} ↗`);
         name.href = head.webUrl;
         name.target = '_blank';
         name.rel = 'noopener noreferrer';
@@ -410,8 +486,17 @@
       root.hidden = false;
     }
 
+    const known = deps.head || knownHeads.get(deps.chatKey);
+    if (known) {
+      paint(known);
+      return root;
+    }
     deps.rpc('news_chat_head', { p_chat_key: deps.chatKey })
-      .then((head) => { if (head) paint(head); })
+      .then((head) => {
+        if (!head) return;
+        paint(head);
+        if (deps.onPaint) deps.onPaint();
+      })
       .catch((e) => console.warn('[news] head:', e && e.message));
     return root;
   }
