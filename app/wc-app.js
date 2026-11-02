@@ -227,6 +227,7 @@
     leaveNews();
     leaveProfi();
     state.conversationId = id;
+    if (opts && opts.back) sectionBack.cameFrom(opts.back);
     if (opts && opts.profi) enterProfiChat(opts.profi);
     paintConversation(r, opts);
     WcSidebar.setActive(id);
@@ -272,19 +273,20 @@
   // In WcStore: it is the person's, and WcWipe takes it away with everything else of theirs.
   const NEWS_KEPT = 'lexNewsFeed';
   let newsFeed = null;
+  // The arrow in the top bar: one rule for every section, see lex-back.js.
+  const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
+  const NEWS_BACK = { title: 'News', go: () => showNews() };
+  const PROFI_BACK = { title: 'Profi.ru', go: () => showProfi() };
   // What stands over the first message of a news chat. Reading the chat again leaves
   // the arrow back to the feed as it was.
   function newsHead(head) {
     const chatKey = state.conversationId;
-    // Back from a news chat is the feed, however the chat was opened. A chat repainted
-    // under an open feed has no arrow yet.
-    if (newsEls().host.hidden) newsEls().back.hidden = false;
     return global.LexNews.createChatHead({
       chatKey, head, rpc: newsRpc, post: newsPost,
       onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
-        if (state.conversationId !== chatKey || !newsEls().host.hidden || WcThread.isStreaming()) return;
-        await openConversation(chatKey);
+        if (state.conversationId !== chatKey || !newsEls().host.hidden || !profiEls().host.hidden || WcThread.isStreaming()) return;
+        await openConversation(chatKey, { back: sectionBack.target });
         WcHeader.setTitle(title);
       },
     });
@@ -293,7 +295,6 @@
     return {
       main: document.querySelector('.wc-main'),
       host: document.getElementById('wc-news-host'),
-      back: document.getElementById('wc-news-back'),
     };
   }
   async function loadSections() {
@@ -314,21 +315,20 @@
     leaveNews();
     resetMoney();
     WcThread.renderTurns([{ role: 'assistant', origin: 'news', text }], { newsHead: () => newsHead(head) });
-    const { main, back } = newsEls();
-    main.classList.add('is-news-opening');
-    back.hidden = false;
+    newsEls().main.classList.add('is-news-opening');
+    sectionBack.cameFrom(NEWS_BACK);
     WcHeader.setTitle(title);
     return true;
   }
   function leaveNews() {
-    const { main, host, back } = newsEls();
+    const { main, host } = newsEls();
     if (newsFeed && !host.hidden) newsFeed.hide();
     host.hidden = true;
-    back.hidden = true;
+    sectionBack.clear();
     main.classList.remove('is-news', 'is-news-opening');
   }
   async function showNews() {
-    const { main, host, back } = newsEls();
+    const { main, host } = newsEls();
     await endVoiceOnLeave('news');
     leaveProfi();
     main.classList.remove('is-news-opening');
@@ -341,7 +341,7 @@
         // the chat before. The arrow leads back, and a press on the card tries again.
         cardFailed: (why) => toast('The chat did not open: ' + why, { error: true }),
         openChat: async ({ chatKey, title, shown, wanted }) => {
-          await openConversation(chatKey, { keepPlace: shown, wanted });
+          await openConversation(chatKey, { keepPlace: shown, wanted, back: NEWS_BACK });
           if (wanted() && state.conversationId === chatKey) WcHeader.setTitle(title);
         },
         keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
@@ -349,7 +349,7 @@
       });
       host.appendChild(newsFeed.el);
     }
-    back.hidden = true;
+    sectionBack.clear();
     host.hidden = false;
     main.classList.add('is-news');
     WcSidebar.close();
@@ -366,7 +366,6 @@
     return {
       main: document.querySelector('.wc-main'),
       host: document.getElementById('wc-profi-host'),
-      back: document.getElementById('wc-news-back'),
       only: document.getElementById('wc-profi-only'),
     };
   }
@@ -383,7 +382,7 @@
     if (profiSection) profiSection.unwatch();
   }
   async function showProfi() {
-    const { main, host, back } = profiEls();
+    const { main, host } = profiEls();
     await endVoiceOnLeave('news');
     if (WcThread.isStreaming()) stopStream();
     leaveNews();
@@ -398,21 +397,18 @@
       });
       host.appendChild(profiSection.el);
     }
-    back.hidden = true;
+    sectionBack.clear();
     host.hidden = false;
     main.classList.add('is-profi');
     WcSidebar.close();
     await profiSection.show();
   }
   function enterProfiChat(chat) {
-    const { main, back, only } = profiEls();
+    const { main, only } = profiEls();
     profiChat = chat;
     WcThread.setProfiChat(chat);
     main.classList.add('is-profi-chat');
     only.hidden = false;
-    back.hidden = false;
-    back.title = 'Back to Profi.ru';
-    back.setAttribute('aria-label', 'Back to Profi.ru');
     syncProfiOnly();
     profiSection.watch();
   }
@@ -452,7 +448,7 @@
     });
     chat.data = data;
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
-    await openConversation(data.chatKey, { profi: chat });
+    await openConversation(data.chatKey, { profi: chat, back: PROFI_BACK });
   }
   // The server changed something: boxes, new turns, whether the client waits. The answer
   // being written stays as it is; its turn comes with the next change.
@@ -1581,7 +1577,7 @@
   async function enterApp() {
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
-    document.getElementById('wc-news-back').onclick = () => (profiChat ? showProfi() : showNews());
+    document.getElementById('wc-news-back').onclick = () => sectionBack.go();
     document.getElementById('wc-profi-only').onclick = pressProfiOnly;
     loadSections();
 
