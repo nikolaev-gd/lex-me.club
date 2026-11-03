@@ -365,6 +365,26 @@
       return e;
     }
 
+    // ── Отказ чата заказа Profi.ru ─────────────────────────────────────────
+    // llm-proxy отвечает 424 + stage 'profi', когда чат заказа не может пойти
+    // к модели: монитор ещё не прислал текст или не собрал его (копилку стиля
+    // не прочитать). Строку для человека пишет сервер, поверхность показывает
+    // её как есть (lex-error-text.js, profiRefused): правило одно на всех.
+    async function lexProfiRefusedError(response) {
+      if (!response || response.status !== 424) return null;
+      let body = '';
+      try { body = await response.clone().text(); } catch (_) { body = ''; }
+      let parsed = null;
+      try { parsed = JSON.parse(body); } catch (_) { parsed = null; }
+      const headerStage = (response.headers && typeof response.headers.get === 'function')
+        ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
+      const stage = headerStage || String((parsed && parsed.stage) || '');
+      if (stage !== 'profi') return null;
+      const e = new Error(`LEX_PROFI_REFUSED ${String((parsed && parsed.error) || '')}`.trim());
+      e.lexProfiRefused = true;
+      return e;
+    }
+
     // ── «Разговор сброшен» ─────────────────────────────────────────────────
     // Разработчик стёр данные по ролику или странице (content-reset), и заход
     // этого разговора помечен сброшенным (sessions.reset_at). lex_precall
@@ -721,6 +741,8 @@
         if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
+        const profiRefused = await lexProfiRefusedError(response);
+        if (profiRefused) throw profiRefused;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1067,6 +1089,8 @@
         if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
+        const profiRefused = await lexProfiRefusedError(response);
+        if (profiRefused) throw profiRefused;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1355,6 +1379,8 @@
         if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
+        const profiRefused = await lexProfiRefusedError(response);
+        if (profiRefused) throw profiRefused;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);
@@ -1547,6 +1573,8 @@
         if (noLine) throw noLine;
         const unpriced = await lexModelUnpricedError(response);
         if (unpriced) throw unpriced;
+        const profiRefused = await lexProfiRefusedError(response);
+        if (profiRefused) throw profiRefused;
         const overflow = lexContextOverflowError(response);
         if (overflow) throw overflow;
         const noSess = lexNoSessionError(response);

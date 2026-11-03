@@ -696,11 +696,16 @@
       const modelUnpriced = !gate && !promptMissing
         && typeof LexErrorText.isModelUnpriced === 'function' && LexErrorText.isModelUnpriced(text);
       if (modelUnpriced) lexLog('[wc-thread] model unpriced:', text);
-      const conversationReset = !gate && !promptMissing && !modelUnpriced
+      // Чат заказа Profi.ru отказал до модели (424 + stage 'profi'): строку
+      // для человека написал сервер, показываем её как есть.
+      const profiRefused = !gate && !promptMissing && !modelUnpriced
+        && typeof LexErrorText.isProfiRefused === 'function' && LexErrorText.isProfiRefused(text);
+      if (profiRefused) lexLog('[wc-thread] profi refused:', text);
+      const conversationReset = !gate && !promptMissing && !modelUnpriced && !profiRefused
         && typeof LexErrorText.isConversationReset === 'function' && LexErrorText.isConversationReset(text);
       if (conversationReset) lexLog('[wc-thread] conversation reset:', text);
 
-      const providerText = !gate && !promptMissing && !modelUnpriced && !conversationReset && LexErrorText.provider(text);
+      const providerText = !gate && !promptMissing && !modelUnpriced && !profiRefused && !conversationReset && LexErrorText.provider(text);
       if (providerText) lexLog('[wc-thread] provider error:', text);
       // Ответ, который переспрашивали, уже переспросили или сняли на другом
       // устройстве — сервер отказал до денег (409 regen_target_gone).
@@ -708,6 +713,7 @@
         && LexErrorText.isRegenTargetGone(text);
       const shown = regenGone ? LexErrorText.regenTargetGone()
         : promptMissing ? LexErrorText.promptMissing(text)
+        : profiRefused ? LexErrorText.profiRefused(text)
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)
           : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 

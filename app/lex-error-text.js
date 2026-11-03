@@ -212,6 +212,18 @@
   // `lex-teacher-core.js` (LEX_CONVERSATION_RESET), сверившись с базой. Как и
   // у промпта, отдельным текстом: это не сбой, а состояние, и лечится оно
   // одним действием человека — открыть разговор заново.
+  // Чат заказа Profi.ru отказал до модели (424 + stage 'profi'). Текст отказа —
+  // уже строка для человека, её пишет сервер: показываем как есть.
+  function isProfiRefused(raw) {
+    return str(raw).includes('LEX_PROFI_REFUSED');
+  }
+
+  function profiRefused(raw) {
+    const s = str(raw);
+    const at = s.indexOf('LEX_PROFI_REFUSED');
+    return (at < 0 ? s : s.slice(at + 'LEX_PROFI_REFUSED'.length)).trim() || t('err.provider.generic');
+  }
+
   function isConversationReset(raw) {
     return str(raw).includes('LEX_CONVERSATION_RESET');
   }
@@ -262,6 +274,8 @@
     promptMissing,
     isModelUnpriced,
     modelUnpriced,
+    isProfiRefused,
+    profiRefused,
     isConversationReset,
     conversationReset,
     isRegenTargetGone,
