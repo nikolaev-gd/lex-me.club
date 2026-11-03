@@ -16,10 +16,10 @@
   /* Портал в <body> чужой страницы: её правила для div (example.com ставит
      `div { opacity: 0.8 }`) достают и до меню — закрепляем. */
   opacity: 1;
-  background: var(--lex-menu-bg, var(--yt-spec-base-background, #0f0f0f));
-  border: 1px solid var(--lex-menu-line, rgba(255, 255, 255, 0.14));
+  background: var(--lex-menu-bg, var(--lex-dark-raised));
+  border: 1px solid var(--lex-menu-line, var(--lex-dark-line));
   border-radius: 8px;
-  box-shadow: var(--lex-menu-shadow, 0 8px 24px rgba(0, 0, 0, 0.5));
+  box-shadow: var(--lex-menu-shadow, 0 8px 24px var(--lex-dark-shadow));
   padding: 4px;
   /* Above every known host window's z-index (checked: standalone chat's
      2147483001 is the highest short of this) — the panel is a portal
@@ -41,7 +41,7 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  color: var(--lex-menu-muted, rgba(255, 255, 255, 0.5));
+  color: var(--lex-menu-muted, var(--lex-dark-fg-muted));
   padding: 5px 8px 3px;
 }
 .ytvocab-model-picker-row,
@@ -53,16 +53,16 @@
   border-radius: 5px;
   cursor: pointer;
   font-size: var(--lex-menu-font-size, 12px);
-  color: var(--lex-menu-fg, #e0e0e0);
+  color: var(--lex-menu-fg, var(--lex-dark-fg));
 }
 .ytvocab-model-picker-row:hover,
 .ytvocab-model-picker-effort-row:hover {
-  background: var(--lex-menu-hover, rgba(255, 255, 255, 0.1));
-  color: var(--lex-menu-fg-strong, #fff);
+  background: var(--lex-menu-hover, var(--lex-dark-hover));
+  color: var(--lex-menu-fg-strong, var(--lex-dark-fg));
 }
 .ytvocab-model-picker-row.is-selected,
 .ytvocab-model-picker-effort-row.is-selected {
-  color: var(--lex-menu-fg-strong, #fff);
+  color: var(--lex-menu-fg-strong, var(--lex-dark-fg));
 }
 .ytvocab-model-picker-check {
   flex: 0 0 auto;
@@ -91,7 +91,7 @@
 .ytvocab-model-picker-sep {
   height: 1px;
   margin: 4px 6px;
-  background: var(--lex-menu-line, rgba(255, 255, 255, 0.14));
+  background: var(--lex-menu-line, var(--lex-dark-line));
 }
 /* Подтверждение под пунктом «Transcribe audio» (chat-account-menu.js
    openTranscribeInMenu): та же разметка, что у кнопки в разделе Debug, в

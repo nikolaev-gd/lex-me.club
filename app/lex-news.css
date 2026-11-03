@@ -252,11 +252,11 @@
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, .7);
+  color: var(--lex-dark-fg-soft);
   cursor: pointer;
 }
 .lex-news-back[hidden] { display: none; }
-.lex-news-back:hover { background: rgba(255, 255, 255, .1); color: #fff; }
+.lex-news-back:hover { background: var(--lex-dark-hover); color: var(--lex-dark-fg); }
 .lex-news-back svg { width: 18px; height: 18px; }
 
 .ytvocab-chat-drawer-head:has(.ytvocab-chat-drawer-sections:not([hidden])) { flex-wrap: wrap; }
@@ -266,11 +266,11 @@
 .ytvocab-chat-drawer-sections,
 .lex-news-host,
 .ytvocab-chat-history .lex-news-chat-head {
-  --lex-section-menu: #2a2a2e;
-  --lex-section-bg-on-fg: #000;
-  --lex-section-fg: rgba(255, 255, 255, .92);
-  --lex-section-muted: rgba(255, 255, 255, .55);
-  --lex-section-line: rgba(255, 255, 255, .16);
-  --lex-section-hover: rgba(255, 255, 255, .08);
+  --lex-section-menu: var(--lex-dark-raised);
+  --lex-section-bg-on-fg: var(--lex-dark-accent-fg);
+  --lex-section-fg: var(--lex-dark-fg);
+  --lex-section-muted: var(--lex-dark-fg-muted);
+  --lex-section-line: var(--lex-dark-line-strong);
+  --lex-section-hover: var(--lex-dark-hover);
   --lex-section-danger: #ff6b6b;
 }

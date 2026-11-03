@@ -8,12 +8,12 @@
    неё продолжает работать светлая тема. */
 
 .lex-fields {
-  --lex-field-fg: #f1f1f1;
-  --lex-field-muted: rgba(255, 255, 255, 0.55);
-  --lex-field-line: rgba(255, 255, 255, 0.10);
-  --lex-field-line-strong: rgba(255, 255, 255, 0.18);
-  --lex-field-bg: rgba(0, 0, 0, 0.35);
-  --lex-field-accent: #ffffff;
+  --lex-field-fg: var(--lex-dark-fg);
+  --lex-field-muted: var(--lex-dark-fg-muted);
+  --lex-field-line: var(--lex-dark-line);
+  --lex-field-line-strong: var(--lex-dark-line-strong);
+  --lex-field-bg: var(--lex-dark-bg);
+  --lex-field-accent: var(--lex-dark-accent);
   --lex-field-danger: #ff6b6b;
   color: var(--lex-field-fg);
 }
@@ -87,7 +87,7 @@
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .lex-field-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--lex-dark-hover);
 }
 .lex-field-btn--danger {
   color: var(--lex-field-danger);

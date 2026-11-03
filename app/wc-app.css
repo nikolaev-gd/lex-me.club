@@ -27,7 +27,15 @@
  * The light theme mirrors the same structure with black laid over white, so
  * the two are one design rather than two.
  *
- * Nothing below names a raw colour outside the three theme blocks.
+ * The dark theme no longer holds values of its own: both dark blocks below
+ * point every token at the shared dark palette of Lex, lex-palette.css (linked
+ * first by index.html, copied next to the page by the build). The values above
+ * are history of how the page started; today's dark shades live only there.
+ * Light values stay here, in :root.
+ *
+ * Nothing below names a raw colour outside the theme blocks, except colours
+ * that are the same in both themes: the word highlight blue, the danger red,
+ * the dark veil over an attached picture and two shadows.
  */
 
 :root {
@@ -71,6 +79,9 @@
      iOS system bars do. Two tokens so the blur radius is stated once. */
   --glass:         rgba(255, 255, 255, .72);
   --glass-blur:    saturate(180%) blur(20px);
+
+  /* Dims the page behind the drawer, a sheet or a dialog. */
+  --scrim:         rgba(0, 0, 0, .38);
 
   /* The voice orb. Neutral on purpose — a blue ball would be the one coloured
      thing left in a product that otherwise has no accent colour. */
@@ -134,82 +145,68 @@
  * light theme and watch nothing happen. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:          #000000;
-    --bg-sunken:   #1f1f1f;
-    --bg-raised:   #2c2c2c;
-    --bg-hover:    rgba(255, 255, 255, .08);
-    --bg-active:   rgba(255, 255, 255, .12);
-    --bg-bubble:   #1f1f1f;
+    --bg:          var(--lex-dark-bg);
+    --bg-sunken:   var(--lex-dark-bg);
+    --bg-raised:   var(--lex-dark-raised);
+    --bg-hover:    var(--lex-dark-hover);
+    --bg-active:   var(--lex-dark-active);
+    --bg-bubble:   var(--lex-dark-bubble);
 
-    --fg:          #f1f1f1;
-    --fg-muted:    rgba(255, 255, 255, .55);
-    --fg-faint:    rgba(255, 255, 255, .40);
+    --fg:          var(--lex-dark-fg);
+    --fg-muted:    var(--lex-dark-fg-muted);
+    --fg-faint:    var(--lex-dark-fg-faint);
 
-    --line:        rgba(255, 255, 255, .10);
-    --line-strong: rgba(255, 255, 255, .30);
+    --line:        var(--lex-dark-line);
+    --line-strong: var(--lex-dark-line-focus);
 
-    --accent:      #ffffff;
-    --accent-fg:   #000000;
-    --accent-hover: rgba(255, 255, 255, .90);
+    --accent:      var(--lex-dark-accent);
+    --accent-fg:   var(--lex-dark-accent-fg);
+    --accent-hover: var(--lex-dark-accent-hover);
     --danger:      #ff6b6b;
 
-    --avatar-bg:         rgba(255, 255, 255, .08);
-    --avatar-bg-hover:   rgba(255, 255, 255, .14);
-    --avatar-line:       rgba(255, 255, 255, .18);
-    --avatar-line-hover: rgba(255, 255, 255, .30);
-    --avatar-fg:         rgba(255, 255, 255, .85);
-    --pill-bg:     #2c2c2c;
-    --pill-line:   #3a3a3a;
-    --pill-fg:     rgba(255, 255, 255, .55);
-    --pill-hover:  #434343;
+    --pill-bg:     var(--lex-dark-raised);
+    --pill-line:   var(--lex-dark-raised-strong);
+    --pill-fg:     var(--lex-dark-fg-muted);
+    --pill-hover:  var(--lex-dark-raised-hover);
 
-    --glass:       rgba(0, 0, 0, .72);
+    --glass:       var(--lex-dark-glass);
+    --scrim:       var(--lex-dark-scrim);
 
-    --orb:         #f1f1f1;
-    --orb-speak:   rgba(255, 255, 255, .72);
-
-    --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
-    --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+    --shadow-sm:   0 1px 2px var(--lex-dark-shadow);
+    --shadow-lg:   0 10px 40px var(--lex-dark-shadow-strong), 0 2px 8px var(--lex-dark-shadow);
   }
 }
 
 :root[data-theme="dark"] {
-  --bg:          #000000;
-  --bg-sunken:   #1f1f1f;
-  --bg-raised:   #2c2c2c;
-  --bg-hover:    rgba(255, 255, 255, .08);
-  --bg-active:   rgba(255, 255, 255, .12);
-  --bg-bubble:   #1f1f1f;
+  --bg:          var(--lex-dark-bg);
+  --bg-sunken:   var(--lex-dark-bg);
+  --bg-raised:   var(--lex-dark-raised);
+  --bg-hover:    var(--lex-dark-hover);
+  --bg-active:   var(--lex-dark-active);
+  --bg-bubble:   var(--lex-dark-bubble);
 
-  --fg:          #f1f1f1;
-  --fg-muted:    rgba(255, 255, 255, .55);
-  --fg-faint:    rgba(255, 255, 255, .40);
+  --fg:          var(--lex-dark-fg);
+  --fg-muted:    var(--lex-dark-fg-muted);
+  --fg-faint:    var(--lex-dark-fg-faint);
 
-  --line:        rgba(255, 255, 255, .10);
-  --line-strong: rgba(255, 255, 255, .30);
+  --line:        var(--lex-dark-line);
+  --line-strong: var(--lex-dark-line-focus);
 
-  --accent:      #ffffff;
-  --accent-fg:   #000000;
-  --accent-hover: rgba(255, 255, 255, .90);
+  --accent:      var(--lex-dark-accent);
+  --accent-fg:   var(--lex-dark-accent-fg);
+  --accent-hover: var(--lex-dark-accent-hover);
   --danger:      #ff6b6b;
 
-  --avatar-bg:         rgba(255, 255, 255, .08);
-  --avatar-bg-hover:   rgba(255, 255, 255, .14);
-  --avatar-line:       rgba(255, 255, 255, .18);
-  --avatar-line-hover: rgba(255, 255, 255, .30);
-  --avatar-fg:         rgba(255, 255, 255, .85);
-  --pill-bg:     #2c2c2c;
-  --pill-line:   #3a3a3a;
-  --pill-fg:     rgba(255, 255, 255, .55);
-  --pill-hover:  #434343;
+  --pill-bg:     var(--lex-dark-raised);
+  --pill-line:   var(--lex-dark-raised-strong);
+  --pill-fg:     var(--lex-dark-fg-muted);
+  --pill-hover:  var(--lex-dark-raised-hover);
 
-  --glass:       rgba(0, 0, 0, .72);
+  --glass:       var(--lex-dark-glass);
+  --scrim:       var(--lex-dark-scrim);
 
-  --orb:         #f1f1f1;
-  --orb-speak:   rgba(255, 255, 255, .72);
-
-  --shadow-sm:   0 1px 2px rgba(0, 0, 0, .4);
-  --shadow-lg:   0 10px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .4);
+  --shadow-sm:   0 1px 2px var(--lex-dark-shadow);
+  --shadow-lg:   0 10px 40px var(--lex-dark-shadow-strong), 0 2px 8px var(--lex-dark-shadow);
 }
 
 * { box-sizing: border-box; }
@@ -471,7 +468,7 @@ button { font: inherit; color: inherit; }
 .wc-scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, .38);
+  background: var(--scrim);
   z-index: 25;
   border: 0;
   /* Набирается вместе со шторкой. Во время протяжки прозрачность пишет
@@ -1480,7 +1477,7 @@ button { font: inherit; color: inherit; }
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(0, 0, 0, .38);
+  background: var(--scrim);
   z-index: 50;
 }
 .wc-sheet[hidden] { display: none; }
@@ -1573,7 +1570,7 @@ button { font: inherit; color: inherit; }
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(0, 0, 0, .38);
+  background: var(--scrim);
   z-index: 58;
 }
 .wc-modal[hidden] { display: none; }

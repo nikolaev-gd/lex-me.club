@@ -1,0 +1,67 @@
+/* lex-palette.css — the ONE dark palette of Lex, for every surface.
+ *
+ * Every dark colour on every surface comes from here and nowhere else:
+ *   - the extension: listed first among the content-script stylesheets in
+ *     manifest.json, linked by its own pages (side panel, sign-in frame,
+ *     microphone window) and injected with the small window (lex-surface-deps.js);
+ *   - the web page lex-me.club/app (webchat/index.html links it, the build
+ *     copies it next to the page) and through it the Mac app;
+ *   - the storefront lex-me.club, which links the copy that sits next to the page
+ *     (/app/lex-palette.css);
+ *   - the native shells: dev-tools/palette-json.mjs turns this file into
+ *     palette.json at build time — the iPhone app reads it in LexTheme.swift,
+ *     the Mac app paints its window and launch screen from it.
+ * A dark colour written anywhere else is a bug: change it here.
+ *
+ * The family is Reddit's dark theme (not its black one). The base #0F1113 and
+ * the divider #26292A are Gennady's pixels off Reddit; the steps between them
+ * are Reddit's own dark tokens (styles of www.redditstatic.com, theme-dark),
+ * a hair lighter or darker than the base and all with the same blue-grey cast.
+ *
+ * Format, kept simple on purpose because palette-json.mjs reads it with a regex:
+ * one `--lex-dark-<name>: <#RRGGBB | rgba(r, g, b, a)>;` per line, no var(),
+ * no other syntax. Light themes do not live here: they stay where they are.
+ *
+ * Text on the base (WCAG contrast): fg 16.7:1, fg-soft 11.2:1, fg-muted 7.1:1,
+ * fg-faint 5.1:1; on raised (menus, sheets) fg-muted is still 4.9:1. */
+:root {
+  /* Grounds, from the base up. */
+  --lex-dark-bg:            #0F1113;  /* base: chat, page, panels, side panel, slide-out menu and chat list */
+  --lex-dark-surface:       #181C1F;  /* a card on the base: subtitles block, code, quote, settings sheet */
+  --lex-dark-bubble:        #21272A;  /* own message bubble and the message box */
+  --lex-dark-raised:        #2A3236;  /* menus, popups, dialogs, tooltips, buttons and pills */
+  --lex-dark-raised-hover:  #333D42;  /* a button or pill under the cursor */
+  --lex-dark-raised-strong: #3D494E;  /* pressed or chosen button, outline of a pill */
+
+  /* Washes: white laid over whatever ground is under them. */
+  --lex-dark-wash:          rgba(255, 255, 255, .05);  /* faint fill of a card or chip */
+  --lex-dark-hover:         rgba(255, 255, 255, .08);  /* row or icon under the cursor */
+  --lex-dark-active:        rgba(255, 255, 255, .12);  /* chosen row, pressed */
+  --lex-dark-press:         rgba(255, 255, 255, .18);  /* pressed on a lighter ground, strong chip */
+  --lex-dark-wash-strong:   rgba(255, 255, 255, .28);  /* handles, dots, bright chips */
+
+  /* Lines. On the base the plain line is exactly #26292A — it is Reddit's own
+   * divider, white at 10 %, which also stays visible on cards and fields. */
+  --lex-dark-line:          rgba(255, 255, 255, .10);  /* dividers and frames */
+  --lex-dark-line-strong:   rgba(255, 255, 255, .20);  /* frames of controls */
+  --lex-dark-line-focus:    rgba(255, 255, 255, .32);  /* frame of fields and of the focused message box */
+
+  /* Text and icons. */
+  --lex-dark-fg:            #EEF1F3;  /* main text */
+  --lex-dark-fg-soft:       #B7CAD4;  /* secondary text that still reads at a glance */
+  --lex-dark-fg-muted:      #8BA2AD;  /* captions, meta, idle icons */
+  --lex-dark-fg-faint:      #748791;  /* placeholders, group titles, empty states */
+
+  /* The white action button (send, primary) and what is written on it. */
+  --lex-dark-accent:        #EEF1F3;
+  --lex-dark-accent-hover:  #FFFFFF;
+  --lex-dark-accent-fg:     #0F1113;
+
+  /* Over content. The rgb of glass and veils is the base. */
+  --lex-dark-glass:         rgba(15, 17, 19, .72);  /* round buttons and bars floating over the feed */
+  --lex-dark-veil:          rgba(15, 17, 19, .6);   /* see-through plates over the video */
+  --lex-dark-veil-strong:   rgba(15, 17, 19, .85);  /* plates over the video and images that must read */
+  --lex-dark-scrim:         rgba(0, 0, 0, .45);     /* dims what is behind a menu, sheet or dialog */
+  --lex-dark-shadow:        rgba(0, 0, 0, .45);     /* shadows */
+  --lex-dark-shadow-strong: rgba(0, 0, 0, .6);      /* shadows of floating windows */
+}
