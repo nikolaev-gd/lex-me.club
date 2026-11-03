@@ -73,12 +73,24 @@ prefers-color-scheme*.
 
 There is no switcher, deliberately: the browser already knows what the visitor
 wants, a static host cannot remember a choice without shipping JavaScript to
-every page, and one media query needs no markup at all — so the dark theme lives
-entirely in `assets/site.css` and no generated page had to be rebuilt for it.
+every page, and one media query needs no markup at all — so the dark theme is a
+single block at the bottom of `assets/site.css`.
 
 Every colour is a token in `:root`, and the block at the bottom of the file
 swaps the tokens. **A new rule with a raw hex in it is the one thing that breaks
 dark mode** — reach for a token, and add one if none fits.
+
+**The dark shades themselves are not this site's.** Lex has one dark palette for
+all its surfaces — the extension, the web app, the Mac and iPhone apps and this
+site. It lives in the Lex repository (`lex-palette.css`), the web app build
+copies it to `/app/lex-palette.css`, and every page here links that copy before
+`site.css`. The dark block in `site.css` only points this site's tokens at the
+palette (`--paper: var(--lex-dark-bg)` and so on); the brand violet, the yellow
+highlighter and the status colours stay this site's own. Two consequences: a
+dark shade is changed in the Lex repository, not here; and the web app has to be
+delivered (it carries the palette) before a change here that relies on a new
+palette token. Locally, `/app/` is in this repository, so the palette is there
+once the app has been built into it.
 
 Two things are not inverted, and should not be: the yellow highlighter keeps
 dark text on it (`--ink-fixed`) because it is the brand mark rather than a

@@ -400,6 +400,13 @@ header .brand{text-decoration:none}
 /* Follows the operating system only — there is no switcher, by design: a static
  * site that guesses gets it wrong, and the browser already knows the answer.
  *
+ * The dark shades are not written here: every token below points at the one
+ * dark palette of Lex, /app/lex-palette.css — the copy that ships next to the
+ * web app (every page links it before this file). Change a dark shade there,
+ * in the Lex repository, not here. Brand violet, the highlighter yellow and the
+ * status colours stay this site's own. Because the palette arrives with the app,
+ * the app has to be delivered before a site change that relies on a new token.
+ *
  * Not a mechanical inversion. Two things are deliberately NOT flipped:
  *   - the highlighter stays the same yellow with dark text on it (--ink-fixed),
  *     because it is the brand mark, not a colour of the theme;
@@ -411,36 +418,36 @@ header .brand{text-decoration:none}
 @media (prefers-color-scheme:dark){
   :root{
     color-scheme:dark;
-    --paper:#0F1115;
-    --paper-2:#171A21;
-    --surface:#1A1E26;
-    --ink:#ECEEF3;
-    --ink-soft:#C6C9D2;
-    --muted:#959BA8;
-    --muted-2:#AAAFBA;
-    --line:#2A2F3A;
-    --header:rgba(15,17,21,.82);
+    --paper:var(--lex-dark-bg);
+    --paper-2:var(--lex-dark-surface);
+    --surface:var(--lex-dark-bubble);
+    --ink:var(--lex-dark-fg);
+    --ink-soft:var(--lex-dark-fg-soft);
+    --muted:var(--lex-dark-fg-muted);
+    --muted-2:var(--lex-dark-fg-soft);
+    --line:var(--lex-dark-line);
+    --header:var(--lex-dark-glass);
     --brand:#6C5CFF;
     --brand-ink:#4A38E6;
     --brand-text:#A79BFF;
     --brand-tint:rgba(108,92,255,.16);
-    --band:#1E232C;
-    --band-text:#F2F3F7;
-    --band-muted:#A8AEBA;
+    --band:var(--lex-dark-bubble);
+    --band-text:var(--lex-dark-fg);
+    --band-muted:var(--lex-dark-fg-soft);
     --danger:#FF7A7A;
     --ok:#4FD97F;
-    --hatch-a:#1B1F27;
-    --hatch-b:#171A21;
-    --code-bg:#1B1F27;
-    --video:#171A22;
-    --video-2:#1F232D;
-    --video-line:#2E333F;
+    --hatch-a:var(--lex-dark-surface);
+    --hatch-b:var(--lex-dark-bg);
+    --code-bg:var(--lex-dark-surface);
+    --video:var(--lex-dark-surface);
+    --video-2:var(--lex-dark-bubble);
+    --video-line:var(--lex-dark-line);
   }
 
   /* A drop shadow tuned for a paper background disappears on a dark one; these
    * two carry the page's only real elevation, so they get their own. */
-  .browser{box-shadow:0 30px 60px -20px rgba(0,0,0,.7),0 8px 20px -8px rgba(0,0,0,.5)}
-  .balance-card{box-shadow:0 24px 50px -18px rgba(0,0,0,.6)}
+  .browser{box-shadow:0 30px 60px -20px var(--lex-dark-shadow-strong),0 8px 20px -8px var(--lex-dark-shadow)}
+  .balance-card{box-shadow:0 24px 50px -18px var(--lex-dark-shadow-strong)}
 
   /* Mono text at 13px in the full brand violet is legible on paper and muddy on
    * dark; the lighter accent is the same colour role, one step up. */
@@ -449,7 +456,7 @@ header .brand{text-decoration:none}
   /* The white button in the ink bands: on a dark band a plain white slab is too
    * loud, and grey-on-white hover reads as disabled. */
   .btn-onink{background:var(--band-text)}
-  .btn-onink:hover{background:#fff}
+  .btn-onink:hover{background:var(--lex-dark-accent-hover)}
 
   /* The card-scheme marks are dark ink on transparency — the Visa wordmark is
    * #1A1F71 — so on a dark footer they all but vanish. They have to stay visible:
