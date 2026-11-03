@@ -1,11 +1,13 @@
 // lex-news.js — the News section for the two surfaces that share browser code: the
-// extension and the page lex-me.club/app (the Mac app shows that page). One button,
-// one feed, one card, one settings block; each window only hands over how to reach
-// the server. No chrome.*, no window of its own, nothing about who may see News:
+// extension and the page lex-me.club/app (the Mac app shows that page). The frame around
+// it is lex-section.js; here is what is News's own: letters and cards, the order of the
+// feed, the mark of a read card, the head of a card. Each window only hands over how to
+// reach the server. No chrome.*, no window of its own, nothing about who may see News:
 // that answer comes from the server (lex_home_sections). The iPhone has the same
 // screens in Swift, on the same server calls.
 //
 // A window gives:
+//   back                the arrow of the window, see lex-back.js
 //   rpc(name, args)     a call of a database function under the person's pass
 //   post(kind, body)    a call of llm-proxy/<kind>
 //   showCard({ id, text, head, title })   put a card on screen now, from what the feed
@@ -23,21 +25,11 @@
 
   const LINK_RE = /\[([^\]\n]+)\]\((https?:[^\s)]+)\)/g;
 
-  function make(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  }
+  const { make, button, newOpId } = global.LexSection;
 
   const ENTRY_ICON = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg>';
   const ENTRY_ICON_PROFI = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H4l2.3-3A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14h4"/></svg>';
   const ENTRY_CHEVRON = '<svg class="lex-news-entry-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
-
-  function newOpId() {
-    if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
-  }
 
   // Heads of chats a card opened: the feed knows them, so no call is needed to show one.
   const knownHeads = new Map();
@@ -106,29 +98,42 @@
     host.hidden = !host.childElementCount;
   }
 
+  // ── Process again ───────────────────────────────────────────────────────────
+  // One call for the three places of the button: the red line of a letter that failed,
+  // the three dots of a card in the feed, the three dots in the head of a card. A press
+  // pays again. Answers { changed, said }: said is [text, isError] for the person.
+  async function processLetter(post, letterId) {
+    const r = await post('news-refresh', { round: newOpId(), letterId, opId: newOpId() });
+    if (r.status === 'processed' && r.cards) return { changed: true, said: [''] };
+    if (r.status === 'processed') return { changed: false, said: ['The model found no cards. The cards stay as they were.'] };
+    if (r.status === 'busy') return { changed: false, said: ['This letter is being processed.'] };
+    return { changed: false, said: [r.error || 'The letter was not processed.', true] };
+  }
+
   // ── the feed ────────────────────────────────────────────────────────────────
   const NEW_ITEMS_LOOK_MS = 30000;
   const KEPT_LETTERS = 50;
 
   function createFeed(deps) {
-    const root = make('section', 'lex-news');
-    const head = make('header', 'lex-news-head');
-    const title = make('div', 'lex-news-title', 'News');
-    const refreshBtn = make('button', 'lex-news-refresh', 'Refresh');
-    refreshBtn.type = 'button';
-    head.append(title, refreshBtn);
-    const status = make('div', 'lex-news-status');
-    status.setAttribute('role', 'status');
-    status.hidden = true;
-    const fresh = make('button', 'lex-news-fresh', 'New items');
-    fresh.type = 'button';
+    const refreshBtn = button('lex-news-refresh', 'Refresh');
+    const frame = global.LexSection.createFrame({
+      title: 'News',
+      cls: 'lex-news',
+      back: deps.back,
+      tools: [refreshBtn],
+      gear: () => openSettings(),
+      every: NEW_ITEMS_LOOK_MS,
+      check: () => lookForNew(),
+      onBack: () => backToFeed(),
+    });
+    const fresh = button('lex-news-fresh', 'New items');
     fresh.hidden = true;
-    const scroller = make('div', 'lex-news-scroll');
-    const blocksEl = make('div', 'lex-news-blocks');
+    frame.el.appendChild(fresh);
+    const scroller = frame.body;
+    const blocksEl = make('div', 'lex-news-blocks lex-section-list');
     const empty = make('div', 'lex-news-empty', 'Nothing here yet.');
     empty.hidden = true;
     scroller.append(blocksEl, empty);
-    root.append(head, status, fresh, scroller);
 
     let more = null;
     let loading = false;
@@ -137,26 +142,22 @@
     let savedTop = 0;
     let saveTimer = null;
     let lastSaved = null;
-    let watchTimer = null;
-    let opening = null;
     let keptBlocks = null;
 
-    const setStatus = (text, isError) => {
-      status.textContent = text || '';
-      status.hidden = !text;
-      status.classList.toggle('is-error', !!isError);
-      status.classList.toggle('is-busy', !!text && !isError && busy);
-    };
+    const setStatus = (text, isError) => frame.say(text, isError, busy);
 
     function cardNode(card, block) {
-      const b = make('button', 'lex-news-card');
-      b.type = 'button';
-      b.dataset.id = card.id;
-      b.classList.toggle('is-read', !!card.read);
-      b.appendChild(make('span', 'lex-news-card-title', card.title));
-      if (card.description) b.appendChild(make('span', 'lex-news-card-desc', card.description));
-      b.addEventListener('click', () => openCard(card, block, b));
-      return b;
+      const row = global.LexSection.row({
+        id: card.id,
+        cls: 'lex-news-card',
+        title: card.title,
+        sub: card.description,
+        dot: !card.read,
+        wrap: true,
+        more: [{ label: 'Process again', onSelect: () => processAgain(block) }],
+        onClick: () => openCard(card, block, row),
+      });
+      return row;
     }
 
     // A letter has no header of its own: the feed is one list of cards. It stays a
@@ -166,10 +167,7 @@
       art.dataset.letter = String(block.id);
       if (block.state === 'failed') {
         const row = make('div', 'lex-news-failed', `${block.title} was not processed. ${block.error || ''} `);
-        const again = make('button', 'lex-news-failed-again', 'Process again');
-        again.type = 'button';
-        again.addEventListener('click', () => processFailed(block));
-        row.appendChild(again);
+        row.appendChild(button('lex-news-failed-again', 'Process again', () => processAgain(block)));
         art.appendChild(row);
       }
       for (const c of block.cards || []) art.appendChild(cardNode(c, block));
@@ -207,17 +205,9 @@
     // stands above its top item, and only then offers the button. Nothing new, nothing shown.
     async function lookForNew() {
       if (busy || document.hidden) return;
-      try {
-        const first = ((await deps.rpc('list_news', { p_limit: 1 })).blocks || [])[0];
-        const top = blocksEl.firstElementChild;
-        fresh.hidden = !first || (!!top && top.dataset.letter === String(first.id));
-      } catch (e) {
-        console.warn('[news] new items:', e && e.message);
-      }
-    }
-    function watchForNew(on) {
-      clearInterval(watchTimer);
-      watchTimer = on ? setInterval(lookForNew, NEW_ITEMS_LOOK_MS) : null;
+      const first = ((await deps.rpc('list_news', { p_limit: 1 })).blocks || [])[0];
+      const top = blocksEl.firstElementChild;
+      fresh.hidden = !first || (!!top && top.dataset.letter === String(first.id));
     }
     fresh.addEventListener('click', async () => {
       await load().catch((e) => setStatus('The feed did not load. ' + ((e && e.message) || ''), true));
@@ -270,42 +260,45 @@
 
     // The text is on the device, so the card is on screen in the same moment. The chat
     // behind it comes after: it writes the mark and brings the field and earlier turns.
-    async function openCard(card, block, node) {
+    function openCard(card, block, row) {
       savedTop = scroller.scrollTop;
-      node.classList.add('is-read');
+      global.LexSection.markRead(row);
       lastSaved = card.id;
-      opening = card.id;
-      const wanted = () => opening === card.id;
-      const head = {
-        letterId: block.id, title: card.title, newsletter: block.title, date: block.date,
-        author: card.author || null, webUrl: block.webUrl || null,
-      };
-      const text = card.body ? card.body + (card.sourceUrl ? `\n\n[Source](${card.sourceUrl})` : '') : '';
-      const shown = !!text && deps.showCard({ id: card.id, text, head, title: card.title }) !== false;
-      let r;
-      try {
-        r = await deps.rpc('open_news_item', { p_op_id: newOpId(), p_item_id: card.id });
-      } catch (e) {
-        if (!wanted()) return;
-        if (shown) deps.cardFailed((e && e.message) || '');
-        else setStatus('The news did not open. ' + ((e && e.message) || ''), true);
-        return;
-      }
-      knownHeads.set(r.chatKey, head);
-      // Back in the feed by now, or on another card: this one stays marked, nothing moves.
-      if (wanted()) deps.openChat({ chatKey: r.chatKey, title: r.title, shown, wanted });
+      return frame.open(async (wanted) => {
+        const head = {
+          letterId: block.id, title: card.title, newsletter: block.title, date: block.date,
+          author: card.author || null, webUrl: block.webUrl || null,
+        };
+        const text = card.body ? card.body + (card.sourceUrl ? `\n\n[Source](${card.sourceUrl})` : '') : '';
+        const shown = !!text && deps.showCard({ id: card.id, text, head, title: card.title }) !== false;
+        let r;
+        try {
+          r = await deps.rpc('open_news_item', { p_op_id: newOpId(), p_item_id: card.id });
+        } catch (e) {
+          if (!shown) throw e;
+          if (wanted()) deps.cardFailed((e && e.message) || '');
+          return;
+        }
+        knownHeads.set(r.chatKey, head);
+        // Back in the feed by now, or on another card: this one stays marked, nothing moves.
+        if (wanted()) deps.openChat({ chatKey: r.chatKey, title: r.title, shown, wanted });
+      }, 'The news did not open.');
     }
 
-    async function processFailed(block) {
+    // The letter stays where it stood, whatever new cards it got.
+    async function processAgain(block) {
       if (busy) return;
       busy = true;
       setStatus(`Processing ${block.title} again…`);
-      let end = [''];
+      const letter = () => blocksEl.querySelector(`[data-letter="${block.id}"]`);
+      let end;
       try {
-        const r = await deps.post('news-refresh', { round: newOpId(), letterId: block.id, opId: newOpId() });
-        if (r.status === 'busy') end = ['This item is being processed.'];
-        else if (r.status !== 'processed') end = [r.error || 'Nothing was processed.', true];
-        await load();
+        ({ said: end } = await processLetter(deps.post, block.id));
+        const was = letter();
+        const top = was ? was.getBoundingClientRect().top : 0;
+        await load({ toAnchor: true });
+        const now = letter();
+        if (was && now) scroller.scrollTop += now.getBoundingClientRect().top - top;
       } catch (e) {
         end = ['Process again failed. ' + ((e && e.message) || ''), true];
       }
@@ -350,16 +343,46 @@
     }
     refreshBtn.addEventListener('click', refresh);
 
+    // The settings are a screen of the section: the arrow leads back to the feed.
+    async function openSettings() {
+      savedTop = scroller.scrollTop;
+      const block = createSettings(deps);
+      const body = frame.push({ id: 'settings', title: 'Settings' });
+      body.appendChild(block.el);
+      try {
+        if (!(await block.load())) frame.say('The settings did not load.', true);
+      } catch (e) {
+        frame.say('The settings did not load. ' + ((e && e.message) || ''), true);
+      }
+    }
+
+    // Letters come by themselves, so the way back reads the feed again, and what was on
+    // screen stays where it was even when new cards came above it.
+    async function backToFeed() {
+      scroller.scrollTop = savedTop;
+      if (busy) return;
+      const keep = cardNodeOf(topCard());
+      const id = keep && keep.dataset.id;
+      const was = keep ? keep.getBoundingClientRect().top : 0;
+      try {
+        const r = await load({ toAnchor: true });
+        const now = cardNodeOf(id);
+        if (now) scroller.scrollTop += now.getBoundingClientRect().top - was;
+        else standOn(r.anchor); // Process again gave the cards new numbers
+      } catch (e) {
+        console.warn('[news] feed:', e && e.message);
+      }
+    }
+
     return {
-      el: root,
+      el: frame.el,
       refresh,
       // The person went to another chat: the card being opened stays marked, nothing moves.
-      stopOpening() { opening = null; },
-      // Show the feed. The first time it stands on the saved place. Later it reads the
-      // feed again, because letters come by themselves now, and what was on screen
-      // stays where it was even when new cards came above it.
+      stopOpening: frame.stopOpening,
+      // Show the feed. The first time it stands on the saved place.
       async show() {
-        opening = null;
+        frame.stopOpening();
+        frame.enter();
         if (!opened) {
           opened = true;
           // What the device holds comes first, the server corrects it a moment later.
@@ -372,31 +395,19 @@
             const r = await load({ toAnchor: true });
             standOn(r.anchor);
             lastSaved = r.anchor || null;
-            watchForNew(true);
+            if (frame.isShown()) frame.watch();
           } catch (e) {
             opened = false;
             setStatus('The feed did not load. ' + ((e && e.message) || ''), true);
           }
           return;
         }
-        watchForNew(true);
-        scroller.scrollTop = savedTop;
-        if (busy) return;
-        const keep = cardNodeOf(topCard());
-        const id = keep && keep.dataset.id;
-        const was = keep ? keep.getBoundingClientRect().top : 0;
-        try {
-          const r = await load({ toAnchor: true });
-          const now = cardNodeOf(id);
-          if (now) scroller.scrollTop += now.getBoundingClientRect().top - was;
-          else standOn(r.anchor); // Process again gave the cards new numbers
-        } catch (e) {
-          console.warn('[news] feed:', e && e.message);
-        }
+        frame.watch();
+        if (frame.screen === 'home') await backToFeed();
       },
       hide() {
-        savedTop = scroller.scrollTop;
-        watchForNew(false);
+        if (!scroller.hidden) savedTop = scroller.scrollTop;
+        frame.unwatch();
       },
     };
   }
@@ -424,48 +435,18 @@
       note.classList.toggle('is-busy', !!text && busy);
     };
 
-    function moreNode(letterId) {
-      const wrap = make('span', 'lex-news-chat-more');
-      const btn = make('button', 'lex-news-chat-more-btn', '•••');
-      btn.type = 'button';
-      btn.title = 'More';
-      btn.setAttribute('aria-label', 'More');
-      const menu = make('div', 'lex-news-chat-menu');
-      menu.hidden = true;
-      const again = make('button', 'lex-news-chat-menu-item', 'Process again');
-      again.type = 'button';
-      menu.appendChild(again);
-      wrap.append(btn, menu);
-      const close = (e) => {
-        if (e && e.target && btn.contains(e.target)) return;
-        menu.hidden = true;
-        document.removeEventListener('click', close, true);
-      };
-      btn.addEventListener('click', () => {
-        if (!menu.hidden) { close(); return; }
-        menu.hidden = false;
-        // A narrow window has no room to the right of the dots.
-        menu.classList.toggle('is-left', menu.getBoundingClientRect().right > root.getBoundingClientRect().right);
-        document.addEventListener('click', close, true);
-      });
-      again.addEventListener('click', () => processAgain(letterId));
-      return wrap;
-    }
-
     async function processAgain(letterId) {
       if (busy) return;
       busy = true;
       say('Processing the letter again…');
-      let end = [''];
+      let end;
       try {
-        const r = await deps.post('news-refresh', { round: newOpId(), letterId, opId: newOpId() });
-        if (r.status === 'processed' && r.cards) {
+        const r = await processLetter(deps.post, letterId);
+        end = r.said;
+        if (r.changed) {
           knownHeads.delete(deps.chatKey);
           await deps.reload(title.textContent);
         }
-        else if (r.status === 'processed') end = ['The model found no cards. The cards stay as they were.'];
-        else if (r.status === 'busy') end = ['This letter is being processed.'];
-        else end = [r.error || 'The letter was not processed.', true];
       } catch (e) {
         end = ['Process again failed. ' + ((e && e.message) || ''), true];
       }
@@ -487,7 +468,9 @@
       }
       line.append(name, make('span', '', head.date));
       if (head.author) line.appendChild(make('span', '', head.author));
-      line.appendChild(moreNode(head.letterId));
+      line.appendChild(global.LexSection.moreButton([
+        { label: 'Process again', onSelect: () => processAgain(head.letterId) },
+      ], root));
       root.hidden = false;
     }
 
@@ -508,7 +491,7 @@
 
   // ── settings ────────────────────────────────────────────────────────────────
   // Everything is on the server and the same on every device; this block only
-  // shows it and sends what changed.
+  // shows it and sends what changed. It stands behind the gear of the feed.
   function createSettings(deps) {
     const root = make('div', 'lex-news-settings');
     let state = null;
@@ -560,7 +543,6 @@
 
     function paint() {
       root.replaceChildren();
-      root.appendChild(make('div', 'lex-news-settings-title', 'News'));
       const addr = field('Forwarding address');
       const line = make('div', 'lex-news-address');
       line.appendChild(make('code', 'lex-news-address-value', state.address));
@@ -586,6 +568,12 @@
         }
       }));
       model.appendChild(pick);
+
+      // What the letters took from the balance in 30 days, the server counts it.
+      const cost = field('Processing cost');
+      const spent = state.cost || { usd: 0, letters: 0 };
+      cost.appendChild(make('div', 'lex-news-cost',
+        `Last 30 days: ${global.LexChatMoney.format(spent.usd)}, ${spent.letters} ${spent.letters === 1 ? 'letter' : 'letters'}`));
 
       const senders = field('Newsletters');
       const list = make('div', 'lex-news-senders');
@@ -615,7 +603,7 @@
       });
       prompt.append(area, savePrompt);
 
-      root.append(addr, model, senders, prompt, note);
+      root.append(addr, model, cost, senders, prompt, note);
     }
 
     return {
@@ -628,6 +616,6 @@
     };
   }
 
-  const api = { createFeed, createChatHead, createSettings, renderEntries, renderText, plainText, newOpId };
+  const api = { createFeed, createChatHead, renderEntries, renderText, plainText, newOpId };
   global.LexNews = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,9 +1,6 @@
-/* lex-news.css — the look of the News section (lex-news.js). One file for the
- * extension and the page lex-me.club/app. Colours come from the window through
- * variables on the container, because the dark panel of the extension and the
- * light and dark themes of the page differ while the layout does not:
- *   --lex-news-fg, --lex-news-muted, --lex-news-line, --lex-news-hover,
- *   --lex-news-danger, --lex-news-bg
+/* lex-news.css — the look of what is News's own (lex-news.js): the line above Chats, the
+ * head of a card, its text, the settings. The frame around them is lex-section.css, the
+ * colours are its variables. One file for the extension and the page lex-me.club/app.
  * Selectors start with a class of this module so the styles of a host page
  * (YouTube, any site under the small window) do not reach in. */
 
@@ -19,8 +16,8 @@
   padding: 10px 12px;
   border: 0;
   border-radius: 10px;
-  background: var(--lex-news-hover, rgba(127, 127, 127, .14));
-  color: var(--lex-news-fg, inherit);
+  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
+  color: var(--lex-section-fg, inherit);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -35,39 +32,16 @@
 /* A host page under the small window styles every svg of the page. */
 .lex-news-entry svg { display: block; margin: 0 !important; }
 
-.lex-news {
-  position: relative;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  height: 100%;
-  box-sizing: border-box;
-  color: var(--lex-news-fg, inherit);
-  background: var(--lex-news-bg, transparent);
-  font-size: 15px;
-  line-height: 1.4;
-}
-.lex-news .lex-news-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 16px;
-  flex: 0 0 auto;
-  border-bottom: 1px solid var(--lex-news-line, rgba(127, 127, 127, .25));
-}
-.lex-news .lex-news-title { font-size: 18px; font-weight: 600; }
 .lex-news .lex-news-refresh,
 .lex-news-settings .lex-news-mini {
   -webkit-appearance: none;
   appearance: none;
   margin: 0;
   padding: 5px 10px;
-  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border: 1px solid var(--lex-section-line, rgba(127, 127, 127, .35));
   border-radius: 8px;
   background: transparent;
-  color: var(--lex-news-fg, inherit);
+  color: var(--lex-section-fg, inherit);
   font: inherit;
   font-size: 13px;
   line-height: 1.2;
@@ -77,31 +51,14 @@
   padding: 7px 14px;
   border: 0;
   border-radius: 999px;
-  background: var(--lex-news-hover, rgba(127, 127, 127, .14));
+  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
   font-weight: 500;
 }
 .lex-news .lex-news-refresh:hover,
-.lex-news-settings .lex-news-mini:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
+.lex-news-settings .lex-news-mini:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
 .lex-news .lex-news-refresh:hover { filter: brightness(1.15); }
 .lex-news .lex-news-refresh:disabled { opacity: .5; cursor: default; }
-.lex-news .lex-news-status {
-  flex: 0 0 auto;
-  padding: 8px 16px 0;
-  color: var(--lex-news-muted, rgba(127, 127, 127, .95));
-  font-size: 13px;
-}
-.lex-news .lex-news-status.is-error { color: var(--lex-news-danger, #d93a3a); }
-/* A round of work: it has to be seen at a glance, the wait can be long. */
-.lex-news .lex-news-status.is-busy {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: var(--lex-news-hover, rgba(127, 127, 127, .14));
-  color: var(--lex-news-fg, inherit);
-  font-weight: 500;
-}
-.lex-news .lex-news-status.is-busy::before,
+/* The head of a card: a round of work there has the same turning ring as the status line. */
 .lex-news-chat-head .lex-news-chat-note.is-busy::before {
   content: '';
   flex: 0 0 auto;
@@ -111,20 +68,10 @@
   border: 2px solid currentColor;
   border-right-color: transparent;
   border-radius: 50%;
-  animation: lex-news-spin .8s linear infinite;
+  animation: lex-section-spin .8s linear infinite;
 }
-@keyframes lex-news-spin { to { transform: rotate(360deg); } }
-.lex-news .lex-news-scroll {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0 16px 24px;
-  position: relative;
-}
-.lex-news .lex-news-blocks { max-width: 720px; margin: 0 auto; }
-.lex-news .lex-news-empty { padding: 32px 0; text-align: center; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
-.lex-news .lex-news-failed { padding: 8px 0; color: var(--lex-news-danger, #d93a3a); font-size: 13px; }
+.lex-news .lex-news-empty { padding: 32px 0; text-align: center; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-news .lex-news-failed { padding: 8px 0; color: var(--lex-section-danger, #d93a3a); font-size: 13px; }
 .lex-news .lex-news-failed-again {
   -webkit-appearance: none;
   appearance: none;
@@ -152,8 +99,8 @@
   padding: 8px 16px;
   border: 0;
   border-radius: 999px;
-  background: var(--lex-news-fg, #1d1d1f);
-  color: var(--lex-news-bg-on-fg, #000);
+  background: var(--lex-section-fg, #1d1d1f);
+  color: var(--lex-section-bg-on-fg, #000);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -162,49 +109,12 @@
   cursor: pointer;
 }
 .lex-news .lex-news-fresh[hidden] { display: none; }
-.lex-news .lex-news-card {
-  -webkit-appearance: none;
-  appearance: none;
-  position: relative;
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 12px 0;
-  border: 0;
-  border-top: 1px solid var(--lex-news-line, rgba(127, 127, 127, .2));
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.lex-news .lex-news-block:first-child > .lex-news-card:first-child { border-top: 0; }
-/* Unread is a dot in the margin, as in mail apps. A read title stays easy to read. */
-.lex-news .lex-news-card:not(.is-read)::before {
-  content: '';
-  position: absolute;
-  top: 19px;
-  left: -12px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f2c14b;
-}
-.lex-news .lex-news-card:hover .lex-news-card-title { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
-.lex-news .lex-news-card-title,
-.lex-news .lex-news-card-desc {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.lex-news .lex-news-card-title { -webkit-line-clamp: 3; font-size: 16px; font-weight: 600; line-height: 1.3; }
-.lex-news .lex-news-card-desc { -webkit-line-clamp: 2; margin-top: 4px; font-size: 14px; line-height: 1.4; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
-.lex-news .lex-news-card.is-read .lex-news-card-title { font-weight: 400; color: var(--lex-news-fg, inherit); opacity: .82; }
+/* Under the settings the feed waits, and the button waits with it. */
+.lex-news.is-inner .lex-news-fresh { display: none; }
 
 /* The head of a news chat: over the first message, outside it. */
 .lex-news-chat-head, .lex-news-chat-head .lex-news-chat-source { opacity: 1; }
-.lex-news-chat-head { margin: 0 0 14px; color: var(--lex-news-fg, inherit); text-align: left; }
+.lex-news-chat-head { position: relative; margin: 0 0 14px; color: var(--lex-section-fg, inherit); text-align: left; }
 .lex-news-chat-head[hidden] { display: none; }
 .lex-news-chat-head .lex-news-chat-title {
   margin: 0;
@@ -224,7 +134,7 @@
   align-items: center;
   gap: 2px 10px;
   margin-top: 6px;
-  color: var(--lex-news-muted, rgba(127, 127, 127, .95));
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
   font-size: 12.5px;
   line-height: 1.35;
 }
@@ -237,57 +147,12 @@
   text-transform: inherit;
 }
 .lex-news-chat-head a.lex-news-chat-newsletter { color: inherit; text-decoration: none; }
-.lex-news-chat-head a.lex-news-chat-newsletter:hover { color: var(--lex-news-fg, inherit); }
-.lex-news-chat-head .lex-news-chat-more { position: relative; display: inline-flex; }
-.lex-news-chat-head .lex-news-chat-more-btn {
-  -webkit-appearance: none;
-  appearance: none;
-  margin: 0;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 11px;
-  letter-spacing: 1px;
-  cursor: pointer;
-}
-.lex-news-chat-head .lex-news-chat-more-btn:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
-.lex-news-chat-head .lex-news-chat-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 20;
-  margin-top: 4px;
-  padding: 4px;
-  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .25));
-  border-radius: 10px;
-  background: var(--lex-news-menu, #fff);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
-}
-.lex-news-chat-head .lex-news-chat-menu.is-left { left: auto; right: 0; }
-.lex-news-chat-head .lex-news-chat-menu[hidden] { display: none; }
-.lex-news-chat-head .lex-news-chat-menu-item {
-  -webkit-appearance: none;
-  appearance: none;
-  display: block;
-  margin: 0;
-  padding: 7px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--lex-news-fg, inherit);
-  font: inherit;
-  font-size: 13.5px;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.lex-news-chat-head .lex-news-chat-menu-item:hover { background: var(--lex-news-hover, rgba(127, 127, 127, .14)); }
-.lex-news-chat-head .lex-news-chat-note { margin-top: 8px; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); font-size: 13px; }
+.lex-news-chat-head a.lex-news-chat-newsletter:hover { color: var(--lex-section-fg, inherit); }
+.lex-news-chat-head .lex-news-chat-source .lex-section-more { width: 26px; height: 20px; }
+.lex-news-chat-head .lex-news-chat-source .lex-section-more:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-news-chat-head .lex-news-chat-note { margin-top: 8px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); font-size: 13px; }
 .lex-news-chat-head .lex-news-chat-note[hidden] { display: none; }
-.lex-news-chat-head .lex-news-chat-note.is-error { color: var(--lex-news-danger, #d93a3a); }
+.lex-news-chat-head .lex-news-chat-note.is-error { color: var(--lex-section-danger, #d93a3a); }
 .lex-news-chat-head .lex-news-chat-note.is-busy { display: flex; align-items: center; gap: 8px; }
 
 /* The first message of a news chat. */
@@ -326,25 +191,20 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  margin-top: 16px;
   padding-top: 14px;
-  border-top: 1px solid var(--lex-news-line, rgba(127, 127, 127, .25));
-  color: var(--lex-news-fg, inherit);
+  color: var(--lex-section-fg, inherit);
   font-size: 14px;
   text-align: left;
 }
-.lex-news-settings .lex-news-settings-title { font-size: 15px; font-weight: 600; }
-/* In the extension News is a pane of its own, nothing stands above the block. */
-.ytvocab-settings-news-slot .lex-news-settings { margin-top: 0; padding-top: 0; border-top: 0; }
-.ytvocab-settings-news-slot .lex-news-settings-title { display: none; }
 .lex-news-settings .lex-news-field-label { margin-bottom: 4px; font-weight: 600; font-size: 13px; }
+.lex-news-settings .lex-news-cost { font-size: 13px; }
 .lex-news-settings .lex-news-address { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .lex-news-settings .lex-news-address-value { min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow-wrap: anywhere; font-size: 13px; user-select: all; }
 .lex-news-settings .lex-news-model {
   -webkit-appearance: none;
   appearance: none;
   padding: 5px 10px;
-  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border: 1px solid var(--lex-section-line, rgba(127, 127, 127, .35));
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -359,7 +219,7 @@
   min-width: 0;
   flex: 1 1 0;
   padding: 5px 8px;
-  border: 1px solid var(--lex-news-line, rgba(127, 127, 127, .35));
+  border: 1px solid var(--lex-section-line, rgba(127, 127, 127, .35));
   border-radius: 8px;
   background: transparent;
   color: inherit;
@@ -367,8 +227,8 @@
   font-size: 13px;
 }
 .lex-news-settings .lex-news-prompt { display: block; width: 100%; margin-bottom: 6px; resize: vertical; line-height: 1.4; }
-.lex-news-settings .lex-news-note { min-height: 1.2em; font-size: 12px; color: var(--lex-news-muted, rgba(127, 127, 127, .95)); }
-.lex-news-settings .lex-news-note.is-error { color: var(--lex-news-danger, #d93a3a); }
+.lex-news-settings .lex-news-note { min-height: 1.2em; font-size: 12px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-news-settings .lex-news-note.is-error { color: var(--lex-section-danger, #d93a3a); }
 
 /* The extension's windows: the feed takes the place of the chat, and the arrow
    stands next to the three stripes while a chat opened from a card is on screen. */
@@ -405,13 +265,12 @@
 .ytvocab-chat-drawer-sections[hidden] { display: none; }
 .ytvocab-chat-drawer-sections,
 .lex-news-host,
-.ytvocab-chat-history .lex-news-chat-head,
-.ytvocab-settings-popover .lex-news-settings {
-  --lex-news-menu: #2a2a2e;
-  --lex-news-bg-on-fg: #000;
-  --lex-news-fg: rgba(255, 255, 255, .92);
-  --lex-news-muted: rgba(255, 255, 255, .55);
-  --lex-news-line: rgba(255, 255, 255, .16);
-  --lex-news-hover: rgba(255, 255, 255, .08);
-  --lex-news-danger: #ff6b6b;
+.ytvocab-chat-history .lex-news-chat-head {
+  --lex-section-menu: #2a2a2e;
+  --lex-section-bg-on-fg: #000;
+  --lex-section-fg: rgba(255, 255, 255, .92);
+  --lex-section-muted: rgba(255, 255, 255, .55);
+  --lex-section-line: rgba(255, 255, 255, .16);
+  --lex-section-hover: rgba(255, 255, 255, .08);
+  --lex-section-danger: #ff6b6b;
 }

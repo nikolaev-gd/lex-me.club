@@ -526,14 +526,14 @@ button { font: inherit; color: inherit; }
 .wc-sections { flex: 1; min-width: 0; }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-news-host, .lex-news-settings, .wc-turn-news {
-  --lex-news-menu:   var(--bg-raised);
-  --lex-news-bg-on-fg: var(--bg);
-  --lex-news-fg:     var(--fg);
-  --lex-news-muted:  var(--fg-muted);
-  --lex-news-line:   var(--line);
-  --lex-news-hover:  var(--bg-hover);
-  --lex-news-danger: var(--danger);
+.wc-sections, .wc-section-host, .wc-turn-news {
+  --lex-section-menu:   var(--bg-raised);
+  --lex-section-bg-on-fg: var(--bg);
+  --lex-section-fg:     var(--fg);
+  --lex-section-muted:  var(--fg-muted);
+  --lex-section-line:   var(--line);
+  --lex-section-hover:  var(--bg-hover);
+  --lex-section-danger: var(--danger);
 }
 
 .wc-sidebar-title {
@@ -858,13 +858,13 @@ button { font: inherit; color: inherit; }
 
 /* ── Thread ──────────────────────────────────────────────────────────────── */
 
-.wc-news-host {
+.wc-section-host {
   flex: 1;
   min-height: 0;
   padding-top: var(--wc-topbar-h, 52px);
 }
-.wc-main.is-news .wc-thread,
-.wc-main.is-news .wc-composer-wrap { display: none; }
+.wc-main.is-section .wc-thread,
+.wc-main.is-section .wc-composer-wrap { display: none; }
 .wc-news-back svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .wc-turn-news .wc-bubble { max-width: 100%; }
 

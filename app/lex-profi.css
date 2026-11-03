@@ -1,74 +1,9 @@
-/* lex-profi.css — the look of the Profi.ru section (lex-profi.js) on the page. It stands
- * next to News and looks like it: rows on hairlines. Colours are the page's variables. */
+/* lex-profi.css — the look of what is Profi.ru's own (lex-profi.js) on the page: the chat of
+ * new orders, the settings, an order chat. The frame around them is lex-section.css. Colours
+ * are the page's variables. */
 
-.wc-profi-host { flex: 1; min-height: 0; padding-top: var(--wc-topbar-h, 52px); }
-.wc-main.is-profi .wc-thread,
-.wc-main.is-profi .wc-composer-wrap { display: none; }
-
-.lex-profi {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  box-sizing: border-box;
-  color: var(--fg);
-  font-size: 15px;
-  line-height: 1.4;
-  text-align: left;
-}
-.lex-profi-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 0 0 auto;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.lex-profi-title { flex: 1 1 auto; min-width: 0; font-size: 18px; font-weight: 600; }
-.lex-profi-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 0 24px; }
-.lex-profi-back, .lex-profi-gear {
-  -webkit-appearance: none; appearance: none;
-  flex: 0 0 auto; margin: 0; padding: 7px 14px; border: 0; border-radius: 999px;
-  background: var(--bg-hover); color: var(--fg);
-  font: inherit; font-size: 13px; font-weight: 500; line-height: 1.2; cursor: pointer;
-}
-.lex-profi-note { padding: 10px 16px; color: var(--fg-muted); font-size: 13px; }
-.lex-profi-note.is-error { color: var(--danger); }
-.lex-profi-empty { padding: 16px; color: var(--fg-muted); font-size: 14px; }
-.lex-profi-text { padding: 16px; white-space: pre-wrap; font-size: 14px; }
-
-.lex-profi-row { position: relative; display: flex; align-items: center; border-bottom: 1px solid var(--line); }
-.lex-profi-row:hover { background: var(--bg-hover); }
-.lex-profi-row-main {
-  -webkit-appearance: none; appearance: none;
-  display: block; flex: 1 1 auto; min-width: 0; box-sizing: border-box; margin: 0; padding: 12px 16px;
-  border: 0; background: transparent;
-  color: var(--fg); font: inherit; text-align: left; cursor: pointer;
-}
-.lex-profi-row.is-first .lex-profi-row-main { font-weight: 600; }
-/* Unread is a dot in the margin, as in the feed of News. */
-.lex-profi-row.is-unread::before {
-  content: '';
-  position: absolute;
-  top: 20px;
-  left: 5px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f2c14b;
-}
-.lex-profi-row-more { flex: 0 0 auto; margin-right: 8px; color: var(--fg-muted); }
-.lex-profi-row-more svg { width: 16px; height: 16px; }
-.lex-profi-row-top { display: flex; align-items: baseline; gap: 10px; }
-.lex-profi-row-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; }
-.lex-profi-row-sub {
-  display: block; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-  color: var(--fg-muted); font-size: 13px; font-weight: 400;
-}
-.lex-profi-mark {
-  flex: 0 0 auto; padding: 2px 8px; border-radius: 999px;
-  background: var(--fg); color: var(--bg); font-size: 12px; font-weight: 600; line-height: 1.4;
-}
+.lex-profi-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
+.lex-profi-text { padding: 16px 0; white-space: pre-wrap; font-size: 14px; }
 
 .lex-profi-btn {
   -webkit-appearance: none; appearance: none;
@@ -81,7 +16,7 @@
 .lex-profi-btn.is-main { border-color: var(--fg); background: var(--fg); color: var(--bg); }
 .lex-profi-btn.is-danger { border-color: var(--danger); color: var(--danger); }
 
-.lex-profi-order { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.lex-profi-order { padding: 14px 0; border-bottom: 1px solid var(--line); }
 .lex-profi-order-flag { margin-bottom: 4px; color: var(--danger); font-size: 12px; font-weight: 700; }
 .lex-profi-order-title { display: block; color: var(--fg); font-weight: 600; text-decoration: none; }
 .lex-profi-order-title:hover { text-decoration: underline; }
@@ -96,7 +31,7 @@
 .lex-profi-order-state[data-state="failed"], .lex-profi-order-state[data-state="unknown"] { color: var(--danger); }
 .lex-profi-order-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 
-.lex-profi-block { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.lex-profi-block { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .lex-profi-block-title { color: var(--fg-muted); font-size: 13px; font-weight: 600; }
 .lex-profi-line { font-size: 14px; }
 .lex-profi-line.is-error { color: var(--danger); }

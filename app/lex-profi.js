@@ -1,16 +1,19 @@
 // lex-profi.js — the Profi.ru section of the page lex-me.club/app (the Mac app shows that
-// page). The iPhone has the same screens in Swift, on the same server calls. The extension
-// does not load this file: the server does not name the section to it.
+// page). The frame around it is lex-section.js; here is what is Profi.ru's own: chats and
+// orders, the screens of the bot's menu, the head of an order. The iPhone has the same
+// screens in Swift, on the same server calls. The extension does not load this file: the
+// server does not name the section to it.
 //
 // Everything that decides lives on the server: which chat stands where, which buttons an
 // order has, what a box holds and whether it went. This file draws what it is told.
 //
 // A window gives:
+//   back                   the arrow of the window, see lex-back.js
 //   rpc(name, args)        a call of a database function under the person's pass
 //   openOrder(order)       open the chat of this order where chats open
 //   copy(text)             put text on the clipboard, returns true when it worked
-//   moreButton(onClick)    the three dots of a row, as at a chat in Chats
-//   menu(anchor, items)    the menu they open: [{label, onSelect}]
+//   notify(text)           the server is lost while an order chat stands over the section
+//   onChange()             the server changed something: read the open order chat, a promise
 (function (global) {
   'use strict';
 
@@ -20,24 +23,7 @@
   const STALE_S = 120;
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
 
-  function make(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text != null) n.textContent = text;
-    return n;
-  }
-
-  function button(cls, text, onClick) {
-    const b = make('button', cls, text);
-    b.type = 'button';
-    if (onClick) b.addEventListener('click', onClick);
-    return b;
-  }
-
-  function newOpId() {
-    if (global.crypto && global.crypto.randomUUID) return global.crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
-  }
+  const { make, button, newOpId } = global.LexSection;
 
   const isChatKey = (key) => typeof key === 'string' && CHAT_KEY_RE.test(key);
 
@@ -207,36 +193,28 @@
 
   // ── the section ─────────────────────────────────────────────────────────────
   function createSection(deps) {
-    const root = make('section', 'lex-profi');
-    const headEl = make('header', 'lex-profi-bar');
-    const body = make('div', 'lex-profi-body');
+    const frame = global.LexSection.createFrame({
+      title: 'Profi.ru',
+      cls: 'lex-profi',
+      back: deps.back,
+      gear: () => go('settings', 'Settings'),
+      every: POLL_MS,
+      check: () => poll(),
+      notify: deps.notify,
+      onBack: () => paint(),
+    });
+    const { say } = frame;
 
-    let screen = 'home';
     let rev = null;
-    let timer = null;
     let ticker = null;
     let home = null;
     let feedEls = new Map();
     let clockOffset = 0;
     let report = null;
 
-    // The note stands in the bar's shadow, outside the list: a repaint of a screen keeps it.
-    const noteEl = make('div', 'lex-profi-note');
-    noteEl.setAttribute('role', 'status');
-    noteEl.hidden = true;
-    const say = (text, isError) => {
-      noteEl.textContent = text || '';
-      noteEl.classList.toggle('is-error', !!isError);
-      noteEl.hidden = !text;
-    };
-
-    root.append(headEl, noteEl, body);
-
-    function bar(title, back, right) {
-      headEl.replaceChildren();
-      if (back) headEl.appendChild(button('lex-profi-back', '‹ Back', () => { say(''); screen = back; paint(); }));
-      headEl.appendChild(make('div', 'lex-profi-title', title));
-      if (right) headEl.appendChild(right);
+    function go(id, title) {
+      frame.push({ id, title });
+      paint();
     }
 
     async function command(kind, order, args) {
@@ -253,22 +231,9 @@
       return { ok: false, error: 'The monitor did not answer. Is the working Mac awake?' };
     }
 
-    // ── home ─────────────────────────────────────────────────────────────────
-    function rowNode(title, sub, opts) {
-      const row = make('div', 'lex-profi-row');
-      if (opts.first) row.classList.add('is-first');
-      if (opts.dot) row.classList.add('is-unread');
-      const b = button('lex-profi-row-main', null, opts.onClick);
-      const top = make('div', 'lex-profi-row-top');
-      top.appendChild(make('span', 'lex-profi-row-title', title));
-      if (opts.mark) top.appendChild(make('span', 'lex-profi-mark', opts.mark));
-      b.appendChild(top);
-      if (sub) b.appendChild(make('span', 'lex-profi-row-sub', sub));
-      row.appendChild(b);
-      if (opts.more) row.appendChild(deps.moreButton((e) => deps.menu(e.currentTarget, opts.more)));
-      return row;
-    }
+    const openOrder = (order) => frame.open((wanted) => deps.openOrder(order, wanted), 'The chat did not open.');
 
+    // ── home ─────────────────────────────────────────────────────────────────
     async function lower(order) {
       try {
         await deps.rpc('profi_lower', { p_order: order });
@@ -286,22 +251,22 @@
     }
 
     function paintHome() {
-      bar('Profi.ru', null, button('lex-profi-gear', 'Settings', () => { screen = 'settings'; paint(); }));
+      const { body } = frame;
       body.replaceChildren();
       if (!home) return;
       const st = home.status || {};
       if (monitorSilent()) say('The monitor is not on line: nothing new will come until a Mac wakes up.', true);
       else if (st.stopped) say(`The monitor is stopped: ${st.stopped}`, true);
       else say('');
-      const list = make('div', 'lex-profi-list');
+      const list = make('div', 'lex-section-list');
       const feed = home.feed || {};
-      const active = feed.active ? `${feed.active} sending` : '';
-      list.appendChild(rowNode(feed.title || 'New orders', feed.last || 'Nothing yet.', {
-        first: true, mark: active, onClick: () => { screen = 'feed'; paint(); },
+      list.appendChild(global.LexSection.row({
+        title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
+        mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
       }));
       for (const c of home.chats || []) {
-        list.appendChild(rowNode(c.title, c.last || '', {
-          dot: c.unread, onClick: () => deps.openOrder(c.order),
+        list.appendChild(global.LexSection.row({
+          title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrder(c.order),
           more: [{ label: 'Nothing to answer', onSelect: () => lower(c.order) }],
         }));
       }
@@ -352,27 +317,27 @@
         if (a === 'send') act('Send', 'is-main', () => command('send_draft', it.order));
         if (a === 'reply_self') {
           act('Reply yourself', '', async () => {
-            const r = await command('reply_self', it.order, { pressed_at: Date.now() / 1000 });
-            deps.openOrder(it.order, r && r.chatKey);
+            await command('reply_self', it.order, { pressed_at: Date.now() / 1000 });
+            openOrder(it.order);
           });
         }
       }
       if (it.hasChat && !(it.actions || []).includes('reply_self')) {
-        foot.appendChild(button('lex-profi-btn', 'Open chat', () => deps.openOrder(it.order)));
+        foot.appendChild(button('lex-profi-btn', 'Open chat', () => openOrder(it.order)));
       }
       if (foot.childElementCount) root.appendChild(foot);
       return root;
     }
 
-    function feedAtEnd() {
+    function feedAtEnd(body) {
       return body.scrollTop + body.clientHeight >= body.scrollHeight - 80;
     }
 
     async function paintFeed() {
-      bar('New orders', 'home');
-      const stick = !feedEls.size || feedAtEnd();
+      const { body } = frame;
+      const stick = !feedEls.size || feedAtEnd(body);
       const r = await deps.rpc('profi_feed', { p_limit: 60 });
-      if (screen !== 'feed') return;
+      if (frame.screen !== 'feed') return;
       clockOffset = (r.now || Date.now() / 1000) - Date.now() / 1000;
       feedEls = new Map();
       body.replaceChildren();
@@ -387,7 +352,7 @@
     }
 
     function tick() {
-      if (screen !== 'feed') return;
+      if (frame.screen !== 'feed') return;
       for (const { it, n } of feedEls.values()) {
         if (it.state !== 'countdown') continue;
         const st = n.querySelector('.lex-profi-order-state');
@@ -397,7 +362,7 @@
 
     // ── settings: the rest of the bot's menu ─────────────────────────────────
     function paintSettings() {
-      bar('Settings', 'home');
+      const { body } = frame;
       body.replaceChildren();
       const st = (home && home.status) || {};
       const block = (title) => {
@@ -424,7 +389,7 @@
       for (const m of st.macs || []) {
         const row = make('div', 'lex-profi-mac');
         row.appendChild(make('span', '', m.name));
-        if (m.working) row.appendChild(make('span', 'lex-profi-mark', 'Working'));
+        if (m.working) row.appendChild(make('span', 'lex-section-mark', 'Working'));
         else row.appendChild(button('lex-profi-btn', 'Switch here', run('switch_mac', { mac: m.id }, 'Switching: it takes about a minute.')));
         macs.appendChild(row);
       }
@@ -450,25 +415,26 @@
       const rep = block('Today');
       for (const [name, label] of [['answered', 'Answered today'], ['unanswered', 'Unanswered today'], ['question', 'In question today'],
         ['summary', 'Summary of the day'], ['stats', 'Statistics']]) {
-        rep.appendChild(button('lex-profi-btn', label, () => { report = { name, label }; screen = 'report'; paint(); }));
+        rep.appendChild(button('lex-profi-btn', label, () => { report = { name, label }; go('report', label); }));
       }
     }
 
     async function paintReport() {
-      bar(report.label, 'settings');
+      const { body } = frame;
       body.replaceChildren(make('div', 'lex-profi-empty', 'Asking the monitor…'));
       try {
         const r = await command('report', null, { name: report.name });
         const res = await waitResult(r.id);
-        if (screen !== 'report') return;
+        if (frame.screen !== 'report') return;
         body.replaceChildren();
         if (res.ok === false) { say(res.error || 'It did not work.', true); return; }
         if (res.text) { body.appendChild(make('div', 'lex-profi-text', res.text)); return; }
         body.appendChild(make('div', 'lex-profi-block-title', res.title || ''));
-        const list = make('div', 'lex-profi-list');
+        const list = make('div', 'lex-section-list');
         for (const it of res.items || []) {
-          list.appendChild(rowNode(it.title, it.paid ? `${Math.round(it.paid)} ₽` : (it.noText ? 'No text' : ''), {
-            onClick: () => deps.openOrder(it.order),
+          list.appendChild(global.LexSection.row({
+            title: it.title, sub: it.paid ? `${Math.round(it.paid)} ₽` : (it.noText ? 'No text' : ''),
+            onClick: () => openOrder(it.order),
           }));
         }
         body.appendChild(list);
@@ -476,11 +442,12 @@
           body.appendChild(button('lex-profi-btn', 'Open all on the Mac', async () => { await command('open_answered'); }));
         }
       } catch (e) {
-        if (screen === 'report') say((e && e.message) || 'It did not work.', true);
+        if (frame.screen === 'report') say((e && e.message) || 'It did not work.', true);
       }
     }
 
     function paint() {
+      const { screen } = frame;
       if (screen === 'home') paintHome();
       else if (screen === 'feed') return paintFeed().catch((e) => say((e && e.message) || 'The orders did not load.', true));
       else if (screen === 'settings') paintSettings();
@@ -493,42 +460,52 @@
       rev = home.rev;
     }
 
+    // A change counts as seen only when it reached the screen and the open order chat: after
+    // a failed read the next look tries again. An error goes up to the watch of the frame.
     async function poll() {
+      const r = await deps.rpc('profi_rev', {});
+      if (r === rev) return;
+      const seen = rev;
       try {
-        const r = await deps.rpc('profi_rev', {});
-        if (r === rev) return;
-        rev = r;
-        if (root.isConnected && !root.closest('[hidden]')) {
-          if (screen === 'home' || screen === 'settings') { await reloadHome(); paint(); } else if (screen === 'feed') await paint();
+        if (frame.isShown()) {
+          await reloadHome();
+          const { screen } = frame;
+          if (screen === 'home' || screen === 'settings') paint();
+          else if (screen === 'feed') await paintFeed();
         }
-        if (deps.onChange) deps.onChange();
+        if (deps.onChange) await deps.onChange();
+        rev = r;
       } catch (e) {
-        console.warn('[profi] rev:', e && e.message);
+        rev = seen;
+        throw e;
       }
     }
 
     return {
-      el: root,
-      async show(target) {
-        if (target) screen = target;
+      el: frame.el,
+      stopOpening: frame.stopOpening,
+      async show() {
+        frame.enter();
         try {
           await reloadHome();
           await paint();
         } catch (e) {
           say('The section did not load. ' + ((e && e.message) || ''), true);
         }
-        this.watch();
+        // The person may have left during the first reading: an order chat starts its own watch.
+        if (frame.isShown()) this.watch();
       },
       // The screen follows the server while the section or an order chat is open.
       watch() {
-        if (!timer) timer = setInterval(poll, POLL_MS);
+        frame.watch();
         if (!ticker) ticker = setInterval(tick, 500);
       },
       unwatch() {
-        clearInterval(timer);
+        frame.unwatch();
         clearInterval(ticker);
-        timer = ticker = null;
+        ticker = null;
       },
+      hide() { this.unwatch(); },
     };
   }
 

@@ -214,7 +214,7 @@
     // загрузки: stop() дописывает последний обмен в память беседы, и лента
     // новой не должна рисоваться поверх ещё живого разговора.
     if (id !== state.conversationId) await endVoiceOnLeave('open-chat');
-    if (newsFeed && !(opts && opts.wanted)) newsFeed.stopOpening();
+    if (!(opts && opts.wanted)) stopSectionOpening();
     let r;
     try {
       r = await WcBus.call('WC_LOAD_CONVERSATION', { id });
@@ -224,8 +224,7 @@
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     if (opts && opts.wanted && !opts.wanted()) return;
-    leaveNews();
-    leaveProfi();
+    leaveSection();
     state.conversationId = id;
     if (opts && opts.back) sectionBack.cameFrom(opts.back);
     if (opts && opts.profi) enterProfiChat(opts.profi);
@@ -262,21 +261,91 @@
     WcThread.paintMoney(null);
   }
 
-  // ── News ─────────────────────────────────────────────────────────────────
-  // The feed, its cards and its settings are lex-news.js, the same code as in
-  // the extension. Here is only where they stand on this page: the feed takes
-  // the place of the thread and the composer, a card opens as an ordinary chat,
-  // and the arrow in the top bar comes back. The feed stays alive under the chat,
-  // so it comes back at the same place.
+  // ── Sections ─────────────────────────────────────────────────────────────
+  // A section is a frame of lex-section.js. Here is only where it stands on this page: it
+  // takes the place of the thread and the composer, an item opens as an ordinary chat, and
+  // the arrow in the top bar comes back. A section stays alive under the chat, so it comes
+  // back at the same place. A new section is one more line in SECTIONS.
   const newsRpc = (name, args) => WcBus.call('WC_NEWS_RPC', { name, args });
   const newsPost = (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body });
+  const copyText = (text) => navigator.clipboard.writeText(text).then(() => true, () => false);
   // In WcStore: it is the person's, and WcWipe takes it away with everything else of theirs.
   const NEWS_KEPT = 'lexNewsFeed';
-  let newsFeed = null;
   // The arrow in the top bar: one rule for every section, see lex-back.js.
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
-  const NEWS_BACK = { title: 'News', go: () => showNews() };
-  const PROFI_BACK = { title: 'Profi.ru', go: () => showProfi() };
+  const SECTIONS = {
+    news: { title: 'News', build: buildNews },
+    profi: { title: 'Profi.ru', build: buildProfi, cutsAnswer: true, leave: leaveProfiChat },
+  };
+  const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id) });
+  let sectionOn = null;
+  function sectionEls() {
+    return {
+      main: document.querySelector('.wc-main'),
+      host: document.getElementById('wc-section-host'),
+    };
+  }
+  function stopSectionOpening() {
+    for (const s of Object.values(SECTIONS)) if (s.live) s.live.stopOpening();
+  }
+  function leaveSection() {
+    const { main, host } = sectionEls();
+    if (sectionOn) SECTIONS[sectionOn].live.hide();
+    sectionOn = null;
+    host.hidden = true;
+    sectionBack.clear();
+    main.classList.remove('is-section', 'is-news-opening');
+    for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
+  }
+  async function showSection(id) {
+    const { main, host } = sectionEls();
+    const section = SECTIONS[id];
+    await endVoiceOnLeave('news');
+    if (section.cutsAnswer && WcThread.isStreaming()) stopStream();
+    leaveSection();
+    if (!section.live) {
+      section.live = section.build();
+      host.appendChild(section.live.el);
+    }
+    for (const el of host.children) el.hidden = el !== section.live.el;
+    sectionOn = id;
+    host.hidden = false;
+    main.classList.add('is-section');
+    WcSidebar.close();
+    await section.live.show();
+  }
+  async function loadSections() {
+    let sections = [];
+    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web' }); } catch (err) {
+      console.warn('[wc] sections:', err && err.message);
+    }
+    global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
+      if (SECTIONS[id]) showSection(id);
+    });
+  }
+
+  // ── News ─────────────────────────────────────────────────────────────────
+  // The feed, its cards and its settings are lex-news.js, the same code as in the extension.
+  function buildNews() {
+    return global.LexNews.createFeed({
+      back: sectionBack,
+      rpc: newsRpc,
+      post: newsPost,
+      copy: copyText,
+      modelLabel: (id) => global.LexAnswerRow.modelLabel(id),
+      pickModel: (anchor, id, onPick) => openModelMenu(anchor, id, null, onPick),
+      showCard: showNewsCard,
+      // The field stays away until a chat stands behind the text, or a word would go to
+      // the chat before. The arrow leads back, and a press on the card tries again.
+      cardFailed: (why) => toast('The chat did not open: ' + why, { error: true }),
+      openChat: async ({ chatKey, title, shown, wanted }) => {
+        await openConversation(chatKey, { keepPlace: shown, wanted, back: sectionTarget('news') });
+        if (wanted() && state.conversationId === chatKey) WcHeader.setTitle(title);
+      },
+      keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
+      keptFeed: () => WcStore.one(NEWS_KEPT, null).catch(() => null),
+    });
+  }
   // What stands over the first message of a news chat. Reading the chat again leaves
   // the arrow back to the feed as it was.
   function newsHead(head) {
@@ -285,26 +354,10 @@
       chatKey, head, rpc: newsRpc, post: newsPost,
       onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
-        if (state.conversationId !== chatKey || !newsEls().host.hidden || !profiEls().host.hidden || WcThread.isStreaming()) return;
+        if (state.conversationId !== chatKey || !sectionEls().host.hidden || WcThread.isStreaming()) return;
         await openConversation(chatKey, { back: sectionBack.target });
         WcHeader.setTitle(title);
       },
-    });
-  }
-  function newsEls() {
-    return {
-      main: document.querySelector('.wc-main'),
-      host: document.getElementById('wc-news-host'),
-    };
-  }
-  async function loadSections() {
-    let sections = [];
-    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web' }); } catch (err) {
-      console.warn('[wc] sections:', err && err.message);
-    }
-    global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
-      if (id === 'news') showNews();
-      if (id === 'profi') showProfi();
     });
   }
   // The text of a card is here already: it goes on screen in the moment of the press,
@@ -312,96 +365,46 @@
   // the field waits for it.
   function showNewsCard({ text, head, title }) {
     if (WcThread.isStreaming()) return false;
-    leaveNews();
+    leaveSection();
     resetMoney();
     WcThread.renderTurns([{ role: 'assistant', origin: 'news', text }], { newsHead: () => newsHead(head) });
-    newsEls().main.classList.add('is-news-opening');
-    sectionBack.cameFrom(NEWS_BACK);
+    sectionEls().main.classList.add('is-news-opening');
+    sectionBack.cameFrom(sectionTarget('news'));
     WcHeader.setTitle(title);
     return true;
-  }
-  function leaveNews() {
-    const { main, host } = newsEls();
-    if (newsFeed && !host.hidden) newsFeed.hide();
-    host.hidden = true;
-    sectionBack.clear();
-    main.classList.remove('is-news', 'is-news-opening');
-  }
-  async function showNews() {
-    const { main, host } = newsEls();
-    await endVoiceOnLeave('news');
-    leaveProfi();
-    main.classList.remove('is-news-opening');
-    if (!newsFeed) {
-      newsFeed = global.LexNews.createFeed({
-        rpc: newsRpc,
-        post: newsPost,
-        showCard: showNewsCard,
-        // The field stays away until a chat stands behind the text, or a word would go to
-        // the chat before. The arrow leads back, and a press on the card tries again.
-        cardFailed: (why) => toast('The chat did not open: ' + why, { error: true }),
-        openChat: async ({ chatKey, title, shown, wanted }) => {
-          await openConversation(chatKey, { keepPlace: shown, wanted, back: NEWS_BACK });
-          if (wanted() && state.conversationId === chatKey) WcHeader.setTitle(title);
-        },
-        keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
-        keptFeed: () => WcStore.one(NEWS_KEPT, null).catch(() => null),
-      });
-      host.appendChild(newsFeed.el);
-    }
-    sectionBack.clear();
-    host.hidden = false;
-    main.classList.add('is-news');
-    WcSidebar.close();
-    await newsFeed.show();
   }
 
   // ── Profi.ru ─────────────────────────────────────────────────────────────
   // The list, the chat of new orders and the settings are lex-profi.js. An order chat is
   // an ordinary conversation that opens here: the thread draws it through the object of
   // the chat, and the section keeps watching the server while it is open.
-  let profiSection = null;
   let profiChat = null;
   function profiEls() {
     return {
       main: document.querySelector('.wc-main'),
-      host: document.getElementById('wc-profi-host'),
       only: document.getElementById('wc-profi-only'),
     };
   }
-  function leaveProfi() {
-    const { main, host, only } = profiEls();
-    host.hidden = true;
+  function leaveProfiChat() {
+    const { main, only } = profiEls();
     only.hidden = true;
-    main.classList.remove('is-profi', 'is-profi-chat');
+    main.classList.remove('is-profi-chat');
     if (profiChat) {
       profiChat = null;
       WcThread.setProfiChat(null);
       WcBus.call('WC_PROFI_CHAT', {}).catch(() => {});
     }
-    if (profiSection) profiSection.unwatch();
+    if (SECTIONS.profi.live) SECTIONS.profi.live.unwatch();
   }
-  async function showProfi() {
-    const { main, host } = profiEls();
-    await endVoiceOnLeave('news');
-    if (WcThread.isStreaming()) stopStream();
-    leaveNews();
-    leaveProfi();
-    if (!profiSection) {
-      profiSection = global.LexProfi.createSection({
-        rpc: newsRpc,
-        openOrder: (order) => openProfiOrder(order),
-        moreButton: (onClick) => WcUI.iconBtn('dots', 'More', onClick, 'lex-profi-row-more'),
-        menu: (anchor, items) => WcUI.menu(anchor, items),
-        onChange: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
-      });
-      host.appendChild(profiSection.el);
-    }
-    sectionBack.clear();
-    host.hidden = false;
-    main.classList.add('is-profi');
-    WcSidebar.close();
-    await profiSection.show();
+  function buildProfi() {
+    return global.LexProfi.createSection({
+      back: sectionBack,
+      rpc: newsRpc,
+      copy: copyText,
+      openOrder: openProfiOrder,
+      notify: (text) => toast(text, { error: true }),
+      onChange: refreshProfiChat,
+    });
   }
   function enterProfiChat(chat) {
     const { main, only } = profiEls();
@@ -410,7 +413,7 @@
     main.classList.add('is-profi-chat');
     only.hidden = false;
     syncProfiOnly();
-    profiSection.watch();
+    SECTIONS.profi.live.watch();
   }
   function syncProfiOnly() {
     const { only } = profiEls();
@@ -432,23 +435,25 @@
       toast((err && err.message) || 'It did not work.', { error: true });
     }
   }
-  async function openProfiOrder(order) {
+  async function openProfiOrder(order, wanted) {
     let data = await newsRpc('profi_open', { p_order: order });
+    if (!wanted()) return;
     if (!data || !data.chatKey) {
       // An order from a list of the day has no chat yet: it opens the way Reply yourself does.
       await newsRpc('profi_command', { p_op_id: global.LexProfi.newOpId(), p_kind: 'reply_self', p_order: order, p_args: {} });
       data = await newsRpc('profi_open', { p_order: order });
+      if (!wanted()) return;
     }
     if (!data || !data.chatKey) { toast('The chat did not open', { error: true }); return; }
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
-      copy: (text) => navigator.clipboard.writeText(text).then(() => true, () => false),
+      copy: copyText,
       order,
-      reload: () => { refreshProfiChat().catch(() => {}); },
+      reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
     });
     chat.data = data;
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
-    await openConversation(data.chatKey, { profi: chat, back: PROFI_BACK });
+    await openConversation(data.chatKey, { profi: chat, back: sectionTarget('profi'), wanted });
   }
   // The server changed something: boxes, new turns, whether the client waits. The answer
   // being written stays as it is; its turn comes with the next change.
@@ -474,16 +479,6 @@
     if (document.visibilityState === 'visible') refreshProfiChat().catch(() => {});
   });
 
-  function newsSettings() {
-    const block = global.LexNews.createSettings({
-      rpc: newsRpc,
-      copy: (text) => navigator.clipboard.writeText(text).then(() => true, () => false),
-      modelLabel: (id) => global.LexAnswerRow.modelLabel(id),
-      pickModel: (anchor, id, onPick) => openModelMenu(anchor, id, null, onPick),
-    });
-    return block.load().then((has) => (has ? block.el : null), () => null);
-  }
-
   async function newConversation() {
     if (WcThread.isStreaming()) stopStream();
     refreshPublished();
@@ -491,9 +486,8 @@
     // решение, что в openConversation). Карандаш во время звонка спрятан, но
     // сюда же ведёт удаление открытой беседы из панели (deleteConversation).
     await endVoiceOnLeave('new-chat');
-    if (newsFeed) newsFeed.stopOpening();
-    leaveNews();
-    leaveProfi();
+    stopSectionOpening();
+    leaveSection();
     state.conversationId = null;
     WcThread.clear();
     resetMoney();
@@ -1079,7 +1073,6 @@
     return WcSettings.open({
       account: state.account,
       onSignOut: signOut,
-      newsSettings,
     });
   }
 

@@ -1,0 +1,241 @@
+/* lex-section.css — the look of the frame of a section (lex-section.js). One file for the
+ * extension and the page lex-me.club/app. Colours come from the window through variables on
+ * the container, because the dark panel of the extension and the light and dark themes of
+ * the page differ while the layout does not:
+ *   --lex-section-fg, --lex-section-muted, --lex-section-line, --lex-section-hover,
+ *   --lex-section-danger, --lex-section-bg, --lex-section-menu, --lex-section-bg-on-fg
+ * Selectors start with a class of this module so the styles of a host page (YouTube, any
+ * site under the small window) do not reach in. */
+
+.lex-section {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  color: var(--lex-section-fg, inherit);
+  background: var(--lex-section-bg, transparent);
+  font-size: 15px;
+  line-height: 1.4;
+  text-align: left;
+}
+.lex-section[hidden] { display: none; }
+/* A host page under the small window styles every svg of the page. */
+.lex-section svg { display: block; margin: 0 !important; }
+
+.lex-section .lex-section-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25));
+}
+.lex-section .lex-section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 18px;
+  font-weight: 600;
+}
+.lex-section .lex-section-tools { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; }
+.lex-section .lex-section-tools[hidden] { display: none; }
+.lex-section .lex-section-gear {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
+  color: var(--lex-section-fg, inherit);
+  cursor: pointer;
+}
+.lex-section .lex-section-gear:hover { filter: brightness(1.15); }
+.lex-section .lex-section-gear svg { width: 17px; height: 17px; }
+
+.lex-section .lex-section-status {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+}
+.lex-section .lex-section-status[hidden] { display: none; }
+.lex-section .lex-section-status.is-error { color: var(--lex-section-danger, #d93a3a); }
+/* A round of work: it has to be seen at a glance, the wait can be long. */
+.lex-section .lex-section-status.is-busy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
+  color: var(--lex-section-fg, inherit);
+  font-weight: 500;
+}
+.lex-section .lex-section-status.is-busy::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: lex-section-spin .8s linear infinite;
+}
+@keyframes lex-section-spin { to { transform: rotate(360deg); } }
+
+.lex-section .lex-section-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 16px 24px;
+}
+.lex-section .lex-section-body[hidden] { display: none; }
+.lex-section .lex-section-body > * { max-width: 720px; margin-left: auto; margin-right: auto; }
+
+/* A line of a list. */
+.lex-section .lex-section-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border-top: 1px solid var(--lex-section-line, rgba(127, 127, 127, .2));
+}
+.lex-section .lex-section-list > .lex-section-row:first-child,
+.lex-section .lex-section-list > :first-child > .lex-section-row:first-child { border-top: 0; }
+.lex-section .lex-section-row-main {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* Unread is a dot in the margin, as in mail apps. A read title stays easy to read. */
+.lex-section .lex-section-row.is-unread::before {
+  content: '';
+  position: absolute;
+  top: 19px;
+  left: -12px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f2c14b;
+}
+.lex-section .lex-section-row-top { display: flex; align-items: baseline; gap: 10px; }
+.lex-section .lex-section-row-title,
+.lex-section .lex-section-row-sub { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-section .lex-section-row-title {
+  flex: 1 1 auto;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.3;
+  opacity: .82;
+}
+.lex-section .lex-section-row.is-unread .lex-section-row-title,
+.lex-section .lex-section-row.is-strong .lex-section-row-title { font-weight: 600; opacity: 1; }
+.lex-section .lex-section-row-main:hover .lex-section-row-title {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+.lex-section .lex-section-row-sub {
+  display: block;
+  margin-top: 4px;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 14px;
+  line-height: 1.4;
+}
+.lex-section .lex-section-row.is-wrap .lex-section-row-title,
+.lex-section .lex-section-row.is-wrap .lex-section-row-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+}
+.lex-section .lex-section-row.is-wrap .lex-section-row-title { -webkit-line-clamp: 3; }
+.lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
+.lex-section .lex-section-mark {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--lex-section-fg, #1d1d1f);
+  color: var(--lex-section-bg-on-fg, #fff);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* The three dots and their menu: at a line of a list and in the head of an open item. */
+.lex-section-more {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  cursor: pointer;
+}
+.lex-section-more:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-section-more svg { display: block; width: 16px; height: 16px; margin: 0 !important; }
+.lex-section .lex-section-row > .lex-section-more { margin: 9px -6px 0 0; }
+
+.lex-section-menu {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  padding: 4px;
+  border: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25));
+  border-radius: 10px;
+  background: var(--lex-section-menu, #fff);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+}
+.lex-section-menu .lex-section-menu-item {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--lex-section-fg, inherit);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.4;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.lex-section-menu .lex-section-menu-item:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
