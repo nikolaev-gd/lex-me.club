@@ -394,8 +394,9 @@
       elTurns.replaceChildren();
       if (profiChat) elTurns.append(profiChat.head());
       (turns || []).forEach((t) => {
-        // The monitor's turns of an order chat: a message of the client, what went to him.
-        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent')) {
+        // The monitor's turns of an order chat: a message of the client, what went to him, a
+        // notice of Profi.
+        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice')) {
           elTurns.append(profiChat.messageNode(t));
           return;
         }

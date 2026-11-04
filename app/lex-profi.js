@@ -148,15 +148,18 @@
         return root;
       },
 
-      // A message of the client or what went to him: the two kinds of turn the monitor writes.
+      // What the monitor writes into the chat: a message of the client, what went to him, and a
+      // notice of Profi (the commission, the balance, an opened contact) as a grey line.
       messageNode(t) {
         const out = t.origin === 'profi_sent';
-        const root = make('div', `wc-turn lex-profi-msg ${out ? 'is-sent' : 'is-client'}`);
+        const notice = t.origin === 'profi_notice';
+        const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
         if (t.uid) root.dataset.uid = String(t.uid);
         const when = t.authoredAt ? new Date(t.authoredAt) : null;
         const stamp = when && !Number.isNaN(when.getTime())
           ? when.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-        root.appendChild(make('div', 'lex-profi-msg-who', `${out ? 'Sent to the client' : (data && data.client) || 'Client'}${stamp ? ' · ' + stamp : ''}`));
+        const who = notice ? 'Profi.ru' : out ? 'Sent to the client' : (data && data.client) || 'Client';
+        root.appendChild(make('div', 'lex-profi-msg-who', `${who}${stamp ? ' · ' + stamp : ''}`));
         root.appendChild(make('div', 'lex-profi-msg-text', t.text));
         return root;
       },
@@ -234,16 +237,6 @@
     const openOrder = (order) => frame.open((wanted) => deps.openOrder(order, wanted), 'The chat did not open.');
 
     // ── home ─────────────────────────────────────────────────────────────────
-    async function lower(order) {
-      try {
-        await deps.rpc('profi_lower', { p_order: order });
-        await reloadHome();
-        paint();
-      } catch (e) {
-        say((e && e.message) || 'It did not work.', true);
-      }
-    }
-
     function monitorSilent() {
       if (!home) return false;
       const at = home.statusAt ? new Date(home.statusAt).getTime() : 0;
@@ -267,7 +260,6 @@
       for (const c of home.chats || []) {
         list.appendChild(global.LexSection.row({
           title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrder(c.order),
-          more: [{ label: 'Nothing to answer', onSelect: () => lower(c.order) }],
         }));
       }
       body.appendChild(list);

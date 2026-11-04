@@ -56,6 +56,10 @@
 .lex-profi-msg-who { margin: 0 12px 3px; color: var(--fg-muted); font-size: 12px; }
 .lex-profi-msg-text { padding: 9px 12px; border-radius: 14px; background: var(--bg-hover); white-space: pre-wrap; overflow-wrap: anywhere; }
 .lex-profi-msg.is-sent .lex-profi-msg-text { background: var(--fg); color: var(--bg); }
+/* A notice of Profi: a grey line in the middle, no bubble. */
+.lex-profi-msg.is-notice { align-self: center; max-width: 90%; margin-left: auto; margin-right: auto; text-align: center; }
+.lex-profi-msg.is-notice .lex-profi-msg-who { margin: 0 0 2px; }
+.lex-profi-msg.is-notice .lex-profi-msg-text { padding: 0; background: none; color: var(--fg-muted); font-size: 13px; }
 
 .lex-profi-box { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
 .lex-profi-box.is-writing { opacity: .75; }
