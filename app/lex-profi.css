@@ -35,6 +35,9 @@
 .lex-profi-block-title { color: var(--fg-muted); font-size: 13px; font-weight: 600; }
 .lex-profi-line { font-size: 14px; }
 .lex-profi-line.is-error { color: var(--danger); }
+.lex-profi-line.is-muted { color: var(--fg-muted); }
+/* A switch of the settings: its words on the left, the switch (wc-switch, wc-app.css) on the right. */
+.lex-profi-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 15px; cursor: pointer; }
 .lex-profi-mac { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 14px; }
 
 /* An order chat: the head stands over the first message and outside it. */

@@ -271,6 +271,8 @@
         }));
       }
       body.appendChild(list);
+      // «Only unanswered» left no chat: the server says so in its words.
+      if (!(home.chats || []).length && home.empty) body.appendChild(make('div', 'lex-profi-empty', home.empty));
     }
 
     // ── new orders ───────────────────────────────────────────────────────────
@@ -384,6 +386,37 @@
         }
         btn.disabled = false;
       };
+
+      // The first item: which chats the list keeps. The server keeps the switch, one for all
+      // devices, and makes the list by it; a press is a command with its operation number.
+      const chats = block('Chats');
+      const only = make('label', 'lex-profi-switch-row');
+      only.appendChild(make('span', '', 'Only unanswered'));
+      const input = make('input');
+      input.type = 'checkbox';
+      input.checked = !!(home && home.onlyUnanswered);
+      const sw = make('span', 'wc-switch');
+      const track = make('span', 'wc-switch-track');
+      track.appendChild(make('span', 'wc-switch-knob'));
+      sw.append(input, track);
+      only.appendChild(sw);
+      input.addEventListener('change', async () => {
+        const on = input.checked;
+        input.disabled = true;
+        try {
+          const r = await deps.rpc('profi_show_only_unanswered', { p_op_id: newOpId(), p_on: on });
+          await reloadHome();
+          input.checked = !!(r && r.onlyUnanswered);
+          say('');
+        } catch (e) {
+          input.checked = !on;
+          say((e && e.message) || 'It did not work.', true);
+        }
+        input.disabled = false;
+      });
+      chats.appendChild(only);
+      chats.appendChild(make('div', 'lex-profi-line is-muted',
+        'The list keeps only the chats where the client wrote last and you have not answered yet.'));
 
       const macs = block('Working Mac');
       for (const m of st.macs || []) {
