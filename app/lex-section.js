@@ -114,7 +114,8 @@
   // ── a line of a list ────────────────────────────────────────────────────────
   // What stands in it is the section's: title, sub, mark (a small label at the title), dot
   // (not read yet), strong (bold whatever is read), wrap (the title and the sub take several
-  // lines), more (the menu of the dots), id and cls (of the main button), onClick.
+  // lines), end (a node at the right end of the sub line), more (the menu of the dots), id and
+  // cls (of the main button), onClick.
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
@@ -126,7 +127,12 @@
     top.appendChild(make('span', 'lex-section-row-title', o.title));
     if (o.mark) top.appendChild(make('span', 'lex-section-mark', o.mark));
     main.appendChild(top);
-    if (o.sub) main.appendChild(make('span', 'lex-section-row-sub', o.sub));
+    if (o.end) {
+      const line = make('span', 'lex-section-row-subline');
+      line.appendChild(make('span', 'lex-section-row-sub', o.sub || ''));
+      line.appendChild(o.end);
+      main.appendChild(line);
+    } else if (o.sub) main.appendChild(make('span', 'lex-section-row-sub', o.sub));
     el.appendChild(main);
     if (o.more && o.more.length) el.appendChild(moreButton(o.more));
     return el;

@@ -54,6 +54,9 @@
 .lex-profi-msg.is-client { align-self: flex-start; margin-right: auto; }
 .lex-profi-msg.is-sent { align-self: flex-end; margin-left: auto; }
 .lex-profi-msg-who { margin: 0 12px 3px; color: var(--fg-muted); font-size: 12px; }
+/* The mark of Profi to the right of the time of what went to the client: 16 px, as in Profi's list. */
+.lex-profi-msg.is-sent .lex-profi-msg-who { display: flex; align-items: center; gap: 4px; }
+.lex-profi-tick { flex: 0 0 auto; width: 16px; height: 16px; }
 .lex-profi-msg-text { padding: 9px 12px; border-radius: 14px; background: var(--bg-hover); white-space: pre-wrap; overflow-wrap: anywhere; }
 .lex-profi-msg.is-sent .lex-profi-msg-text { background: var(--fg); color: var(--bg); }
 /* A notice of Profi: a grey line in the middle, no bubble. */

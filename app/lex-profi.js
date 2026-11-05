@@ -53,6 +53,42 @@
     return parts.filter((p) => p.kind === 'box' || p.text.trim());
   }
 
+  // ── the mark of Profi under what went to the client ─────────────────────────
+  // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the
+  // client has not read it yet; the second stroke and both blue, he has. The server says which.
+  const TICK_NS = 'http://www.w3.org/2000/svg';
+  const TICK_GREY = '#838398';
+  const TICK_BLUE = '#617EF8';
+
+  function tickNode(read) {
+    const svg = document.createElementNS(TICK_NS, 'svg');
+    svg.setAttribute('viewBox', '0 -1 13 13');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('class', 'lex-profi-tick');
+    for (const d of ['m.62 7.18 2.5 2.74L9.3 3.08', 'm6.21 9.92 6.17-6.84']) {
+      const p = document.createElementNS(TICK_NS, 'path');
+      p.setAttribute('stroke-width', '1.2');
+      p.setAttribute('stroke-linecap', 'round');
+      p.setAttribute('stroke-linejoin', 'round');
+      p.setAttribute('d', d);
+      svg.appendChild(p);
+    }
+    setTick(svg, read);
+    return svg;
+  }
+
+  function setTick(svg, read) {
+    const [first, second] = svg.querySelectorAll('path');
+    first.setAttribute('stroke', read ? TICK_BLUE : TICK_GREY);
+    if (read) second.setAttribute('stroke', TICK_BLUE); else second.removeAttribute('stroke');
+    second.setAttribute('stroke-dasharray', '10');
+    second.setAttribute('stroke-dashoffset', read ? '0' : '10');
+    svg.dataset.read = read ? '1' : '0';
+    svg.setAttribute('aria-label', read ? 'Read by the client' : 'Not read yet');
+  }
+
   function priceLine(price) {
     if (!price) return '';
     if (typeof price.summa === 'number') {
@@ -159,7 +195,10 @@
         const stamp = when && !Number.isNaN(when.getTime())
           ? when.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
         const who = notice ? 'Profi.ru' : out ? 'Sent to the client' : (data && data.client) || 'Client';
-        root.appendChild(make('div', 'lex-profi-msg-who', `${who}${stamp ? ' · ' + stamp : ''}`));
+        const whoEl = make('div', 'lex-profi-msg-who', `${who}${stamp ? ' · ' + stamp : ''}`);
+        // What went to the client: the mark of Profi to the right of the time.
+        if (out) whoEl.appendChild(tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))));
+        root.appendChild(whoEl);
         root.appendChild(make('div', 'lex-profi-msg-text', t.text));
         return root;
       },
@@ -184,10 +223,16 @@
 
       // What the server keeps off the screen: the discussion up to the last press of the
       // button in the corner. The model still reads it.
+      // The marks of Profi follow the server with it: what the client has read turns blue.
       paintHidden(thread) {
         const hidden = new Set((data && data.hiddenTurns) || []);
         for (const t of thread.querySelectorAll('.wc-turn[data-uid]')) {
           t.classList.toggle('lex-profi-hidden', hidden.has(t.dataset.uid));
+        }
+        const read = new Set((data && data.readTurns) || []);
+        for (const svg of thread.querySelectorAll('.lex-profi-msg.is-sent[data-uid] .lex-profi-tick')) {
+          const uid = svg.closest('[data-uid]').dataset.uid;
+          if ((svg.dataset.read === '1') !== read.has(uid)) setTick(svg, read.has(uid));
         }
       },
     };
@@ -260,6 +305,8 @@
       for (const c of home.chats || []) {
         list.appendChild(global.LexSection.row({
           title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrder(c.order),
+          // Gennady wrote last: the tick of Profi at the last message, as in Profi's list.
+          end: c.tick ? tickNode(c.tick === 'read') : null,
         }));
       }
       body.appendChild(list);

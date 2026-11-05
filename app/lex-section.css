@@ -148,6 +148,10 @@
 .lex-section .lex-section-row-top { display: flex; align-items: baseline; gap: 10px; }
 .lex-section .lex-section-row-title,
 .lex-section .lex-section-row-sub { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The sub line with a node at its right end (the tick of Profi.ru): the words take what is left. */
+.lex-section .lex-section-row-subline { display: flex; align-items: center; gap: 6px; margin-top: 4px; min-width: 0; }
+.lex-section .lex-section-row-subline > .lex-section-row-sub { flex: 1 1 auto; margin-top: 0; }
+.lex-section .lex-section-row-subline > svg { flex: 0 0 auto; }
 .lex-section .lex-section-row-title {
   flex: 1 1 auto;
   font-size: 16px;
