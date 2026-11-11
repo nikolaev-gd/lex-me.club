@@ -302,6 +302,13 @@
     if (prev.raw && global.WcWordPick) WcWordPick.ready(entry.bubble, prev.raw, 'markdown');
   }
 
+  // The line of the work with the database leaves when the answer starts: the words
+  // themselves say the model is done looking.
+  function clearBrainWork(entry) {
+    const line = entry && entry.turn && entry.turn.querySelector(':scope > .wc-brain-work');
+    if (line) line.remove();
+  }
+
   const WcThread = {
     init(h) {
       hooks = h || {};
@@ -330,6 +337,7 @@
         if (msg.type === 'STREAM_CHUNK') WcThread.chunk(msg);
         else if (msg.type === 'STREAM_DONE') WcThread.done(msg);
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
+        else if (msg.type === 'STREAM_TOOL') WcThread.tool(msg);
         else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
         else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
         else if (msg.type === 'STREAM_USER_TEXT' && msg.bubblePick) WcThread.setLastUserPick(msg.bubblePick, msg.bubbleRest || '');
@@ -572,6 +580,22 @@
       maybeStick();
     },
 
+    // The model works with the database (Extended Mind): one grey line above the answer
+    // says what it asked, until the answer starts or the turn ends.
+    tool(msg) {
+      const entry = live.get(msg.requestId);
+      if (!entry) return;
+      let line = entry.turn.querySelector(':scope > .wc-brain-work');
+      if (msg.phase === 'start') {
+        if (!line) {
+          line = el('.wc-brain-work');
+          entry.turn.insertBefore(line, entry.bubble);
+        }
+        line.textContent = 'Extended Mind: ' + (msg.label || msg.name || 'working');
+        maybeStick();
+      }
+    },
+
     chunk(msg) {
       const entry = live.get(msg.requestId);
       if (!entry) return;
@@ -579,6 +603,7 @@
       // used — it carries _debug_model and nothing else. Rendering it would
       // re-parse the document for no change.
       if (!msg.text) return;
+      clearBrainWork(entry);
       entry.text += msg.text;
       entry.turn.dataset.raw = entry.text;
       if (profiChat) profiChat.paintAnswer(entry.turn, entry.bubble, entry.text, WcMarkdown, true);
@@ -644,6 +669,7 @@
       const entry = live.get(msg.requestId);
       if (!entry) return;
       live.delete(msg.requestId);
+      clearBrainWork(entry);
       // Переспрос, который не дал ни слова, — прежний ответ остаётся.
       if (entry.retry && !entry.text) {
         restorePrevious(entry);
@@ -669,6 +695,7 @@
 
     error(msg) {
       const entry = live.get(msg.requestId);
+      if (entry) clearBrainWork(entry);
       const text = msg.error || 'Something went wrong.';
 
       // Кончились деньги — это не сбой, а следующий шаг, и человеку он должен

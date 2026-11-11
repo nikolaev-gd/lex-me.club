@@ -324,6 +324,37 @@
     });
   }
 
+  // ── What is on the screen, for the iPhone's notifications (2026-11-11) ────
+  // The server sends no notification about a chat that is open on some screen of the
+  // account. This page (the browser and the Mac app) says which chat it shows while the
+  // tab is visible: at once on a change, and every 30 s while it stays. The chat key of
+  // an order chat is its conversation key; the News feed is '__lex_news__'.
+  const presenceDevice = (() => {
+    try {
+      let v = localStorage.getItem('lexDeviceId');
+      if (!v) { v = 'web-' + (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())); localStorage.setItem('lexDeviceId', v); }
+      return v;
+    } catch (_) { return 'web-' + String(Date.now()); }
+  })();
+  let presenceSent;
+  let presenceAt = 0;
+  function presenceKey() {
+    if (document.visibilityState !== 'visible') return null;
+    if (sectionOn === 'news') return '__lex_news__';
+    if (sectionOn) return null;
+    return state.conversationId || null;
+  }
+  function reportPresence() {
+    const key = presenceKey();
+    const due = key && Date.now() - presenceAt > 30000;
+    if (key === presenceSent && !due) return;
+    presenceSent = key;
+    presenceAt = Date.now();
+    newsRpc('lex_chat_presence', { p_device: presenceDevice, p_chat_key: key, p_surface: 'web' }).catch(() => {});
+  }
+  setInterval(reportPresence, 3000);
+  document.addEventListener('visibilitychange', reportPresence);
+
   // ── News ─────────────────────────────────────────────────────────────────
   // The feed, its cards and its settings are lex-news.js, the same code as in the extension.
   function buildNews() {
@@ -1682,7 +1713,8 @@
       attachedPage: () => attachedPage,
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию, нажатие
       // открывает меню моделей. Видят все.
-      textModel: () => ({ label: textModelLabel, open: pickDefaultModel }),
+      // An order chat writes with the monitor's model whatever is chosen: no «Text model» there.
+      textModel: () => (profiChat ? null : { label: textModelLabel, open: pickDefaultModel }),
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.

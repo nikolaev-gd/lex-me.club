@@ -995,6 +995,28 @@ button { font: inherit; color: inherit; }
   50%      { opacity: 1; }
 }
 
+/* The model works with the database (Extended Mind): what it asked, one grey line above
+ * the answer, with the same pulse as the dots of "thinks". It leaves when the words come. */
+.wc-brain-work {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  color: var(--fg-muted);
+  font-size: 13px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+.wc-brain-work::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fg-faint);
+  animation: wc-thinking 1.1s ease-in-out infinite;
+}
+
 /* ── Первая загрузка ──────────────────────────────────────────────────────
  * До этого страница держала белый экран, пока не решится вопрос «вошёл или
  * нет»: и форма входа, и приложение стартуют скрытыми. Белый экран неотличим

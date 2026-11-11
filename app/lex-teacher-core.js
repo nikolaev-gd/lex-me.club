@@ -165,6 +165,14 @@
             if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
             continue;
           }
+          // Свой кадр сервера: модель работает с базой Extended Mind — позвала её
+          // инструмент («start», со строкой, что спросила) или он ответил («done»).
+          // Адаптерам поставщиков не отдаётся: это не слова ответа.
+          if (eventName === 'lex_proxy_tool') {
+            const cb = response && response.__lexOnServerTool;
+            if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
+            continue;
+          }
           onEvent({ event: eventName, data: dataStr });
         }
       }
@@ -209,6 +217,7 @@
         // едет на самом ответе, чтобы адаптерам не пришлось её передавать.
         if (proxy && typeof proxy.onServerTurn === 'function') resp.__lexOnServerTurn = proxy.onServerTurn;
         if (proxy && typeof proxy.onServerRequest === 'function') resp.__lexOnServerRequest = proxy.onServerRequest;
+        if (proxy && typeof proxy.onServerTool === 'function') resp.__lexOnServerTool = proxy.onServerTool;
         return resp;
       });
     }
@@ -2365,6 +2374,19 @@
           if (!body || !lastIoLogId) return;
           try { replaceTextCallRequestBody(lastIoLogId, body); }
           catch (_) { /* журнал остаётся со своим телом */ }
+        };
+        // Работа модели с базой Extended Mind — наверх отдельным событием, а
+        // сторож первой буквы снимается: модель работает, просто пока не пишет.
+        // Без этого ход, где модель сначала ищет в базе, обрывался бы через 15 с
+        // ожидания первого слова.
+        proxy.onServerTool = (d) => {
+          if (streamTimer != null) { clearTimeout(streamTimer); streamTimer = null; }
+          if (!d || (d.phase !== 'start' && d.phase !== 'done')) return;
+          emit(tabId, {
+            type: 'STREAM_TOOL', requestId, phase: d.phase,
+            id: typeof d.id === 'string' ? d.id : '', name: typeof d.name === 'string' ? d.name : '',
+            label: typeof d.label === 'string' ? d.label : '', ok: d.ok !== false,
+          });
         };
         proxy.onHeaders = (h) => {
           let led = false;

@@ -76,9 +76,10 @@
 /* The discussion the person cleared: it leaves the screen, the model still reads it. */
 .wc-turn.lex-profi-hidden { display: none; }
 
-/* An order chat is a chat with the monitor's model: no words to pick, no presets, no voice,
- * no choice of model and no second version of an answer. */
-.wc-main.is-profi-chat #wc-plus,
+/* One field in every chat (2026-11-11): an order chat has «+» with a picture like any chat. It
+ * turns off only what has no sense there: presets (the server refuses them), the choice of model
+ * (the monitor's model writes; the item is left out of «+»), the voice conversation (another
+ * model talks) and a second version of an answer. */
 .wc-main.is-profi-chat #wc-mode-split,
 .wc-main.is-profi-chat #wc-talk,
 .wc-main.is-profi-chat .wc-new-chat,
