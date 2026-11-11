@@ -374,6 +374,24 @@
     }
   }
 
+  // ── The feeds of Extended Mind ───────────────────────────────────────────
+  const EM_FEED_KEY = /^__lex_em_(intake|request|question)__$/;
+  const EM_PAGE = 100;
+  const emLimits = new Map();
+  const isEmFeedKey = (key) => typeof key === 'string' && EM_FEED_KEY.test(key);
+  // Any of the database's words counts: answered, a status «answered», the time or the text
+  // of the answer. The same rule as the iPhone's (EmFeed.answer).
+  function emAnswer(d) {
+    if (!d || typeof d !== 'object') return { answered: false, answer: null };
+    const answer = (typeof d.answer === 'string' && d.answer.trim()) ? d.answer : null;
+    const status = typeof d.status === 'string' ? d.status.toLowerCase() : '';
+    const answered = d.answered === true || status === 'answered' || status === 'done'
+      || (typeof d.answered_at === 'string' && !!d.answered_at) || !!answer;
+    return { answered, answer };
+  }
+  // «Earlier entries»: the next reading of this feed takes one page more.
+  function emEarlier(key) { emLimits.set(key, (emLimits.get(key) || EM_PAGE) + EM_PAGE); }
+
   // ── One conversation ─────────────────────────────────────────────────────
   //
   // ЧТО ПОКАЗАТЬ, РЕШАЕТ СЕРВЕР. Прямого запроса к video_chat_turns здесь
@@ -393,6 +411,14 @@
   // anchor_at); ставит его в ленту LexApart.merge (lex-apart.js). Учителю эти
   // реплики не уходят: в список для него страница кладёт только урок.
   async function conversation(chatKey) {
+    // A feed of Extended Mind grows by dozens of entries a day: its latest entries, not the
+    // whole conversation (lex_em_feed_turns). «Earlier entries» asks for more of them.
+    if (isEmFeedKey(chatKey)) {
+      const limit = emLimits.get(chatKey) || EM_PAGE;
+      const out = await post('/rest/v1/rpc/lex_em_feed_turns', { p_chat_key: chatKey, p_limit: limit });
+      const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
+      return { lesson: rows.map(toTurn), apart: [], emMore: !!(out && out.more), emRev: (out && out.rev) || 0 };
+    }
     const out = await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey });
     const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
     const lesson = [];
@@ -438,6 +464,9 @@
     // с выбором модели и копированием нет, и после перезагрузки это видно
     // только по этому полю.
     origin: r.origin || null,
+    // An entry of a feed of Extended Mind: whether the database took the answer of its
+    // question, and which (the entry's data).
+    em: (r.origin && String(r.origin).indexOf('em_') === 0) ? emAnswer(r.em_data) : null,
     // Вопрос отдельного разговора заготовки: после какого сообщения урока его
     // показать и его место среди заданных там же (решает сервер).
     ...((typeof r.anchor_at === 'string' && r.anchor_at) ? {
@@ -519,6 +548,10 @@
     setChatHidden,
     requestTitle,
     conversation,
+    // One row of a conversation as the page holds a turn (a feed's changes come as rows).
+    turnOf: (r) => toTurn(r),
+    isEmFeedKey,
+    emEarlier,
     money,
     rpc,
     newsPost,

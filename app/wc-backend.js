@@ -511,8 +511,9 @@
     backfillTurnImages(m.id, turns, imgs).catch(() => {});
     // Reopening PINS the conversation's own session: minting a fresh one for an
     // existing thread would split it in two, and the second half would not be
-    // findable from the extension.
-    const sid = WcHistory.sessionIdOfKey(m.id);
+    // findable from the extension. A feed of Extended Mind has its session from
+    // lex_em_feed_open (WC_EM_FEED).
+    const sid = (emFeed && emFeed.key === m.id) ? emFeed.sessionId : WcHistory.sessionIdOfKey(m.id);
     if (sid != null) sessionId = sid;
 
     // Деньги беседы (list_chat_money): модель каждого ответа — для подписи
@@ -539,7 +540,7 @@
     // Лента — урок и под его сообщениями ходы заготовок. В памяти для учителя
     // (openTurns) — только урок.
     const shown = global.LexApart ? global.LexApart.merge(turns, conv.apart || []) : turns;
-    return { ok: true, turns: shown, money };
+    return { ok: true, turns: shown, money, emMore: !!conv.emMore };
   });
 
   // Деньги открытой беседы — одни, без переписки: интерфейс перечитывает их
@@ -945,6 +946,8 @@
   });
 
   let profiChat = null;
+  // The feed of Extended Mind that is open: its key and its session (lex_em_feed_open).
+  let emFeed = null;
 
   async function runSend(m) {
     // Слот приезжает С ХОДОМ: имя на кнопке и то, что уходит модели, обязаны
@@ -1220,8 +1223,9 @@
         surface: 'standalone',
         source: 'webchat',
         turnIndex: buf.length - 1,
-        // An order chat is built by the server: the monitor writes turns into it too.
-        ...(profiModel ? { tree: true, messages: messages.slice(-1) } : {}),
+        // An order chat is built by the server: the monitor writes turns into it too. So is
+        // a feed of Extended Mind: the database writes its entries into it.
+        ...((profiModel || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
         // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
         // самому. chatKey — ключ, под которым строки реально ложатся (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).
@@ -1251,6 +1255,14 @@
     profiChat = m && m.key ? { key: m.key, modelId: m.modelId } : null;
     return true;
   });
+
+  // The feed of Extended Mind that opens: its key and its session.
+  WcBus.on('WC_EM_FEED', (m) => {
+    emFeed = m && m.key ? { key: m.key, sessionId: m.sessionId != null ? Number(m.sessionId) : null } : null;
+    return true;
+  });
+  // «Earlier entries»: the next reading of the feed takes one page more.
+  WcBus.on('WC_EM_EARLIER', (m) => { if (m && m.key) WcHistory.emEarlier(m.key); return true; });
 
   // К чему привязана беседа — страница или видео. null, если ни к чему.
   WcBus.on('WC_ATTACHMENT', async (m) => {

@@ -167,7 +167,7 @@
   // после голосового разговора.
   function paintConversation(r, opts) {
     resetMoney();
-    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace) });
+    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r) });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
@@ -274,6 +274,7 @@
   // The arrow in the top bar: one rule for every section, see lex-back.js.
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
   const SECTIONS = {
+    em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },
     profi: { title: 'Profi.ru', build: buildProfi, cutsAnswer: true, leave: leaveProfiChat },
   };
@@ -316,7 +317,8 @@
   }
   async function loadSections() {
     let sections = [];
-    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web' }); } catch (err) {
+    // The sections this page knows: the server names no other.
+    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news'] }); } catch (err) {
       console.warn('[wc] sections:', err && err.message);
     }
     global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
@@ -403,6 +405,99 @@
     sectionBack.cameFrom(sectionTarget('news'));
     WcHeader.setTitle(title);
     return true;
+  }
+
+  // ── Extended Mind ────────────────────────────────────────────────────────
+  // The feeds of the owner's database: what it did with every new incoming message, what
+  // it did for every request, its questions to the owner. A feed is an ordinary
+  // conversation the database writes its entries into (supabase/migrations/em_feeds.sql):
+  // it opens here like any chat, and while it is open the page follows the server — a new
+  // entry comes at the bottom, an extended one changes in place.
+  const EM_LOOK_MS = 2000;
+  let emOpen = null;      // { key, rev }
+  let emTimer = null;
+  function buildEm() {
+    let rows = [];
+    const frame = global.LexSection.createFrame({
+      title: 'Extended Mind',
+      cls: 'lex-em',
+      every: 5000,
+      check: async () => { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); },
+    });
+    function paint() {
+      const list = global.LexSection.make('div', 'lex-section-list');
+      for (const r of rows) {
+        list.appendChild(global.LexSection.row({
+          id: r.kind, strong: true, cls: `lex-em-feed-${r.kind}`,
+          title: r.title, sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
+          onClick: () => frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.'),
+        }));
+      }
+      frame.body.replaceChildren(list);
+    }
+    return {
+      el: frame.el,
+      stopOpening: frame.stopOpening,
+      async show() {
+        frame.enter();
+        try {
+          rows = (await newsRpc('lex_em_feed_home', {})) || [];
+          paint();
+        } catch (e) {
+          frame.say('The feeds did not load. ' + ((e && e.message) || ''), true);
+        }
+        if (frame.isShown()) frame.watch();
+      },
+      hide() { frame.unwatch(); },
+    };
+  }
+  async function openEmFeed(kind, wanted) {
+    const info = await newsRpc('lex_em_feed_open', { p_kind: kind });
+    if (!wanted() || !info || !info.chatKey) return;
+    await WcBus.call('WC_EM_FEED', { key: info.chatKey, sessionId: info.sessionId });
+    await openConversation(info.chatKey, { back: sectionTarget('em'), wanted });
+    if (state.conversationId !== info.chatKey) return;
+    // Leaving the feed before forgot its session on the way: say it again.
+    await WcBus.call('WC_EM_FEED', { key: info.chatKey, sessionId: info.sessionId });
+    emOpen = { key: info.chatKey, rev: info.rev || 0 };
+    sectionEls().main.classList.add('is-em-feed');
+    WcHeader.setTitle(info.title || 'Extended Mind');
+    clearInterval(emTimer);
+    emTimer = setInterval(() => { lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message)); }, EM_LOOK_MS);
+  }
+  function leaveEmFeed() {
+    if (!emOpen) return;
+    emOpen = null;
+    clearInterval(emTimer);
+    emTimer = null;
+    sectionEls().main.classList.remove('is-em-feed');
+    WcBus.call('WC_EM_FEED', {}).catch(() => {});
+  }
+  // The number of the feed's last change, every two seconds; when it moved, only the new
+  // and extended entries come (lex_em_feed_changes) and take their place. The conversation is
+  // not read again: an answer just written reaches the server a moment after the screen, and
+  // reading it back would cut it. Not while an answer is written: the entries come after it.
+  async function lookEmFeed() {
+    const f = emOpen;
+    if (!f || state.conversationId !== f.key || document.visibilityState !== 'visible' || WcThread.isStreaming()) return;
+    const rev = await newsRpc('lex_em_feed_rev', { p_chat_key: f.key });
+    if (emOpen !== f || rev === f.rev) return;
+    const ch = await newsRpc('lex_em_feed_changes', { p_chat_key: f.key, p_after: f.rev });
+    if (emOpen !== f || state.conversationId !== f.key || WcThread.isStreaming()) return;
+    for (const row of (ch && Array.isArray(ch.turns)) ? ch.turns : []) WcThread.upsertEmEntry(WcHistory.turnOf(row));
+    f.rev = Math.max(rev, (ch && ch.rev) || 0);
+  }
+  // «Earlier entries» on the top of a feed that has more on the server.
+  function emEarlierOf(r) {
+    const key = state.conversationId;
+    if (!r || !r.emMore || !WcHistory.isEmFeedKey(key)) return null;
+    return async () => {
+      await WcBus.call('WC_EM_EARLIER', { key });
+      const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
+      if (again && again.ok && state.conversationId === key) {
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again) });
+      }
+    };
   }
 
   // ── Profi.ru ─────────────────────────────────────────────────────────────

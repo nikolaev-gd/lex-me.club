@@ -239,6 +239,33 @@
     return { turn, bubble, foot };
   }
 
+  // An entry of a feed of Extended Mind: what the database wrote, whole, as an incoming
+  // message — the time and the feed over it, «Answered» on a question the database took
+  // the answer of. The text is plain: the database writes no markup.
+  const EM_LABEL = { em_intake: 'Intake', em_request: 'Request', em_question: 'Question' };
+  function emEntryTurn(t) {
+    const at = t.authoredAt ? new Date(t.authoredAt) : null;
+    const stamp = at && !isNaN(at) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+    const head = el('.wc-em-head', {}, []);
+    head.textContent = `Extended Mind · ${EM_LABEL[t.origin] || 'Entry'}${stamp ? ` · ${stamp}` : ''}`;
+    if (t.em && t.em.answered) {
+      const mark = el('span.wc-em-answered', {}, []);
+      mark.textContent = 'Answered';
+      head.appendChild(mark);
+    }
+    const body = el('.wc-em-text', {}, []);
+    body.textContent = t.text || '';
+    const card = el('.wc-em-card', {}, [body]);
+    if (t.em && t.em.answered && t.em.answer) {
+      const ans = el('.wc-em-answer', {}, []);
+      ans.textContent = `Your answer: ${t.em.answer}`;
+      card.appendChild(ans);
+    }
+    const turn = el('.wc-turn.wc-turn-em', {}, [head, card]);
+    if (t.uid) turn.dataset.uid = String(t.uid);
+    return turn;
+  }
+
   // Перерисовать строки под ответами: кнопка модели живёт только под
   // последним ответом, и после каждого добавления, загрузки и отказа её надо
   // перевесить. Под голосовым ответом строки нет вовсе. Правило «какой
@@ -391,6 +418,19 @@
 
     shownUids() { return [...elTurns.querySelectorAll('.wc-turn[data-uid]')].map((t) => t.dataset.uid); },
 
+    // A new or extended entry of the open feed: an extended one takes the place of the old,
+    // a new one comes at the end. Nothing else of the chat is touched — an answer of the
+    // model stays as the stream left it (its text reaches the server a moment later).
+    upsertEmEntry(t) {
+      if (!t || !t.uid) return;
+      const node = emEntryTurn(t);
+      const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
+      if (old) old.replaceWith(node);
+      else elTurns.append(node);
+      setEmpty(!elTurns.childElementCount);
+      if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
+    },
+
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
 
@@ -401,7 +441,18 @@
       live.clear();
       elTurns.replaceChildren();
       if (profiChat) elTurns.append(profiChat.head());
+      // A feed shows its latest entries; the earlier ones come by this button.
+      if (opts && opts.emEarlier) {
+        const b = el('button.wc-em-earlier', { type: 'button' }, []);
+        b.textContent = 'Earlier entries';
+        b.addEventListener('click', () => opts.emEarlier());
+        elTurns.append(b);
+      }
       (turns || []).forEach((t) => {
+        if (t.origin && String(t.origin).indexOf('em_') === 0) {
+          elTurns.append(emEntryTurn(t));
+          return;
+        }
         // The monitor's turns of an order chat: a message of the client, what went to him, a
         // notice of Profi.
         if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice')) {

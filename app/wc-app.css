@@ -517,10 +517,16 @@ button { font: inherit; color: inherit; }
   padding: 10px 10px 6px;
 }
 
-/* News stands on the line of the close button; Chats takes the next line. */
-.wc-sidebar-head:has(.wc-sections:not([hidden])) { flex-wrap: wrap; }
-.wc-sidebar-head:has(.wc-sections:not([hidden])) .wc-sidebar-title { flex-basis: 100%; padding-left: 12px; }
-.wc-sections { flex: 1; min-width: 0; }
+/* The section buttons stand at the bottom, over Settings; their line parts them from the list. */
+.wc-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  padding: 10px 12px 0;
+  border-top: 1px solid var(--line);
+}
+.wc-sections:not([hidden]) + .wc-account { border-top: 0; }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
 .wc-sections, .wc-section-host, .wc-turn-news {
@@ -2039,3 +2045,41 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .wc-apart-note svg { flex: 0 0 auto; }
+
+/* ── A feed of Extended Mind ─────────────────────────────────────────────────
+ * An entry is what the database wrote, whole, as an incoming message: the time and the feed
+ * over it, «Answered» on a question the database took the answer of. A feed has no presets,
+ * no voice conversation and no second version of an answer: the server refuses them there. */
+.wc-turn-em { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.wc-em-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-muted); }
+.wc-em-answered { font-weight: 600; color: var(--accent, var(--fg)); }
+.wc-em-answered::before { content: '✓ '; }
+.wc-em-card {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.wc-em-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wc-em-answer { margin-top: 8px; font-weight: 600; }
+.wc-em-earlier {
+  align-self: center;
+  margin: 0 auto 12px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--bg-hover);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.wc-main.is-em-feed #wc-mode-split,
+.wc-main.is-em-feed #wc-talk,
+.wc-main.is-em-feed .wc-new-chat,
+.wc-main.is-em-feed .lex-answer-row { display: none !important; }
