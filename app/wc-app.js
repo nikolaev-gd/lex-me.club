@@ -404,7 +404,7 @@
   // The server sends no notification about a chat that is open on some screen of the
   // account. This page (the browser and the Mac app) says which chat it shows while the
   // tab is visible: at once on a change, and every 30 s while it stays. The chat key of
-  // an order chat is its conversation key; the News feed is '__lex_news__'.
+  // an order chat is its conversation key; a section's own screen is no chat.
   const presenceDevice = (() => {
     try {
       let v = localStorage.getItem('lexDeviceId');
@@ -416,7 +416,6 @@
   let presenceAt = 0;
   function presenceKey() {
     if (document.visibilityState !== 'visible') return null;
-    if (sectionOn === 'news') return '__lex_news__';
     if (sectionOn) return null;
     return state.conversationId || null;
   }
