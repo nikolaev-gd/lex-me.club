@@ -301,6 +301,24 @@
 
     const openOrder = (order) => frame.open((wanted) => deps.openOrder(order, wanted), 'The chat did not open.');
 
+    // A press on an order outside the feed. While its reply still waits there (Cancel or
+    // Send), the order opens in the feed, the way Telegram shows it: opening a chat for it
+    // would stop the sending (Reply yourself), and a look at an order stops nothing. A
+    // failed read counts as waiting, so that a bad network never stops a reply either.
+    let focusOrder = null;
+    async function openOrderOrFeed(order) {
+      let waits = true;
+      try {
+        const r = await deps.rpc('profi_feed', { p_limit: 60 });
+        const it = (r.items || []).find((x) => x.order === order);
+        waits = !!it && (it.actions || []).some((a) => a === 'cancel' || a === 'send');
+      } catch (_) { waits = true; }
+      if (!waits) { openOrder(order); return; }
+      focusOrder = order;
+      if (frame.screen === 'feed') await paintFeed();
+      else go('feed', (home && home.feed && home.feed.title) || 'New orders');
+    }
+
     // ── home ─────────────────────────────────────────────────────────────────
     function monitorSilent() {
       if (!home) return false;
@@ -324,7 +342,7 @@
       }));
       for (const c of home.chats || []) {
         list.appendChild(global.LexSection.row({
-          title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrder(c.order),
+          title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrderOrFeed(c.order),
           // Gennady wrote last: the tick of Profi at the last message, as in Profi's list.
           end: c.tick ? tickNode(c.tick === 'read') : null,
         }));
@@ -409,7 +427,10 @@
         feedEls.set(it.order, { it, n });
         body.appendChild(n);
       }
-      if (stick) body.scrollTop = body.scrollHeight;
+      const focus = focusOrder && feedEls.get(focusOrder);
+      focusOrder = null;
+      if (focus) focus.n.scrollIntoView({ block: 'center' });
+      else if (stick) body.scrollTop = body.scrollHeight;
     }
 
     function tick() {
@@ -526,7 +547,7 @@
         for (const it of res.items || []) {
           list.appendChild(global.LexSection.row({
             title: it.title, sub: it.paid ? `${Math.round(it.paid)} ₽` : (it.noText ? 'No text' : ''),
-            onClick: () => openOrder(it.order),
+            onClick: () => openOrderOrFeed(it.order),
           }));
         }
         body.appendChild(list);
