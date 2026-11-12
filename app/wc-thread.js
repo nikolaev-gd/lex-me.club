@@ -306,6 +306,29 @@
     if (old) old.replaceWith(emEntryTurn(t));
   }
 
+  let lastMoney = null;
+  let brainHooks = null;
+  function paintBrainMarks() {
+    const marks = (lastMoney && lastMoney.marks) || new Map();
+    const answers = [...elTurns.querySelectorAll('.wc-turn-assistant[data-uid]')];
+    const last = answers[answers.length - 1] || null;
+    const lastIsEnd = last && !last.classList.contains('is-streaming') && !last.nextElementSibling;
+    for (const t of answers) {
+      const old = t.querySelector(':scope > .lex-brain-marks');
+      if (old) old.remove();
+      const list = marks.get(t.dataset.uid);
+      if (!list || !global.LexAnswerRow || !global.LexAnswerRow.brainMarksNode) continue;
+      const node = global.LexAnswerRow.brainMarksNode(list, {
+        isLast: t === last && lastIsEnd,
+        onYes: () => brainHooks && brainHooks.onYes && brainHooks.onYes(),
+        onCancel: (uid) => (brainHooks && brainHooks.onCancel ? brainHooks.onCancel(uid) : Promise.resolve(null)),
+      });
+      if (!node) continue;
+      const foot = t.querySelector(':scope > .wc-turn-foot');
+      if (foot) t.insertBefore(node, foot); else t.append(node);
+    }
+  }
+
   // Перерисовать строки под ответами: кнопка модели живёт только под
   // последним ответом, и после каждого добавления, загрузки и отказа её надо
   // перевесить. Под голосовым ответом строки нет вовсе. Правило «какой
@@ -759,7 +782,27 @@
         if (!old) foot.append(node);
       }
       if (global.WcHeader && WcHeader.setMoney) WcHeader.setMoney(show ? money.total : null, show);
+      lastMoney = money;
+      paintBrainMarks();
     },
+
+    // Пометки под ответами в чатах с базой (lex-answer-row.js, brainMarksNode): «Да» под
+    // последним дописанным ответом, сообщения в очереди базы с «Отменить». hooks:
+    // onYes() и onCancel(uid) → Promise. setBrainMarks — новые пометки беседы без денег
+    // (ответ проверки очереди).
+    setBrainHooks(hooks) { brainHooks = hooks || null; },
+    setBrainMarks(list) {
+      if (!lastMoney) return;
+      const marks = new Map();
+      for (const m of (Array.isArray(list) ? list : [])) {
+        if (!m || !m.uid) continue;
+        if (!marks.has(String(m.uid))) marks.set(String(m.uid), []);
+        marks.get(String(m.uid)).push(m);
+      }
+      lastMoney = Object.assign({}, lastMoney, { marks });
+      paintBrainMarks();
+    },
+    brainMarks() { return lastMoney && lastMoney.marks ? lastMoney.marks : new Map(); },
 
     done(msg) {
       const entry = live.get(msg.requestId);

@@ -107,3 +107,37 @@
   padding: 0 2px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Под ответом модели в чатах с базой Extended Mind (lex-answer-row.js, brainMarksNode):
+ * «Да», и сообщение в очереди базы — кому и когда, с «Отменить». Кнопки того же вида,
+ * что варианты ответа на вопрос базы. Цвета наследуются от ленты окна. */
+.lex-brain-marks {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 100%;
+}
+.lex-brain-marks .lex-brain-send { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.lex-brain-marks .lex-brain-send-who { font-size: 14px; overflow-wrap: anywhere; }
+.lex-brain-marks .lex-brain-send-line { font-size: 13px; opacity: 0.7; }
+.lex-brain-marks .lex-brain-send-line.is-error { opacity: 1; color: var(--lex-brain-danger, #d93a3a); }
+.lex-brain-marks .lex-brain-send-line:empty { display: none; }
+.lex-brain-marks .lex-choice {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--lex-brain-line, rgba(127, 127, 127, 0.45));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.3;
+  cursor: pointer;
+}
+.lex-brain-marks .lex-choice:hover:not(:disabled) { background: var(--lex-brain-hover, rgba(127, 127, 127, 0.12)); }
+.lex-brain-marks .lex-choice:disabled { cursor: default; opacity: 0.55; }

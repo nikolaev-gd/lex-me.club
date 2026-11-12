@@ -11,7 +11,8 @@
 // Здесь живёт только то, что общее у всех браузерных поверхностей и не
 // зависит от их разметки:
 //   format(usd)        — как пишутся деньги;
-//   normalize(body)    — ответ двери в удобную форму (уид → ответ, итог);
+//   normalize(body)    — ответ двери в удобную форму (уид → ответ, итог;
+//                        marks — пометки под ответами в чатах с базой);
 //   breakdown(total)   — строки разбивки итога по видам, в одном порядке;
 //   createRefresher()  — когда перечитывать деньги беседы после платного
 //                        события: строка расхода появляется на сервере не сразу
@@ -75,9 +76,18 @@
         if (v != null) byKind[k] = v;
       }
     }
+    // Пометки под ответами в чатах с базой (lex_chat_marks): уид → [пометки].
+    const marks = new Map();
+    for (const m of (Array.isArray(b.marks) ? b.marks : [])) {
+      if (!m || !m.uid) continue;
+      const k = String(m.uid);
+      if (!marks.has(k)) marks.set(k, []);
+      marks.get(k).push(m);
+    }
     return {
       showMoney: b.show_money === true,
       answers,
+      marks,
       entries: Array.isArray(b.entries) ? b.entries : [],
       total: t ? { usd: num(t.usd) || 0, byKind } : null,
     };

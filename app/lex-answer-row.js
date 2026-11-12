@@ -336,5 +336,91 @@
     return m.provider + ':' + m.apiModel + ':' + String(effort || 'none');
   }
 
-  global.LexAnswerRow = { create, setModel, setEdit, setVersions, sync, modelLabel, modelIdOfCharge, copyText };
+  // ── Пометки под ответом модели в чатах с базой Extended Mind ─────────────
+  // (supabase/migrations/brain_consent.sql). Сервер отдаёт их рядом с деньгами
+  // беседы: yes — модель ждёт согласия Геннадия, под ответом кнопка «Да»; send —
+  // база поставила сообщение от его имени в очередь: кому, номер, когда, и
+  // состояние задачи. Узел собирается здесь, окно ставит его под ответ.
+  //   marks      — пометки этого ответа (массив);
+  //   o.isLast   — ответ последний в беседе и уже дописан: только под ним «Да»;
+  //   o.onYes()  — нажата «Да» (окно отправляет «Да» следующим сообщением);
+  //   o.onCancel(uid) → Promise<{ ok, state, text }> — нажата «Отменить».
+  // Подписи — по-русски: это разговор Геннадия с базой о людях и сообщениях.
+  const SEND_LINE = {
+    'идёт': 'Сообщение уже взяли в отправку — отменить нельзя.',
+    'ушло': 'Сообщение ушло.',
+    'отправлено': 'Сообщение ушло.',
+    'отменено': 'Отменено — сообщение не уйдёт.',
+    'не отправлено': 'Сообщение не ушло.',
+  };
+  function brainMarksNode(marks, o) {
+    const list = Array.isArray(marks) ? marks : [];
+    const yes = o && o.isLast ? list.find((m) => m && m.kind === 'yes') : null;
+    const sends = list.filter((m) => m && m.kind === 'send' && m.data);
+    if (!yes && !sends.length) return null;
+    const box = document.createElement('div');
+    box.className = 'lex-brain-marks';
+    for (const m of sends) {
+      const d = m.data || {};
+      const row = document.createElement('div');
+      row.className = 'lex-brain-send';
+      row.dataset.state = m.state || '';
+      const who = document.createElement('div');
+      who.className = 'lex-brain-send-who';
+      who.textContent = `Кому: ${d.name || '—'}${d.phone ? ', ' + d.phone : ''} · Когда: ${d.when || '—'} по Москве`;
+      row.appendChild(who);
+      const state = m.state || 'ждёт';
+      if (state === 'ждёт') {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'lex-choice lex-brain-cancel';
+        b.textContent = 'Отменить';
+        const note = document.createElement('div');
+        note.className = 'lex-brain-send-line';
+        b.addEventListener('click', async () => {
+          if (!o || !o.onCancel) return;
+          b.disabled = true;
+          b.classList.add('is-busy');
+          note.textContent = 'Отменяю…';
+          try {
+            const r = await o.onCancel(m.uid);
+            if (!r || !r.state) {
+              b.disabled = false;
+              b.classList.remove('is-busy');
+              note.classList.add('is-error');
+              note.textContent = 'Не отменилось: ' + ((r && r.text) || 'база не ответила');
+            }
+          } catch (e) {
+            b.disabled = false;
+            b.classList.remove('is-busy');
+            note.classList.add('is-error');
+            note.textContent = 'Не отменилось: ' + ((e && e.message) || 'нет связи');
+          }
+        });
+        row.appendChild(b);
+        row.appendChild(note);
+      } else {
+        const line = document.createElement('div');
+        line.className = 'lex-brain-send-line';
+        line.textContent = SEND_LINE[state] || ('Состояние: ' + state);
+        row.appendChild(line);
+      }
+      box.appendChild(row);
+    }
+    if (yes) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'lex-choice lex-brain-yes';
+      b.textContent = 'Да';
+      b.addEventListener('click', () => {
+        b.disabled = true;
+        b.classList.add('is-busy');
+        if (o && o.onYes) o.onYes();
+      });
+      box.appendChild(b);
+    }
+    return box;
+  }
+
+  global.LexAnswerRow = { create, setModel, setEdit, setVersions, sync, modelLabel, modelIdOfCharge, copyText, brainMarksNode };
 })(typeof window !== 'undefined' ? window : globalThis);

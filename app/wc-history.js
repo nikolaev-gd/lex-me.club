@@ -485,9 +485,15 @@
   // показывать ли деньги вообще (решает сервер). Модель нужна строке под
   // ответом всем — ею подписана кнопка модели после перезагрузки; цены и
   // итог — только разработчику. null — не прочиталось.
+  // Рядом — пометки под ответами в чатах с базой (lex_chat_marks): кнопка «Да»
+  // и сообщения, которые база поставила в очередь. Не прочитались — без них.
   async function money(chatKey) {
-    const out = await post('/rest/v1/rpc/list_chat_money', { p_chat_key: chatKey });
-    return (out && typeof out === 'object') ? out : null;
+    const [out, marks] = await Promise.all([
+      post('/rest/v1/rpc/list_chat_money', { p_chat_key: chatKey }),
+      post('/rest/v1/rpc/lex_chat_marks', { p_chat_key: chatKey }).catch(() => null),
+    ]);
+    if (!out || typeof out !== 'object') return null;
+    return Array.isArray(marks) ? Object.assign({}, out, { marks }) : out;
   }
 
   // ── Что страница ещё говорит серверу о реплике ───────────────────────────

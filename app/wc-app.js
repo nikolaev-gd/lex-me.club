@@ -170,6 +170,7 @@
     WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r) });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+    brainLook(true);
   }
 
   // Разговор голосом кончился — лента сверяется с беседой на сервере
@@ -249,13 +250,54 @@
       const r = await WcBus.call('WC_CHAT_MONEY', {}).catch(() => null);
       return (ep === moneyEpoch && r && r.ok) ? r.body : null;
     },
-    apply: (_key, money) => WcThread.paintMoney(money),
+    apply: (_key, money) => { WcThread.paintMoney(money); brainLook(true); },
     currentKey: () => 'open:' + moneyEpoch,
   }) : null;
   function requestMoney(r) {
     if (moneyRefresher) moneyRefresher.request(Object.assign({ key: 'open:' + moneyEpoch }, r || {}));
   }
+  // ── Согласие Геннадия в чатах с базой (supabase/migrations/brain_consent.sql) ──
+  // «Да» под ответом отправляет «Да» следующим сообщением — то же «да» словами, что
+  // просит база. «Отменить» отменяет сообщение в очереди базы (llm-proxy, brain-action).
+  // Пока сообщение ждёт отправки и беседа на экране, страница раз в минуту спрашивает,
+  // ушло ли оно: каждый вопрос — обращение к базе, поэтому не чаще.
+  const BRAIN_LOOK_MS = 60000;
+  let brainLookAt = 0;
+  let brainLooking = false;
+  function liveSend() {
+    for (const list of WcThread.brainMarks().values()) {
+      if (list.some((m) => m.kind === 'send' && (m.state === 'ждёт' || m.state === 'идёт'))) return true;
+    }
+    return false;
+  }
+  async function brainLook(force) {
+    const key = state.conversationId;
+    if (!key || brainLooking || document.visibilityState !== 'visible' || !liveSend()) return;
+    if (!force && Date.now() - brainLookAt < BRAIN_LOOK_MS) return;
+    brainLooking = true;
+    brainLookAt = Date.now();
+    try {
+      const r = await newsPost('brain-action', { op: 'status', chatKey: key });
+      if (state.conversationId === key && r && Array.isArray(r.marks)) WcThread.setBrainMarks(r.marks);
+    } catch (e) {
+      console.warn('[wc] brain status:', e && e.message);
+    } finally {
+      brainLooking = false;
+    }
+  }
+  setInterval(() => { brainLook(false); }, 5000);
+  WcThread.setBrainHooks({
+    onYes: () => { send('Да'); },
+    onCancel: async (uid) => {
+      const key = state.conversationId;
+      const r = await newsPost('brain-action', { op: 'cancel', chatKey: key, turnUid: uid });
+      if (state.conversationId === key && r && Array.isArray(r.marks)) WcThread.setBrainMarks(r.marks);
+      return r;
+    },
+  });
+
   function resetMoney() {
+    brainLookAt = 0;
     moneyEpoch++;
     if (moneyRefresher) moneyRefresher.cancel();
     WcThread.paintMoney(null);
