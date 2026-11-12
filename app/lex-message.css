@@ -1,0 +1,98 @@
+/* lex-message.css — the look of lex-message.js: a message of a person or a program, the
+ * day line, the «Новые» line, a record of a request to the database. One file for the
+ * extension and the page lex-me.club/app; the iPhone draws the same in MessageParts.swift.
+ * The text takes the size and the face of the chat it stands in. Selectors start with a
+ * class of this module so the styles of a host page do not reach in. */
+
+.lex-msg {
+  display: block;
+  max-width: 100%;
+  text-align: left;
+  color: var(--fg, var(--lex-section-fg, inherit));
+}
+.lex-msg .lex-msg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  margin: 0 0 3px;
+  line-height: 1.3;
+}
+.lex-msg .lex-msg-name { font-weight: 650; }
+.lex-msg .lex-msg-body { margin-top: 0; }
+.lex-msg .lex-msg-time {
+  color: var(--fg-muted, var(--lex-section-muted, rgba(127, 127, 127, .95)));
+  font-size: .8em;
+  font-variant-numeric: tabular-nums;
+}
+.lex-msg .lex-msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.lex-msg .lex-msg-body { -webkit-user-select: text; user-select: text; }
+
+/* A record of the database (lex_em_entry_view): small grey lines under the name (the cards),
+ * every fact a paragraph with its kind as a small mark and «Куда:» under it, one plain note,
+ * one grey line of numbers. A number over its limit is yellow, failures are red. */
+.lex-msg .lex-msg-line {
+  margin-top: 1px;
+  color: var(--fg-muted, var(--lex-section-muted, rgba(127, 127, 127, .95)));
+  font-size: .87em;
+  line-height: 1.35;
+}
+.lex-msg .lex-msg-fact { margin-top: 8px; }
+.lex-msg .lex-msg-entry > :first-child { margin-top: 0; }
+.lex-msg .lex-msg-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--bg-hover, rgba(127, 127, 127, .16));
+  color: var(--fg-muted, var(--lex-section-muted, rgba(127, 127, 127, .95)));
+  font-size: .8em;
+  font-weight: 600;
+  line-height: 1.55;
+  vertical-align: 1px;
+}
+.lex-msg .lex-msg-note { margin-top: 8px; }
+.lex-msg .lex-msg-stats {
+  margin-top: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--fg-muted, var(--lex-section-muted, rgba(127, 127, 127, .95)));
+  font-size: .87em;
+  font-variant-numeric: tabular-nums;
+}
+.lex-msg .lex-msg-stats .is-heavy { color: #f2c14b; font-weight: 600; }
+.lex-msg .lex-msg-stats .is-failed { color: var(--danger, #ff6b6b); }
+
+/* Between two days: the date in the middle. */
+.lex-msg-day {
+  margin: 4px 0 18px;
+  color: var(--fg-muted, var(--lex-section-muted, rgba(127, 127, 127, .95)));
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+}
+/* Over the first unread message: one line, the yellow of the unread dot. */
+.lex-msg-new {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 16px;
+  color: #f2c14b;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.lex-msg-new::before, .lex-msg-new::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: currentColor;
+  opacity: .45;
+}

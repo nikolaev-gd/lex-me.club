@@ -163,11 +163,41 @@
       console.warn('[wc] model defaults:', err && err.message));
   }
 
+  // ── Chats where messages come without the person ───────────────────────
+  // The feeds and questions of Extended Mind and the order chats of Profi.ru. The server
+  // keeps when each was last open (lex_chat_seen): opening one takes that moment and sets
+  // a new one, and the «Новые» line stands over the first message that came after it. The
+  // moment stays for the whole visit — a repaint does not move the line — and leaving the
+  // chat, or the page going to the background, marks what came meanwhile as read.
+  const isIncomingKey = (key) => !!key && (WcHistory.isEmFeedKey(key) || /^__lex_profi__\d/.test(key));
+  let visit = null;   // { key, since }
+  async function beginVisit(key) {
+    if (visit && visit.key === key) return;
+    endVisit();
+    if (!isIncomingKey(key)) return;
+    const v = { key, since: null };
+    visit = v;
+    try { v.since = await newsRpc('lex_chat_seen', { p_chat_key: key }); } catch (err) {
+      console.warn('[wc] seen:', err && err.message);
+    }
+  }
+  function endVisit() {
+    const v = visit;
+    visit = null;
+    if (v) newsRpc('lex_chat_seen', { p_chat_key: v.key }).catch(() => {});
+  }
+  function incomingOpts() {
+    return visit && visit.key === state.conversationId ? { since: visit.since } : null;
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && visit) newsRpc('lex_chat_seen', { p_chat_key: visit.key }).catch(() => {});
+  });
+
   // Прочитанную беседу — на экран. Общий у открытия беседы и у сверки ленты
   // после голосового разговора.
   function paintConversation(r, opts) {
     resetMoney();
-    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r) });
+    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts() });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
     brainLook(true);
@@ -224,6 +254,8 @@
       return;
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
+    if (opts && opts.wanted && !opts.wanted()) return;
+    await beginVisit(id);
     if (opts && opts.wanted && !opts.wanted()) return;
     leaveSection();
     state.conversationId = id;
@@ -569,6 +601,7 @@
   function leaveEmFeed() {
     if (!emOpen) return;
     emOpen = null;
+    endVisit();
     WcThread.setEmAnswer(null);
     clearInterval(emTimer);
     emTimer = null;
@@ -597,7 +630,7 @@
       await WcBus.call('WC_EM_EARLIER', { key });
       const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
       if (again && again.ok && state.conversationId === key) {
-        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again) });
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts() });
       }
     };
   }
@@ -619,6 +652,7 @@
     main.classList.remove('is-profi-chat');
     if (profiChat) {
       profiChat = null;
+      endVisit();
       WcThread.setProfiChat(null);
       WcBus.call('WC_PROFI_CHAT', {}).catch(() => {});
     }
@@ -698,7 +732,7 @@
     if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming()) return;
     const shown = new Set(WcThread.shownUids());
     if (r.turns.every((t) => !t.uid || shown.has(t.uid))) { WcThread.paintProfiBoxes(); return; }
-    WcThread.repaintKeepingPlace(r.turns, { newsHead });
+    WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
 
@@ -716,6 +750,7 @@
     await endVoiceOnLeave('new-chat');
     stopSectionOpening();
     leaveSection();
+    endVisit();
     state.conversationId = null;
     WcThread.clear();
     resetMoney();

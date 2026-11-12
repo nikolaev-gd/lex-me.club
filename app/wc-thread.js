@@ -239,10 +239,11 @@
     return { turn, bubble, foot };
   }
 
-  // An entry of a feed of Extended Mind: what the database wrote, whole, as an ordinary
-  // incoming message — no frame, no line over it (2026-11-12). The text is plain: the
-  // database writes no markup. A question stands with its variants: a press answers it
-  // without a model (llm-proxy, kind em-answer). The line after the answer is the server's.
+  // An entry of a feed of Extended Mind: the common message of lex-message.js — the name
+  // in bold and the time, the text under them. A record of «Разбор» and «Обращения к базе»
+  // is drawn from the view the server built of its data (em_entry); a question shows its
+  // words as the database wrote them. A question stands with its variants: a press answers it without a
+  // model (llm-proxy, kind em-answer). The line after the answer is the server's.
   let emAnswerHook = null;
   const emPending = new Map();   // chat turn uid → { choice, error }
   function emEntryTurn(t) {
@@ -251,16 +252,32 @@
       line.textContent = t.text || '';
       const turn = el('.wc-turn.wc-turn-em.wc-turn-em-status', {}, [line]);
       if (t.uid) turn.dataset.uid = String(t.uid);
+      if (t.authoredAt) turn.dataset.at = t.authoredAt;
       return turn;
     }
     const v = t.origin === 'em_question' ? t.emView : null;
-    const bubble = el('.wc-bubble.wc-em-text', {}, []);
-    bubble.textContent = (v && v.text) || t.text || '';
-    const parts = [bubble];
+    let msg;
+    if (t.emEntry && t.origin !== 'em_question') {
+      msg = global.LexMessage.entry(t.emEntry, t.authoredAt);
+      msg.classList.add('wc-em-text');
+    } else {
+      msg = global.LexMessage.message({ name: 'Extended Mind', at: t.authoredAt, text: (v && v.text) || t.text || '', cls: 'wc-em-text' });
+    }
+    const parts = [msg];
     if (v && v.state === 'open' && Array.isArray(v.choices) && v.choices.length) parts.push(emChoices(t, v));
     const turn = el('.wc-turn.wc-turn-em', {}, parts);
     if (t.uid) turn.dataset.uid = String(t.uid);
+    if (t.authoredAt) turn.dataset.at = t.authoredAt;
+    turn.dataset.in = '1';
     return turn;
+  }
+
+  // A chat where messages come without the person (a feed, a question, an order chat): day
+  // lines and the «Новые» line over the first message that came after `since` — the moment
+  // the chat was last open (lex_chat_seen). null — an ordinary chat, no lines.
+  let incoming = null;
+  function remark() {
+    if (incoming && global.LexMessage) global.LexMessage.mark(elTurns, incoming.since);
   }
   function emChoices(t, v) {
     const box = el('.wc-em-choices', {}, []);
@@ -441,6 +458,7 @@
     clear() {
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
+      incoming = null;
       elTurns.replaceChildren();
       stickToBottom = true;
       elJump.hidden = true;
@@ -492,6 +510,7 @@
       if (t.deleted) { if (old) old.remove(); }
       else if (old) old.replaceWith(emEntryTurn(t));
       else elTurns.append(emEntryTurn(t));
+      remark();
       setEmpty(!elTurns.childElementCount);
       if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
     },
@@ -503,6 +522,7 @@
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
 
     renderTurns(turns, opts) {
+      incoming = (opts && opts.incoming) || null;
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
       // и обязан уйти вместе с ними.
       if (global.WcWordPick) WcWordPick.forgetAll();
@@ -560,6 +580,7 @@
             ...(bub ? { pick: bub.pick, rest: bub.rest } : {}),
           });
           if (t.uid) node.dataset.uid = String(t.uid);
+          if (t.authoredAt) node.dataset.at = t.authoredAt;
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
@@ -572,12 +593,14 @@
           if (t.model) turn.dataset.model = t.model;
           // Уид реплики: по нему встаёт цена хода (paintMoney).
           if (t.uid) turn.dataset.uid = String(t.uid);
+          if (t.authoredAt) turn.dataset.at = t.authoredAt;
           if (t.threadKey) markApart(turn, t.threadKey);
           if (profiChat) profiChat.paintAnswer(turn, turn.querySelector('.wc-bubble'), t.text, WcMarkdown, false);
           elTurns.append(turn);
         }
       });
       if (profiChat) profiChat.paintHidden(elTurns);
+      remark();
       setEmpty(!elTurns.childElementCount);
       syncFeet();
       // A chat that is only the news starts at its first line. A card that was on
@@ -587,10 +610,17 @@
       stickToBottom = !newsOnly && place === null;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
+      // A chat with unread messages opens at the «Новые» line, not at its end.
+      const fresh = place === null && !newsOnly ? elTurns.querySelector(':scope > .lex-msg-new') : null;
       requestAnimationFrame(() => {
         if (place !== null) elThread.scrollTop = place;
         else if (newsOnly) elThread.scrollTop = 0;
-        else scrollToBottom(false);
+        else if (fresh) {
+          const top = fresh.getBoundingClientRect().top - elThread.getBoundingClientRect().top + elThread.scrollTop - 16;
+          elThread.scrollTop = Math.min(top, elThread.scrollHeight - elThread.clientHeight);
+          stickToBottom = nearBottom();
+          elJump.hidden = stickToBottom;
+        } else scrollToBottom(false);
       });
     },
 
@@ -651,7 +681,10 @@
 
     appendUser(text, images, opts) {
       setEmpty(false);
-      elTurns.append(userTurn(text, images, opts));
+      const node = userTurn(text, images, opts);
+      node.dataset.at = new Date().toISOString();
+      elTurns.append(node);
+      remark();
       stickToBottom = true;
       elJump.hidden = true;
       scrollToBottom(false);
@@ -691,6 +724,7 @@
       setEmpty(false);
       const { turn, bubble } = assistantTurn('');
       turn.classList.add('is-streaming');
+      turn.dataset.at = new Date().toISOString();
       elTurns.append(turn);
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,

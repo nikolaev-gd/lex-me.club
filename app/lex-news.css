@@ -114,7 +114,7 @@
 
 /* The head of a news chat: over the first message, outside it. */
 .lex-news-chat-head, .lex-news-chat-head .lex-news-chat-source { opacity: 1; }
-.lex-news-chat-head { position: relative; margin: 0 0 14px; color: var(--lex-section-fg, inherit); text-align: left; }
+.lex-news-chat-head { position: relative; margin: 0 0 3px; color: var(--lex-section-fg, inherit); text-align: left; }
 .lex-news-chat-head[hidden] { display: none; }
 .lex-news-chat-head .lex-news-chat-title {
   margin: 0;
@@ -146,8 +146,21 @@
   letter-spacing: inherit;
   text-transform: inherit;
 }
+/* The sender line is the head of the common message: the newsletter in bold in the colour of
+   the text, the date and the author in grey (lex-message.css). */
+.lex-news-chat-head .lex-news-chat-source.lex-msg-head {
+  margin-top: 10px;
+  color: var(--lex-section-fg, inherit);
+  font-size: inherit;
+  line-height: 1.3;
+}
+.lex-news-chat-head .lex-news-chat-source > .lex-msg-name { font-weight: 650; }
+.lex-news-chat-head .lex-news-chat-source > .lex-msg-time {
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: .8em;
+}
 .lex-news-chat-head a.lex-news-chat-newsletter { color: inherit; text-decoration: none; }
-.lex-news-chat-head a.lex-news-chat-newsletter:hover { color: var(--lex-section-fg, inherit); }
+.lex-news-chat-head a.lex-news-chat-newsletter:hover { text-decoration: underline; text-underline-offset: 3px; }
 .lex-news-chat-head .lex-news-chat-source .lex-section-more { width: 26px; height: 20px; }
 .lex-news-chat-head .lex-news-chat-source .lex-section-more:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
 .lex-news-chat-head .lex-news-chat-note { margin-top: 8px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); font-size: 13px; }

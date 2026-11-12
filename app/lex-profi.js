@@ -206,20 +206,22 @@
 
       // What the monitor writes into the chat: a message of the client, what went to him, and a
       // notice of Profi (the commission, the balance, an opened contact) as a grey line.
+      // A message of the client, what went to him, a notice of Profi: the common message of
+      // lex-message.js — the name in bold and the time, the text under them, no bubble. What
+      // went to the client is «You», with the mark of Profi beside the time.
       messageNode(t) {
         const out = t.origin === 'profi_sent';
         const notice = t.origin === 'profi_notice';
+        const name = notice ? 'Profi.ru' : out ? 'You' : (data && data.client) || 'Client';
+        const tail = out ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
+        const msg = global.LexMessage.message({ name, at: t.authoredAt, tail,
+          body: linkedText(make('div', 'lex-msg-text', ''), t.text) });
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
+        root.appendChild(msg);
         if (t.uid) root.dataset.uid = String(t.uid);
-        const when = t.authoredAt ? new Date(t.authoredAt) : null;
-        const stamp = when && !Number.isNaN(when.getTime())
-          ? when.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-        const who = notice ? 'Profi.ru' : out ? 'Sent to the client' : (data && data.client) || 'Client';
-        const whoEl = make('div', 'lex-profi-msg-who', `${who}${stamp ? ' · ' + stamp : ''}`);
-        // What went to the client: the mark of Profi to the right of the time.
-        if (out) whoEl.appendChild(tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))));
-        root.appendChild(whoEl);
-        root.appendChild(linkedText(make('div', 'lex-profi-msg-text', ''), t.text));
+        if (t.authoredAt) root.dataset.at = t.authoredAt;
+        // The client's words and Profi's notices come without the person: they can be new.
+        if (!out) root.dataset.in = '1';
         return root;
       },
 

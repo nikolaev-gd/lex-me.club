@@ -470,6 +470,9 @@
     em: (r.origin && String(r.origin).indexOf('em_') === 0) ? emAnswer(r.em_data) : null,
     // A question of Extended Mind as the server shows it: its words, variants, state.
     emView: (r.em_view && typeof r.em_view === 'object') ? r.em_view : null,
+    // A record of «Разбор» or «Обращения к базе» as a message, built by the server from the
+    // record's data (lex_em_entry_view): the screen draws it, the model reads the text.
+    emEntry: (r.em_entry && typeof r.em_entry === 'object') ? r.em_entry : null,
     // A line the server took back (a question the database opened again).
     deleted: r.deleted === true,
     // Вопрос отдельного разговора заготовки: после какого сообщения урока его

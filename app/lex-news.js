@@ -422,7 +422,7 @@
     const root = make('header', 'lex-news-chat-head');
     root.hidden = true;
     const title = make('h2', 'lex-news-chat-title');
-    const line = make('div', 'lex-news-chat-source');
+    const line = make('div', 'lex-news-chat-source lex-msg-head');
     const note = make('div', 'lex-news-chat-note');
     note.setAttribute('role', 'status');
     note.hidden = true;
@@ -458,17 +458,19 @@
     function paint(head) {
       title.textContent = head.title || '';
       line.replaceChildren();
+      // The line of the letter's sender is the head of the common message (lex-message.css):
+      // the newsletter in bold, the date beside it in grey; the words of the letter under it.
       let name;
       if (head.webUrl) {
-        name = make('a', 'lex-news-chat-newsletter', `${head.newsletter} ↗`);
+        name = make('a', 'lex-news-chat-newsletter lex-msg-name', `${head.newsletter} ↗`);
         name.href = head.webUrl;
         name.target = '_blank';
         name.rel = 'noopener noreferrer';
       } else {
-        name = make('span', 'lex-news-chat-newsletter', head.newsletter);
+        name = make('span', 'lex-news-chat-newsletter lex-msg-name', head.newsletter);
       }
-      line.append(name, make('span', '', head.date));
-      if (head.author) line.appendChild(make('span', '', head.author));
+      line.append(name, make('span', 'lex-msg-time', head.date));
+      if (head.author) line.appendChild(make('span', 'lex-msg-time', head.author));
       line.appendChild(global.LexSection.moreButton([
         { label: 'Process again', onSelect: () => processAgain(head.letterId) },
       ], root));
