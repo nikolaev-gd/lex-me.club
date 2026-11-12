@@ -58,8 +58,12 @@
   }
 
   /* Returns a usable session, refreshing it first if the token has expired.
-     A refresh that fails means the session is gone for good — drop it rather
-     than leave a dead token in storage. */
+     Only a refusal of the refresh token itself means the session is gone for
+     good — then it is dropped rather than left as a dead token in storage. A
+     server that is down or busy (5xx, 429) or a failed connection says nothing
+     about the token: the session stays, the page just has no token this time.
+     The stored session is shared with /app, so dropping it here signs the
+     person out there too. */
   async function session() {
     var s = load();
     if (!s) return null;
@@ -67,7 +71,10 @@
     if (!s.refresh_token) { clear(); return null; }
     try {
       var r = await gotrue('/token?grant_type=refresh_token', { refresh_token: s.refresh_token });
-      if (!r.ok) { clear(); return null; }
+      if (!r.ok) {
+        if (r.status >= 400 && r.status < 500 && r.status !== 429) clear();
+        return null;
+      }
       return store(await r.json());
     } catch (_) { return null; }
   }
