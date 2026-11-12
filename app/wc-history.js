@@ -375,7 +375,8 @@
   }
 
   // ── The feeds of Extended Mind ───────────────────────────────────────────
-  const EM_FEED_KEY = /^__lex_em_(intake|request|question)__$/;
+  // The three feeds, and the chat of one question (supabase/migrations/em_question_chats.sql).
+  const EM_FEED_KEY = /^__lex_em_(intake|request|question)__$|^__lex_em_question_-?\d+__$/;
   const EM_PAGE = 100;
   const emLimits = new Map();
   const isEmFeedKey = (key) => typeof key === 'string' && EM_FEED_KEY.test(key);
@@ -467,6 +468,10 @@
     // An entry of a feed of Extended Mind: whether the database took the answer of its
     // question, and which (the entry's data).
     em: (r.origin && String(r.origin).indexOf('em_') === 0) ? emAnswer(r.em_data) : null,
+    // A question of Extended Mind as the server shows it: its words, variants, state.
+    emView: (r.em_view && typeof r.em_view === 'object') ? r.em_view : null,
+    // A line the server took back (a question the database opened again).
+    deleted: r.deleted === true,
     // Вопрос отдельного разговора заготовки: после какого сообщения урока его
     // показать и его место среди заданных там же (решает сервер).
     ...((typeof r.anchor_at === 'string' && r.anchor_at) ? {

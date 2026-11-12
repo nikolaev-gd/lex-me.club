@@ -239,31 +239,71 @@
     return { turn, bubble, foot };
   }
 
-  // An entry of a feed of Extended Mind: what the database wrote, whole, as an incoming
-  // message — the time and the feed over it, «Answered» on a question the database took
-  // the answer of. The text is plain: the database writes no markup.
-  const EM_LABEL = { em_intake: 'Intake', em_request: 'Request', em_question: 'Question' };
+  // An entry of a feed of Extended Mind: what the database wrote, whole, as an ordinary
+  // incoming message — no frame, no line over it (2026-11-12). The text is plain: the
+  // database writes no markup. A question stands with its variants: a press answers it
+  // without a model (llm-proxy, kind em-answer). The line after the answer is the server's.
+  let emAnswerHook = null;
+  const emPending = new Map();   // chat turn uid → { choice, error }
   function emEntryTurn(t) {
-    const at = t.authoredAt ? new Date(t.authoredAt) : null;
-    const stamp = at && !isNaN(at) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-    const head = el('.wc-em-head', {}, []);
-    head.textContent = `Extended Mind · ${EM_LABEL[t.origin] || 'Entry'}${stamp ? ` · ${stamp}` : ''}`;
-    if (t.em && t.em.answered) {
-      const mark = el('span.wc-em-answered', {}, []);
-      mark.textContent = 'Answered';
-      head.appendChild(mark);
+    if (t.origin === 'em_status') {
+      const line = el('.wc-em-status', {}, []);
+      line.textContent = t.text || '';
+      const turn = el('.wc-turn.wc-turn-em.wc-turn-em-status', {}, [line]);
+      if (t.uid) turn.dataset.uid = String(t.uid);
+      return turn;
     }
-    const body = el('.wc-em-text', {}, []);
-    body.textContent = t.text || '';
-    const card = el('.wc-em-card', {}, [body]);
-    if (t.em && t.em.answered && t.em.answer) {
-      const ans = el('.wc-em-answer', {}, []);
-      ans.textContent = `Your answer: ${t.em.answer}`;
-      card.appendChild(ans);
-    }
-    const turn = el('.wc-turn.wc-turn-em', {}, [head, card]);
+    const v = t.origin === 'em_question' ? t.emView : null;
+    const bubble = el('.wc-bubble.wc-em-text', {}, []);
+    bubble.textContent = (v && v.text) || t.text || '';
+    const parts = [bubble];
+    if (v && v.state === 'open' && Array.isArray(v.choices) && v.choices.length) parts.push(emChoices(t, v));
+    const turn = el('.wc-turn.wc-turn-em', {}, parts);
     if (t.uid) turn.dataset.uid = String(t.uid);
     return turn;
+  }
+  function emChoices(t, v) {
+    const box = el('.wc-em-choices', {}, []);
+    const pending = emPending.get(String(t.uid)) || null;
+    v.choices.forEach((c, i) => {
+      const b = el('button.wc-em-choice', { type: 'button' }, []);
+      b.textContent = c.label;
+      if (c.suggested) {
+        b.classList.add('is-suggested');
+        const why = el('span.wc-em-choice-why', {}, []);
+        why.textContent = 'Extended Mind thinks so';
+        b.appendChild(why);
+      }
+      if (pending && pending.choice === i && !pending.error) b.classList.add('is-busy');
+      b.disabled = !!(pending && !pending.error);
+      b.addEventListener('click', () => pressChoice(t, v, i));
+      box.appendChild(b);
+    });
+    if (pending) {
+      const note = el('.wc-em-choice-note', {}, []);
+      note.classList.toggle('is-error', !!pending.error);
+      note.textContent = pending.error ? `Not recorded: ${pending.error}` : (pending.sent ? 'Sent to Extended Mind. Waiting for it to record…' : 'Sending…');
+      box.appendChild(note);
+    }
+    return box;
+  }
+  async function pressChoice(t, v, i) {
+    if (!emAnswerHook || !t.uid) return;
+    const uid = String(t.uid);
+    emPending.set(uid, { choice: i });
+    repaintEm(t);
+    try {
+      const out = await emAnswerHook(i);
+      if (!out || !out.ok) emPending.set(uid, { choice: i, error: (out && out.text) || 'the database did not take it' });
+      else emPending.set(uid, { choice: i, sent: true });
+    } catch (e) {
+      emPending.set(uid, { choice: i, error: (e && e.message) || 'no connection' });
+    }
+    repaintEm(t);
+  }
+  function repaintEm(t) {
+    const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
+    if (old) old.replaceWith(emEntryTurn(t));
   }
 
   // Перерисовать строки под ответами: кнопка модели живёт только под
@@ -423,13 +463,18 @@
     // model stays as the stream left it (its text reaches the server a moment later).
     upsertEmEntry(t) {
       if (!t || !t.uid) return;
-      const node = emEntryTurn(t);
       const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
-      if (old) old.replaceWith(node);
-      else elTurns.append(node);
+      // A question the database answered or withdrew: what was pressed is done with.
+      if (t.emView && t.emView.state !== 'open') emPending.delete(String(t.uid));
+      if (t.deleted) { if (old) old.remove(); }
+      else if (old) old.replaceWith(emEntryTurn(t));
+      else elTurns.append(emEntryTurn(t));
       setEmpty(!elTurns.childElementCount);
       if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
     },
+
+    // The press on a variant of a question: (choice index) → the server's answer.
+    setEmAnswer(fn) { emAnswerHook = fn; emPending.clear(); },
 
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },

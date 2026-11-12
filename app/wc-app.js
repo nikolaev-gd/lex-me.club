@@ -416,24 +416,69 @@
   const EM_LOOK_MS = 2000;
   let emOpen = null;      // { key, rev }
   let emTimer = null;
+  let emFrame = null;
+  const emStamp = (iso) => {
+    const at = iso ? new Date(iso) : null;
+    return at && !isNaN(at) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+  };
+  // A line of the list of questions: the question, under it whether it waits and since when.
+  function emQuestionSub(q) {
+    if (q.state === 'withdrawn') return 'Withdrawn';
+    if (q.state === 'answered') return q.answer ? `Answered: ${q.answer}` : 'Answered';
+    return `Waiting for your answer${q.askedAt ? ' · ' + emStamp(q.askedAt) : ''}`;
+  }
   function buildEm() {
     let rows = [];
+    let questions = [];
     const frame = global.LexSection.createFrame({
       title: 'Extended Mind',
       cls: 'lex-em',
+      back: sectionBack,
       every: 5000,
-      check: async () => { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); },
+      check: async () => {
+        if (frame.screen === 'questions') { questions = (await newsRpc('lex_em_questions', {})) || []; paintQuestions(); }
+        else { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }
+      },
+      onBack: (id) => { if (id === 'home') frame.open(async () => { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }, 'The feeds did not load.'); },
     });
+    emFrame = frame;
     function paint() {
+      if (frame.screen !== 'home') return;
       const list = global.LexSection.make('div', 'lex-section-list');
       for (const r of rows) {
+        const isQ = r.kind === 'question';
         list.appendChild(global.LexSection.row({
           id: r.kind, strong: true, cls: `lex-em-feed-${r.kind}`,
-          title: r.title, sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
-          onClick: () => frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.'),
+          title: r.title,
+          // Questions: how many wait for an answer, and the newest of them.
+          mark: isQ && r.open ? String(r.open) : null,
+          sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
+          onClick: () => (isQ ? openEmQuestions() : frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.')),
         }));
       }
       frame.body.replaceChildren(list);
+    }
+    function paintQuestions() {
+      if (frame.screen !== 'questions') return;
+      const list = global.LexSection.make('div', 'lex-section-list');
+      for (const q of questions) {
+        list.appendChild(global.LexSection.row({
+          id: String(q.item), cls: `lex-em-question is-${q.state}`, strong: q.state === 'open', wrap: true,
+          title: q.title, sub: emQuestionSub(q), mark: q.missed ? 'Missed' : null,
+          onClick: () => frame.open((wanted) => openEmQuestion(q.item, wanted), 'The question did not open.'),
+        }));
+      }
+      if (!questions.length) list.appendChild(global.LexSection.make('div', 'lex-section-empty', 'No questions yet.'));
+      frame.body.replaceChildren(list);
+    }
+    async function openEmQuestions() {
+      frame.push({ id: 'questions', title: 'Questions' });
+      try {
+        questions = (await newsRpc('lex_em_questions', {})) || [];
+        paintQuestions();
+      } catch (e) {
+        frame.say('The questions did not load. ' + ((e && e.message) || ''), true);
+      }
     }
     return {
       el: frame.el,
@@ -441,8 +486,8 @@
       async show() {
         frame.enter();
         try {
-          rows = (await newsRpc('lex_em_feed_home', {})) || [];
-          paint();
+          if (frame.screen === 'questions') { questions = (await newsRpc('lex_em_questions', {})) || []; paintQuestions(); }
+          else { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }
         } catch (e) {
           frame.say('The feeds did not load. ' + ((e && e.message) || ''), true);
         }
@@ -454,12 +499,26 @@
   async function openEmFeed(kind, wanted) {
     const info = await newsRpc('lex_em_feed_open', { p_kind: kind });
     if (!wanted() || !info || !info.chatKey) return;
-    await WcBus.call('WC_EM_FEED', { key: info.chatKey, sessionId: info.sessionId });
-    await openConversation(info.chatKey, { back: sectionTarget('em'), wanted });
-    if (state.conversationId !== info.chatKey) return;
+    await openEmChat(info, wanted);
+  }
+  // The chat of one question: its first message is the question, a press on a variant
+  // answers it (llm-proxy, kind em-answer).
+  async function openEmQuestion(item, wanted) {
+    const info = await newsRpc('lex_em_question_open', { p_item: item });
+    if (!wanted() || !info || !info.chatKey) return;
+    await openEmChat(info, wanted);
+  }
+  async function openEmChat(info, wanted) {
+    const key = info.chatKey;
+    WcThread.setEmAnswer(WcHistory.isEmFeedKey(key) && /^__lex_em_question_-?\d+__$/.test(key)
+      ? (choice) => newsPost('em-answer', { chatKey: key, choice })
+      : null);
+    await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
+    await openConversation(key, { back: sectionTarget('em'), wanted });
+    if (state.conversationId !== key) return;
     // Leaving the feed before forgot its session on the way: say it again.
-    await WcBus.call('WC_EM_FEED', { key: info.chatKey, sessionId: info.sessionId });
-    emOpen = { key: info.chatKey, rev: info.rev || 0 };
+    await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
+    emOpen = { key, rev: info.rev || 0 };
     sectionEls().main.classList.add('is-em-feed');
     WcHeader.setTitle(info.title || 'Extended Mind');
     clearInterval(emTimer);
@@ -468,6 +527,7 @@
   function leaveEmFeed() {
     if (!emOpen) return;
     emOpen = null;
+    WcThread.setEmAnswer(null);
     clearInterval(emTimer);
     emTimer = null;
     sectionEls().main.classList.remove('is-em-feed');

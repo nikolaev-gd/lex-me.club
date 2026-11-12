@@ -2050,23 +2050,23 @@ button { font: inherit; color: inherit; }
  * An entry is what the database wrote, whole, as an incoming message: the time and the feed
  * over it, «Answered» on a question the database took the answer of. A feed has no presets,
  * no voice conversation and no second version of an answer: the server refuses them there. */
-.wc-turn-em { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
-.wc-em-head { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fg-muted); }
-.wc-em-answered { font-weight: 600; color: var(--accent, var(--fg)); }
-.wc-em-answered::before { content: '✓ '; }
-.wc-em-card {
-  box-sizing: border-box;
-  max-width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--bg-sunken);
-  color: var(--fg);
-  font-size: 14px;
-  line-height: 1.45;
+.wc-em-text { white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.wc-turn-em-status { align-self: center; max-width: 90%; margin: 0 auto; text-align: center; }
+.wc-em-status { color: var(--fg-muted); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.wc-em-choices { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 10px; }
+.wc-em-choice {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  max-width: 100%; padding: 9px 14px; border-radius: 14px; text-align: left;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  font: inherit; font-size: 15px; cursor: pointer; overflow-wrap: anywhere;
 }
-.wc-em-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.wc-em-answer { margin-top: 8px; font-weight: 600; }
+.wc-em-choice:hover:not(:disabled) { background: var(--bg-hover); }
+.wc-em-choice:disabled { cursor: default; opacity: 0.55; }
+.wc-em-choice.is-busy { opacity: 1; border-color: var(--fg-muted); }
+.wc-em-choice.is-suggested { border-color: var(--fg-muted); }
+.wc-em-choice-why { font-size: 12px; color: var(--fg-muted); }
+.wc-em-choice-note { font-size: 13px; color: var(--fg-muted); }
+.wc-em-choice-note.is-error { color: var(--danger, #c0392b); }
 .wc-em-earlier {
   align-self: center;
   margin: 0 auto 12px;
@@ -2083,3 +2083,4 @@ button { font: inherit; color: inherit; }
 .wc-main.is-em-feed #wc-talk,
 .wc-main.is-em-feed .wc-new-chat,
 .wc-main.is-em-feed .lex-answer-row { display: none !important; }
+.lex-em .lex-section-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
