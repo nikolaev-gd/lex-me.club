@@ -13,7 +13,9 @@
   'use strict';
 
   global.LEX_WEB_CONFIG = {
-    supabaseUrl: 'https://qmctegvsnzypixcgejfa.supabase.co',
+    // Lex's own address (since 2026-11-12): the gateway on the server platforma,
+    // platforma/gateway/main.ts. The site's assets/config.js carries the same one.
+    supabaseUrl: 'https://api.lex-me.club',
     supabaseKey: 'sb_publishable_uFosC6xBOAeS0k9-G56bpQ_gylyq8st',
   };
 
