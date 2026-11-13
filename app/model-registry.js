@@ -8,8 +8,8 @@
 // world and plain Node (used by syntax/equivalence tests).
 //
 // ─────────────────────────────────────────────────────────────────────
-// КАК ДОБАВИТЬ ИЛИ ЗАМЕНИТЬ МОДЕЛЬ — CLAUDE.md, раздел «„Добавь модель X“ —
-// делаешь всё сам». Правило живёт только там; здесь — лишь поля записи
+// КАК ДОБАВИТЬ ИЛИ ЗАМЕНИТЬ МОДЕЛЬ — docs/DESIGN-RULES.md, раздел «„Добавь
+// модель X“ — делаешь всё сам». Правило живёт только там; здесь — лишь поля записи
 // (ниже). Кратко: запись сюда И строка цены в `public.models` одной задачей,
 // иначе сервер модель не пустит.
 //
@@ -127,6 +127,23 @@
       ],
     },
     {
+      // GPT-6.1 Terra — added 2026-11-14, replaces 5.6 Terra (hidden below).
+      // developers.openai.com/api/docs/models/gpt-6.1-terra, checked
+      // 2026-11-13: 1.00 in / 0.05 cached / 1.25 cache write / 5.00 out; long
+      // context (>272K input, whole request) 2.00 / 0.10 / 2.50 / 7.50. The
+      // cache-write price is the 30-minute one, the default retention; Lex
+      // never asks for the 12-hour one (2.50). Live check 2026-11-13: effort
+      // none … max accepted, 'minimal' a 400 — Lex keeps 'none' as its
+      // default, as for every Terra. Image input — yes. The price lives in
+      // public.models only.
+      apiModel: 'gpt-6.1-terra', provider: 'openai', type: 'text', label: '6.1 Terra',
+      vision: true,
+      efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'none',
+    },
+    {
+      // Hidden 2026-11-14 — superseded by 6.1 Terra, same convention as 5.6 Luna.
+      hidden: true, replacedBy: 'gpt-6.1-terra',
       // Live-verified 2026-07-12, same effort surface as Luna.
       // 2026-07-30: OpenAI cut Terra by 20% (was 2.50 / 0.25 / 15.00). Sol was
       // NOT part of that cut — it stays at 5.00 / 0.50 / 30.00.
@@ -141,7 +158,43 @@
       ],
     },
     {
-      // GPT-6 Sol — added 2026-09-23, replaces 5.6 Sol (hidden below).
+      // GPT-6.1 Sol — added 2026-11-14, replaces 6 Sol (hidden below).
+      // developers.openai.com/api/docs/models/gpt-6.1-sol, checked 2026-11-13:
+      // 2.00 in / 0.10 cached / 2.50 cache write / 10.00 out; long context
+      // (>272K input, whole request) 4.00 / 0.20 / 5.00 / 15.00. Image input —
+      // yes.
+      //   ⚠ No 'none' on this model. Effort is low / medium (OpenAI's default)
+      // / high / xhigh / max; live check 2026-11-13: 'none' and 'minimal' are
+      // a 400 («Supported values are: 'low', 'medium', 'high', 'xhigh', and
+      // 'max'»). So Lex's default here is 'low', the cheapest step it takes.
+      // A stored 6 Sol choice at 'none' lands on 6.1 Sol at 'low':
+      // successorModelId takes the successor's default when the old step is
+      // not on its ladder, and the migration fable52_gpt61_gemini4.sql fixed
+      // the saved maps the same way.
+      apiModel: 'gpt-6.1-sol', provider: 'openai', type: 'text', label: '6.1 Sol',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+    },
+    {
+      // GPT-6 Astra — added 2026-11-14: OpenAI's top model («our most capable
+      // model for the most demanding work»), out since 2026-08-27. Lex had no
+      // Astra before, so it replaces nothing.
+      // developers.openai.com/api/docs/models/gpt-6-astra, checked 2026-11-13:
+      // 10.00 in / 1.00 cached / 12.50 cache write / 50.00 out; long context
+      // (>272K input, whole request) 20.00 / 2.00 / 25.00 / 75.00. Effort
+      // low … max — no 'none' (live check 2026-11-13: 'none' and 'minimal'
+      // are a 400), so Lex's default is 'low'. Image input — yes.
+      apiModel: 'gpt-6-astra', provider: 'openai', type: 'text', label: '6 Astra',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+    },
+    {
+      // Hidden 2026-11-14 — superseded by 6.1 Sol, same convention as 5.6 Luna.
+      // Its 'none' step does not exist on 6.1 Sol (see there).
+      hidden: true, replacedBy: 'gpt-6.1-sol',
+      // GPT-6 Sol — added 2026-09-23, replaced 5.6 Sol (hidden below).
       // developers.openai.com/api/docs/models/gpt-6-sol and the pricing page,
       // checked 2026-09-23: 2.00 in / 0.20 cached / 2.50 cache write / 10.00
       // out; long context (>272K input, whole request) 4.00 / 0.40 / 5.00 /
@@ -340,6 +393,50 @@
       ],
     },
     {
+      // Gemini 4 Hydrogen — added 2026-11-14. Google: «speed and efficiency
+      // for everyday coding and agentic workflows». Prices from
+      // aistudio.google.com/docs/pricing (ai.google.dev now redirects there),
+      // checked 2026-11-13: 1.50 in / 0.075 cached (implicit caching only) /
+      // 7.50 out, one price for the whole 1M context — no long-context tier.
+      // It does NOT replace 3.8 Flash: it costs twice as much (3.8 Flash is
+      // 0.75 / 3.75 through 2026-12-31).
+      //   thinkingLevel low / medium / high / xhigh, Google's default `high`
+      // (docs/thinking, checked 2026-11-13; live: 'minimal' is a 400, 'xhigh'
+      // is accepted). Lex keeps Google's default, as for every Gemini.
+      apiModel: 'gemini-4-hydrogen', provider: 'google', type: 'text', label: '4 Hydrogen',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh'],
+      defaultEffort: 'high',
+    },
+    {
+      // Gemini 4 Argon — added 2026-11-14. Google: «our efficient Gemini 4
+      // frontier reasoning model… lower token spend per turn compared to
+      // Gemini 4 Carbon». Prices (same page, checked 2026-11-13): 2.00 in /
+      // 0.10 cached (implicit only) / 10.00 out THROUGH 2026-11-30, then 4.00
+      // / 0.20 / 20.00 from 2026-12-01 — the public.models row has to move on
+      // that date (Lex has no dated prices; docs/BACKLOG.md). No long-context
+      // tier. thinkingLevel low / medium / high, default `medium` (live:
+      // 'minimal' and 'xhigh' are a 400).
+      apiModel: 'gemini-4-argon', provider: 'google', type: 'text', label: '4 Argon',
+      vision: true,
+      efforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+    },
+    {
+      // Gemini 4 Carbon — added 2026-11-14, replaces 3.1 Pro (hidden below):
+      // Google's «strongest reasoning model», the place 3.1 Pro held. Prices
+      // as Argon's (checked 2026-11-13): 2.00 / 0.10 / 10.00 through
+      // 2026-11-30, 4.00 / 0.20 / 20.00 from 2026-12-01. No long-context tier
+      // (3.1 Pro had one above 200K). thinkingLevel low / medium / high,
+      // default `medium` (live: 'minimal' and 'xhigh' are a 400).
+      apiModel: 'gemini-4-carbon', provider: 'google', type: 'text', label: '4 Carbon',
+      vision: true,
+      efforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+    },
+    {
+      // Hidden 2026-11-14 — superseded by 4 Carbon (Google's top model now).
+      hidden: true, replacedBy: 'gemini-4-carbon',
       // Hidden 2026-05-22 — superseded by 3.5 Flash. UN-hidden 2026-08-25 at
       // the owner's request: he wants the Pro tier back in the bar.
       // Pro rejects thinkingLevel 'minimal' (HTTP 400) — lowest tier is 'low',
@@ -398,6 +495,28 @@
 
     // ── Anthropic · text ─────────────────────────────────────────────
     {
+      // Claude Fable 5.2 — added 2026-11-14, released 2026-11-09, replaces
+      // Fable 5.1 (hidden below). Pricing checked 2026-11-13 on
+      // platform.claude.com/docs/en/about-claude/pricing: 8 in / 0.20 cache
+      // read / 10 cache write (5m) / 40 out — a fifth cheaper than 5.1 on
+      // every line. The 1M context is billed at the standard price: no
+      // long-context tariff.
+      //   Live check 2026-11-13: thinking is always on. thinking:{type:
+      // 'disabled'} is a 400 at every effort, 'between_tools' too («Use
+      // thinking.type.adaptive and output_config.effort»), so no
+      // thinkingOffUpTo. Effort low … max all accepted, API default `high`
+      // (docs/effort) — Lex keeps `high`, as for 5.1. temperature is a 400.
+      apiModel: 'claude-fable-5-2', provider: 'anthropic', type: 'text', label: 'Fable 5.2',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'high',
+      thinkingAlwaysOn: true,
+      knobQuirks: { temperature: false },
+    },
+    {
+      // Hidden 2026-11-14 — superseded by Fable 5.2 (cheaper, newer). The
+      // server moves any stored choice to it (public.models.replaced_by).
+      hidden: true, replacedBy: 'claude-fable-5-2',
       // Claude Fable 5.1 — added 2026-09-07, released 2026-09-01. Supersedes
       // Fable 5 (hidden below), which Anthropic's model list moved to
       // "legacy models (still available)".
