@@ -40,31 +40,72 @@
 .lex-profi-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 15px; cursor: pointer; }
 .lex-profi-mac { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; font-size: 14px; }
 
-/* An order chat: the head stands over the first message and outside it. */
-.lex-profi-head { margin: 0 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--line); text-align: left; }
+/* An order chat: the head stands over the first message and outside it, a card as on Profi. */
+.lex-profi-head {
+  margin: 8px 0 6px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--lex-bubble-bot, var(--bg)); text-align: left;
+}
 .lex-profi-head-title { font-weight: 700; }
-.lex-profi-head-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 3px; color: var(--fg-muted); font-size: 13px; }
-.lex-profi-head-facts { margin-top: 3px; color: var(--fg); font-size: 13px; }
-.lex-profi-head-block { margin-top: 12px; color: var(--fg-muted); font-size: 13px; font-weight: 600; }
+.lex-profi-head-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 2px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-head-facts { margin-top: 2px; color: var(--fg); font-size: 13px; }
+.lex-profi-head-block { margin-top: 8px; color: var(--fg-muted); font-size: 13px; font-weight: 600; }
 .lex-profi-head-text { margin-top: 2px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.lex-profi-head-foot { margin-top: 12px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-head-foot { margin-top: 8px; color: var(--fg-muted); font-size: 12px; }
 .lex-profi-link { color: inherit; text-decoration: underline; }
 
-/* The messages of an order chat are the common message (lex-message.css); the mark of Profi
- * stands beside the time of what went to the client. */
+/* The messages of an order chat are the bubbles of lex-message.css, as in Telegram; the mark of
+ * Profi stands after the time of what went to the client. */
 .lex-profi-tick { flex: 0 0 auto; width: 16px; height: 16px; }
-.lex-profi-msg .lex-profi-tick { align-self: center; }
+.lex-bubbles > .wc-turn { margin-bottom: 6px; }
+.lex-bubbles > .wc-turn.lex-profi-msg { display: flex; flex-direction: column; }
 
-.lex-profi-box { margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
+/* What the person wrote to the model: the bubble of the thread, grey, «To Lex» over it. */
+.lex-bubbles > .wc-turn-user > .lex-bubble { align-items: stretch; max-width: 86%; padding: 7px 12px 6px; }
+.lex-bubbles > .wc-turn-user > .lex-bubble > .wc-bubble { padding: 0; border-radius: 0; background: none; }
+
+/* The answer of the model: a dashed frame on the left, the mark of the model beside it. */
+.lex-bubbles > .wc-turn-assistant.lex-profi-answer {
+  position: relative; max-width: min(86%, 560px); margin-top: 4px; margin-left: 38px;
+}
+.lex-profi-lex-avatar {
+  position: absolute; left: -38px; bottom: 0; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%; background: var(--lex-bubble-self); color: var(--fg-soft, var(--fg-muted));
+}
+.lex-profi-lex-head { gap: 8px; margin-bottom: 3px; font-size: 13px; }
+.lex-profi-lex-name { color: var(--fg); font-weight: 700; }
+.lex-profi-only { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-weight: 400; }
+.lex-bubbles > .lex-profi-answer > .wc-turn-foot { margin-top: 0; }
+
+/* A box with text for the client: on the colour of what goes to him, Send and Copy under it. */
+.lex-profi-box { margin-top: 8px; text-align: left; }
+.lex-profi-box-text {
+  padding: 9px 11px; border-radius: 12px; background: var(--lex-bubble-out, var(--bg-hover));
+  line-height: 1.38; white-space: pre-wrap; overflow-wrap: anywhere;
+}
 .lex-profi-box.is-writing { opacity: .75; }
-.lex-profi-box.is-sent { background: var(--bg-hover); }
-.lex-profi-box-text { white-space: pre-wrap; overflow-wrap: anywhere; }
-.lex-profi-box-price { margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
-.lex-profi-box-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.lex-profi-box.is-sent .lex-profi-box-text { opacity: .7; }
+.lex-profi-box-price { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }
+.lex-profi-box-foot { display: flex; gap: 6px; margin-top: 8px; }
+.lex-profi-box-foot .lex-profi-btn {
+  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: var(--bg-hover); font-size: 15px; font-weight: 650;
+}
+.lex-profi-box-foot .lex-profi-btn.is-main { background: var(--fg); color: var(--bg); }
 .lex-profi-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }
 .lex-profi-box-note:empty { display: none; }
 
-/* The discussion the person cleared: it leaves the screen, the model still reads it. */
+/* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
+ * Profi. The list of chats is a step back (the arrow), so the bar has no three lines. */
+.wc-main.is-profi-chat .wc-burger { display: none !important; }
+.lex-profi-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.lex-profi-person[hidden] { display: none !important; }
+.lex-profi-person-words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.lex-profi-person-name { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
+.lex-profi-person-channel { color: var(--fg-muted); font-size: 13px; line-height: 1.2; }
+.wc-profi-link { display: contents; }
+.lex-profi-order-link { color: var(--fg-soft, var(--fg-muted)); text-decoration: none; }
+
+/* The discussion before the last message to the client: off the screen, the model still reads it. */
 .wc-turn.lex-profi-hidden { display: none; }
 
 /* One field in every chat (2026-11-11): an order chat has «+» with a picture like any chat. It
@@ -76,5 +117,3 @@
 .wc-main.is-profi-chat .wc-new-chat,
 .wc-main.is-profi-chat .lex-answer-row { display: none !important; }
 
-/* The button in the corner of an order chat: filled while the discussion is off the screen. */
-.wc-profi-only.is-on svg { fill: currentColor; }

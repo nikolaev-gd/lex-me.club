@@ -32,6 +32,8 @@
   --lex-dark-raised:        #2A3236;  /* menus, popups, dialogs, tooltips, buttons and pills */
   --lex-dark-raised-hover:  #333D42;  /* a button or pill under the cursor */
   --lex-dark-raised-strong: #3D494E;  /* pressed or chosen button, outline of a pill */
+  --lex-dark-bubble-out:    #1F3657;  /* a message that went to someone else (the client of an order chat), right, as in Telegram */
+  --lex-dark-bubble-out-meta: #A9B7C6; /* the time and the channel inside that bubble */
 
   /* Washes: white laid over whatever ground is under them. */
   --lex-dark-wash:          rgba(255, 255, 255, .05);  /* faint fill of a card or chip */

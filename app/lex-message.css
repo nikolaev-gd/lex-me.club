@@ -96,3 +96,183 @@
   background: currentColor;
   opacity: .45;
 }
+
+/* ── A chat drawn as in Telegram (2026-11-13) ─────────────────────────────────
+ * The list of turns carries `lex-bubbles`: the other person on the left, what went to them on
+ * the right, a notice of a service and the day line as plates in the middle. The colours are
+ * the page's palette (lex-palette.css) in the dark and their light pairs here. */
+.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp {
+  --lex-bubble-in: #F0F0F1;
+  --lex-bubble-out: #DCE8FB;
+  --lex-bubble-out-meta: rgba(0, 0, 0, .55);
+  --lex-bubble-self: #E6E9EB;
+  --lex-bubble-bot: #FFFFFF;
+  --lex-bubble-bot-line: rgba(0, 0, 0, .24);
+  --lex-plate: rgba(0, 0, 0, .06);
+  --lex-plate-fg: rgba(0, 0, 0, .62);
+  --lex-plain-fg: #1d1d1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lex-bubbles, :root:not([data-theme="light"]) .lex-bubble,
+  :root:not([data-theme="light"]) .lex-notice, :root:not([data-theme="light"]) .lex-fold,
+  :root:not([data-theme="light"]) .lex-stamp {
+    --lex-bubble-in: var(--lex-dark-bubble);
+    --lex-bubble-out: var(--lex-dark-bubble-out);
+    --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
+    --lex-bubble-self: var(--lex-dark-raised);
+    --lex-bubble-bot: var(--lex-dark-surface);
+    --lex-bubble-bot-line: var(--lex-dark-line-strong);
+    --lex-plate: var(--lex-dark-hover);
+    --lex-plate-fg: var(--lex-dark-fg-soft);
+    --lex-plain-fg: var(--lex-dark-fg);
+  }
+}
+:root[data-theme="dark"] .lex-bubbles, :root[data-theme="dark"] .lex-bubble, :root[data-theme="dark"] .lex-notice,
+:root[data-theme="dark"] .lex-fold, :root[data-theme="dark"] .lex-stamp {
+  --lex-bubble-in: var(--lex-dark-bubble);
+  --lex-bubble-out: var(--lex-dark-bubble-out);
+  --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
+  --lex-bubble-self: var(--lex-dark-raised);
+  --lex-bubble-bot: var(--lex-dark-surface);
+  --lex-bubble-bot-line: var(--lex-dark-line-strong);
+  --lex-plate: var(--lex-dark-hover);
+  --lex-plate-fg: var(--lex-dark-fg-soft);
+  --lex-plain-fg: var(--lex-dark-fg);
+}
+
+/* A bubble: the corner at the side of the speaker is the tail. */
+.lex-bubble {
+  position: relative;
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 86%;
+  padding: 8px 12px 6px;
+  border-radius: 18px;
+  color: var(--fg, var(--lex-plain-fg));
+  text-align: left;
+}
+.lex-bubble.is-in { margin-right: auto; border-bottom-left-radius: 6px; background: var(--lex-bubble-in); }
+.lex-bubble.is-out { margin-left: auto; border-bottom-right-radius: 6px; background: var(--lex-bubble-out); }
+.lex-bubble.is-self { background: var(--lex-bubble-self); }
+.lex-bubble.is-bot { background: var(--lex-bubble-bot); border: 1px dashed var(--lex-bubble-bot-line); }
+.lex-bubble .lex-bubble-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.lex-bubble .lex-bubble-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  color: var(--fg-soft, var(--lex-plate-fg));
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 16px;
+}
+
+/* The line under the text: the channel, «·», the time, then the ticks. No taller than a line of
+ * small text. */
+.lex-stamp {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--fg-muted, rgba(127, 127, 127, .95));
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lex-bubble.is-out .lex-stamp { color: var(--lex-bubble-out-meta); }
+.lex-channel-icon { flex: 0 0 auto; display: block; width: 14px; height: 14px; }
+.lex-channel-icon.is-plain { color: var(--lex-plain-fg); }
+.lex-channel-max {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 3.5px;
+  background: #1C1D22;
+  box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .18);
+}
+.lex-channel-max svg { display: block; width: 10px; height: 10px; }
+.lex-channel-name { font-weight: 600; }
+.lex-channel-name.is-plain { color: var(--lex-plain-fg); }
+.lex-channel-name.is-max {
+  background: linear-gradient(90deg, #4FC3FF, #A08BFF);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* A notice of a service: a plate in the middle, its channel first. */
+.lex-notice {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: 90%;
+  margin: 2px auto;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: var(--lex-plate);
+  color: var(--lex-plate-fg);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lex-notice .lex-notice-from { display: inline-flex; align-items: center; gap: 5px; vertical-align: -2px; }
+.lex-notice .lex-channel-name { font-weight: 650; }
+.lex-notice a { color: inherit; text-decoration: underline; }
+
+/* What is kept off the screen: one line in the middle, its action brighter. */
+.lex-fold {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  height: 44px;
+  margin: 2px auto;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--lex-plate);
+  color: var(--fg-muted, var(--lex-plate-fg));
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.lex-fold .lex-fold-action { color: var(--lex-plain-fg); font-weight: 650; }
+.lex-fold:hover .lex-fold-action { text-decoration: underline; }
+
+/* A round letter of a person. */
+.lex-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: #FFFFFF;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* In a chat of bubbles the day is a plate in the middle, as the notices are. */
+.lex-bubbles > .lex-msg-day {
+  width: fit-content;
+  margin: 8px auto 6px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: var(--lex-plate);
+  color: var(--lex-plate-fg);
+  font-size: 13px;
+}
+.lex-bubbles > .lex-msg-new { margin: 6px 0 8px; }

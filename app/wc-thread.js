@@ -465,8 +465,12 @@
       setEmpty(true);
     },
 
-    // The order chat that is open, or null (lex-profi.js createChat).
-    setProfiChat(chat) { profiChat = chat; },
+    // The order chat that is open, or null (lex-profi.js createChat). Its turns are bubbles,
+    // as in Telegram: the list carries the class of the common parts (lex-message.css).
+    setProfiChat(chat) {
+      profiChat = chat;
+      elTurns.classList.toggle('lex-bubbles', !!chat);
+    },
 
     // The boxes of an order chat, from what the server says now.
     paintProfiBoxes() {
@@ -474,17 +478,14 @@
       for (const t of elTurns.querySelectorAll('.wc-turn-assistant[data-uid]')) {
         if (t.classList.contains('is-streaming') || !t.dataset.raw) continue;
         const bubble = t.querySelector('.wc-bubble');
-        if (bubble && t.querySelector(':scope > .lex-profi-boxes')) profiChat.paintAnswer(t, bubble, t.dataset.raw, WcMarkdown, false);
+        if (bubble && t.querySelector('.lex-profi-boxes')) profiChat.paintAnswer(t, bubble, t.dataset.raw, WcMarkdown, false);
       }
       profiChat.paintHidden(elTurns);
+      // The time under a finished answer and a line of a hidden discussion change the height:
+      // a reader at the end stays at the end.
+      if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
     },
 
-    // The button in the corner pressed: what is left stands at the end of the chat.
-    paintProfiHidden() {
-      if (!profiChat) return;
-      profiChat.paintHidden(elTurns);
-      scrollToBottom(false);
-    },
 
     // Turns came while the chat is open: the screen stays where the person reads.
     repaintKeepingPlace(turns, opts) {
@@ -599,8 +600,9 @@
           elTurns.append(turn);
         }
       });
-      if (profiChat) profiChat.paintHidden(elTurns);
       remark();
+      // After the day lines: the line of a hidden discussion stands right over its turns.
+      if (profiChat) profiChat.paintHidden(elTurns);
       setEmpty(!elTurns.childElementCount);
       syncFeet();
       // A chat that is only the news starts at its first line. A card that was on
@@ -685,6 +687,7 @@
       node.dataset.at = new Date().toISOString();
       elTurns.append(node);
       remark();
+      if (profiChat) profiChat.paintHidden(elTurns);
       stickToBottom = true;
       elJump.hidden = true;
       scrollToBottom(false);
@@ -726,6 +729,7 @@
       turn.classList.add('is-streaming');
       turn.dataset.at = new Date().toISOString();
       elTurns.append(turn);
+      if (profiChat) profiChat.dress(elTurns);
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,
       // он больше не последний.

@@ -807,12 +807,15 @@
   function profiEls() {
     return {
       main: document.querySelector('.wc-main'),
-      only: document.getElementById('wc-profi-only'),
+      person: document.getElementById('wc-profi-person'),
+      link: document.getElementById('wc-profi-link'),
     };
   }
   function leaveProfiChat() {
-    const { main, only } = profiEls();
-    only.hidden = true;
+    const { main, person, link } = profiEls();
+    person.hidden = true;
+    person.replaceChildren();
+    link.replaceChildren();
     main.classList.remove('is-profi-chat');
     if (profiChat) {
       profiChat = null;
@@ -833,33 +836,23 @@
     });
   }
   function enterProfiChat(chat) {
-    const { main, only } = profiEls();
+    const { main } = profiEls();
     profiChat = chat;
     WcThread.setProfiChat(chat);
     main.classList.add('is-profi-chat');
-    only.hidden = false;
-    syncProfiOnly();
+    paintProfiBar();
     SECTIONS.profi.live.watch();
   }
-  function syncProfiOnly() {
-    const { only } = profiEls();
-    const on = !!(profiChat && profiChat.data && (profiChat.data.hiddenTurns || []).length);
-    only.classList.toggle('is-on', on);
-    only.setAttribute('aria-pressed', String(on));
-  }
-  // Clears the discussion off the screen. What decides is the server, on every press.
-  async function pressProfiOnly() {
-    const chat = profiChat;
-    if (!chat) return;
-    try {
-      const r = await newsRpc('profi_hide_discussion', { p_op_id: global.LexProfi.newOpId(), p_order: chat.order });
-      if (profiChat !== chat) return;
-      chat.data = Object.assign({}, chat.data, { hiddenTurns: (r && r.hiddenTurns) || [] });
-      syncProfiOnly();
-      WcThread.paintProfiHidden();
-    } catch (err) {
-      toast((err && err.message) || 'It did not work.', { error: true });
-    }
+  // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
+  // arrow to the order on the site of Profi. The discussion with the model hides by itself
+  // (the server names it), so the bar has no button for it (2026-11-13).
+  function paintProfiBar() {
+    const { person, link } = profiEls();
+    if (!profiChat || !profiChat.data) return;
+    const bar = profiChat.bar();
+    person.replaceChildren(...bar.person.childNodes);
+    person.hidden = false;
+    link.replaceChildren(...(bar.link ? [bar.link] : []));
   }
   // What the screen of an order chat drew from: a turn's words and its place. When a fresh
   // answer gives the same, only the boxes and the marks are painted again.
@@ -925,7 +918,7 @@
       moved = true;
     }
     chat.data = data;
-    syncProfiOnly();
+    paintProfiBar();
     if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
     if (state.conversationId !== data.chatKey) return;
     const r = data.chat
@@ -2037,7 +2030,6 @@
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
     document.getElementById('wc-news-back').onclick = () => sectionBack.go();
-    document.getElementById('wc-profi-only').onclick = pressProfiOnly;
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.

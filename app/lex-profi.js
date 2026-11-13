@@ -123,6 +123,7 @@
   }
 
   // One box. window is the row of the server; none yet while the answer is being written.
+  // The text stands on the colour of what goes to the client; Send and Copy under it.
   function boxNode(text, win, deps) {
     const root = make('div', 'lex-profi-box');
     root.appendChild(make('div', 'lex-profi-box-text', text));
@@ -135,11 +136,6 @@
     const foot = make('div', 'lex-profi-box-foot');
     const note = make('div', 'lex-profi-box-note');
     note.setAttribute('role', 'status');
-    const copy = button('lex-profi-btn', 'Copy', async () => {
-      const ok = await deps.copy(win.text);
-      note.textContent = ok ? 'Copied.' : 'The browser refused the clipboard.';
-    });
-    foot.appendChild(copy);
     const open = win.state === 'ready' || (win.state === 'failed' && win.retry);
     if (open) {
       const send = button('lex-profi-btn is-main', 'Send', async () => {
@@ -154,8 +150,15 @@
           note.textContent = 'Not sent. ' + ((e && e.message) || '');
         }
       });
+      send.prepend(sendIcon());
       foot.appendChild(send);
     }
+    const copy = button('lex-profi-btn', 'Copy', async () => {
+      const ok = await deps.copy(win.text);
+      note.textContent = ok ? 'Copied.' : 'The browser refused the clipboard.';
+    });
+    copy.prepend(copyIcon());
+    foot.appendChild(copy);
     root.appendChild(foot);
     root.appendChild(note);
     if (win.state === 'queued') note.textContent = 'The monitor is sending it.';
@@ -168,10 +171,51 @@
     return root;
   }
 
+  function strokeIcon(paths, size) {
+    const svg = document.createElementNS(TICK_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', String(size));
+    svg.setAttribute('height', String(size));
+    svg.setAttribute('aria-hidden', 'true');
+    for (const [tag, attrs] of paths) {
+      const n = document.createElementNS(TICK_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+      n.setAttribute('fill', 'none');
+      n.setAttribute('stroke', 'currentColor');
+      n.setAttribute('stroke-width', '2');
+      n.setAttribute('stroke-linecap', 'round');
+      n.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(n);
+    }
+    return svg;
+  }
+  const sendIcon = () => strokeIcon([['path', { d: 'M22 2L11 13' }], ['path', { d: 'M22 2l-7 20-4-9-9-4z' }]], 16);
+  const copyIcon = () => strokeIcon([['rect', { x: '9', y: '9', width: '12', height: '12', rx: '2' }],
+    ['path', { d: 'M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1' }]], 16);
+  // The arrow out of the window: the order on the site of Profi.
+  const outIcon = () => strokeIcon([['path', { d: 'M14 4h6v6' }], ['path', { d: 'M20 4l-9 9' }],
+    ['path', { d: 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }]], 20);
+
   // ── an order chat ───────────────────────────────────────────────────────────
+  // The channel of a message of an order chat that the server does not name otherwise: the site
+  // of Profi. Messages of the client from Max, Telegram or WhatsApp come named (`channels`).
+  const CHANNEL = 'profi';
+
+  // The time under a bubble the thread made: one line, made once, kept last before `before`.
+  function stampOf(host, at, before) {
+    let line = host.querySelector(':scope > .lex-stamp');
+    if (!line) {
+      line = global.LexMessage.stamp({ at });
+      if (!line.childElementCount) return;
+    }
+    if (before) host.insertBefore(line, before); else host.appendChild(line);
+  }
+
   // deps: rpc, copy, order, reload()
   function createChat(deps) {
     let data = null;
+    // The runs of the hidden discussion the person brought back with Show, while the chat is open.
+    const revealed = new Set();
     const self = {
       order: deps.order,
       get data() { return data; },
@@ -188,7 +232,7 @@
           if (line.childElementCount) line.appendChild(make('span', '', '·'));
           line.appendChild(node);
         };
-        if (data.client) add(make('span', '', data.client));
+        // The client's name stands in the bar over the chat (2026-11-13), not here.
         if (data.budget) add(make('span', '', data.budget));
         if (data.chatUrl) {
           const a = make('a', 'lex-profi-link', 'Chat on Profi');
@@ -207,20 +251,28 @@
         return root;
       },
 
-      // What the monitor writes into the chat: a message of the client, what went to him, and a
-      // notice of Profi (the commission, the balance, an opened contact) as a grey line.
-      // A message of the client, what went to him, a notice of Profi: the common message of
-      // lex-message.js — the name in bold and the time, the text under them, no bubble. What
-      // went to the client is «You», with the mark of Profi beside the time.
+      // What the monitor writes into the chat, as in Telegram (2026-11-13): the client on the
+      // left, what went to him on the right with the mark of Profi, a notice of Profi as a plate
+      // in the middle. Every message says the channel it came by beside its time: the server
+      // names the turns that came from elsewhere (`channels`, profi_open), the rest came from
+      // Profi.ru. The parts know every channel (lex-message.js).
       messageNode(t) {
+        const M = global.LexMessage;
         const out = t.origin === 'profi_sent';
         const notice = t.origin === 'profi_notice';
-        const name = notice ? 'Profi.ru' : out ? 'You' : (data && data.client) || 'Client';
-        const tail = out ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
-        const msg = global.LexMessage.message({ name, at: t.authoredAt, tail,
-          body: linkedText(make('div', 'lex-msg-text', ''), t.text) });
+        const named = data && data.channels && data.channels[String(t.uid || '')];
+        const ch = !notice && named && M.CHANNELS[named] ? named : CHANNEL;
+        let node;
+        if (notice) {
+          node = M.notice({ channel: ch, at: t.authoredAt, body: linkedText(make('span', 'lex-notice-text', ''), t.text) });
+        } else {
+          // The ticks are Profi's: a message that went by another channel has none.
+          const tail = out && ch === CHANNEL ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
+          node = M.bubble({ side: out ? 'out' : 'in', body: linkedText(make('div', '', ''), t.text),
+            stamp: M.stamp({ channel: ch, at: t.authoredAt, tail }) });
+        }
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
-        root.appendChild(msg);
+        root.appendChild(node);
         if (t.uid) root.dataset.uid = String(t.uid);
         if (t.authoredAt) root.dataset.at = t.authoredAt;
         // The client's words and Profi's notices come without the person: they can be new.
@@ -228,12 +280,46 @@
         return root;
       },
 
+      // The person's word to the model: on the right, grey, «To Lex» over it, the time under it.
+      // The answer of the model: on the left in a dashed frame, «Lex · only you see this» over
+      // it, the mark of the model beside it. Both are the bubbles of lex-message.js laid over
+      // the turns the thread made; dressing twice changes nothing.
+      dress(thread) {
+        const M = global.LexMessage;
+        for (const t of thread.querySelectorAll(':scope > .wc-turn-user')) {
+          const box = t.querySelector(':scope > div');
+          if (!box) continue;
+          if (!box.classList.contains('lex-bubble')) {
+            box.classList.add('lex-bubble', 'is-out', 'is-self');
+            const label = make('div', 'lex-bubble-label', '');
+            label.append(M.sparkle(12), document.createTextNode('To Lex'));
+            box.prepend(label);
+          }
+          stampOf(box, t.dataset.at);
+        }
+        for (const t of thread.querySelectorAll(':scope > .wc-turn-assistant')) {
+          if (t.classList.contains('wc-turn-news') || t.classList.contains('wc-turn-error')) continue;
+          if (!t.classList.contains('lex-bubble')) {
+            t.classList.add('lex-bubble', 'is-in', 'is-bot', 'lex-profi-answer');
+            const av = make('span', 'lex-profi-lex-avatar', '');
+            av.appendChild(M.sparkle(16));
+            const label = make('div', 'lex-bubble-label lex-profi-lex-head', '');
+            const only = make('span', 'lex-profi-only', '');
+            only.append(M.eyeOff(13), document.createTextNode('only you see this'));
+            label.append(make('span', 'lex-profi-lex-name', 'Lex'), only);
+            t.prepend(av, label);
+          }
+          if (!t.classList.contains('is-streaming')) stampOf(t, t.dataset.at, t.querySelector(':scope > .wc-turn-foot'));
+        }
+      },
+
+      // The words of an answer into its bubble, its boxes under them.
       // The words of an answer into its bubble, its boxes under them.
       paintAnswer(turn, bubble, raw, md, streaming) {
         const parts = splitAnswer(raw);
         md.into(bubble, parts.filter((p) => p.kind === 'text').map((p) => p.text.trim()).join('\n\n'));
         bubble.hidden = !parts.some((p) => p.kind === 'text');
-        let host = turn.querySelector(':scope > .lex-profi-boxes');
+        let host = turn.querySelector('.lex-profi-boxes');
         const boxes = parts.filter((p) => p.kind === 'box');
         if (!boxes.length) { if (host) host.remove(); return; }
         if (!host) {
@@ -246,19 +332,67 @@
           { rpc: deps.rpc, copy: deps.copy, refresh: deps.reload })));
       },
 
-      // What the server keeps off the screen: the discussion up to the last press of the
-      // button in the corner. The model still reads it.
+      // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
+      // with the model up to the last message that went to the client, from Lex, Telegram or the
+      // site. Every run of it becomes one line «Discussion with Lex is hidden · Show»; Show
+      // brings that run back until the chat is left. The model still reads it all.
       // The marks of Profi follow the server with it: what the client has read turns blue.
       paintHidden(thread) {
-        const hidden = new Set((data && data.hiddenTurns) || []);
-        for (const t of thread.querySelectorAll('.wc-turn[data-uid]')) {
-          t.classList.toggle('lex-profi-hidden', hidden.has(t.dataset.uid));
+        self.dress(thread);
+        const hidden = new Set((data && data.hiddenDiscussion) || []);
+        for (const f of thread.querySelectorAll(':scope > .lex-fold')) f.remove();
+        let run = [];
+        const flush = () => {
+          if (!run.length) return;
+          const uids = run.map((t) => t.dataset.uid);
+          const shown = uids.every((u) => revealed.has(u));
+          for (const t of run) t.classList.toggle('lex-profi-hidden', !shown);
+          const line = global.LexMessage.fold({
+            text: shown ? 'Discussion with Lex' : 'Discussion with Lex is hidden',
+            action: shown ? 'Hide' : 'Show',
+            onClick: () => {
+              for (const u of uids) { if (shown) revealed.delete(u); else revealed.add(u); }
+              self.paintHidden(thread);
+            },
+          });
+          line.classList.add('lex-profi-fold');
+          run[0].before(line);
+          run = [];
+        };
+        for (const n of [...thread.children]) {
+          if (n.classList.contains('lex-fold')) continue;
+          if (n.classList.contains('wc-turn') && n.dataset.uid && hidden.has(n.dataset.uid)) { run.push(n); continue; }
+          flush();
+          if (n.classList.contains('lex-profi-hidden')) n.classList.remove('lex-profi-hidden');
         }
+        flush();
         const read = new Set((data && data.readTurns) || []);
         for (const svg of thread.querySelectorAll('.lex-profi-msg.is-sent[data-uid] .lex-profi-tick')) {
           const uid = svg.closest('[data-uid]').dataset.uid;
           if ((svg.dataset.read === '1') !== read.has(uid)) setTick(svg, read.has(uid));
         }
+      },
+
+      // The bar over the chat: the client's letter and name, the channel under the name, and
+      // the order on the site of Profi behind the arrow (lex-profi.css, wc-app.js).
+      bar() {
+        const M = global.LexMessage;
+        const person = make('div', 'lex-profi-person', '');
+        const who = (data && data.client) || 'Client';
+        const words = make('div', 'lex-profi-person-words', '');
+        words.append(make('div', 'lex-profi-person-name', who), make('div', 'lex-profi-person-channel', M.CHANNELS[CHANNEL].name));
+        person.append(M.avatar(who), words);
+        let link = null;
+        if (data && data.orderUrl) {
+          link = make('a', 'wc-icon-btn lex-profi-order-link', '');
+          link.href = data.orderUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.title = 'Open the order on Profi';
+          link.setAttribute('aria-label', link.title);
+          link.appendChild(outIcon());
+        }
+        return { person, link };
       },
     };
     return self;
