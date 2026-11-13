@@ -286,7 +286,10 @@
   };
 
   // ── Скаляры с проверкой значения ─────────────────────────────────────────
-  const DEFAULT_VOICE_MODEL_ID = 'gemini-3.1-flash-live-preview';
+  // Голосовая модель по умолчанию — из реестра (model-registry.js, voiceDefault).
+  // Файл грузится раньше реестра (и в воркере, и на странице YouTube), поэтому
+  // реестр читается в момент вызова, а не при загрузке.
+  const defaultVoiceModelId = () => (globalThis.LexModelRegistry && globalThis.LexModelRegistry.defaultVoiceModel) || null;
 
   const VALID_SPEECH_ENGINES = [
     // Web Speech API — синтезирует сам браузер/система. Единственный движок,
@@ -438,9 +441,10 @@
   }
 
   function seedVoiceModel(deps) {
-    return seed(['activeVoiceModelId'], (r) => (
-      r.activeVoiceModelId ? {} : { activeVoiceModelId: DEFAULT_VOICE_MODEL_ID }
-    ), 'Voice model storage initialized', deps);
+    return seed(['activeVoiceModelId'], (r) => {
+      const id = defaultVoiceModelId();
+      return (r.activeVoiceModelId || !id) ? {} : { activeVoiceModelId: id };
+    }, 'Voice model storage initialized', deps);
   }
 
   function seedPronunciation(deps) {
@@ -744,7 +748,6 @@
     KNOB_SCOPES,
     TEXT_KNOB_KEYS,
     MODEL_SCOPE_CELLS,
-    DEFAULT_VOICE_MODEL_ID,
     VALID_SPEECH_ENGINES,
     RETIRED_SPEECH_ENGINES,
     SPEECH_RATE_MIN,

@@ -1,19 +1,20 @@
 // voice/history-injector.js — Gemini Live prior-history replay.
 //
-// Mirrors shared.js seedGeminiVoiceFromHistory (line ~3095). Three paths,
-// chosen by the Live model's API contract:
+// Two paths, chosen by the Live model's family:
 //
-//   1. gemini-3.1-flash-live-preview  — server accepts
-//        clientContent.turns[] with real roles (user/model) + turnComplete:
-//        true ONLY IF setup carried historyConfig.initialHistoryInClient
-//        Content:true. Use this for new Live models.
+//   1. every Gemini Live model but native-audio (3.1 Flash Live, 3.8 Live) —
+//        server accepts clientContent.turns[] with real roles (user/model) +
+//        turnComplete: true, and does not answer them, ONLY IF setup carried
+//        historyConfig.initialHistoryInClientContent: true (live check
+//        2026-11-14, dev-tools/probe-gemini-live-voice.ts: without the flag
+//        both 3.1 and 3.8 answer the seed aloud). The server puts the flag into
+//        the sealed setup by the same family rule (_shared/gemini-live-setup.ts
+//        geminiTakesHistoryTurns), and the iPhone builds the same frame
+//        (GeminiTurns.seedFrame). Until 2026-11-14 the rule named 3.1 alone,
+//        and a third path packed the history into one user turn for the
+//        retired gemini-2.0-flash-live-001; no model of the registry took it.
 //
-//   2. legacy Gemini Live (e.g. gemini-2.0-flash-live-001) — server does
-//        NOT accept role:'model' in clientContent. Pack the whole history
-//        into a SINGLE user-turn body with [history] markers and turn
-//        Complete:false (so the model doesn't reply to the seed).
-//
-//   3. native-audio models (gemini-2.5-flash-native-audio-*) — Google
+//   2. native-audio models (gemini-2.5-flash-native-audio-*) — Google
 //        confirmed audio-input ignores clientContent history (see LESSONS
 //        2026-05-04). Skip; the workaround is to inject important context
 //        into systemInstruction instead — that's the caller's job, not ours.
@@ -30,14 +31,17 @@
 (function (global) {
   'use strict';
 
-  function isNewLivePath(voiceApiModel) {
-    return voiceApiModel === 'gemini-3.1-flash-live-preview';
-  }
-
   function isNativeAudio(voiceApiModel) {
     // Native-audio family — Google ignores clientContent history.
     return typeof voiceApiModel === 'string'
       && voiceApiModel.indexOf('native-audio') !== -1;
+  }
+
+  // Role turns after the setup — every Gemini Live model but native-audio.
+  function isNewLivePath(voiceApiModel) {
+    return typeof voiceApiModel === 'string'
+      && voiceApiModel.indexOf('gemini-') === 0
+      && !isNativeAudio(voiceApiModel);
   }
 
   function applyHistoryConfigToSetup(setup, voiceApiModel) {
@@ -55,23 +59,12 @@
       // Skip — see file header comment.
       return null;
     }
-    if (isNewLivePath(voiceApiModel)) {
-      const liveTurns = turns.map((t) => ({
-        role: t.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: t.content || '' }],
-      }));
-      return { clientContent: { turns: liveTurns, turnComplete: true } };
-    }
-    // Legacy path — pack into one user-turn with [history] markers.
-    const lines = turns.map((t) =>
-      `${t.role === 'assistant' ? 'Assistant' : 'User'}: ${t.content || ''}`);
-    const packed = `[history]\n${lines.join('\n')}\n[/history]`;
-    return {
-      clientContent: {
-        turns: [{ role: 'user', parts: [{ text: packed }] }],
-        turnComplete: false,
-      },
-    };
+    if (!isNewLivePath(voiceApiModel)) return null;
+    const liveTurns = turns.map((t) => ({
+      role: t.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: t.content || '' }],
+    }));
+    return { clientContent: { turns: liveTurns, turnComplete: true } };
   }
 
   function seedAfterSetupComplete(ws, voiceApiModel, priorTurns) {
@@ -83,7 +76,7 @@
       lexLog('[lex-voice-history-injector]',
         JSON.stringify({
           apiModel: voiceApiModel,
-          path: isNewLivePath(voiceApiModel) ? 'initial-history-in-client-content' : 'packed-user-turn',
+          path: 'initial-history-in-client-content',
           turnsCount: priorTurns.length,
           sentChars: str.length,
         }));

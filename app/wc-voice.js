@@ -47,8 +47,10 @@
   const A = () => global.LexWebAuth;
   const SCOPE = 'shorts-main';
 
-  // The Gemini voice, when the published set names none.
-  const DEFAULT_VOICE_MODEL = 'gemini-3.1-flash-live-preview';
+  // The Gemini voice, when the published set names none — the registry's
+  // voiceDefault entry. Read at use, not at load: test sandboxes load this file
+  // without the registry.
+  const defaultVoiceModel = () => (global.LexModelRegistry && global.LexModelRegistry.defaultVoiceModel) || null;
 
   const log = (...a) => { if (global.lexDebug && global.lexDebug.enabled) console.log(TAG, ...a); };
 
@@ -692,7 +694,7 @@
     if (hooks.onStage) hooks.onStage('mic');
 
     try {
-      const voiceModelId = await WcStore.one('activeVoiceModelId_' + SCOPE, DEFAULT_VOICE_MODEL);
+      const voiceModelId = await WcStore.one('activeVoiceModelId_' + SCOPE, defaultVoiceModel());
       activeVoiceModelId = voiceModelId;
       // One reader for both surfaces of this page — the knobs are per-key
       // (knob<Name>_<scope>), never an object. See wc-backend.readKnobs.
@@ -1295,7 +1297,7 @@
     const durationMs = from ? Math.max(0, Date.now() - from) : 0;
     try {
       const r = await post('/functions/v1/llm-proxy/voice-usage-report', {
-        model: activeVoiceModelId || DEFAULT_VOICE_MODEL,
+        model: activeVoiceModelId || defaultVoiceModel(),
         durationMs,
         usage: {},
         meta: { callId: id, surface: 'standalone' },

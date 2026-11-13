@@ -27,14 +27,21 @@
 //   label           human-readable UI label
 //   efforts         text only — accepted reasoning-effort / thinkingLevel values
 //   defaultEffort   text only — default effort
-//   hidden          text only — kept for compat, not shown in the bar
-//   replacedBy      text only, hidden models — apiModel of the model that
-//                   superseded this one (same class). A chain is followed to
-//                   the visible end (5.5 → 5.6 Sol → 6 Sol). The same pairs
-//                   live in public.models.replaced_by — the server moves
-//                   people's model choice by that column (lex_model_defaults);
-//                   here it moves the extension's own stored cells
-//                   (successorModelId below).
+//   hidden          text and voice — kept for compat, not shown in the lists
+//   replacedBy      hidden models — apiModel (voice: id) of the model that
+//                   superseded this one (same class). A chain is followed to the visible end
+//                   (5.5 → 5.6 Sol → 6 Sol). Text: the same pairs live in
+//                   public.models.replaced_by — the server moves people's model
+//                   choice by that column (lex_model_defaults); here it moves
+//                   the extension's own stored cells (successorModelId below).
+//                   Voice (since 2026-11-14): the server has no voice successor
+//                   rule — the migration of the replacement moves the saved
+//                   choices once, and the extension moves its own voice cells
+//                   by voiceSuccessorId below.
+//   voiceDefault    voice only — the voice model a window talks with when
+//                   nothing names one (exactly one visible entry). Read by
+//                   every surface as LexModelRegistry.defaultVoiceModel; the
+//                   iPhone gets it in model-catalog.json at build time.
 //   vision          text only, ОБЯЗАТЕЛЬНОЕ — принимает ли модель картинку на
 //                   входе. Умолчания нет намеренно: новая модель без этого
 //                   поля роняет реестр на загрузке (см. assertVisionDeclared
@@ -786,6 +793,33 @@
       label: 'gpt-live-1', voiceTransport: 'live',
     },
     {
+      // Gemini 3.8 Live — the default voice of Lex since 2026-11-14 (Gennady:
+      // "поставь этот Gemini 3.8"), replaces 3.1 Flash Live (hidden below).
+      // aistudio.google.com/docs/pricing, checked 2026-11-14: one table for
+      // 3.8 Live, 3.8 Live Extended Thinking and 3.1 Flash Live — input text
+      // 0.75 / audio 3.00 / image 1.00, output text 4.50 (thinking included) /
+      // audio 12.00 per 1M tokens; the price lives in public.models only.
+      // Input 131 072 tokens, output 65 536.
+      //   Live check 2026-11-14 (dev-tools/probe-gemini-live-voice.ts — the
+      // very setup the server seals into the key, the device's own socket):
+      // takes everything Lex sends 3.1 except the thinking depth. thinkingLevel
+      // at any level and thinkingBudget close the socket with 1007 ("Thinking
+      // level is not supported for this model"): its reasoning is built in and
+      // always on (Google's migration notes say the same; configurable depth
+      // is the separate gemini-3.8-live-extended-thinking). Usage comes in the
+      // same fields plus thoughtsTokenCount (30–300 a turn), billed as text
+      // output. The prior conversation goes in as for 3.1: role turns after the
+      // setup, with historyConfig — without it the model answers it aloud.
+      id: 'gemini-3.8-live', apiModel: 'gemini-3.8-live',
+      provider: 'google', type: 'voice', label: 'G3.8 ♪ (Gemini 3.8)',
+      voiceDefault: true,
+    },
+    {
+      // Hidden 2026-11-14 — superseded by 3.8 Live. Kept so old calls, charges
+      // and saved choices that still name it resolve; whoever had it is moved
+      // to 3.8 Live (migration gemini38_live_voice.sql; the extension's own
+      // cells — migrateReplacedModelCells in background.js).
+      hidden: true, replacedBy: 'gemini-3.8-live',
       id: 'gemini-3.1-flash-live-preview', apiModel: 'gemini-3.1-flash-live-preview',
       provider: 'google', type: 'voice', label: 'G3.1 ♪ (Gemini 3.1)',
     },
@@ -1005,6 +1039,28 @@
   // dictation.js default transcription model — the asr entry flagged
   // dictationDefault. Centralizes the model identity so dictation.js
   // carries no hardcoded model string.
+  // The default voice model — the one visible voice entry with voiceDefault.
+  // None or two is a registry error, and it fails loudly at load: a silent
+  // pick would talk to people with a model nobody chose.
+  function buildDefaultVoiceModel() {
+    const list = LEX_MODELS.filter((m) => m.type === 'voice' && m.voiceDefault);
+    if (list.length !== 1 || list[0].hidden) {
+      throw new Error('model-registry: exactly one visible voice model must have voiceDefault, found ' + list.length);
+    }
+    return modelId(list[0]);
+  }
+
+  // A replaced voice model id → the id of its visible successor (replacedBy
+  // along the chain), or null when the id is not replaced. Voice entries are
+  // keyed by their id (modelId), not by apiModel as text ones are.
+  function voiceSuccessorId(id) {
+    const byId = (x) => LEX_MODELS.find((m) => m.type === 'voice' && modelId(m) === x);
+    let m = byId(id);
+    if (!m || !m.replacedBy) return null;
+    for (let i = 0; i < 8 && m && m.replacedBy; i++) m = byId(m.replacedBy);
+    return m && !m.hidden ? modelId(m) : null;
+  }
+
   function buildDefaultDictationModel() {
     for (const m of LEX_MODELS) {
       if (m.type === 'asr' && m.dictationDefault) return m.apiModel;
@@ -1228,7 +1284,7 @@
   function voiceModelOptionsHtml() {
     let html = '';
     for (const m of LEX_MODELS) {
-      if (m.type !== 'voice') continue;
+      if (m.type !== 'voice' || m.hidden) continue;
       html += '<option value="' + esc(modelId(m)) + '">' + esc(m.label) + '</option>';
     }
     return html;
@@ -1466,7 +1522,9 @@
   // Voice-knob capability — per knob, which providers (and optionally
   // which voice models) expose it. Read by applyKnobsToPanel in shared.js.
   // voiceThinkingLevel: only Gemini 3.1 Flash Live exposes the field; on
-  // 2.5 native-audio it has no effect.
+  // 2.5 native-audio it has no effect, and 3.8 Live refuses it (the socket
+  // closes with 1007, live check 2026-11-14) — its reasoning is built in, so
+  // the server never sends the field to it (_shared/gemini-live-setup.ts).
   const VOICE_PROVIDERS_ALL = ['openai', 'google'];
   const VOICE_KNOB_AVAILABILITY = {
     voiceName:                  { providers: VOICE_PROVIDERS_ALL },
@@ -1534,6 +1592,7 @@
     'gpt-realtime-2.1': 4096,                               // apiModel of 'gpt-realtime' since 2026-07-12
     'gpt-realtime-mini': 4096,
     'gpt-realtime-2.1-mini': 4096,                          // apiModel of 'gpt-realtime-mini' since 2026-07-12
+    'gemini-3.8-live': 65536,                               // id === apiModel; Google's model page, 2026-11-14
     'gemini-3.1-flash-live-preview': 65536,                 // id === apiModel for this one
     'gemini-live-2.5-flash-native-audio': 8192,             // UI id
     'gemini-2.5-flash-native-audio-preview-09-2025': 8192,  // its apiModel
@@ -1577,6 +1636,9 @@
     voiceModelApi: buildVoiceModelApi(),
     voiceModelProvider: buildVoiceModelProvider(),
     defaultDictationModel: buildDefaultDictationModel(),
+    // голос: модель по умолчанию и преемник сменённой
+    defaultVoiceModel: buildDefaultVoiceModel(),
+    voiceSuccessorId,
     // Микрофон: одни числа на все поверхности. Какие распознавалки есть, их
     // путь, частота и поля — строки базы (lex-dictation-catalog.js); что уедет в
     // запрос, решает сервер (dictation-fields.ts), строки базы с ним сверяет

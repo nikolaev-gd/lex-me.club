@@ -34,7 +34,13 @@
 (function (global) {
   'use strict';
 
-  const DEFAULT_API_MODEL = 'gemini-3.1-flash-live-preview';
+  // The registry's default voice (voiceDefault): its id is its apiModel. Read
+  // when a session is made, not at load: the sandboxes of dev-tools tests load
+  // this file without the registry, and the server names the model anyway.
+  const defaultApiModel = () => {
+    const reg = global.LexModelRegistry;
+    return (reg && reg.voiceModelApi && reg.voiceModelApi[reg.defaultVoiceModel]) || null;
+  };
   const DEFAULT_VOICE = 'Kore';
 
   // Minimal voice-name validation — kept in sync with shared.js
@@ -73,7 +79,7 @@
     let pendingSends = [];
     let idleTimer = null, maxDurationTimer = null;
     // Имя модели у поставщика — сервер называет его в ответе на старт.
-    let voiceApiModel = cfg.voiceApiModel || DEFAULT_API_MODEL;
+    let voiceApiModel = cfg.voiceApiModel || defaultApiModel();
     // v1.11.0 БАГ 1: voiceName resolve переехало из const init в start() —
     // нужно подхватывать актуальное значение из knobs.voiceName (живёт в
     // voiceNamesByProvider['google']) на каждый start, не один раз при
