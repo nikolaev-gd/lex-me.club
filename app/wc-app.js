@@ -181,10 +181,22 @@
       console.warn('[wc] seen:', err && err.message);
     }
   }
+  // A chat of a section that came with its item: the moment it was last open came with it,
+  // and the press itself takes it on the server (profi_item, lex_em_feed_item with p_take).
+  function beginVisitFrom(key, since) {
+    if (visit && visit.key === key) return;
+    endVisit();
+    if (!isIncomingKey(key)) return;
+    visit = { key, since: since || null };
+  }
   function endVisit() {
     const v = visit;
     visit = null;
-    if (v) newsRpc('lex_chat_seen', { p_chat_key: v.key }).catch(() => {});
+    if (!v) return;
+    // Once the moment is written, the sections read the chat again for their next press.
+    newsRpc('lex_chat_seen', { p_chat_key: v.key })
+      .then(() => { for (const s of Object.values(SECTIONS)) if (s.live && s.live.visited) s.live.visited(v.key); })
+      .catch(() => {});
   }
   function incomingOpts() {
     return visit && visit.key === state.conversationId ? { since: visit.since } : null;
@@ -246,21 +258,30 @@
     // новой не должна рисоваться поверх ещё живого разговора.
     if (id !== state.conversationId) await endVoiceOnLeave('open-chat');
     if (!(opts && opts.wanted)) stopSectionOpening();
+    // A chat of a section may come with everything already (opts.loaded: the item the section
+    // holds or has just read, lex_chat_open): then nothing is asked of the server here.
+    const loaded = opts && opts.loaded;
     let r;
     try {
-      r = await WcBus.call('WC_LOAD_CONVERSATION', { id });
+      r = loaded
+        ? await WcBus.call('WC_ADOPT_CONVERSATION', { id, conversation: loaded.conversation, money: loaded.money, marks: loaded.marks })
+        : await WcBus.call('WC_LOAD_CONVERSATION', { id });
     } catch (err) {
       toast('Could not open the chat: ' + (err && err.message), { error: true });
       return;
     }
     if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
     if (opts && opts.wanted && !opts.wanted()) return;
-    await beginVisit(id);
+    if (loaded) beginVisitFrom(id, loaded.since);
+    else await beginVisit(id);
     if (opts && opts.wanted && !opts.wanted()) return;
     leaveSection();
     state.conversationId = id;
     if (opts && opts.back) sectionBack.cameFrom(opts.back);
-    if (opts && opts.profi) enterProfiChat(opts.profi);
+    if (opts && opts.profi) {
+      enterProfiChat(opts.profi);
+      opts.profi.look = turnsLook(r.turns);
+    }
     paintConversation(r, opts);
     WcSidebar.setActive(id);
     WcSidebar.close();
@@ -582,28 +603,36 @@
     function paint() {
       if (frame.screen !== 'home') return;
       const list = global.LexSection.make('div', 'lex-section-list');
+      emHeld.unwatch();
       for (const r of rows) {
         const isQ = r.kind === 'question';
-        list.appendChild(global.LexSection.row({
+        const line = global.LexSection.row({
           id: r.kind, strong: true, cls: `lex-em-feed-${r.kind}`,
           title: r.title,
           // Questions: how many wait for an answer, and the newest of them.
           mark: isQ && r.open ? String(r.open) : null,
           sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
           onClick: () => (isQ ? openEmQuestions() : frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.')),
-        }));
+        });
+        list.appendChild(line);
+        // A feed is read ahead while its line is on the screen; the line of questions opens
+        // a list, not a chat.
+        if (!isQ) emHeld.watch(line, `feed:${r.kind}`, [r.count, r.lastAt, r.last].join('|'));
       }
       frame.body.replaceChildren(list);
     }
     function paintQuestions() {
       if (frame.screen !== 'questions') return;
       const list = global.LexSection.make('div', 'lex-section-list');
+      emHeld.unwatch();
       for (const q of questions) {
-        list.appendChild(global.LexSection.row({
+        const line = global.LexSection.row({
           id: String(q.item), cls: `lex-em-question is-${q.state}`, strong: q.state === 'open', wrap: true,
           title: q.title, sub: emQuestionSub(q), mark: q.missed ? 'Missed' : null,
           onClick: () => frame.open((wanted) => openEmQuestion(q.item, wanted), 'The question did not open.'),
-        }));
+        });
+        list.appendChild(line);
+        emHeld.watch(line, `question:${q.item}`, [q.state, q.answer, q.missed].join('|'));
       }
       if (!questions.length) list.appendChild(global.LexSection.make('div', 'lex-section-empty', 'No questions yet.'));
       frame.body.replaceChildren(list);
@@ -620,6 +649,11 @@
     return {
       el: frame.el,
       stopOpening: frame.stopOpening,
+      // A feed or a question was left and its moment written: read it again for the next press.
+      visited(chatKey) {
+        const id = emIdOfKey.get(chatKey);
+        if (id) emHeld.ahead(id, null);
+      },
       async show() {
         frame.enter();
         try {
@@ -633,33 +667,100 @@
       hide() { frame.unwatch(); },
     };
   }
+  // The feeds and the questions the window holds (the frame's keep, lex-section.js): read ahead
+  // while their lines are on the screen, one answer each (lex_em_feed_item, lex_em_question_item;
+  // nothing written by them). A feed held already is brought up to date with only what changed
+  // in it since (lex_em_feed_changes): a feed is up to a megabyte, and reading it whole on every
+  // new entry would be that again and again. A press shows what is held at once.
+  const emKeyOf = (kind) => `__lex_em_${kind}__`;
+  const emIdOfKey = new Map();
+  const emRemember = (id, item) => {
+    if (item && item.chatKey) emIdOfKey.set(item.chatKey, id);
+    return item;
+  };
+  const emTime = (r) => {
+    const t = Date.parse((r && r.authored_at) || '');
+    return Number.isFinite(t) ? t : 0;
+  };
+  // A held feed with what changed since it was read: an extended entry in place of the old,
+  // a new one at its time, a line the server took back gone.
+  function emMerged(held, ch, since) {
+    const conv = held.chat.conversation || {};
+    const rows = (ch && Array.isArray(ch.turns)) ? ch.turns : [];
+    const rev = Math.max((ch && ch.rev) || 0, conv.rev || 0);
+    const byUid = new Map((conv.turns || []).map((r) => [r.turn_uid, r]));
+    for (const r of rows) {
+      if (!r || !r.turn_uid) continue;
+      if (r.deleted) byUid.delete(r.turn_uid);
+      else byUid.set(r.turn_uid, r);
+    }
+    const turns = [...byUid.values()].sort((a, b) => (emTime(a) - emTime(b)) || String(a.turn_uid).localeCompare(String(b.turn_uid)));
+    return Object.assign({}, held, {
+      rev,
+      chat: Object.assign({}, held.chat, { since: since == null ? null : since, conversation: Object.assign({}, conv, { turns, rev }) }),
+    });
+  }
+  async function loadEmItem(id, held) {
+    const at = id.indexOf(':');
+    const what = id.slice(0, at);
+    const arg = id.slice(at + 1);
+    if (what === 'question') return emRemember(id, await newsRpc('lex_em_question_item', { p_item: Number(arg) }));
+    if (held && held.chat && held.chat.conversation) {
+      const key = held.chatKey;
+      const [ch, since] = await Promise.all([
+        newsRpc('lex_em_feed_changes', { p_chat_key: key, p_after: held.chat.conversation.rev || 0 }),
+        newsRpc('lex_chat_seen', { p_chat_key: key, p_take: false }),
+      ]);
+      return emRemember(id, emMerged(held, ch, since));
+    }
+    return emRemember(id, await newsRpc('lex_em_feed_item', { p_kind: arg, p_limit: WcHistory.emLimit(emKeyOf(arg)) }));
+  }
+  const emHeld = global.LexSection.keep({ load: loadEmItem });
+
+  // A press on a feed or a question. What the window holds is on screen at once; otherwise one
+  // answer brings everything, and the press takes the visit's moment with it.
   async function openEmFeed(kind, wanted) {
-    const info = await newsRpc('lex_em_feed_open', { p_kind: kind });
+    const id = `feed:${kind}`;
+    const held = emHeld.get(id);
+    if (held && held.chat) { await openEmChat(held, wanted, true); return; }
+    const info = await newsRpc('lex_em_feed_item', { p_kind: kind, p_take: true, p_limit: WcHistory.emLimit(emKeyOf(kind)) });
     if (!wanted() || !info || !info.chatKey) return;
-    await openEmChat(info, wanted);
+    emHeld.put(id, emRemember(id, info));
+    await openEmChat(info, wanted, false);
   }
   // The chat of one question: its first message is the question, a press on a variant
   // answers it (llm-proxy, kind em-answer).
   async function openEmQuestion(item, wanted) {
-    const info = await newsRpc('lex_em_question_open', { p_item: item });
+    const id = `question:${item}`;
+    const held = emHeld.get(id);
+    if (held && held.chat) { await openEmChat(held, wanted, true); return; }
+    const info = await newsRpc('lex_em_question_item', { p_item: item, p_take: true });
     if (!wanted() || !info || !info.chatKey) return;
-    await openEmChat(info, wanted);
+    emHeld.put(id, emRemember(id, info));
+    await openEmChat(info, wanted, false);
   }
-  async function openEmChat(info, wanted) {
+  async function openEmChat(info, wanted, fromHeld) {
     const key = info.chatKey;
     WcThread.setEmAnswer(WcHistory.isEmFeedKey(key) && /^__lex_em_question_-?\d+__$/.test(key)
       ? (choice) => newsPost('em-answer', { chatKey: key, choice })
       : null);
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
-    await openConversation(key, { back: sectionTarget('em'), wanted });
+    await openConversation(key, { back: sectionTarget('em'), wanted, loaded: info.chat || null });
     if (state.conversationId !== key) return;
     // Leaving the feed before forgot its session on the way: say it again.
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
-    emOpen = { key, rev: info.rev || 0 };
+    const conv = info.chat && info.chat.conversation;
+    emOpen = { key, rev: (conv && conv.rev) || info.rev || 0 };
     sectionEls().main.classList.add('is-em-feed');
     WcHeader.setTitle(info.title || 'Extended Mind');
     clearInterval(emTimer);
     emTimer = setInterval(() => { lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message)); }, EM_LOOK_MS);
+    // Shown from what was held: the press takes the visit's moment on the server now, and
+    // what came after the reading ahead comes at once, not in two seconds.
+    if (fromHeld) {
+      newsRpc('lex_chat_seen', { p_chat_key: key }).catch(() => {});
+      lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message));
+    }
   }
   function leaveEmFeed() {
     if (!emOpen) return;
@@ -760,16 +861,10 @@
       toast((err && err.message) || 'It did not work.', { error: true });
     }
   }
-  async function openProfiOrder(order, wanted) {
-    let data = await newsRpc('profi_open', { p_order: order });
-    if (!wanted()) return;
-    if (!data || !data.chatKey) {
-      // An order from a list of the day has no chat yet: it opens the way Reply yourself does.
-      await newsRpc('profi_command', { p_op_id: global.LexProfi.newOpId(), p_kind: 'reply_self', p_order: order, p_args: {} });
-      data = await newsRpc('profi_open', { p_order: order });
-      if (!wanted()) return;
-    }
-    if (!data || !data.chatKey) { toast('The chat did not open', { error: true }); return; }
+  // What the screen of an order chat drew from: a turn's words and its place. When a fresh
+  // answer gives the same, only the boxes and the marks are painted again.
+  const turnsLook = (turns) => JSON.stringify((turns || []).map((t) => [t.uid || '', t.origin || '', t.text || '']));
+  function makeProfiChat(order, data, keep) {
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
       copy: copyText,
@@ -777,24 +872,69 @@
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
     });
     chat.data = data;
+    chat.keep = keep || null;
+    return chat;
+  }
+  // A press on an order chat. When the section holds it (read ahead, or open before), the chat
+  // is on screen at once from that, and the press then goes to the server: the order is read,
+  // the moment of the visit taken, and the fresh answer takes the place of what is shown.
+  // Without it one answer brings everything (profi_item).
+  async function openProfiOrder(order, wanted, held, keep) {
+    if (held && held.chatKey && held.chat) {
+      const chat = makeProfiChat(order, held, keep);
+      await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId });
+      await openConversation(held.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: held.chat });
+      // The chat is on screen: a lost answer is not «the chat did not open». The watch of the
+      // section reads it again with the next change, and the visit's moment is written on leaving.
+      if (profiChat === chat) await refreshProfiChat({ take: true }).catch((e) => console.warn('[wc] order chat:', e && e.message));
+      return;
+    }
+    const read = () => newsRpc('profi_item', { p_order: order, p_on_screen: true, p_take: true });
+    let data = await read();
+    if (!wanted()) return;
+    if (!data || !data.chatKey) {
+      // An order from a list of the day has no chat yet: it opens the way Reply yourself does.
+      await newsRpc('profi_command', { p_op_id: global.LexProfi.newOpId(), p_kind: 'reply_self', p_order: order, p_args: {} });
+      data = await read();
+      if (!wanted()) return;
+    }
+    if (!data || !data.chatKey) { toast('The chat did not open', { error: true }); return; }
+    if (keep) keep(data);
+    const chat = makeProfiChat(order, data, keep);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
-    await openConversation(data.chatKey, { profi: chat, back: sectionTarget('profi'), wanted });
+    await openConversation(data.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: data.chat });
   }
   // The server changed something: boxes, new turns, whether the client waits. The answer
-  // being written stays as it is; its turn comes with the next change.
-  async function refreshProfiChat() {
+  // being written stays as it is; its turn comes with the next change. take — the press that
+  // opened the chat from what the section held: the order is read and the visit's moment taken.
+  async function refreshProfiChat(opts) {
     const chat = profiChat;
     if (!chat) return;
-    const data = await newsRpc('profi_open', { p_order: chat.order, p_on_screen: document.visibilityState === 'visible' });
+    const take = !!(opts && opts.take);
+    const data = await newsRpc('profi_item', {
+      p_order: chat.order, p_on_screen: take || document.visibilityState === 'visible', p_take: take,
+    });
     if (!data || profiChat !== chat) return;
+    if (chat.keep) chat.keep(data);
     if (data.modelId !== chat.data.modelId) await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
+    // The moment the chat was open before, as the server has it: another device may have
+    // opened it since the section read it ahead.
+    let moved = false;
+    if (take && data.chat && visit && visit.key === data.chatKey && (data.chat.since || null) !== (visit.since || null)) {
+      visit.since = data.chat.since || null;
+      moved = true;
+    }
     chat.data = data;
     syncProfiOnly();
     if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
-    const r = await WcBus.call('WC_LOAD_CONVERSATION', { id: state.conversationId });
-    if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming()) return;
-    const shown = new Set(WcThread.shownUids());
-    if (r.turns.every((t) => !t.uid || shown.has(t.uid))) { WcThread.paintProfiBoxes(); return; }
+    if (state.conversationId !== data.chatKey) return;
+    const r = data.chat
+      ? await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks })
+      : await WcBus.call('WC_LOAD_CONVERSATION', { id: state.conversationId });
+    if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
+    const look = turnsLook(r.turns);
+    if (!moved && look === chat.look) { WcThread.paintProfiBoxes(); return; }
+    chat.look = look;
     WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }

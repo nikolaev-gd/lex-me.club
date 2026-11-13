@@ -140,6 +140,118 @@
 
   const markRead = (rowEl) => rowEl.classList.remove('is-unread');
 
+  // ── items held and read ahead ───────────────────────────────────────────────
+  // A press shows an item at once from what the window already holds: what the section read
+  // of it the last time, or read ahead while its line was on the screen. The section asks the
+  // server right after the press, and the fresh answer takes the place of the held one.
+  // Nothing goes to the disk: it lives as long as the window. docs/spec/27-sections.md.
+  //
+  // keep({ load, limit }):
+  //   load(id, held)  the section's reading of one item; held — what is held of it now, so a
+  //                   section can read only what changed since (a feed of Extended Mind)
+  //   limit           how many items are held; the one used longest ago goes first
+  // .get(id)          what is held, or null
+  // .put(id, v, s)    hold v under the stamp s (the line's look: when it changes, the line is
+  //                   read again); null lets the item go
+  // .ahead(id, s)     read the item unless it is held under this stamp already
+  // .watch(el, id, s) read it ahead once its line el comes on the screen
+  // .unwatch()        the lines watched so far are gone (a list painted anew)
+  const AHEAD_AT_ONCE = 2;
+  const HELD = 80;
+
+  function keep(opts) {
+    const limit = opts.limit || HELD;
+    const items = new Map();    // id → { value, stamp }, the one used last at the end
+    const waiting = new Map();  // id → stamp, the ones to read, in the order they came
+    const busy = new Map();     // id → stamp, the ones being read now
+    const again = new Map();    // id → stamp, asked again while being read: once more after it
+    const lines = new WeakMap();
+    let reading = 0;
+    let observer = null;
+
+    function hold(id, entry) {
+      items.delete(id);
+      items.set(id, entry);
+      while (items.size > limit) items.delete(items.keys().next().value);
+    }
+    const isHeld = (id, stamp) => stamp != null && items.has(id) && items.get(id).stamp === stamp;
+
+    function get(id) {
+      const e = items.get(id);
+      if (!e) return null;
+      hold(id, e);
+      return e.value;
+    }
+    function put(id, value, stamp) {
+      if (value == null) { items.delete(id); return; }
+      const old = items.get(id);
+      hold(id, { value, stamp: stamp !== undefined ? stamp : (old ? old.stamp : null) });
+    }
+
+    function pump() {
+      while (reading < AHEAD_AT_ONCE && waiting.size) {
+        const [id, stamp] = waiting.entries().next().value;
+        waiting.delete(id);
+        if (isHeld(id, stamp)) continue;
+        reading += 1;
+        busy.set(id, stamp);
+        const old = items.get(id);
+        // What the window put meanwhile (the press brought a fresher answer) stays: a reading
+        // that began before it is older than it.
+        Promise.resolve()
+          .then(() => opts.load(id, old ? old.value : null))
+          .then((v) => { if (v != null && items.get(id) === old) put(id, v, stamp); })
+          .catch((e) => console.warn('[section] read ahead:', e && e.message))
+          .finally(() => {
+            reading -= 1;
+            busy.delete(id);
+            if (again.has(id)) {
+              const more = again.get(id);
+              again.delete(id);
+              waiting.delete(id);
+              waiting.set(id, more);
+            }
+            pump();
+          });
+      }
+    }
+    function ahead(id, stamp) {
+      if (id == null || isHeld(id, stamp)) return;
+      if (busy.has(id)) {
+        // Being read under this look: once is enough. Under another, or asked to read again:
+        // once more after this reading, however many times it is asked meanwhile.
+        if (stamp != null && busy.get(id) === stamp) return;
+        again.set(id, stamp);
+        return;
+      }
+      waiting.delete(id);
+      waiting.set(id, stamp);
+      pump();
+    }
+
+    function watch(el, id, stamp) {
+      if (!el || id == null) return;
+      if (typeof IntersectionObserver === 'undefined') { ahead(id, stamp); return; }
+      if (!observer) {
+        observer = new IntersectionObserver((entries) => {
+          for (const en of entries) {
+            if (!en.isIntersecting) continue;
+            observer.unobserve(en.target);
+            const line = lines.get(en.target);
+            if (line) ahead(line.id, line.stamp);
+          }
+        });
+      }
+      lines.set(el, { id, stamp });
+      observer.observe(el);
+    }
+    function unwatch() {
+      if (observer) observer.disconnect();
+    }
+
+    return { get, put, ahead, watch, unwatch, forget: (id) => items.delete(id) };
+  }
+
   // ── the frame ───────────────────────────────────────────────────────────────
   function createFrame(opts) {
     const root = make('section', `lex-section${opts.cls ? ` ${opts.cls}` : ''}`);
@@ -285,5 +397,5 @@
     };
   }
 
-  global.LexSection = { createFrame, row, markRead, moreButton, make, button, newOpId };
+  global.LexSection = { createFrame, row, markRead, moreButton, make, button, newOpId, keep };
 })(typeof window !== 'undefined' ? window : globalThis);

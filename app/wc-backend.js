@@ -480,10 +480,28 @@
     return { ok: true };
   });
 
+  // A conversation as the server gave it, onto the page: pictures, the model of every answer
+  // from the money, the session, the open conversation for the teacher. Read here
+  // (WC_LOAD_CONVERSATION) or brought by the item of a section (WC_ADOPT_CONVERSATION: the
+  // frame of a section holds it, or has just read it with lex_chat_open).
   WcBus.on('WC_LOAD_CONVERSATION', async (m) => {
     // Что показывать, решает сервер (list_turns). Ходы заготовок — обычные
-    // реплики беседы.
-    const conv = await WcHistory.conversation(m.id);
+    // реплики беседы. Деньги — тем же заходом, рядом: ждать их по очереди
+    // значило бы второй путь до сервера на каждое открытие.
+    const [conv, money] = await Promise.all([
+      WcHistory.conversation(m.id),
+      WcHistory.money(m.id).catch((err) => {
+        console.warn(TAG, 'chat money not read:', err && err.message);
+        return null;
+      }),
+    ]);
+    return adoptConversation(m.id, conv, money);
+  });
+  WcBus.on('WC_ADOPT_CONVERSATION', async (m) => adoptConversation(
+    m.id, WcHistory.conversationOf(m.id, m.conversation), WcHistory.moneyOf(m.money, m.marks)));
+
+  async function adoptConversation(id, conv, money) {
+    const m = { id };
     const turns = conv.lesson;
     // Отдельные разговоры заготовок — свои беседы; их реплики получают
     // картинки и подписи моделей вместе с уроком, а в ленту встают под своими
@@ -521,9 +539,7 @@
     // и итог. Где стоит цена, решил сервер — по готовому уиду реплики; своего
     // правила «номер операции → реплика» у страницы нет. Не прочиталось —
     // подписи будут общим словом, денег на экране не будет.
-    let money = null;
     try {
-      money = await WcHistory.money(m.id);
       const byUid = new Map();
       for (const a of ((money && Array.isArray(money.answers)) ? money.answers : [])) {
         if (a && a.uid && a.anchor !== 'question') {
@@ -541,7 +557,7 @@
     // (openTurns) — только урок.
     const shown = global.LexApart ? global.LexApart.merge(turns, conv.apart || []) : turns;
     return { ok: true, turns: shown, money, emMore: !!conv.emMore };
-  });
+  }
 
   // Деньги открытой беседы — одни, без переписки: интерфейс перечитывает их
   // после каждого платного события (ход, разговор, диктовка, название).

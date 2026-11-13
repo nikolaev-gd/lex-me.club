@@ -10,7 +10,10 @@
 // A window gives:
 //   back                   the arrow of the window, see lex-back.js
 //   rpc(name, args)        a call of a database function under the person's pass
-//   openOrder(order)       open the chat of this order where chats open
+//   openOrder(order, wanted, held, keep)
+//                          open the chat of this order where chats open; held — the order chat
+//                          as the window holds it (profi_item), or null; keep(item) — hold a
+//                          fresher answer
 //   copy(text)             put text on the clipboard, returns true when it worked
 //   notify(text)           the server is lost while an order chat stands over the section
 //   onChange()             the server changed something: read the open order chat, a promise
@@ -301,20 +304,40 @@
       return { ok: false, error: 'The monitor did not answer. Is the working Mac awake?' };
     }
 
-    const openOrder = (order) => frame.open((wanted) => deps.openOrder(order, wanted), 'The chat did not open.');
+    // The order chats the window holds (the frame's keep): every chat whose line comes on the
+    // screen is read ahead, one answer each (profi_item, nothing read or written by it), and a
+    // press shows the chat from it at once. A line that looks different now is read again.
+    const orderOfKey = new Map();
+    const remember = (order, item) => {
+      if (item && item.chatKey) orderOfKey.set(item.chatKey, order);
+      return item;
+    };
+    const held = global.LexSection.keep({
+      load: (order) => deps.rpc('profi_item', { p_order: order }).then((item) => remember(order, item)),
+    });
+    const stampOf = (c) => [c.at, c.last, c.tick, c.unread, c.closed].join('|');
+    const keepOf = (order) => (item) => held.put(order, remember(order, item));
+
+    const openOrder = (order) => frame.open(
+      (wanted) => deps.openOrder(order, wanted, held.get(order), keepOf(order)), 'The chat did not open.');
 
     // A press on an order outside the feed. While its reply still waits there (Cancel or
     // Send), the order opens in the feed, the way Telegram shows it: opening a chat for it
-    // would stop the sending (Reply yourself), and a look at an order stops nothing. A
-    // failed read counts as waiting, so that a bad network never stops a reply either.
+    // would stop the sending (Reply yourself), and a look at an order stops nothing. The line
+    // of the list says so (feed); an order that has no line in the list asks the feed itself.
+    // A failed read counts as waiting, so that a bad network never stops a reply either.
     let focusOrder = null;
     async function openOrderOrFeed(order) {
+      const line = ((home && home.chats) || []).find((c) => c.order === order);
       let waits = true;
-      try {
-        const r = await deps.rpc('profi_feed', { p_limit: 60 });
-        const it = (r.items || []).find((x) => x.order === order);
-        waits = !!it && (it.actions || []).some((a) => a === 'cancel' || a === 'send');
-      } catch (_) { waits = true; }
+      if (line && typeof line.feed === 'boolean') waits = line.feed;
+      else {
+        try {
+          const r = await deps.rpc('profi_feed', { p_limit: 60 });
+          const it = (r.items || []).find((x) => x.order === order);
+          waits = !!it && (it.actions || []).some((a) => a === 'cancel' || a === 'send');
+        } catch (_) { waits = true; }
+      }
       if (!waits) { openOrder(order); return; }
       focusOrder = order;
       if (frame.screen === 'feed') await paintFeed();
@@ -330,6 +353,7 @@
 
     function paintHome() {
       const { body } = frame;
+      held.unwatch();
       body.replaceChildren();
       if (!home) return;
       const st = home.status || {};
@@ -343,11 +367,14 @@
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
       }));
       for (const c of home.chats || []) {
-        list.appendChild(global.LexSection.row({
+        const line = global.LexSection.row({
           title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrderOrFeed(c.order),
           // Gennady wrote last: the tick of Profi at the last message, as in Profi's list.
           end: c.tick ? tickNode(c.tick === 'read') : null,
-        }));
+        });
+        list.appendChild(line);
+        // A reply that waits in the feed opens the feed, not the chat: nothing to read ahead.
+        if (!c.feed) held.watch(line, c.order, stampOf(c));
       }
       body.appendChild(list);
       // «Only unanswered» left no chat: the server says so in its words.
@@ -546,11 +573,14 @@
         if (res.text) { body.appendChild(make('div', 'lex-profi-text', res.text)); return; }
         body.appendChild(make('div', 'lex-profi-block-title', res.title || ''));
         const list = make('div', 'lex-section-list');
+        held.unwatch();
         for (const it of res.items || []) {
-          list.appendChild(global.LexSection.row({
+          const line = global.LexSection.row({
             title: it.title, sub: it.paid ? `${Math.round(it.paid)} ₽` : (it.noText ? 'No text' : ''),
             onClick: () => openOrderOrFeed(it.order),
-          }));
+          });
+          list.appendChild(line);
+          held.watch(line, it.order, `report|${it.paid || ''}`);
         }
         body.appendChild(list);
         if (report.name === 'answered') {
@@ -599,6 +629,12 @@
     return {
       el: frame.el,
       stopOpening: frame.stopOpening,
+      // The person left an order chat and its visit ended (what came is read): the chat is read
+      // again, so the next press shows it as it is now, with the «Новые» line from this visit.
+      visited(chatKey) {
+        const order = orderOfKey.get(chatKey);
+        if (order) held.ahead(order, null);
+      },
       async show() {
         frame.enter();
         try {

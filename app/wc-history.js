@@ -415,12 +415,22 @@
     // A feed of Extended Mind grows by dozens of entries a day: its latest entries, not the
     // whole conversation (lex_em_feed_turns). «Earlier entries» asks for more of them.
     if (isEmFeedKey(chatKey)) {
-      const limit = emLimits.get(chatKey) || EM_PAGE;
-      const out = await post('/rest/v1/rpc/lex_em_feed_turns', { p_chat_key: chatKey, p_limit: limit });
+      const out = await post('/rest/v1/rpc/lex_em_feed_turns', { p_chat_key: chatKey, p_limit: emLimit(chatKey) });
+      return conversationOf(chatKey, out);
+    }
+    return conversationOf(chatKey, await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey }));
+  }
+
+  // How many latest entries of a feed a reading takes (the item of a section asks the same).
+  const emLimit = (chatKey) => emLimits.get(chatKey) || EM_PAGE;
+
+  // A conversation as the server gave it (list_turns, or lex_em_feed_turns for a feed),
+  // whether read here or brought by the item of a section (lex_chat_open).
+  function conversationOf(chatKey, out) {
+    if (isEmFeedKey(chatKey)) {
       const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
       return { lesson: rows.map(toTurn), apart: [], emMore: !!(out && out.more), emRev: (out && out.rev) || 0 };
     }
-    const out = await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey });
     const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
     const lesson = [];
     for (const r of rows) {
@@ -495,6 +505,10 @@
       post('/rest/v1/rpc/list_chat_money', { p_chat_key: chatKey }),
       post('/rest/v1/rpc/lex_chat_marks', { p_chat_key: chatKey }).catch(() => null),
     ]);
+    return moneyOf(out, marks);
+  }
+  // The same from what the item of a section brought (lex_chat_open: money and marks).
+  function moneyOf(out, marks) {
     if (!out || typeof out !== 'object') return null;
     return Array.isArray(marks) ? Object.assign({}, out, { marks }) : out;
   }
@@ -562,11 +576,14 @@
     setChatHidden,
     requestTitle,
     conversation,
+    conversationOf,
     // One row of a conversation as the page holds a turn (a feed's changes come as rows).
     turnOf: (r) => toTurn(r),
     isEmFeedKey,
     emEarlier,
+    emLimit,
     money,
+    moneyOf,
     rpc,
     newsPost,
     reportStopped,
