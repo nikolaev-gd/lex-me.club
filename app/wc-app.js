@@ -430,6 +430,70 @@
   setInterval(reportPresence, 3000);
   document.addEventListener('visibilitychange', reportPresence);
 
+  // ── Notifications of the Mac app (2026-11-13) ────────────────────────────
+  // The Mac app (macos/Sources/LexShell/PushNotifications.swift) gets an address from
+  // Apple; this page gives it to the server with its own sign-in (lex_push_register), and
+  // the server sends the Mac the same notifications as the iPhone. A click on one comes
+  // back here and opens what it is about, as a tap does on the iPhone. In a browser there
+  // is no Mac app and nothing of this runs.
+  let shellPushToken = null;
+  let shellPushSaid = null;
+  let notificationOpens = 0;
+  function tellShell(word) {
+    try {
+      const h = global.webkit && global.webkit.messageHandlers && global.webkit.messageHandlers.lexshell;
+      if (h && typeof h.postMessage === 'function') { h.postMessage(word); return true; }
+    } catch (_) { /* no Mac app */ }
+    return false;
+  }
+  function shellPush(p) {
+    if (!p || !p.token || !p.env) return;
+    const said = `${p.token}|${p.env}|${p.bundle || ''}`;
+    if (said === shellPushSaid) return;
+    newsRpc('lex_push_register', { p_token: p.token, p_env: p.env, p_bundle: p.bundle || '' }).then(() => {
+      shellPushToken = p.token;
+      shellPushSaid = said;
+    }, (e) => console.warn('[wc] push address:', e && e.message));
+  }
+  // What a notification is about (the `lex` part push-send puts in it) → the screen.
+  async function openFromNotification(lex) {
+    if (!lex) return;
+    const mine = ++notificationOpens;
+    const wanted = () => mine === notificationOpens;
+    const kind = String(lex.kind || '');
+    const key = typeof lex.chatKey === 'string' ? lex.chatKey : '';
+    const order = lex.order ? String(lex.order) : '';
+    // About an order (new, reply sent, not sent): the feed of new orders at it, as on the
+    // iPhone. A message in an order chat: that order.
+    if (kind === 'profi_order' || (key.startsWith('__lex_profi__') && order)) {
+      await showSection('profi');
+      if (!wanted()) return;
+      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order);
+      else if (order) await SECTIONS.profi.live.openFeedAt(order);
+      else SECTIONS.profi.live.openFeed();
+      return;
+    }
+    if (WcHistory.isEmFeedKey(key)) {
+      const item = (key.match(/^__lex_em_question_(-?\d+)__$/) || [])[1];
+      await showSection('em');
+      if (!wanted()) return;
+      if (item) await openEmQuestion(Number(item), wanted);
+      else await openEmFeed(key.replace(/^__lex_em_|__$/g, ''), wanted);
+      return;
+    }
+    if (key) await openConversation(key, { wanted });
+  }
+  global.__lexShellPush = shellPush;
+  global.__lexShellOpen = (lex) => { openFromNotification(lex).catch((e) => console.warn('[wc] notification:', e && e.message)); };
+  // Signed in: ask the Mac app for its address and for a click that came before the page.
+  function askShellForPush() { tellShell('push'); }
+  async function forgetShellPush() {
+    if (!shellPushToken) return;
+    try { await newsRpc('lex_push_unregister', { p_token: shellPushToken }); } catch (_) { /* the server forgets dead ones itself */ }
+    shellPushToken = null;
+    shellPushSaid = null;
+  }
+
   // ── News ─────────────────────────────────────────────────────────────────
   // The feed, its cards and its settings are lex-news.js, the same code as in the extension.
   function buildNews() {
@@ -1896,6 +1960,7 @@
       // на нём. `caretThenReveal` рядом — для тех случаев, когда не сработал.
       WcComposer.focus({ raiseKeyboard: true });
       caretThenReveal();
+      askShellForPush();
     }
   }
 
@@ -2062,6 +2127,7 @@
   async function signOut() {
     // TODO: выход из аккаунта — уход из ПРИЛОЖЕНИЯ, не из беседы; живой голос
     // здесь рвёт reload без отчёта о конце. Вне задачи 2026-09-09, не трогать.
+    await forgetShellPush();
     try { await WcBus.call('WC_SIGN_OUT'); } catch (_) {}
     global.location.reload();
   }

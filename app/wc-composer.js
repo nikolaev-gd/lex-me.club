@@ -520,7 +520,10 @@
       // каталога есть частота), получает WAV — общим куском с расширением
       // (lex-dictation-wav.js). Остальные — то, что пишет платформа: webm в
       // Chrome, mp4 в WebKit.
-      rec = route.wavRate ? global.LexDictationWav.create(stream, route.wavRate) : new MediaRecorder(stream);
+      // Сжатый файл — 64 кбит/с: получас выходит ~15 МБ, меньше предела файла
+      // у OpenAI (25 МБ). То же у расширения (dictation.js, REC_BITS_PER_SEC).
+      rec = route.wavRate ? global.LexDictationWav.create(stream, route.wavRate)
+        : new MediaRecorder(stream, { audioBitsPerSecond: 64000 });
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop());
       toast('This browser cannot record audio', { error: true });
@@ -554,6 +557,7 @@
     // сама так же, как по кнопке, и человеку говорится почему.
     clearRecLimit();
     recLimit = Limit.arm({
+      maxMs: route.maxRecordMs,
       isStillMine: () => recorder === rec && rec.state !== 'inactive',
       onFire: (maxMs) => {
         stopRecording();

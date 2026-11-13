@@ -4,7 +4,8 @@
 // ── Откуда это знание ───────────────────────────────────────────────────────
 //
 // Из строк таблицы моделей в базе (`public.models`, колонки `dictation`,
-// `sample_rate_hz`, `dictation_fields`, `price_estimated`), а не из списка на
+// `sample_rate_hz`, `dictation_fields`, `price_estimated`, `dictation_max_sec`),
+// а не из списка на
 // клиенте. Раньше
 // список жил у каждого приложения своим: реестр моделей у браузеров и его
 // зеркало у айфона, — и шестая распознавалка требовала правки всех клиентов и
@@ -51,7 +52,7 @@
 
   // Порядок — порядок появления строк: новая распознавалка встаёт в конец
   // списка настроек, старые не переставляются.
-  const SELECT = 'api_model,dictation,sample_rate_hz,dictation_fields,price_estimated';
+  const SELECT = 'api_model,dictation,sample_rate_hz,dictation_fields,price_estimated,dictation_max_sec';
   const PATH = '/rest/v1/models?select=' + SELECT
     + '&dictation=not.is.null&order=created_at.asc,internal_id.asc';
 
@@ -87,6 +88,13 @@
         // Цену этой распознавалки считаем мы, а не поставщик: вычисляемая
         // колонка строки цены (нет часовой ставки, есть коэффициенты пересчёта).
         priceEstimated: r.price_estimated === true,
+        // Потолок файловой записи этой распознавалки, мс (колонка
+        // dictation_max_sec). Число — на сервере, чтобы поднять или опустить
+        // его можно было строкой базы, без выкладки приложений; у каждой
+        // распознавалки своё, потому что пределы у поставщиков разные. Пусто
+        // — запасное число реестра (lex-dictation-limit.js). У живой — null:
+        // её потолок ставит сервер сам (server_config.dictation_live_max_sec).
+        maxRecordMs: (!live && Number(r.dictation_max_sec) > 0) ? Math.round(Number(r.dictation_max_sec) * 1000) : null,
       }));
     }
     if (!list.length) return { ok: false, error: 'empty' };
@@ -226,7 +234,10 @@
     if (!e) return { ok: false, error: 'unknown recognizer: ' + model };
     // sampleRate — частота живого потока; wavRate — у файловой, которая
     // сжатых файлов не читает: писать WAV на этой частоте (lex-dictation-wav.js).
-    return { ok: true, model, live: e.live, sampleRate: e.live ? e.sampleRate : null, wavRate: e.live ? null : e.sampleRate };
+    // maxRecordMs — потолок файловой записи из строки распознавалки (null —
+    // строка его не называет, берётся запасное число, lex-dictation-limit.js).
+    return { ok: true, model, live: e.live, sampleRate: e.live ? e.sampleRate : null, wavRate: e.live ? null : e.sampleRate,
+      maxRecordMs: e.live ? null : e.maxRecordMs };
   }
 
   global.LexDictationCatalog = Object.freeze({
