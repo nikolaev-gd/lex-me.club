@@ -122,6 +122,15 @@
     return price.text || '';
   }
 
+  // Where a box goes: the server decides (profi_reply_where.sql) — the place of the client's latest
+  // message: Profi, Max, Telegram or WhatsApp. The box only names it: on Send before the press (a new
+  // message from another place changes it with the next reading of the chat), in the line under it
+  // after. null is Profi.
+  function placeName(ch) {
+    const c = global.LexMessage && global.LexMessage.CHANNELS[ch || 'profi'];
+    return c ? c.name : 'Профи.ру';
+  }
+
   // One box. window is the row of the server; none yet while the answer is being written.
   // The text stands on the colour of what goes to the client; Send and Copy under it.
   function boxNode(text, win, deps) {
@@ -138,12 +147,13 @@
     note.setAttribute('role', 'status');
     const open = win.state === 'ready' || (win.state === 'failed' && win.retry);
     if (open) {
-      const send = button('lex-profi-btn is-main', 'Send', async () => {
+      const to = deps.replyTo || null;
+      const send = button('lex-profi-btn is-main', `Send to ${placeName(to)}`, async () => {
         send.disabled = true;
         note.textContent = 'Going to the monitor…';
         try {
           const r = await deps.rpc('profi_send', { p_op_id: newOpId(), p_window: win.id });
-          note.textContent = r && r.state === 'queued' ? 'The monitor is sending it.' : '';
+          note.textContent = r && r.state === 'queued' ? sendingLine(r.channel) : '';
           deps.refresh();
         } catch (e) {
           send.disabled = false;
@@ -161,14 +171,22 @@
     foot.appendChild(copy);
     root.appendChild(foot);
     root.appendChild(note);
-    if (win.state === 'queued') note.textContent = 'The monitor is sending it.';
+    if (win.state === 'queued') note.textContent = sendingLine(win.channel);
     if (win.state === 'sent') {
       root.classList.add('is-sent');
-      note.textContent = 'Sent to the client.';
+      note.textContent = win.channel ? `Sent to the client in ${placeName(win.channel)}.` : 'Sent to the client.';
     }
-    if (win.state === 'failed') note.textContent = `Not sent. ${win.error || ''}`;
-    if (win.state === 'unknown') note.textContent = `The site did not confirm it. Look at the chat on Profi: Lex will not send it again. ${win.error || ''}`;
+    if (win.state === 'failed') note.textContent = `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`;
+    if (win.state === 'unknown') {
+      note.textContent = win.channel
+        ? `${placeName(win.channel)} did not confirm it. Look at the chat there: Lex will not send it again. ${win.error || ''}`
+        : `The site did not confirm it. Look at the chat on Profi: Lex will not send it again. ${win.error || ''}`;
+    }
     return root;
+  }
+
+  function sendingLine(ch) {
+    return ch ? `Sending to ${placeName(ch)}…` : 'The monitor is sending it.';
   }
 
   function strokeIcon(paths, size) {
@@ -329,7 +347,7 @@
         const uid = turn.dataset.uid || '';
         const wins = ((data && data.windows) || []).filter((w) => w.turn === uid);
         host.replaceChildren(...boxes.map((b, i) => boxNode(b.text, streaming ? null : wins.find((w) => w.idx === i) || null,
-          { rpc: deps.rpc, copy: deps.copy, refresh: deps.reload })));
+          { rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, replyTo: (data && data.replyTo) || null })));
       },
 
       // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
@@ -807,5 +825,6 @@
     };
   }
 
-  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId };
+  // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
+  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode };
 })(typeof window !== 'undefined' ? window : globalThis);
