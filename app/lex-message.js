@@ -24,6 +24,12 @@
 //                       of the channel the message came by, «·», the time, then `tail` (ticks)
 //   channel(id)         the icon of a channel, 14 px: profi, max, telegram, whatsapp,
 //                       instagram, facebook, threads, linkedin, x (CHANNELS has their names)
+//   photos(list)        the photos of a message (2026-11-14, a photo the client sent on Profi.ru):
+//                       [{ url, width, height }] → a node for `media` of bubble(); a press opens the
+//                       photo whole in a new tab. Only https addresses; the server lets through only
+//                       Profi's picture server (profi_client_photos.sql). None — null
+//   bubble({ …, media })   `media` (photos) stands over the text, as in Telegram; a bubble of photos
+//                       without words has no line of text
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick })   one line in the middle for what is kept off the screen
 //   avatar(name)        a round letter of a person, its colour from the name
@@ -283,15 +289,38 @@
   }
 
   function bubble(o) {
-    const root = make('div', `lex-bubble is-${o.side === 'out' ? 'out' : 'in'}${o.tone ? ` is-${o.tone}` : ''}`);
+    const root = make('div', `lex-bubble is-${o.side === 'out' ? 'out' : 'in'}${o.tone ? ` is-${o.tone}` : ''}${o.media ? ' has-media' : ''}`);
     if (o.label) root.appendChild(typeof o.label === 'string' ? make('div', 'lex-bubble-label', o.label) : o.label);
+    if (o.media) root.appendChild(o.media);
     let body = o.body;
     if (!body) {
       body = make('div', 'lex-bubble-text');
       body.textContent = o.text || '';
     } else body.classList.add('lex-bubble-text');
-    root.appendChild(body);
+    if (!o.media || (body.textContent || '').trim()) root.appendChild(body);
     if (o.stamp) root.appendChild(o.stamp);
+    return root;
+  }
+
+  function photos(list) {
+    const items = (Array.isArray(list) ? list : []).filter((p) => p && typeof p.url === 'string' && /^https:\/\//.test(p.url));
+    if (!items.length) return null;
+    const root = make('div', `lex-photos${items.length > 1 ? ' is-many' : ''}`);
+    for (const p of items) {
+      const a = make('a', 'lex-photo');
+      a.href = p.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.setAttribute('aria-label', 'Photo');
+      const img = document.createElement('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      if (p.width > 0 && p.height > 0) { img.width = p.width; img.height = p.height; }
+      img.src = p.url;
+      a.appendChild(img);
+      root.appendChild(a);
+    }
     return root;
   }
 
@@ -352,5 +381,5 @@
   }
 
   global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
-    CHANNELS, channel, channelName, stamp, bubble, notice, fold, eyeOff, sparkle, avatar };
+    CHANNELS, channel, channelName, stamp, bubble, photos, notice, fold, eyeOff, sparkle, avatar };
 })(typeof window !== 'undefined' ? window : globalThis);

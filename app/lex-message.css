@@ -155,6 +155,14 @@
 .lex-bubble.is-out { margin-left: auto; border-bottom-right-radius: 6px; background: var(--lex-bubble-out); }
 .lex-bubble.is-self { background: var(--lex-bubble-self); }
 .lex-bubble.is-bot { background: var(--lex-bubble-bot); border: 1px dashed var(--lex-bubble-bot-line); }
+/* Photos of a message (В7.19): over the text, as in Telegram; the radius of a card (В4). One photo —
+   as wide as it is, up to the bubble; several — a row of squares, two in a line. */
+.lex-bubble.has-media { padding-top: 6px; }
+.lex-bubble .lex-photos { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 -6px 6px; }
+.lex-bubble .lex-photo { display: block; overflow: hidden; border-radius: 10px; background: var(--lex-plate); line-height: 0; }
+.lex-bubble .lex-photo img { display: block; width: auto; height: auto; max-width: min(280px, 100%); max-height: 320px; object-fit: cover; }
+.lex-bubble .lex-photos.is-many .lex-photo { width: calc(50% - 2px); }
+.lex-bubble .lex-photos.is-many .lex-photo img { width: 100%; height: 140px; max-width: none; max-height: none; }
 .lex-bubble .lex-bubble-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

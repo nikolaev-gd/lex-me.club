@@ -79,6 +79,34 @@
     return node;
   }
 
+  // A link of Profi in a text («[фото](https://…)», «[caption](https://…)») as its caption: the line under
+  // the title of a chat in the list shows words, not addresses (the iPhone does the same, ProfiStore).
+  function plainLinks(text) {
+    return String(text || '').replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1');
+  }
+
+  // The photos of a client's turn: attachments with an address of Profi's picture server (the server
+  // lets through no other, profi_client_photos.sql; the same check here keeps an old row honest).
+  const PHOTO_HOST = /^https:\/\/cdn\.profi\.ru\//;
+  function photosOf(attachments) {
+    return (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && a.kind === 'image' && typeof a.url === 'string' && PHOTO_HOST.test(a.url))
+      .map((a) => ({ url: a.url, width: a.width, height: a.height }));
+  }
+  // «[[фото](address)]», «[[фото 1](a), [фото 2](b)]» or a caption with «[фото](address)» under it: the
+  // links to the photos drawn over the text go, the rest of the words stay.
+  function withoutPhotoLinks(text, shots) {
+    let s = String(text || '');
+    for (const p of shots) {
+      const at = s.indexOf(`](${p.url})`);
+      if (at < 0) continue;
+      const open = s.lastIndexOf('[', at);
+      if (open < 0) continue;
+      s = s.slice(0, open) + s.slice(at + p.url.length + 3);
+    }
+    return s.replace(/\[(\s*,\s*)*\]/g, '').replace(/\n{2,}/g, '\n').trim();
+  }
+
   // ── the mark of Profi under what went to the client ─────────────────────────
   // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the
   // client has not read it yet; the second stroke and both blue, he has. The server says which.
@@ -391,7 +419,11 @@
         } else {
           // The ticks are Profi's: a message that went by another channel has none.
           const tail = out && ch === CHANNEL ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
-          node = M.bubble({ side: out ? 'out' : 'in', body: linkedText(make('div', '', ''), t.text),
+          // A photo of the client (profi_client_photos.sql): the picture over the text; its link «[фото](…)»
+          // the monitor put into the text is not repeated under it.
+          const shots = !out ? photosOf(t.attachments) : [];
+          node = M.bubble({ side: out ? 'out' : 'in', media: shots.length && M.photos ? M.photos(shots) : null,
+            body: linkedText(make('div', '', ''), shots.length ? withoutPhotoLinks(t.text, shots) : t.text),
             stamp: M.stamp({ channel: ch, at: t.authoredAt, tail }) });
         }
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
@@ -700,7 +732,7 @@
       }));
       for (const c of home.chats || []) {
         const line = global.LexSection.row({
-          title: c.title, sub: c.last || '', dot: c.unread, onClick: () => openOrderOrFeed(c.order),
+          title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
           // Gennady wrote last: the tick of Profi at the last message, as in Profi's list.
           end: c.tick ? tickNode(c.tick === 'read') : null,
         });
