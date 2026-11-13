@@ -794,6 +794,9 @@
       // A notification of the Mac app was clicked (webchat/wc-app.js): a message of an order
       // chat opens the order the way a press on it outside the feed does; a notification
       // about an order (new, reply sent, not sent) — the feed of new orders at that order.
+      // The screen of the section now ('home', 'feed', …): the page tells the server the list
+      // of new orders is on the screen (webchat/wc-app.js, presenceKey).
+      get screen() { return frame.screen; },
       openOrder: openOrderOrFeed,
       openFeed() { go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
       async openFeedAt(order) {

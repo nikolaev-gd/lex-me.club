@@ -437,6 +437,9 @@
   let presenceAt = 0;
   function presenceKey() {
     if (document.visibilityState !== 'visible') return null;
+    // The list of new orders is a screen of its own for the server: open, it takes the
+    // notifications about orders off every device (2026-11-13).
+    if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'feed') return '__lex_profi_orders__';
     if (sectionOn) return null;
     return state.conversationId || null;
   }
