@@ -1,32 +1,31 @@
-/* lex-composer-box.css — окошко ввода (поле сверху, ряд кнопок под ним) как
- * модуль: его размеры, скругление, кегль поля и отступы снаружи — одни на все
- * поверхности. Файл грузят расширение (content_scripts в manifest.json и
- * LexSurfaceDeps.styles — боковая панель и маленькое окно) и страница
- * lex-me.club/app (её же показывает программа для Мака). Айфон читает простые
- * числа из блока ниже при сборке (dev-tools/ios-composer-box.mjs) и считает
- * свою полосу ввода по тем же правилам в ChatScreen.swift (ComposerBox).
- * Подсказка в пустом поле — в соседнем lex-composer-box.js.
+/* lex-composer-box.css — окошко ввода как модуль: его вид, размеры и раскладка
+ * одни на все поверхности. Файл грузят расширение (content_scripts в
+ * manifest.json и LexSurfaceDeps.styles — боковая панель и маленькое окно) и
+ * страница lex-me.club/app (её же показывает программа для Мака). Айфон читает
+ * простые числа из блока ниже при сборке (dev-tools/ios-composer-box.mjs) и
+ * раскладывает свою полосу ввода по тем же правилам в ChatScreen.swift
+ * (ComposerLayout). Подсказка в пустом поле и выбор раскладки по набранному
+ * тексту — в соседнем lex-composer-box.js.
  *
- * Образец — программа для Мака (решение владельца 2026-09-25). Пропорции сняты
- * с окошка ввода Claude в долях диаметра круглой кнопки ряда — B:
- *   от верхней рамки до середины строки текста   0.8 B
- *   от верхней рамки до верха кнопок             1.5 B
- *   от боковой рамки до крайней кнопки           0.23 B
- * Низ ряда считается по видимой пилюле-заготовке высотой P: её низ — в 0.2 P
- * от нижней рамки, но не ниже, чем позволяет кнопка — квадрат B (подсветка
- * «+» и микрофона при наведении, круг отправки) встаёт самое большее на
- * внутренний край рамки и за рамку не выходит. При B 32 и P 22 это 6 px от
- * рамки до низа пилюли (0.2 P = 4.4 не достать), при B 40 и P 30 — 6 px ровно.
- * Высота окошка в одну строку получается 1.5 B + (B + P) / 2 + этот низ:
- * 81 px при B 32, 101 px при B 40.
- * Размер кнопок и пилюль отсюда не задаётся — только отступы вокруг них.
+ * Образец — поле ввода Gemini (решение Геннадия 13.11.2026, макет «Чат заказа»,
+ * экран «3. Поле ввода, как у Gemini»). Две раскладки:
  *
- * Окно задаёт свои входные числа на рамке окошка:
- *   --lex-composer-btn    диаметр круглой кнопки ряда (32px; на странице под
- *                         пальцем 40px);
- *   --lex-composer-pill   высота пилюли-заготовки (22px; под пальцем 30px);
- *   --lex-composer-field  высота поля в одну строку (его min-height);
- * а расширение ещё и свою рамку окна, из которой вычитаются отступы снаружи:
+ *   ОДНА СТРОКА — пока поле пустое и пока набранное влезает в строку. Пилюля
+ *   высотой 52 px, скругление — половина высоты. Внутри слева «+», посередине
+ *   текст, справа микрофон и круглая кнопка: голосовой разговор, а с текстом —
+ *   отправка (где разговора нет, кнопка появляется только с текстом).
+ *
+ *   НЕСКОЛЬКО СТРОК — текст не влез в строку, в нём перенос строки, или в этом
+ *   чате есть заготовки и есть что отправить (пилюли заготовок живут в ряду
+ *   кнопок, а без текста они всё равно выключены). Текст сверху, под ним ряд:
+ *   слева «+» и заготовки, справа микрофон и круглая кнопка. Поле растёт вверх
+ *   до 15 строк, дальше текст листается внутри; на маленьком экране — не выше
+ *   места над клавиатурой за вычетом шапки (это считает lex-composer-box.js).
+ *
+ * Кнопки — касание 44 px, видимый круг отправки и голоса — 36 px внутри него.
+ * Все отступы внутри окошка меряются от внутреннего края рамки.
+ * Какая раскладка сейчас, говорит класс `is-multiline` на окошке (ставит
+ * LexComposerBox.fit). Окно задаёт свою рамку окна в расширении:
  *   --lex-composer-frame-x       от края окна до его содержимого сбоку;
  *   --lex-composer-frame-bottom  то же снизу. */
 
@@ -36,54 +35,122 @@
  * родителю (ряду окна в расширении, полосе ввода на странице). */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat),
 .wc-composer-wrap {
-  --lex-composer-radius: 16px;       /* скругление рамки */
+  --lex-composer-height: 52px;       /* окошко в одну строку, с рамкой */
+  --lex-composer-radius: 26px;       /* скругление: половина высоты строки */
   --lex-composer-border: 1px;        /* толщина рамки */
-  --lex-composer-pad-x: 14px;        /* текст поля от боковой рамки */
-  --lex-composer-gap: 6px;           /* зазор между полем и рядом кнопок */
+  --lex-composer-btn: 44px;          /* «+», микрофон, место круглой кнопки: под палец */
+  --lex-composer-dot: 36px;          /* видимый круг отправки, голоса, горящего микрофона */
+  --lex-composer-pad: 4px;           /* кнопки от внутреннего края рамки */
+  --lex-composer-text-x: 6px;        /* текст от соседней кнопки в одну строку */
+  --lex-composer-multi-top: 12px;    /* текст от верхней рамки в несколько строк */
+  --lex-composer-multi-x: 12px;      /* текст от боковой рамки сверх pad в несколько строк */
+  --lex-composer-row-gap: 6px;       /* текст до ряда кнопок в несколько строк */
   --lex-composer-font: 16px;         /* кегль поля и подсказки */
-  --lex-composer-k-line: 0.8;        /* середина строки текста от верхней рамки, в B */
-  --lex-composer-k-row: 1.5;         /* верх кнопок от верхней рамки, в B */
-  --lex-composer-k-side: 0.23;       /* крайняя кнопка от боковой рамки, в B */
-  --lex-composer-k-pill: 0.2;        /* низ пилюли от нижней рамки, в P */
+  --lex-composer-line-k: 1.4;        /* высота строки в кеглях */
+  --lex-composer-max-lines: 15;      /* дальше текст листается внутри поля */
   --lex-composer-out-x: 12px;        /* окошко от боковых краёв окна */
   --lex-composer-out-top: 10px;      /* окошко от ленты над ним */
   --lex-composer-out-bottom: 14px;   /* окошко от нижнего края окна */
 }
 
-/* ── Окошко ───────────────────────────────────────────────────────────────── */
+/* ── Окошко: одна строка ──────────────────────────────────────────────────
+ * Сетка из трёх колонок: левая группа (её ряд кнопок раскрыт через
+ * display:contents), поле, правая группа. Порядок в разметке — поле, потом
+ * ряд кнопок; место в сетке задаётся колонками, разметка не меняется, поэтому
+ * поле не теряет фокус при смене раскладки. */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper,
 .wc-composer {
-  --lex-composer-line: calc(var(--lex-composer-font) * 1.45);
-  --lex-composer-pad-top: calc(var(--lex-composer-btn) * var(--lex-composer-k-line)
-                               - var(--lex-composer-border) - var(--lex-composer-line) / 2);
-  --lex-composer-pad-bottom: max(0px, calc(var(--lex-composer-pill) * var(--lex-composer-k-pill)
-                                           - var(--lex-composer-border)
-                                           - (var(--lex-composer-btn) - var(--lex-composer-pill)) / 2));
-  padding: var(--lex-composer-pad-top) var(--lex-composer-pad-x) var(--lex-composer-pad-bottom);
+  --lex-composer-line: calc(var(--lex-composer-font) * var(--lex-composer-line-k));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: var(--lex-composer-height);
+  padding: 0 var(--lex-composer-pad);
   border-style: solid;
   border-width: var(--lex-composer-border);
   border-radius: var(--lex-composer-radius);
-  gap: var(--lex-composer-gap);
+  gap: 0;
 }
-
-/* Поле: кегль и строка — как в программе для Мака. У страницы по id: её
-   правило поля (#wc-input, wc-app.css) сбрасывает шрифт через font: inherit. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-actions,
+.wc-composer-actions {
+  display: contents;
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-actions-left,
+.wc-composer-left {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-actions-right,
+.wc-composer-right {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 0;
+}
+/* Поле: кегль и строка — одни на все окна. У страницы по id: её правило поля
+   (#wc-input, wc-app.css) сбрасывает шрифт через font: inherit. Высоту ставит
+   LexComposerBox.fit: строка, а с текстом — сколько строк набрано, до предела. */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-textarea,
 .wc-composer #wc-input {
+  grid-column: 2;
+  grid-row: 1;
+  box-sizing: border-box;
+  min-height: var(--lex-composer-line);
+  max-height: none;
+  margin: 0;
+  padding: 0 var(--lex-composer-text-x);
   font-size: var(--lex-composer-font);
   line-height: var(--lex-composer-line);
 }
+/* Заготовки в одну строку не показываются: место им — ряд кнопок под текстом,
+   а пустое поле их всё равно выключает. Не display:none — его ставит окно,
+   где заготовок нет вовсе (чат заказа Профи, ленты Extended Mind), и по нему
+   LexComposerBox.fit отличает «заготовок тут нет» от «им сейчас не место». */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper:not(.is-multiline) .ytvocab-chat-modesplit,
+.wc-composer:not(.is-multiline) .wc-mode-split {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
 
-/* Ряд кнопок: сверху добирает до 1.5 B от рамки, по бокам выходит за отступ
-   поля, чтобы крайние кнопки встали в 0.23 B от рамки. */
-:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-actions,
-.wc-composer-actions {
-  margin-top: calc(var(--lex-composer-btn) * var(--lex-composer-k-row) - var(--lex-composer-border)
-                   - var(--lex-composer-pad-top) - var(--lex-composer-field) - var(--lex-composer-gap));
-  margin-left: calc(var(--lex-composer-btn) * var(--lex-composer-k-side) - var(--lex-composer-border)
-                    - var(--lex-composer-pad-x));
-  margin-right: calc(var(--lex-composer-btn) * var(--lex-composer-k-side) - var(--lex-composer-border)
-                     - var(--lex-composer-pad-x));
+/* ── Окошко: несколько строк ──────────────────────────────────────────────
+ * Текст во всю ширину сверху, под ним ряд кнопок: левая группа забирает всё
+ * место (заготовки прокручиваются вбок внутри неё), правая стоит у края. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper.is-multiline,
+.wc-composer.is-multiline {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: var(--lex-composer-multi-top) var(--lex-composer-pad) var(--lex-composer-pad);
+  row-gap: var(--lex-composer-row-gap);
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper.is-multiline .ytvocab-chat-textarea,
+.wc-composer.is-multiline #wc-input {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding: 0 var(--lex-composer-multi-x);
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper.is-multiline .ytvocab-chat-actions-left,
+.wc-composer.is-multiline .wc-composer-left {
+  grid-column: 1;
+  grid-row: 2;
+  gap: 6px;
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper.is-multiline .ytvocab-chat-actions-right,
+.wc-composer.is-multiline .wc-composer-right {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 /* ── Отступы снаружи ──────────────────────────────────────────────────────────
@@ -107,4 +174,14 @@
            max(var(--lex-composer-out-x), env(safe-area-inset-right))
            calc(var(--lex-composer-out-bottom) + env(safe-area-inset-bottom))
            max(var(--lex-composer-out-x), env(safe-area-inset-left));
+}
+
+/* Старая строка состояния голоса (шаблон окон расширения, chat-surface.js)
+   стоит внутри окошка: в сетке ей место во всю ширину под рядом, и пустой
+   она места не занимает. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper > .ytvocab-chat-mic-status {
+  grid-column: 1 / -1;
+}
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper > .ytvocab-chat-mic-status:empty {
+  display: none;
 }

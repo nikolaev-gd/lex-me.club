@@ -73,6 +73,9 @@
   --pill-bg:       rgba(0, 0, 0, .05);
   --pill-line:     rgba(0, 0, 0, .14);
   --pill-fg:       rgba(0, 0, 0, .60);
+  /* The message box's icons and its hint (lex-composer-box.css). */
+  --composer-icon: rgba(0, 0, 0, .56);
+  --composer-hint: rgba(0, 0, 0, .45);
   --pill-hover:    rgba(0, 0, 0, .10);
 
   /* Glass: the header and the composer let the thread show through, the way
@@ -167,6 +170,8 @@
     --pill-bg:     var(--lex-dark-raised);
     --pill-line:   var(--lex-dark-raised-strong);
     --pill-fg:     var(--lex-dark-fg-muted);
+    --composer-icon: var(--lex-dark-fg-soft);
+    --composer-hint: var(--lex-dark-fg-muted);
     --pill-hover:  var(--lex-dark-raised-hover);
 
     --glass:       var(--lex-dark-glass);
@@ -200,6 +205,8 @@
   --pill-bg:     var(--lex-dark-raised);
   --pill-line:   var(--lex-dark-raised-strong);
   --pill-fg:     var(--lex-dark-fg-muted);
+  --composer-icon: var(--lex-dark-fg-soft);
+  --composer-hint: var(--lex-dark-fg-muted);
   --pill-hover:  var(--lex-dark-raised-hover);
 
   --glass:       var(--lex-dark-glass);
@@ -371,13 +378,13 @@ button { font: inherit; color: inherit; }
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
-  background: transparent;
+  background-color: transparent;
   color: var(--fg-muted);
   cursor: pointer;
   transition: background .12s, color .12s;
 }
-.wc-icon-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.wc-icon-btn:active { background: var(--bg-active); }
+.wc-icon-btn:hover { background-color: var(--bg-hover); color: var(--fg); }
+.wc-icon-btn:active { background-color: var(--bg-active); }
 .wc-icon-btn[disabled] { opacity: .4; cursor: default; }
 
 /* ── Gate ────────────────────────────────────────────────────────────────── */
@@ -795,7 +802,7 @@ button { font: inherit; color: inherit; }
    полоса под композером. */
 .wc-topbar .wc-icon-btn {
   border-radius: 999px;
-  background: var(--glass);
+  background-color: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -1234,20 +1241,14 @@ button { font: inherit; color: inherit; }
   .wc-composer-wrap { --lex-composer-out-x: 20px; }
 }
 
-/* One rounded box with everything living inside it — the extension's composer
- * (styles.css .ytvocab-chat-input-wrapper): #1f1f1f fill, a 10% white
- * hairline that goes to 30% on focus, 16px corners. No shadow and no ring:
- * the border doing the work is the whole idea. */
-/* A column, not a row — the extension's shape: the field on top, a row of
- * controls under it. Its sizes, border, corners, the field's type size and
- * the offsets around it come from ../lex-composer-box.css, shared with the
- * extension and the iPhone; this page only states its own numbers for it. */
+/* One rounded box with everything living inside it: #21272A fill (the
+ * palette's "message box"), a 10% white hairline that goes stronger on focus.
+ * No shadow and no ring: the border doing the work is the whole idea. Its two
+ * layouts — one line, and the text above a row of buttons — its sizes, border,
+ * corners, the field's type size and the offsets around it come from
+ * ../lex-composer-box.css, shared with the extension and the iPhone; which
+ * layout is on is LexComposerBox.fit's call (wc-composer.js autoGrow). */
 .wc-composer {
-  --lex-composer-btn: 32px;     /* .wc-composer-btn, .wc-round */
-  --lex-composer-pill: 22px;    /* .wc-mode-pill */
-  --lex-composer-field: 24px;   /* #wc-input min-height */
-  display: flex;
-  flex-direction: column;
   max-width: 760px;
   margin: 0 auto;
   border-color: var(--line);
@@ -1259,46 +1260,38 @@ button { font: inherit; color: inherit; }
 
 #wc-input {
   width: 100%;
-  min-height: 24px;
-  max-height: 220px;
-  padding: 0;
   border: 0;
   background: transparent;
   color: var(--fg);
   font: inherit;
   /* Size and line: ../lex-composer-box.css (16px — the gate's rule too:
-     anything smaller and iOS zooms on focus). */
+     anything smaller and iOS zooms on focus). Height and scrolling:
+     LexComposerBox.fit — up to 15 lines, then the text scrolls inside. */
   resize: none;
-  overflow-y: auto;
-  flex: none;
+  overflow-y: hidden;
 }
 #wc-input:focus { outline: none; }
-#wc-input::placeholder { color: var(--fg-faint); }
+#wc-input::placeholder { color: var(--composer-hint); }
 
-.wc-composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* «+» and the microphone: 44px under a finger or a cursor alike, and the
+   round hover and the lit microphone are a 36px circle inside — the same
+   circle as send (padding + background-clip draw it, the button keeps 44). */
+.wc-composer-btn {
+  width: var(--lex-composer-btn);
+  height: var(--lex-composer-btn);
+  padding: calc((var(--lex-composer-btn) - var(--lex-composer-dot)) / 2);
+  border-radius: 999px;
+  background-clip: content-box;
+  color: var(--composer-icon);
+  flex: none;
 }
-.wc-composer-left,
-.wc-composer-right { display: flex; align-items: center; gap: 6px; }
-.wc-composer-right { margin-left: auto; }
-/* Заготовки называет человек: «recommendation» рядом с «Limerick» не
-   помещается в узкий композер вместе с плюсом и микрофоном/голосом справа.
-   min-width:0 снимает с левой группы защиту «не сжимайся ниже контента» —
-   сжатие уходит внутрь .wc-mode-split (ниже), а не выталкивает вправо
-   микрофон и кнопку записи. */
-.wc-composer-left { min-width: 0; }
-
-/* 32px circles — the extension's action-button size. */
-.wc-composer-btn { width: 32px; height: 32px; }
-.wc-composer-btn svg { width: 18px; height: 18px; }
+.wc-composer-btn svg { width: 22px; height: 22px; }
 
 /* Dictating. The microphone has to look unmistakably ON, because everything
  * else on screen is unchanged and the only other evidence is a system dot in
  * the status bar. Breathing rather than blinking: a blink reads as an error. */
 #wc-mic.is-recording {
-  background: var(--accent);
+  background-color: var(--accent);
   color: var(--accent-fg);
   animation: wc-rec 1.6s ease-in-out infinite;
 }
@@ -1367,39 +1360,46 @@ button { font: inherit; color: inherit; }
  * a curve. */
 .wc-send-slot {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: var(--lex-composer-btn);
+  height: var(--lex-composer-btn);
   flex: none;
+  transition: width .18s cubic-bezier(.32, .72, 0, 1);
 }
+/* A chat with no voice conversation (an order chat of Profi.ru, the feeds of
+   Extended Mind) has nothing in the slot while the field is empty, so the slot
+   folds and the microphone is the last thing in the box; send unfolds it the
+   moment there is text (wc-composer.js syncButton). */
+.wc-send-slot.is-folded { width: 0; }
 .wc-round {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
+  width: var(--lex-composer-btn);
+  height: var(--lex-composer-btn);
+  padding: calc((var(--lex-composer-btn) - var(--lex-composer-dot)) / 2);
   border: 0;
   border-radius: 999px;
+  background-clip: content-box;
   cursor: pointer;
   transition: opacity .18s ease, transform .18s cubic-bezier(.32, .72, 0, 1), background .12s;
 }
 .wc-round svg { width: 18px; height: 18px; }
 
 .wc-voice-btn {
-  background: var(--bg-hover);
+  background-color: var(--bg-hover);
   color: var(--fg-muted);
 }
-.wc-voice-btn:hover { background: var(--bg-active); color: var(--fg); }
+.wc-voice-btn:hover { background-color: var(--bg-active); color: var(--fg); }
 /* A live conversation is running: the button is the way back to it. */
-.wc-voice-btn.is-active { background: var(--accent); color: var(--accent-fg); }
+.wc-voice-btn.is-active { background-color: var(--accent); color: var(--accent-fg); }
 
 .wc-send {
-  background: var(--accent);
+  background-color: var(--accent);
   color: var(--accent-fg);
 }
-.wc-send:hover { background: var(--accent-hover); }
-.wc-send.is-stop { background: var(--accent); color: var(--accent-fg); }
+.wc-send:hover { background-color: var(--accent-hover); }
+.wc-send.is-stop { background-color: var(--accent); color: var(--accent-fg); }
 
 /* Which one is showing. The hidden one is scaled down and turned slightly, so
  * the swap reads as one control changing rather than two trading places.
@@ -1818,12 +1818,7 @@ button { font: inherit; color: inherit; }
   /* 44px is the smallest target a finger hits reliably; the desktop sizes are
    * built for a cursor, which is precise. */
   .wc-icon-btn { width: 44px; height: 44px; }
-  /* 40px targets for a thumb. The slot has to grow with its occupants, or
-     the two circles overflow the box they are absolutely placed in. */
-  .wc-composer-btn { width: 40px; height: 40px; }
-  .wc-send-slot, .wc-round { width: 40px; height: 40px; }
-  /* Отступы окошка считаются от кнопки и пилюли (lex-composer-box.css). */
-  .wc-composer { --lex-composer-btn: 40px; --lex-composer-pill: 30px; }
+  /* The message box's buttons are 44px for a cursor too (lex-composer-box.css). */
   .wc-mode-pill { height: 30px; font-size: 13px; padding: 0 12px; }
   .wc-conv { padding-top: 11px; padding-bottom: 11px; }
   /* 40 and not 36: a 36px target inside a list you scroll with the same thumb

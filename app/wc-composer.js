@@ -219,17 +219,31 @@
   const capture = () => Limit.capture();
   const clearRecLimit = () => { if (recLimit) { recLimit.cancel(); recLimit = null; } };
 
+  // The box's layout and the field's height — one rule for every surface
+  // (../lex-composer-box.js, LexComposerBox.fit): one line while what is typed
+  // fits, the text above a row of buttons once it does not or once there is
+  // something to send with the presets on show; up to 15 lines, then the text
+  // scrolls inside. A field that is not laid out yet (init() runs while the app
+  // is still hidden behind the boot skeleton) is left at the stylesheet's
+  // height — fit() handles that: writing a 0 back used to slice the hint's
+  // descenders off until the first keystroke.
   function autoGrow() {
-    elInput.style.height = 'auto';
-    const h = elInput.scrollHeight;
-    // A field that is not laid out yet reports 0, and init() runs while the
-    // whole app is still hidden behind the boot skeleton. Writing that 0 back
-    // pinned the textarea at its padding height — 16px — until the first
-    // keystroke, which is why the placeholder sat in the composer with its
-    // descenders sliced off. Leaving the height unset lets the stylesheet give
-    // it its natural single-row height instead.
-    if (!h) { elInput.style.height = ''; return; }
-    elInput.style.height = Math.min(h, 220) + 'px';
+    global.LexComposerBox.fit(elInput, { canSend: canSend(), room: fieldRoom });
+  }
+
+  // How tall the field may get: the room between the top bar and the bottom
+  // of the box (the keyboard's top on a phone) less the box's own chrome — the
+  // row of buttons, the paddings and anything above the box in its strip.
+  function fieldRoom() {
+    const wrap = elForm.closest('.wc-composer-wrap');
+    const bar = document.querySelector('.wc-topbar');
+    if (!wrap || !bar) return Infinity;
+    let bottom = wrap.getBoundingClientRect().bottom;
+    const vv = global.visualViewport;
+    if (vv) bottom = Math.min(bottom, vv.offsetTop + vv.height);
+    const top = bar.getBoundingClientRect().bottom;
+    const chrome = wrap.offsetHeight - elInput.offsetHeight;
+    return bottom - top - chrome;
   }
 
   function canSend() {
@@ -274,6 +288,16 @@
       ? 'Back to the conversation'
       : (voiceMode === 'ptt' ? 'Hold to talk' : 'Live conversation');
     elVoice.setAttribute('aria-label', elVoice.title);
+
+    // A chat without the voice conversation (the window hides the button: an
+    // order chat of Profi.ru, a feed of Extended Mind) has nothing in the slot
+    // while there is nothing to send — the slot folds and the microphone ends
+    // the box; send unfolds it (wc-app.css, .wc-send-slot.is-folded).
+    const slot = elSend.parentElement;
+    if (slot) slot.classList.toggle('is-folded', !sending && getComputedStyle(elVoice).display === 'none');
+    // What can be sent decides the layout too (presets live in the row under
+    // the text), so the box is laid out again after every such change.
+    autoGrow();
   }
 
   async function submit(opts) {
@@ -787,6 +811,17 @@
       autoGrow();
       syncButton();
       initPresets();
+
+      // The window's size is the field's room and the box's width.
+      global.addEventListener('resize', autoGrow);
+      if (global.visualViewport) global.visualViewport.addEventListener('resize', autoGrow);
+      // Entering or leaving a chat that hides presets or the voice button (an
+      // order chat, a feed of Extended Mind) is a class on the page's main
+      // column: the box re-reads what it has.
+      const main = elForm.closest('.wc-main');
+      if (main && global.MutationObserver) {
+        new MutationObserver(syncButton).observe(main, { attributes: true, attributeFilter: ['class'] });
+      }
     },
 
     // Список заготовок из каталога. Зовёт enterApp() — там уже есть токен.
