@@ -20,6 +20,8 @@
 //   copy(text)             put text on the clipboard, returns true when it worked
 //   notify(text)           the server is lost while an order chat stands over the section
 //   onChange()             the server changed something: read the open order chat, a promise
+//   kept                   the screens kept on the device (LexSection.kept): the list and the
+//                          feed are drawn from them in the first frame, the server comes after
 (function (global) {
   'use strict';
 
@@ -435,6 +437,9 @@
     let rev = null;
     let ticker = null;
     let home = null;
+    // The list on the screen came from the server in this run, not from the kept screens: a kept
+    // one says nothing about the monitor being silent — its moment is old, the fresh answer will.
+    let homeFresh = false;
     let feedEls = new Map();
     let clockOffset = 0;
     let report = null;
@@ -517,7 +522,7 @@
 
     // ── home ─────────────────────────────────────────────────────────────────
     function monitorSilent() {
-      if (!home) return false;
+      if (!home || !homeFresh) return false;
       const at = home.statusAt ? new Date(home.statusAt).getTime() : 0;
       return !at || Date.now() - at > STALE_S * 1000;
     }
@@ -612,12 +617,28 @@
       return body.scrollTop + body.clientHeight >= body.scrollHeight - 80;
     }
 
+    // The feed as it was read the last time: drawn at once when the feed opens, the server's
+    // answer comes after and takes its place.
+    let lastFeed = null;
     async function paintFeed() {
-      const { body } = frame;
-      const stick = !feedEls.size || feedAtEnd(body);
-      const r = await deps.rpc('profi_feed', { p_limit: 60 });
       if (frame.screen !== 'feed') return;
-      clockOffset = (r.now || Date.now() / 1000) - Date.now() / 1000;
+      // Read first, then taken only if nothing fresher came meanwhile.
+      if (!lastFeed && deps.kept) { const was = await deps.kept.read('profi:feed'); if (!lastFeed) lastFeed = was; }
+      // A feed screen just opened is empty: what was read the last time goes on it at once.
+      if (lastFeed && frame.screen === 'feed' && !frame.body.childElementCount) drawFeed(lastFeed, false);
+      const r = await deps.rpc('profi_feed', { p_limit: 60 });
+      lastFeed = r;
+      if (deps.kept) deps.kept.write('profi:feed', r);
+      drawFeed(r, true);
+    }
+
+    // fresh — the server's answer just now: the clock of the countdowns is taken from it, and the
+    // order to bring into view is let go once the fresh feed is drawn.
+    function drawFeed(r, fresh) {
+      const { body } = frame;
+      if (frame.screen !== 'feed') return;
+      const stick = !body.childElementCount || feedAtEnd(body);
+      if (fresh) clockOffset = (r.now || Date.now() / 1000) - Date.now() / 1000;
       feedEls = new Map();
       body.replaceChildren();
       const items = r.items || [];
@@ -628,7 +649,7 @@
         body.appendChild(n);
       }
       const focus = focusOrder && feedEls.get(focusOrder);
-      focusOrder = null;
+      if (focus || fresh) focusOrder = null;
       if (focus) focus.n.scrollIntoView({ block: 'center' });
       else if (stick) body.scrollTop = body.scrollHeight;
     }
@@ -773,7 +794,9 @@
 
     async function reloadHome() {
       home = await deps.rpc('profi_home', {});
+      homeFresh = true;
       rev = home.rev;
+      if (deps.kept) deps.kept.write('profi:home', home);
     }
 
     // A change counts as seen only when it reached the screen and the open order chat: after
@@ -821,11 +844,34 @@
         // The person may leave during the reading: hide() stops the watch, and an order chat
         // starts its own.
         this.watch();
+        // The list as this device saw it the last time, in the first frame; the server's answer
+        // takes its place. In memory it is drawn already: the section stays alive.
+        if (!home && deps.kept) {
+          const was = await deps.kept.read('profi:home');
+          if (was && !home) {
+            home = was;
+            if (frame.screen === 'home') paintHome();
+          }
+        }
         try {
           await reloadHome();
           await paint();
         } catch (e) {
           say('The section did not load. ' + ((e && e.message) || ''), true);
+        }
+      },
+      // The app started and has the section: its list is read and drawn while the section is
+      // not on the screen yet, so the first press on «Profi.ru» shows what is there now.
+      async warm() {
+        if (frame.isShown()) return;
+        try {
+          // Read first, then taken only if the server's answer did not come meanwhile.
+          if (!home && deps.kept) { const was = await deps.kept.read('profi:home'); if (!home) home = was; }
+          if (home && frame.screen === 'home') paintHome();
+          await reloadHome();
+          if (!frame.isShown() && frame.screen === 'home') paintHome();
+        } catch (e) {
+          console.warn('[profi] warm:', e && e.message);
         }
       },
       // The screen follows the server while the section or an order chat is open.

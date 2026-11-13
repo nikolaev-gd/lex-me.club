@@ -75,11 +75,23 @@
     if (state.convsLoading) return;
     if (!reset && (state.convsDone || !state.convsCursor)) return;
     state.convsLoading = true;
+    // The first portion as this device saw it the last time (the kept screens): the list is in
+    // the panel before the server answers, and the answer takes its place. Only while the list
+    // is empty — the page has just opened.
+    if (reset && !state.conversations.length) {
+      const was = await keptScreens.read('chats:first');
+      if (was && Array.isArray(was.items) && !state.conversations.length) {
+        state.conversations = was.items;
+        WcSidebar.setItems(state.conversations, state.conversationId, { error: null, done: true });
+        syncTitle();
+      }
+    }
     try {
       const r = await WcBus.call('WC_LIST_CONVERSATIONS', { cursor: reset ? null : state.convsCursor });
       const items = (r && r.ok && r.items) ? r.items : [];
       if (reset) {
         state.conversations = items;
+        if (r && r.ok) keptScreens.write('chats:first', { items });
       } else {
         // Сервер отдаёт строго убывающую пару (last_at, id), но беседа могла
         // прыгнуть наверх между двумя запросами — тогда она приедет дважды.
@@ -98,7 +110,10 @@
       // чем пустая шторка. А вот сказать, что случилось, обязаны — иначе
       // человек видит молчаливо оборванный список.
       state.convsError = String((err && err.message) || err);
-      if (reset) state.conversations = [];
+      // The first portion failed too: what is on the screen — kept from the last time or read
+      // before — stays, with the words and «Retry» under it. These are the person's own chats,
+      // and an empty panel would say there are none. Another person's list is never here: the
+      // page reloads on a sign-out (signOut).
       // Прокрутка не должна долбить сервер после отказа; кнопка «Retry» в
       // шторке зовёт loadConversations заново.
       state.convsDone = true;
@@ -397,6 +412,17 @@
   const copyText = (text) => navigator.clipboard.writeText(text).then(() => true, () => false);
   // In WcStore: it is the person's, and WcWipe takes it away with everything else of theirs.
   const NEWS_KEPT = 'lexNewsFeed';
+  // The screens kept on this device (lex-section.js, kept): the buttons of the sections, the
+  // list of chats, the lists of every section. Drawn in their first frame from what was read
+  // the last time; the server's answer takes their place. In WcStore too, under the account.
+  const accountNow = () => {
+    const s = WcAuth && WcAuth.session ? WcAuth.session() : null;
+    return (s && s.user && s.user.id) || null;
+  };
+  const keptScreens = global.LexSection.kept({
+    get: (key) => WcStore.one(key, null),
+    set: (key, value) => WcStore.set({ [key]: value }),
+  }, accountNow);
   // The arrow in the top bar: one rule for every section, see lex-back.js.
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
   const SECTIONS = {
@@ -424,16 +450,24 @@
     main.classList.remove('is-section', 'is-news-opening');
     for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
   }
+  // A section is built once and stays: built ahead of its first showing it already holds its
+  // list, and «Profi.ru» shows it with nothing to wait for.
+  function ensureSection(id) {
+    const section = SECTIONS[id];
+    if (!section.live) {
+      section.live = section.build();
+      section.live.el.hidden = true;
+      sectionEls().host.appendChild(section.live.el);
+    }
+    return section.live;
+  }
   async function showSection(id) {
     const { main, host } = sectionEls();
     const section = SECTIONS[id];
     await endVoiceOnLeave('news');
     if (section.cutsAnswer && WcThread.isStreaming()) stopStream();
     leaveSection();
-    if (!section.live) {
-      section.live = section.build();
-      host.appendChild(section.live.el);
-    }
+    ensureSection(id);
     for (const el of host.children) el.hidden = el !== section.live.el;
     sectionOn = id;
     host.hidden = false;
@@ -441,15 +475,29 @@
     WcSidebar.close();
     await section.live.show();
   }
+  // The buttons of the sections: from what this device kept, then as the server names them.
+  // Every section the server names is then built and its list read (warm), so its first
+  // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
   async function loadSections() {
-    let sections = [];
+    const draw = (list) => global.LexNews.renderEntries(document.getElementById('wc-sections'), list, (id) => {
+      if (SECTIONS[id]) showSection(id);
+    });
+    const was = await keptScreens.read('home:sections');
+    if (Array.isArray(was)) draw(was);
+    let sections = null;
     // The sections this page knows: the server names no other.
     try { sections = await newsRpc('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news'] }); } catch (err) {
       console.warn('[wc] sections:', err && err.message);
     }
-    global.LexNews.renderEntries(document.getElementById('wc-sections'), sections, (id) => {
-      if (SECTIONS[id]) showSection(id);
-    });
+    if (Array.isArray(sections)) {
+      if (JSON.stringify(sections) !== JSON.stringify(was)) draw(sections);
+      keptScreens.write('home:sections', sections);
+    } else if (!Array.isArray(was)) draw([]);
+    for (const s of (Array.isArray(sections) ? sections : (Array.isArray(was) ? was : []))) {
+      if (!SECTIONS[s.id] || s.id === 'news') continue;
+      const live = ensureSection(s.id);
+      if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
+    }
   }
 
   // ── What is on the screen, for the iPhone's notifications (2026-11-11) ────
@@ -633,10 +681,10 @@
       signals,
       events: ['em'],
       check: async () => {
-        if (frame.screen === 'questions') { questions = (await newsRpc('lex_em_questions', {})) || []; paintQuestions(); }
-        else { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }
+        if (frame.screen === 'questions') await readQuestions();
+        else await readHome();
       },
-      onBack: (id) => { if (id === 'home') frame.open(async () => { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }, 'The feeds did not load.'); },
+      onBack: (id) => { if (id === 'home') frame.open(() => readHome(), 'The feeds did not load.'); },
     });
     emFrame = frame;
     function paint() {
@@ -660,6 +708,17 @@
       }
       frame.body.replaceChildren(list);
     }
+    // The feeds and the questions as read the last time, kept on the device: drawn at once.
+    async function readHome() {
+      rows = (await newsRpc('lex_em_feed_home', {})) || [];
+      keptScreens.write('em:home', rows);
+      paint();
+    }
+    async function readQuestions() {
+      questions = (await newsRpc('lex_em_questions', {})) || [];
+      keptScreens.write('em:questions', questions);
+      paintQuestions();
+    }
     function paintQuestions() {
       if (frame.screen !== 'questions') return;
       const list = global.LexSection.make('div', 'lex-section-list');
@@ -678,9 +737,11 @@
     }
     async function openEmQuestions() {
       frame.push({ id: 'questions', title: 'Questions' });
+      // Read first, then taken only if the server's answer did not come meanwhile.
+      if (!questions.length) { const was = await keptScreens.read('em:questions'); if (!questions.length && was) questions = was; }
+      paintQuestions();
       try {
-        questions = (await newsRpc('lex_em_questions', {})) || [];
-        paintQuestions();
+        await readQuestions();
       } catch (e) {
         frame.say('The questions did not load. ' + ((e && e.message) || ''), true);
       }
@@ -695,13 +756,29 @@
       },
       async show() {
         frame.enter();
+        // What this device saw the last time, in the first frame; the server comes after. Read
+        // first, then taken only if the server's answer did not come meanwhile (the warm-up).
+        if (!rows.length) {
+          const was = await keptScreens.read('em:home');
+          if (!rows.length && was) { rows = was; paint(); }
+        }
         try {
-          if (frame.screen === 'questions') { questions = (await newsRpc('lex_em_questions', {})) || []; paintQuestions(); }
-          else { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }
+          if (frame.screen === 'questions') await readQuestions();
+          else await readHome();
         } catch (e) {
           frame.say('The feeds did not load. ' + ((e && e.message) || ''), true);
         }
         if (frame.isShown()) frame.watch();
+      },
+      // The page started and the account has the section: its list is read and drawn before
+      // the section is shown, so the first press shows what is there now.
+      async warm() {
+        if (frame.isShown()) return;
+        if (!rows.length) {
+          const was = await keptScreens.read('em:home');
+          if (!rows.length && was) { rows = was; paint(); }
+        }
+        await readHome();
       },
       hide() { frame.unwatch(); },
     };
@@ -884,6 +961,7 @@
       back: sectionBack,
       signals,
       rpc: newsRpc,
+      kept: keptScreens,
       copy: copyText,
       openOrder: openProfiOrder,
       notify: (text) => toast(text, { error: true }),
