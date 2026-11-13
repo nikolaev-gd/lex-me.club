@@ -351,6 +351,11 @@
     if (!resp.ok) { console.warn(TAG, 'model defaults', resp.status); return { ok: false }; }
     const out = await resp.json().catch(() => null);
     if (!out || out.ok !== true || !out.scopes) return { ok: false };
+    // The order chats of Profi.ru keep their own choice (supabase/migrations/
+    // profi_model_choice.sql): the person's or none — then the monitor's model. Empty
+    // string = none.
+    const profi = out.scopes[PROFI_SCOPE];
+    await WcStore.set({ [PROFI_MODEL_KEY]: (profi && typeof profi.personal === 'string') ? profi.personal : '' });
     const mine = out.scopes[SCOPE];
     if (!mine || typeof mine !== 'object') return { ok: true, applied: 0 };
     const patch = {};
@@ -380,6 +385,16 @@
     } catch (e) { console.warn(TAG, 'model choice push failed:', e && e.message); return false; }
   }
 
+  // The model of the order chats: the person's choice for them, else the monitor's model of
+  // the order chat that is open. null — neither (the server then says the bot has not sent
+  // its model and instruction).
+  const PROFI_SCOPE = 'profi';
+  const PROFI_MODEL_KEY = 'activeModelId_' + PROFI_SCOPE;
+  async function profiModelId() {
+    const mine = await WcStore.one(PROFI_MODEL_KEY, null);
+    return mine || (profiChat && profiChat.modelId) || null;
+  }
+
   async function activeModelId() {
     const key = 'activeModelId_' + SCOPE;
     const id = await WcStore.one(key, null);
@@ -397,7 +412,12 @@
   // настроек, — и те же имена, что у расширения (activeModelId_<scope>,
   // effortByApiModel_<scope>). Хранится в этом браузере; следующая публикация
   // настроек перепишет выбор, как и в расширении у обычного человека.
-  WcBus.on('WC_TEXT_MODEL', async () => {
+  //
+  // Пункт есть в каждом чате (2026-11-13). Чат заказа Профи держит свой выбор, общий для
+  // всех чатов заказов (m.profi): ячейка activeModelId_profi, по умолчанию — модель монитора
+  // открытого чата. Уровень размышления у неё в самом номере модели (provider:model:effort).
+  WcBus.on('WC_TEXT_MODEL', async (m) => {
+    if (m && m.profi) return { modelId: await profiModelId(), efforts: {} };
     const modelId = await WcStore.one('activeModelId_' + SCOPE, null);
     const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);
     return { modelId: modelId || null, efforts: (efforts && typeof efforts === 'object') ? efforts : {} };
@@ -405,6 +425,11 @@
   WcBus.on('WC_SET_TEXT_MODEL', async (m) => {
     const parts = String((m && m.modelId) || '').split(':');
     if (parts.length < 3 || !parts[0] || !parts[1]) throw new Error('Unknown model.');
+    if (m.profi) {
+      await WcStore.set({ [PROFI_MODEL_KEY]: m.modelId });
+      await pushModelChoice({ [PROFI_MODEL_KEY]: m.modelId });
+      return { ok: true };
+    }
     const effKey = 'effortByApiModel_' + SCOPE;
     const cur = await WcStore.one(effKey, null);
     const efforts = (cur && typeof cur === 'object') ? { ...cur } : {};
@@ -984,9 +1009,10 @@
     const native = (m.mode === 'native') ? nativeTurnConfig(m.slotId, m.modelId) : null;
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
-    // An order chat of the Profi.ru section writes with the monitor's model: the server
-    // refuses any other, and the person does not choose it.
-    const profiModel = (profiChat && m.conversationId === profiChat.key) ? profiChat.modelId : null;
+    // An order chat of the Profi.ru section writes with the model of order chats: the
+    // person's choice for them, the monitor's model by default (WC_TEXT_MODEL).
+    const inProfi = !!(profiChat && m.conversationId === profiChat.key);
+    const profiModel = inProfi ? await profiModelId() : null;
     const modelId = profiModel || m.modelOverride || (native && native.model) || await activeModelId();
     // Модель хода — ленте: ею подписана кнопка модели под ответом.
     WcBus.broadcast({ type: 'WC_TURN_MODEL', requestId: m.requestId, modelId });
@@ -1244,7 +1270,7 @@
         turnIndex: buf.length - 1,
         // An order chat is built by the server: the monitor writes turns into it too. So is
         // a feed of Extended Mind: the database writes its entries into it.
-        ...((profiModel || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
+        ...((inProfi || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
         // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
         // самому. chatKey — ключ, под которым строки реально ложатся (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).

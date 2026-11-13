@@ -2074,8 +2074,9 @@ button { font: inherit; color: inherit; }
   font-size: 13px;
   cursor: pointer;
 }
+/* A feed of Extended Mind: the whole message box, voice included (2026-11-13); no row of
+ * presets (the server refuses them), no new chat, no second version of an answer. */
 .wc-main.is-em-feed #wc-mode-split,
-.wc-main.is-em-feed #wc-talk,
 .wc-main.is-em-feed .wc-new-chat,
 .wc-main.is-em-feed .lex-answer-row { display: none !important; }
 .lex-em .lex-section-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }

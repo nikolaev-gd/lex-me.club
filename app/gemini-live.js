@@ -1555,6 +1555,9 @@
       (resp && resp.__gate === 'login') ? ['login', '__LEX_VOICE_LOGIN__'] :
       // 402 = денег нет (llm-proxy): просьба пополнить, а не «голос недоступен».
       (resp && resp.status === 402) ? ['balance', '__LEX_VOICE_BALANCE__'] :
+      // 424 'profi' — an order chat whose bot has not sent its instruction yet: the voice
+      // there talks with that instruction (supabase/functions/_shared/chat-voice.ts).
+      (resp && resp.status === 424 && resp.stage === 'profi') ? ['profi', '__LEX_VOICE_PROFI__'] :
       // 424 = сервер не нашёл промпта по присланным указателям; 400 'prompt' —
       // указателей нет вовсе. Платный разговор не с тем собеседником —
       // молчать об этом нельзя.

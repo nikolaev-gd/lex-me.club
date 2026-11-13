@@ -897,6 +897,9 @@
     main.classList.add('is-profi-chat');
     paintProfiBar();
     SECTIONS.profi.live.watch();
+    // The label of «Text model» in this chat: the model of order chats, the monitor's of
+    // this chat by default — known once WC_PROFI_CHAT told it.
+    refreshTextModelLabel();
   }
   // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
   // arrow to the order on the site of Profi. The discussion with the model hides by itself
@@ -971,7 +974,10 @@
     });
     if (!data || profiChat !== chat) return;
     if (chat.keep) chat.keep(data);
-    if (data.modelId !== chat.data.modelId) await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
+    if (data.modelId !== chat.data.modelId) {
+      await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
+      refreshTextModelLabel();
+    }
     // The moment the chat was open before, as the server has it: another device may have
     // opened it since the section read it ahead.
     let moved = false;
@@ -981,7 +987,10 @@
     }
     chat.data = data;
     paintProfiBar();
-    if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
+    // An answer being written or a voice conversation going on (its bubbles are not on the
+    // server yet, a redraw would take them off): the boxes only; the chat is read again when
+    // the conversation ends (toggleVoice, onDisconnected).
+    if (WcThread.isStreaming() || (global.WcVoice && (WcVoice.active || WcVoice.connecting))) { WcThread.paintProfiBoxes(); return; }
     if (state.conversationId !== data.chatKey) return;
     const r = data.chat
       ? await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks })
@@ -1228,28 +1237,37 @@
     openModelMenu(btn, turn.dataset.model || '', efforts, (modelId) => regenerate(turn, modelId));
   }
 
-  // Пункт «Text model» в меню «+»: модель по умолчанию для следующих вопросов.
+  // Пункт «Text model» в меню «+»: модель по умолчанию для следующих вопросов. Он есть в
+  // каждом чате (2026-11-13): в чате заказа — модель чатов заказов (свой выбор, по
+  // умолчанию модель монитора), в остальных — модель чатов Lex. Какая из двух, решает
+  // открытый чат; хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
+    const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
-    try { cur = await WcBus.call('WC_TEXT_MODEL', {}); } catch (_) { /* пусто — без галочки */ }
+    try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
     openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
       try {
-        await WcBus.call('WC_SET_TEXT_MODEL', { modelId });
+        await WcBus.call('WC_SET_TEXT_MODEL', { modelId, profi });
         WcUI.toast('Text model: ' + global.LexAnswerRow.modelLabel(modelId));
+        refreshTextModelLabel();
       } catch (err) {
         WcUI.toast(String((err && err.message) || err), { error: true });
       }
     });
   }
 
-  // Подпись пункта «Text model» — нынешняя модель по умолчанию. Меню «+»
-  // открывается синхронно, поэтому подпись держится наготове.
+  // Подпись пункта «Text model» — нынешняя модель по умолчанию, у чатов Lex и у чатов
+  // заказов своя. Меню «+» открывается синхронно, поэтому обе подписи держатся наготове.
   let textModelLabel = '';
+  let profiModelLabel = '';
   async function refreshTextModelLabel() {
-    try {
-      const cur = await WcBus.call('WC_TEXT_MODEL', {});
-      textModelLabel = cur && cur.modelId ? global.LexAnswerRow.modelLabel(cur.modelId) : '';
-    } catch (_) { textModelLabel = ''; }
+    const label = async (profi) => {
+      try {
+        const cur = await WcBus.call('WC_TEXT_MODEL', { profi });
+        return cur && cur.modelId ? global.LexAnswerRow.modelLabel(cur.modelId) : '';
+      } catch (_) { return ''; }
+    };
+    [textModelLabel, profiModelLabel] = await Promise.all([label(false), label(true)]);
   }
 
   // ── Переспрос и «изменить» ───────────────────────────────────────────────
@@ -1582,6 +1600,9 @@
             requestMoney({ settleMs: 30000 });
             if (turns) refreshConversations();
             if (!superseded && !/^gate-/.test(String(reason || ''))) reconcileAfterVoice(convId);
+            // An order chat drew nothing of the server while the conversation went on: now it
+            // reads the chat — what the client wrote meanwhile, the spoken turns in its look.
+            if (!superseded && profiChat && state.conversationId === convId) refreshProfiChat().catch(() => {});
           },
         },
       });
@@ -2215,10 +2236,9 @@
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
-      // Пункт «Text model» меню «+»: подпись — модель по умолчанию, нажатие
-      // открывает меню моделей. Видят все.
-      // An order chat writes with the monitor's model whatever is chosen: no «Text model» there.
-      textModel: () => (profiChat ? null : { label: textModelLabel, open: pickDefaultModel }),
+      // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
+      // открывает меню моделей. Видят все, в каждом чате.
+      textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.

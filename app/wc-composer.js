@@ -289,10 +289,11 @@
       : (voiceMode === 'ptt' ? 'Hold to talk' : 'Live conversation');
     elVoice.setAttribute('aria-label', elVoice.title);
 
-    // A chat without the voice conversation (the window hides the button: an
-    // order chat of Profi.ru, a feed of Extended Mind) has nothing in the slot
-    // while there is nothing to send — the slot folds and the microphone ends
-    // the box; send unfolds it (wc-app.css, .wc-send-slot.is-folded).
+    // A window that hides the voice button has nothing in the slot while there
+    // is nothing to send — the slot folds and the microphone ends the box; send
+    // unfolds it (wc-app.css, .wc-send-slot.is-folded). Every chat of this page
+    // has the voice conversation since 2026-11-13 (one box everywhere), the
+    // order chats of Profi.ru and the feeds of Extended Mind included.
     const slot = elSend.parentElement;
     if (slot) slot.classList.toggle('is-folded', !sending && getComputedStyle(elVoice).display === 'none');
     // What can be sent decides the layout too (presets live in the row under
