@@ -947,7 +947,8 @@
     person.hidden = true;
     person.replaceChildren();
     link.replaceChildren();
-    main.classList.remove('is-profi-chat');
+    main.classList.remove('is-profi-chat', 'is-profi-clean');
+    paintProfiOutbox(null);
     if (profiChat) {
       profiChat = null;
       endVisit();
@@ -974,14 +975,14 @@
     WcThread.setProfiChat(chat);
     main.classList.add('is-profi-chat');
     paintProfiBar();
+    paintProfiOutbox(chat);
     SECTIONS.profi.live.watch();
     // The label of «Text model» in this chat: the model of order chats, the monitor's of
     // this chat by default — known once WC_PROFI_CHAT told it.
     refreshTextModelLabel();
   }
   // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
-  // arrow to the order on the site of Profi. The discussion with the model hides by itself
-  // (the server names it), so the bar has no button for it (2026-11-13).
+  // button of the clean view (lex-profi.js bar(); the order on Profi is the title of the card).
   function paintProfiBar() {
     const { person, link } = profiEls();
     if (!profiChat || !profiChat.data) return;
@@ -989,6 +990,22 @@
     person.replaceChildren(...bar.person.childNodes);
     person.hidden = false;
     link.replaceChildren(...(bar.link ? [bar.link] : []));
+  }
+  // The person's own texts on their way to the client stand under the last message
+  // (lex-profi.js paintOutbox): drawn with every reading of the chat, gone with the chat.
+  function paintProfiOutbox(chat) {
+    const host = document.getElementById('wc-profi-outbox');
+    if (!host) return;
+    if (!chat) { host.replaceChildren(); host.hidden = true; return; }
+    chat.paintOutbox(host);
+  }
+  // A text taken back from its way to the client, or a box of the model to edit by hand («Edit
+  // in the field»), goes into the field, unless the person has typed something else there.
+  function putBackIntoField(text) {
+    const cur = (document.getElementById('wc-input') || {}).value || '';
+    if (cur.trim()) { toast('The field is not empty: the text was not put there.'); return; }
+    WcComposer.setText(text);
+    WcComposer.focus();
   }
   // What the screen of an order chat drew of the turns that come without the person — a message
   // of the client, what went to him, a notice of Profi: their words by uid. A fresh answer that
@@ -1004,6 +1021,8 @@
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
       copy: copyText,
+      putBack: putBackIntoField,
+      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
       order,
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
     });
@@ -1065,6 +1084,7 @@
     }
     chat.data = data;
     paintProfiBar();
+    paintProfiOutbox(chat);
     // An answer being written or a voice conversation going on (its bubbles are not on the
     // server yet, a redraw would take them off): the boxes only; the chat is read again when
     // the conversation ends (toggleVoice, onDisconnected).
@@ -1135,6 +1155,8 @@
   }
 
   async function send(text, opts) {
+    // A word to Lex in an order chat brings the discussion back: its answer must be seen.
+    if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
     const images = WcAttach.take();
     // Слова, выбранные нажатием в ленте, забираются ЗДЕСЬ — в единственный
     // момент, когда набор перестаёт быть состоянием и становится репликой.
@@ -2317,6 +2339,9 @@
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
       // открывает меню моделей. Видят все, в каждом чате.
       textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
+      // Holding the arrow: in an order chat the text goes to the client at once, without the
+      // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
+      sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),
     });
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.

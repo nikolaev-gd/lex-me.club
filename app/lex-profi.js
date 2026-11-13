@@ -145,46 +145,130 @@
     }
     const price = priceLine(win.price);
     if (price) root.appendChild(make('div', 'lex-profi-box-price', `Price: ${price}`));
+    const { foot, note } = boxControls(win, deps, { copy: true });
+    root.appendChild(foot);
+    root.appendChild(note);
+    if (win.state === 'sent') root.classList.add('is-sent');
+    return root;
+  }
+
+  // What a box says under it about where it stands: the server's state of the box in words.
+  function stateLine(win) {
+    switch (win.state) {
+      case 'scheduled': return global.LexSendLater.scheduledLine(win.sendAt);
+      case 'queued': return sendingLine(win.channel);
+      case 'sent': return win.channel ? `Sent to the client in ${placeName(win.channel)}.` : 'Sent to the client.';
+      case 'failed': return `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`.trim();
+      case 'unknown':
+        return win.channel
+          ? `${placeName(win.channel)} did not confirm it. Look at the chat there: Lex will not send it again. ${win.error || ''}`
+          : `The site did not confirm it. Look at the chat on Profi: Lex will not send it again. ${win.error || ''}`;
+      default: return '';
+    }
+  }
+
+  // The buttons of a box and its line, from its state on the server. One set for the box in an
+  // answer of the model and for the person's own text at the end of the chat (outboxNode):
+  //   may leave (ready, failed with «Send again») — «Send to …»; holding it — «Schedule…»
+  //     (lex-send-later.js), the same text at a time;
+  //   scheduled — «Send now» and «Cancel»: the box of the model waits for Send again, the
+  //     person's own text leaves the chat and comes back into the field (deps.putBack);
+  //   holding «Send to …» of a box of the model — «Schedule…» and «Edit in the field» (the text
+  //     into the field, to change by hand and send by holding the arrow);
+  //   the person's own text that did not leave — «Delete» as well.
+  // opts.copy — a Copy button (the box of the model has one).
+  function boxControls(win, deps, opts) {
     const foot = make('div', 'lex-profi-box-foot');
     const note = make('div', 'lex-profi-box-note');
     note.setAttribute('role', 'status');
     const open = win.state === 'ready' || (win.state === 'failed' && win.retry);
-    if (open) {
+    const scheduled = win.state === 'scheduled';
+    const call = async (name, args, busy) => {
+      note.textContent = busy;
+      try {
+        const r = await deps.rpc(name, args);
+        deps.refresh();
+        return r || {};
+      } catch (e) {
+        note.textContent = 'Not done. ' + ((e && e.message) || '');
+        return null;
+      }
+    };
+    const cancel = async () => {
+      const r = await call('profi_send_cancel', { p_window: win.id }, 'Cancelling…');
+      if (r && r.state === 'removed' && r.text && deps.putBack) deps.putBack(r.text);
+    };
+    if (open || scheduled) {
       const to = deps.replyTo || null;
-      const send = button('lex-profi-btn is-main', `Send to ${placeName(to)}`, async () => {
+      const send = button('lex-profi-btn is-main', scheduled ? 'Send now' : `Send to ${placeName(to)}`, async () => {
         send.disabled = true;
-        note.textContent = 'Going to the monitor…';
-        try {
-          const r = await deps.rpc('profi_send', { p_op_id: newOpId(), p_window: win.id });
-          note.textContent = r && r.state === 'queued' ? sendingLine(r.channel) : '';
-          deps.refresh();
-        } catch (e) {
-          send.disabled = false;
-          note.textContent = 'Not sent. ' + ((e && e.message) || '');
-        }
+        const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
+        if (!r) { send.disabled = false; return; }
+        note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
       });
       send.prepend(sendIcon());
+      // Holding Send: the same box at a time, or its text into the field. The menu dims the chat
+      // around the answer it belongs to (lex-send-later.js). The click that follows the hold is
+      // swallowed by the gesture itself (lex-long-press.js).
+      if (open && !win.direct && global.LexLongPress && global.LexSendLater) {
+        global.LexLongPress.attach(send, () => {
+          if (global.WcHaptics) global.WcHaptics.press();
+          const items = [{
+            label: 'Schedule…',
+            icon: 'clock',
+            run: async () => {
+              const at = await global.LexSendLater.pick({ text: win.text, client: deps.client });
+              if (!at) return;
+              await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
+            },
+          }];
+          if (deps.putBack) items.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
+          global.LexSendLater.menu({ anchor: send, align: 'left', lit: send.closest('.wc-turn') || foot.parentElement, ring: send, items });
+        });
+      }
+      // The person's own text waiting for its time: «Cancel», then «Send now» (the design).
+      if (scheduled && win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
       foot.appendChild(send);
     }
-    const copy = button('lex-profi-btn', 'Copy', async () => {
-      const ok = await deps.copy(win.text);
-      note.textContent = ok ? 'Copied.' : 'The browser refused the clipboard.';
-    });
-    copy.prepend(copyIcon());
-    foot.appendChild(copy);
-    root.appendChild(foot);
-    root.appendChild(note);
-    if (win.state === 'queued') note.textContent = sendingLine(win.channel);
-    if (win.state === 'sent') {
-      root.classList.add('is-sent');
-      note.textContent = win.channel ? `Sent to the client in ${placeName(win.channel)}.` : 'Sent to the client.';
+    if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
+    if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
+    if (opts && opts.copy && !scheduled) {
+      const copy = button('lex-profi-btn', 'Copy', async () => {
+        const ok = await deps.copy(win.text);
+        note.textContent = ok ? 'Copied.' : 'The browser refused the clipboard.';
+      });
+      copy.prepend(copyIcon());
+      foot.appendChild(copy);
     }
-    if (win.state === 'failed') note.textContent = `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`;
-    if (win.state === 'unknown') {
-      note.textContent = win.channel
-        ? `${placeName(win.channel)} did not confirm it. Look at the chat there: Lex will not send it again. ${win.error || ''}`
-        : `The site did not confirm it. Look at the chat on Profi: Lex will not send it again. ${win.error || ''}`;
+    note.textContent = stateLine(win);
+    if (!foot.childElementCount) foot.hidden = true;
+    return { foot, note };
+  }
+
+  // The person's own text to the client, sent without the model (profi_send_text): it has no
+  // answer of the model to stand in, so it stands at the end of the chat as an outgoing message
+  // with its line and buttons, until what went to the client comes back into the chat. Which
+  // ones stand here the server says (`outbox`, profi_send_later.sql).
+  function outboxNode(win, deps) {
+    const M = global.LexMessage;
+    const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
+    root.dataset.window = String(win.id);
+    const body = make('div', '', '');
+    body.textContent = win.text;
+    // Waiting for its time: paler, a dashed frame, a clock and the time where the ticks stand.
+    // No channel: the place is chosen at the moment it leaves.
+    let stamp = null;
+    if (win.state === 'scheduled' && win.sendAt) {
+      stamp = make('div', 'lex-stamp');
+      const t = make('span', 'lex-stamp-time lex-sl-when', '');
+      t.append(global.LexSendLater.icon('clock', 12), document.createTextNode(global.LexSendLater.stamp(win.sendAt)));
+      stamp.appendChild(t);
     }
+    const bubble = M.bubble({ side: 'out', body, stamp });
+    if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
+    root.appendChild(bubble);
+    const { foot, note } = boxControls(win, deps, { copy: false });
+    root.append(note, foot);
     return root;
   }
 
@@ -232,9 +316,15 @@
     if (before) host.insertBefore(line, before); else host.appendChild(line);
   }
 
-  // deps: rpc, copy, order, reload()
+  // deps: rpc, copy, order, reload(), putBack(text) — a text taken back from the way to the
+  // client, or a box to edit by hand, goes into the field; onClean(on) — the clean view
+  // changed
   function createChat(deps) {
     let data = null;
+    // The clean view of the chat (the button in the bar), while the chat is open.
+    let clean = false;
+    const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload,
+      putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
     const revealed = new Set();
     const self = {
@@ -247,7 +337,19 @@
       head() {
         const root = make('header', 'lex-profi-head');
         if (!data) return root;
-        root.appendChild(make('div', 'lex-profi-head-title', data.title || ''));
+        // The title opens the order on the site of Profi (the arrow of the bar moved here,
+        // 2026-11-14): a link with a small arrow on its right.
+        if (data.orderUrl) {
+          const a = make('a', 'lex-profi-head-title lex-profi-head-order', data.title || '');
+          a.href = data.orderUrl;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.setAttribute('aria-label', `${data.title || 'The order'}. Open the order on Profi`);
+          a.appendChild(strokeIcon([['path', { d: 'M7 17L17 7' }], ['path', { d: 'M8 7h9v9' }]], 14));
+          root.appendChild(a);
+        } else {
+          root.appendChild(make('div', 'lex-profi-head-title', data.title || ''));
+        }
         const line = make('div', 'lex-profi-head-line');
         const add = (node) => {
           if (line.childElementCount) line.appendChild(make('span', '', '·'));
@@ -350,7 +452,47 @@
         const uid = turn.dataset.uid || '';
         const wins = ((data && data.windows) || []).filter((w) => w.turn === uid);
         host.replaceChildren(...boxes.map((b, i) => boxNode(b.text, streaming ? null : wins.find((w) => w.idx === i) || null,
-          { rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, replyTo: (data && data.replyTo) || null })));
+          boxDeps())));
+      },
+
+      // The person's own texts on their way to the client, at the end of the chat (outboxNode).
+      paintOutbox(host) {
+        if (!host) return;
+        const wins = ((data && data.windows) || []).filter((w) => w.outbox);
+        host.replaceChildren(...wins.map((w) => outboxNode(w, boxDeps())));
+        host.hidden = !wins.length;
+      },
+
+      // Holding the arrow of the field (wc-composer.js): the text to the client at once, without
+      // the model, or at a time. Both go to the server as the person's own box (profi_send_text);
+      // where it goes is the server's rule, the same as for Send of a box. run → true once the
+      // server took the text (the field is cleared then). The composer draws it with
+      // LexSendLater.menu: a grey line on top, the mark of the place by the first item.
+      sendMenu(text) {
+        if (!data || !data.chatKey || !String(text || '').trim()) return null;
+        const send = async (at) => {
+          const r = await deps.rpc('profi_send_text', {
+            p_op_id: newOpId(), p_order: deps.order, p_text: text, p_at: at ? at.toISOString() : null,
+          });
+          deps.reload();
+          return !!r;
+        };
+        const place = data.replyTo || null;
+        const mark = global.LexMessage && global.LexMessage.channel(place || 'profi');
+        return {
+          head: `To ${data.client || 'the client'}, without Lex`,
+          items: [
+            { label: `Send to ${placeName(place)} now`, icon: mark || 'send', run: () => send(null) },
+            {
+              label: 'Schedule…',
+              icon: 'clock',
+              run: async () => {
+                const at = await global.LexSendLater.pick({ text, client: data.client });
+                return at ? send(at) : false;
+              },
+            },
+          ],
+        };
       },
 
       // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
@@ -394,8 +536,10 @@
         }
       },
 
-      // The bar over the chat: the client's letter and name, the channel under the name, and
-      // the order on the site of Profi behind the arrow (lex-profi.css, wc-app.js).
+      // The bar over the chat: the client's letter, name and channel, and on the right the
+      // button of the clean view (2026-11-14): pressed, only the conversation with the client
+      // stays on the screen — the card of the order, the client's messages, what went to him and
+      // the notices of Profi. The order on the site of Profi is the title of the card now.
       bar() {
         const M = global.LexMessage;
         const person = make('div', 'lex-profi-person', '');
@@ -403,17 +547,29 @@
         const words = make('div', 'lex-profi-person-words', '');
         words.append(make('div', 'lex-profi-person-name', who), make('div', 'lex-profi-person-channel', M.CHANNELS[CHANNEL].name));
         person.append(M.avatar(who), words);
-        let link = null;
-        if (data && data.orderUrl) {
-          link = make('a', 'wc-icon-btn lex-profi-order-link', '');
-          link.href = data.orderUrl;
-          link.target = '_blank';
-          link.rel = 'noopener noreferrer';
-          link.title = 'Open the order on Profi';
+        const link = make('button', 'wc-icon-btn lex-profi-clean', '');
+        link.type = 'button';
+        const paint = () => {
+          link.classList.toggle('is-on', clean);
+          link.setAttribute('aria-pressed', clean ? 'true' : 'false');
+          link.title = clean ? 'Show the discussion with Lex' : 'Hide the discussion with Lex';
           link.setAttribute('aria-label', link.title);
-          link.appendChild(outIcon());
-        }
+          const paths = [['path', { d: 'M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z' }],
+            ['path', { d: 'M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z' }]];
+          if (clean) paths.push(['path', { d: 'M3 3l18 18' }]);
+          link.replaceChildren(strokeIcon(paths, 20));
+        };
+        paint();
+        link.addEventListener('click', () => { self.setClean(!clean); paint(); });
         return { person, link };
+      },
+
+      // The clean view: only the screen, the model reads the whole chat and the server is not
+      // told. A new opening of a chat makes a new object, so it starts without it.
+      get clean() { return clean; },
+      setClean(on) {
+        clean = !!on;
+        if (deps.onClean) deps.onClean(clean);
       },
     };
     return self;
@@ -902,5 +1058,5 @@
   }
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
-  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode };
+  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode };
 })(typeof window !== 'undefined' ? window : globalThis);

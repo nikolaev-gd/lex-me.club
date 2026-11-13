@@ -34,6 +34,12 @@
 
   // attach(el, fire, opts) → { didFire(), detach() }
   //
+  // opts.when() — есть ли у удержания повод прямо сейчас (спрашивается при
+  // нажатии). Нет повода — удержания нет вовсе, и клик после долгого нажатия
+  // проходит как обычный: стрелка отправки держит меню только в чате заказа
+  // и только с текстом в поле (lex-send-later.js), в остальных чатах долгое
+  // нажатие на неё по-прежнему отправляет.
+  //
   // fire(event) зовётся, когда удержание состоялось. Клик, который придёт
   // следом за состоявшимся удержанием, глотается здесь же (capture-фаза), но
   // вызывающему всё равно нужен didFire(): его собственный обработчик клика
@@ -64,10 +70,12 @@
     const bound = [];
     const on = (type, fn, opts) => { el.addEventListener(type, fn, opts); bound.push([type, fn, opts]); };
 
+    const when = opts && typeof opts.when === 'function' ? opts.when : null;
     on('pointerdown', (e) => {
       if (e.button != null && e.button !== 0) return;
       if (tail) { clearTimeout(tail); tail = 0; }
       fired = false;
+      if (when && !when()) { clear(); return; }
       startX = e.clientX;
       startY = e.clientY;
       clear();

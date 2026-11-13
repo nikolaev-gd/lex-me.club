@@ -1,0 +1,92 @@
+/* lex-send-later.css — the menu of a held button and the sheet of the time in an order chat of
+ * Profi.ru (lex-send-later.js). The design Gennady approved on 2026-11-14; colours from the dark
+ * palette of Lex (lex-palette.css), the page's light theme reads its own tokens where it has them. */
+
+/* ── the menu of a held button ─────────────────────────────────────────── */
+.lex-sl-catcher { position: fixed; inset: 0; z-index: 90; background: transparent; }
+/* The hole: a box over what will leave, its shadow dims everything else. */
+.lex-sl-hole {
+  position: fixed; z-index: 91; pointer-events: none;
+  box-shadow: 0 0 0 200vmax rgba(0, 0, 0, .55);
+}
+.lex-sl-ring { box-shadow: 0 0 0 5px rgba(238, 241, 243, .22) !important; }
+.lex-sl-menu {
+  position: fixed; z-index: 92; width: 264px; box-sizing: border-box; padding: 6px 0;
+  border-radius: 14px; border: 1px solid var(--lex-dark-line, rgba(255, 255, 255, .10));
+  background: var(--lex-dark-raised, #2A3236); color: var(--lex-dark-fg, #EEF1F3);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .55);
+  font: 15px/1.35 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+}
+.lex-sl-menu-head { padding: 4px 14px 6px; font-size: 12px; font-weight: 600; color: var(--lex-dark-fg-muted, #8BA2AD); }
+.lex-sl-menu-item {
+  width: 100%; height: 44px; box-sizing: border-box; display: flex; align-items: center; gap: 12px;
+  padding: 0 14px; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.lex-sl-menu-item:hover, .lex-sl-menu-item:focus-visible { background: var(--lex-dark-wash, rgba(255, 255, 255, .06)); outline: none; }
+.lex-sl-menu-icon { flex: 0 0 auto; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; color: var(--lex-dark-fg-soft, #B7CAD4); }
+/* The mark of the channel is the size of a row's icon here. */
+.lex-sl-menu-icon .lex-channel-icon { width: 20px; height: 20px; }
+.lex-sl-menu-sep { height: 1px; margin: 2px 14px; background: rgba(255, 255, 255, .08); }
+
+/* ── the sheet of the time ─────────────────────────────────────────────── */
+.lex-sl-scrim { position: fixed; inset: 0; z-index: 93; background: rgba(0, 0, 0, .6); }
+.lex-sl-sheet {
+  position: fixed; z-index: 94; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: min(480px, 100%); max-height: 92vh; overflow: auto; box-sizing: border-box;
+  padding: 8px 16px calc(22px + env(safe-area-inset-bottom, 0px));
+  border-radius: 20px 20px 0 0; border-top: 1px solid var(--lex-dark-line, rgba(255, 255, 255, .10));
+  background: var(--lex-dark-surface, #181C1F); color: var(--lex-dark-fg, #EEF1F3);
+  box-shadow: 0 -12px 32px rgba(0, 0, 0, .45);
+  font: 16px/1.35 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  animation: lex-sl-up .22s ease-out;
+}
+@keyframes lex-sl-up { from { transform: translate(-50%, 24px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .lex-sl-sheet { animation: none; } }
+.lex-sl-grip { width: 36px; height: 5px; margin: 0 auto 10px; border-radius: 3px; background: rgba(255, 255, 255, .22); }
+.lex-sl-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.lex-sl-words { min-width: 0; }
+.lex-sl-title { font-size: 19px; font-weight: 700; line-height: 1.25; }
+.lex-sl-sub { margin-top: 4px; font-size: 13px; line-height: 1.4; color: var(--lex-dark-fg-muted, #8BA2AD); }
+.lex-sl-close {
+  flex: 0 0 auto; width: 44px; height: 44px; margin: -8px -10px 0 0; padding: 0; border: 0; border-radius: 22px;
+  background: transparent; color: var(--lex-dark-fg-soft, #B7CAD4); display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.lex-sl-text {
+  margin-top: 12px; padding: 9px 12px; border-radius: 12px; background: var(--lex-dark-bubble-out, #1F3657);
+  font-size: 14px; line-height: 1.38; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 30vh; overflow: auto;
+}
+.lex-sl-quick { margin-top: 14px; border-radius: 14px; background: var(--lex-dark-bubble, #21272A); overflow: hidden; }
+.lex-sl-row {
+  width: 100%; height: 48px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 15px; cursor: pointer;
+}
+.lex-sl-row:hover, .lex-sl-row:focus-visible { background: var(--lex-dark-wash, rgba(255, 255, 255, .05)); outline: none; }
+.lex-sl-side { color: var(--lex-dark-fg-muted, #8BA2AD); font-size: 14px; font-variant-numeric: tabular-nums; }
+.lex-sl-sep { height: 1px; margin: 0 14px; background: rgba(255, 255, 255, .07); }
+.lex-sl-label { margin-top: 16px; padding: 0 2px; font-size: 13px; font-weight: 600; color: var(--lex-dark-fg-muted, #8BA2AD); }
+.lex-sl-fields { margin-top: 6px; display: grid; grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; }
+.lex-sl-field {
+  height: 48px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  border-radius: 12px; border: 1px solid rgba(238, 241, 243, .55); background: var(--lex-dark-bubble, #21272A);
+  color: var(--lex-dark-fg-soft, #B7CAD4); cursor: pointer;
+}
+.lex-sl-field input {
+  flex: 1 1 auto; min-width: 0; border: 0; background: transparent; color: var(--lex-dark-fg, #EEF1F3);
+  font: inherit; font-size: 15px; font-variant-numeric: tabular-nums; color-scheme: dark; outline: none;
+}
+/* The browser's own picker mark is hidden: the field has its mark on the left, and a press
+ * anywhere on the field opens the picker (lex-send-later.js, showPicker). */
+.lex-sl-field input::-webkit-calendar-picker-indicator { display: none; }
+.lex-sl-field input::-webkit-datetime-edit { padding: 0; }
+.lex-sl-go {
+  margin-top: 16px; width: 100%; height: 50px; border: 0; border-radius: 14px;
+  background: var(--lex-dark-accent, #EEF1F3); color: var(--lex-dark-accent-fg, #0F1113);
+  font: inherit; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+}
+.lex-sl-go:disabled { opacity: .45; cursor: default; }
+
+/* ── a message waiting for its time (lex-profi.js outboxNode) ──────────── */
+.lex-profi-outbox-item .lex-bubble.is-scheduled {
+  opacity: .72; outline: 1px dashed rgba(255, 255, 255, .4); outline-offset: -1px;
+}
+.lex-sl-when { display: inline-flex; align-items: center; gap: 4px; }

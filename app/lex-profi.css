@@ -46,6 +46,10 @@
   background: var(--lex-bubble-bot, var(--bg)); text-align: left;
 }
 .lex-profi-head-title { font-weight: 700; }
+/* The title of the card opens the order on Profi: a small arrow on its right. */
+.lex-profi-head-order { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; }
+.lex-profi-head-order svg { flex: 0 0 auto; color: var(--fg-soft, var(--fg-muted)); }
+.lex-profi-head-order:hover { text-decoration: underline; }
 .lex-profi-head-line { display: flex; flex-wrap: wrap; gap: 0 6px; margin-top: 2px; color: var(--fg-muted); font-size: 13px; }
 .lex-profi-head-facts { margin-top: 2px; color: var(--fg); font-size: 13px; }
 .lex-profi-head-block { margin-top: 8px; color: var(--fg-muted); font-size: 13px; font-weight: 600; }
@@ -93,6 +97,20 @@
 .lex-profi-box-foot .lex-profi-btn.is-main { background: var(--fg); color: var(--bg); }
 .lex-profi-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }
 .lex-profi-box-note:empty { display: none; }
+.lex-profi-box-foot[hidden] { display: none; }
+
+/* The person's own texts on their way to the client (lex-profi.js outboxNode): under the last
+ * message, on the right, as what goes to the client; the line and the buttons under the bubble.
+ * A scheduled one is paler until it leaves. */
+.wc-profi-outbox { display: flex; flex-direction: column; gap: 10px; max-width: 760px; margin: 0 auto; padding: 0 20px 8px; }
+@media (max-width: 720px) { .wc-profi-outbox { padding: 0 14px 8px; } }
+.wc-profi-outbox[hidden] { display: none; }
+.lex-profi-outbox-item { display: flex; flex-direction: column; align-items: flex-end; margin-left: 44px; }
+.lex-profi-outbox-item .lex-bubble { max-width: 520px; }
+.lex-profi-outbox-item .lex-profi-box-note { text-align: right; }
+/* Under one's own text the buttons stand at their own width, on the right (the design). */
+.lex-profi-outbox-item .lex-profi-box-foot { justify-content: flex-end; }
+.lex-profi-outbox-item .lex-profi-box-foot .lex-profi-btn { flex: 0 0 auto; padding: 0 18px; }
 
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
  * Profi. The list of chats is a step back (the arrow), so the bar has no three lines. */
@@ -103,7 +121,16 @@
 .lex-profi-person-name { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
 .lex-profi-person-channel { color: var(--fg-muted); font-size: 13px; line-height: 1.2; }
 .wc-profi-link { display: contents; }
-.lex-profi-order-link { color: var(--fg-soft, var(--fg-muted)); text-decoration: none; }
+/* The button of the clean view in the bar (lex-profi.js bar()): the common round button of the
+ * page (.wc-icon-btn) at 44, clear with a thin frame; pressed — the accent ground, the mark dark
+ * and crossed out. Colours are tokens of the page. */
+.wc-icon-btn.lex-profi-clean { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--line); color: var(--fg-soft, var(--fg-muted)); }
+.wc-icon-btn.lex-profi-clean.is-on { border-color: var(--accent); background-color: var(--accent); color: var(--accent-fg); }
+/* The clean view: the discussion with Lex leaves the screen, the conversation with the client
+ * stays (the card, the client's messages, what went to him, the notices of Profi, own texts on
+ * their way). */
+.wc-main.is-profi-clean #wc-turns > .wc-turn:not(.lex-profi-msg),
+.wc-main.is-profi-clean #wc-turns > .lex-fold { display: none !important; }
 
 /* The discussion before the last message to the client: off the screen, the model still reads it. */
 .wc-turn.lex-profi-hidden { display: none; }

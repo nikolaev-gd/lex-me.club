@@ -722,6 +722,45 @@
 
       elForm.addEventListener('submit', (e) => { e.preventDefault(); submit(); });
 
+      // Holding the arrow opens the chat's own ways of sending (hooks.sendMenu(text) → { head,
+      // items: [{label, icon, run(text) → Promise<boolean>}] }): in an order chat of Profi.ru —
+      // the text to the client at once, without the model, or at a time (lex-profi.js
+      // sendMenu). The menu is the one of the whole of Lex (lex-send-later.js): the chat dims
+      // around the field, the arrow gets a ring. An item that took the text clears the field;
+      // one that did not (the person closed the sheet, the server refused) leaves it. A chat
+      // without such ways has no hold at all: a long press sends as before.
+      const waysOf = (text) => (hooks.sendMenu && text ? hooks.sendMenu(text) : null);
+      onLongPress(elSend, () => {
+        const text = elInput.value.trim();
+        const ways = waysOf(text);
+        if (!ways || !ways.items || !ways.items.length) return;
+        global.LexSendLater.menu({
+          anchor: elSend,
+          align: 'right',
+          lit: elForm,
+          ring: elSend,
+          head: ways.head,
+          items: ways.items.map((it) => ({
+            label: it.label,
+            icon: it.icon,
+            run: async () => {
+              let ok = false;
+              try { ok = await it.run(text); } catch (err) {
+                toast((err && err.message) || 'Not sent.', { error: true });
+              }
+              if (ok && elInput.value.trim() === text) {
+                elInput.value = '';
+                autoGrow();
+                syncButton();
+              }
+            },
+          })),
+        });
+      }, {
+        when: () => !streaming && !armedPresetSlot && !!global.LexSendLater
+          && !!(waysOf(elInput.value.trim()) || {}).items,
+      });
+
       elInput.addEventListener('input', () => {
         autoGrow(); syncButton();
         // Поле стёрли — взведённая правкой заготовка больше ни к чему.
