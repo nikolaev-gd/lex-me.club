@@ -161,8 +161,11 @@
     lexNotifyBalanceMaybeChanged: () => {
       // The debit commits in the edge function's waitUntil, a fraction of a
       // second AFTER the response stream closes — so asking once, immediately,
-      // reads the old number. Same two delays the worker uses, for the same
-      // reason.
+      // reads the old number. The database's signal «balance» comes at that
+      // commit (wc-app.js follows it, account_signals.sql), so with the
+      // channel there is nothing to wait for here. Without it (a stubbed
+      // build) — the two delays the worker uses.
+      if (global.WcSignals) return;
       setTimeout(() => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }), 1200);
       setTimeout(() => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }), 3500);
     },

@@ -18,7 +18,8 @@
 //                        события: строка расхода появляется на сервере не сразу
 //                        (ответ дочитывается, слушатель голоса пишет после хода,
 //                        название беседы считается позже), поэтому перечитываем
-//                        с повтором, пока не пришло ожидаемое или не вышел срок.
+//                        по сигналу базы, пока не пришло ожидаемое или не вышел
+//                        срок; без канала сигналов — по расписанию.
 // Рисуют окна сами: у расширения и страницы разная разметка ленты.
 //
 // Без chrome.* и без DOM — файл грузят и контент-скрипты расширения, и
@@ -119,13 +120,22 @@
   // load(key)  → Promise<body двери | null>;
   // apply(key, money) — нарисовать (money — результат normalize);
   // currentKey() — какая беседа открыта сейчас: перечитанное для другой
-  //                беседы не рисуется.
+  //                беседы не рисуется;
+  // signals()  — канал сигналов базы (lex-account-events.js) или null. С ним
+  //              деньги перечитываются по сигналу «money» этой беседы (записан
+  //              или оплачен вызов: строка расхода и списание — одна операция
+  //              lex_settle) из supabase/migrations/account_signals.sql и один
+  //              раз, когда канал открылся снова, — а не по расписанию (решение
+  //              Геннадия 2026-11-13: ничего не спрашивать по таймеру). Без
+  //              канала — прежнее расписание DELAYS_MS.
+  // chatKey()  — ключ открытой беседы: сигнал другой беседы (очистка субтитров
+  //              другого ролика) не перечитывает эту.
   //
   // request({ key, expectUid, settleMs }):
   //   expectUid — уид реплики, под которой ждём цену (или список: годится
   //               любой из них — ответ, остановленный до первого слова, сервер
-  //               ставит под вопрос): повторяем, пока он не появится в ответах
-  //               двери. Ответ, остановленный «стопом»,
+  //               ставит под вопрос): перечитываем, пока он не появится в
+  //               ответах двери. Ответ, остановленный «стопом»,
   //               сервер дочитывает до конца и пишет строку расхода только
   //               потом — это может быть и через полторы минуты, поэтому
   //               терпение у такого ожидания большое.
@@ -140,42 +150,78 @@
     const load = opts.load;
     const apply = opts.apply;
     const currentKey = opts.currentKey || (() => null);
+    const signalsOf = typeof opts.signals === 'function' ? opts.signals : () => opts.signals || null;
+    const chatKeyOf = opts.chatKey || (() => null);
     const waits = new Map();          // key → { groups:[[uid…]], until, settleUntil }
     let timer = null;
+    let deadline = null;
+    let follower = null;
     let step = 0;
     let running = false;
+    let again = false;
 
     function schedule(delay) {
       if (timer) clearTimeout(timer);
       timer = setTimeout(tick, delay);
     }
 
+    // С каналом: следующее чтение придёт с сигналом, ожидание кончится само в свой срок.
+    function follow() {
+      if (follower) return;
+      const ch = signalsOf();
+      if (ch && typeof ch.follow === 'function') {
+        follower = ch.follow(['money'], (signal) => {
+          const chat = signal && signal.payload && signal.payload.chat;
+          const mine = chatKeyOf();
+          if (chat && mine && chat !== mine) return undefined;
+          return tick();
+        });
+      }
+    }
+    function unfollow() {
+      if (follower) follower.stop();
+      follower = null;
+      if (deadline) clearTimeout(deadline);
+      deadline = null;
+    }
+    function armDeadline(ms) {
+      if (deadline) clearTimeout(deadline);
+      deadline = setTimeout(() => { deadline = null; tick(); }, Math.max(0, ms) + 50);
+    }
+
     async function tick() {
       timer = null;
-      if (running) { schedule(300); return; }
+      if (running) { again = true; return; }
       const key = currentKey();
       const w = key ? waits.get(key) : null;
-      if (!key || !w) { waits.clear(); step = 0; return; }
+      if (!key || !w) { waits.clear(); step = 0; unfollow(); return; }
       running = true;
+      again = false;
       let money = null;
       try {
         const body = await load(key);
         if (body) money = normalize(body);
-      } catch (_) { /* сеть — повторим по расписанию */ }
+      } catch (_) { /* сеть — следующий сигнал или следующий срок прочитают снова */ }
       running = false;
-      if (currentKey() !== key) { waits.clear(); step = 0; return; }
+      if (currentKey() !== key) { waits.clear(); step = 0; unfollow(); return; }
       if (money) {
         try { apply(key, money); } catch (e) { console.warn('[lex-money] apply failed', e && e.message); }
         w.groups = w.groups.filter((g) => !g.some((uid) => money.answers.has(uid)));
       }
       const now = Date.now();
       if ((w.groups.length || now < w.settleUntil) && now < w.until) {
-        const d = DELAYS_MS[Math.min(step, DELAYS_MS.length - 1)];
-        step++;
-        schedule(d);
+        if (follower) {
+          armDeadline(w.until - now);
+          if (again) { again = false; await tick(); }
+        } else {
+          const d = DELAYS_MS[Math.min(step, DELAYS_MS.length - 1)];
+          step++;
+          schedule(d);
+        }
       } else {
         waits.delete(key);
         step = 0;
+        if (!waits.size) unfollow();
       }
     }
 
@@ -196,10 +242,19 @@
       }
       w.until = Math.max(w.until, now + 1000);
       step = 0;
+      follow();
       schedule(r.immediate ? 0 : 400);
     }
 
-    return { request, cancel() { if (timer) clearTimeout(timer); timer = null; waits.clear(); } };
+    return {
+      request,
+      cancel() {
+        if (timer) clearTimeout(timer);
+        timer = null;
+        waits.clear();
+        unfollow();
+      },
+    };
   }
 
   root.LexChatMoney = { format, normalize, breakdown, createRefresher, KIND_ORDER };

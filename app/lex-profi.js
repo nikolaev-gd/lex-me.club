@@ -9,6 +9,9 @@
 //
 // A window gives:
 //   back                   the arrow of the window, see lex-back.js
+//   signals                the channel of the database's signals (lex-account-events.js): the
+//                          section and an open order chat read again at the signal «profi», a
+//                          press of the bot's menu gets its answer at «profi_cmd»
 //   rpc(name, args)        a call of a database function under the person's pass
 //   openOrder(order, wanted, held, keep)
 //                          open the chat of this order where chats open; held — the order chat
@@ -20,8 +23,6 @@
 (function (global) {
   'use strict';
 
-  const POLL_MS = 2000;
-  const WAIT_MS = 500;
   const COMMAND_WAIT_S = 20;
   const STALE_S = 120;
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
@@ -423,8 +424,9 @@
       cls: 'lex-profi',
       back: deps.back,
       gear: () => go('settings', 'Settings'),
-      every: POLL_MS,
-      check: () => poll(),
+      signals: deps.signals,
+      events: ['profi'],
+      check: (signal) => poll(signal),
       notify: deps.notify,
       onBack: () => paint(),
     });
@@ -447,13 +449,30 @@
       return r;
     }
 
-    async function waitResult(id) {
-      for (let i = 0; i < (COMMAND_WAIT_S * 1000) / WAIT_MS; i++) {
-        const r = await deps.rpc('profi_command_result', { p_id: id });
-        if (r && r.done) return r.result || {};
-        await new Promise((ok) => setTimeout(ok, WAIT_MS));
-      }
-      return { ok: false, error: 'The monitor did not answer. Is the working Mac awake?' };
+    // The answer of a command comes with the signal «profi_cmd»: one look at once, in case it
+    // came before the signal was followed, then a look at every signal of this command and
+    // after the channel opens again. Twenty seconds without an answer — the monitor is away.
+    function waitResult(id) {
+      return new Promise((resolve) => {
+        let over = false;
+        let follower = null;
+        const finish = (v) => {
+          if (over) return;
+          over = true;
+          clearTimeout(timer);
+          if (follower) follower.stop();
+          resolve(v);
+        };
+        const timer = setTimeout(() => finish({ ok: false, error: 'The monitor did not answer. Is the working Mac awake?' }),
+          COMMAND_WAIT_S * 1000);
+        const look = async (signal) => {
+          if (over || (signal && signal.payload && String(signal.payload.id) !== String(id))) return;
+          const r = await deps.rpc('profi_command_result', { p_id: id });
+          if (r && r.done) finish(r.result || {});
+        };
+        if (deps.signals) follower = deps.signals.follow(['profi_cmd'], look);
+        if (follower) follower.now(); else look(null).catch(() => {});
+      });
     }
 
     // The order chats the window holds (the frame's keep): every chat whose line comes on the
@@ -758,20 +777,29 @@
     }
 
     // A change counts as seen only when it reached the screen and the open order chat: after
-    // a failed read the next look tries again. An error goes up to the watch of the frame.
-    async function poll() {
-      const r = await deps.rpc('profi_rev', {});
+    // a failed read the frame tries again. An error goes up to the watch of the frame. The
+    // signal carries the new number of the change, so no question about it goes first; a
+    // look to catch up (no signal) asks the number. The list and the open order chat are
+    // read at once, side by side: the two answers do not wait for each other.
+    async function poll(signal) {
+      const told = signal && signal.payload && signal.payload.rev != null ? Number(signal.payload.rev) : null;
+      if (told != null && rev != null && told <= rev) return;
+      const r = told != null ? told : await deps.rpc('profi_rev', {});
       if (r === rev) return;
       const seen = rev;
       try {
+        const reads = [];
         if (frame.isShown()) {
-          await reloadHome();
-          const { screen } = frame;
-          if (screen === 'home' || screen === 'settings') paint();
-          else if (screen === 'feed') await paintFeed();
+          reads.push((async () => {
+            await reloadHome();
+            const { screen } = frame;
+            if (screen === 'home' || screen === 'settings') paint();
+            else if (screen === 'feed') await paintFeed();
+          })());
         }
-        if (deps.onChange) await deps.onChange();
-        rev = r;
+        if (deps.onChange) reads.push(deps.onChange());
+        await Promise.all(reads);
+        rev = Math.max(r, rev || 0);
       } catch (e) {
         rev = seen;
         throw e;
@@ -789,14 +817,16 @@
       },
       async show() {
         frame.enter();
+        // The signals are followed before the first reading: a change during it is not lost.
+        // The person may leave during the reading: hide() stops the watch, and an order chat
+        // starts its own.
+        this.watch();
         try {
           await reloadHome();
           await paint();
         } catch (e) {
           say('The section did not load. ' + ((e && e.message) || ''), true);
         }
-        // The person may have left during the first reading: an order chat starts its own watch.
-        if (frame.isShown()) this.watch();
       },
       // The screen follows the server while the section or an order chat is open.
       watch() {

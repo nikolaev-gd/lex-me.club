@@ -212,7 +212,9 @@
     WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts() });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
-    brainLook(true);
+    // A message on its way: its state as the queue of the database has it now, once.
+    brainAsked = state.conversationId;
+    brainLook();
   }
 
   // Разговор голосом кончился — лента сверяется с беседой на сервере
@@ -289,22 +291,46 @@
     syncAttachment();
   }
 
+  // ── The database's signals (2026-11-13) ─────────────────────────────────
+  // One channel for the page (lex-account-events.js): the database tells it at once that
+  // something of the account changed (supabase/migrations/account_signals.sql). The sections,
+  // an open feed of Extended Mind, an order chat, the marks under an answer, the price under
+  // an answer, the balance and a top-up read again at its signals and once when it opens
+  // again after a break; nothing on this page asks the server on a timer whether there is
+  // something new (Gennady, 2026-11-13). The channel opens with the app (enterApp).
+  const signals = global.LexAccountEvents.create({
+    url: WcAuth.supabaseUrl(),
+    key: WcAuth.anonKey(),
+    token: () => WcAuth.validToken(),
+    log: (...a) => console.log('[wc] signals:', ...a),
+  });
+  global.WcSignals = signals;
+
   // ── Деньги беседы ───────────────────────────────────────────────────────
   // Всё, что лента знает о деньгах, приходит с сервера (list_chat_money):
   // цена под репликой по готовому уиду и итог беседы. После платного события
-  // деньги перечитываются (lex-chat-money.js), пока строка расхода не
-  // доехала. Смена беседы начинает новую эпоху: ответ для прежней беседы на
-  // экран не попадёт.
+  // деньги перечитываются (lex-chat-money.js) по сигналам базы, пока строка
+  // расхода не доехала. Смена беседы начинает новую эпоху: ответ для прежней
+  // беседы на экран не попадёт.
   const turnUids = new Map();
   let moneyEpoch = 0;
+  // Беседа, о сообщениях в пути которой база уже спрошена при открытии.
+  let brainAsked = null;
   const moneyRefresher = global.LexChatMoney ? global.LexChatMoney.createRefresher({
     load: async () => {
       const ep = moneyEpoch;
       const r = await WcBus.call('WC_CHAT_MONEY', {}).catch(() => null);
       return (ep === moneyEpoch && r && r.ok) ? r.body : null;
     },
-    apply: (_key, money) => { WcThread.paintMoney(money); brainLook(true); },
+    apply: (_key, money) => {
+      WcThread.paintMoney(money);
+      // Once per open chat the queue of the database itself is asked about a message on its
+      // way; after that its state comes with the signal «marks».
+      if (brainAsked !== state.conversationId) { brainAsked = state.conversationId; brainLook(); }
+    },
     currentKey: () => 'open:' + moneyEpoch,
+    signals,
+    chatKey: () => state.conversationId,
   }) : null;
   function requestMoney(r) {
     if (moneyRefresher) moneyRefresher.request(Object.assign({ key: 'open:' + moneyEpoch }, r || {}));
@@ -312,10 +338,10 @@
   // ── Согласие Геннадия в чатах с базой (supabase/migrations/brain_consent.sql) ──
   // «Да» под ответом отправляет «Да» следующим сообщением — то же «да» словами, что
   // просит база. «Отменить» отменяет сообщение в очереди базы (llm-proxy, brain-action).
-  // Пока сообщение ждёт отправки и беседа на экране, страница раз в минуту спрашивает,
-  // ушло ли оно: каждый вопрос — обращение к базе, поэтому не чаще.
-  const BRAIN_LOOK_MS = 60000;
-  let brainLookAt = 0;
+  // Ушло ли сообщение, говорит сама база: каждая смена задачи в её очереди приходит лентой
+  // Extended Mind, сервер ставит состояние пометки, и база шлёт сигнал «marks» — страница
+  // перечитывает пометки беседы (lex_chat_marks). Очередь базы страница спрашивает сама
+  // (brain-action status) только при открытии беседы и после обрыва канала.
   let brainLooking = false;
   function liveSend() {
     for (const list of WcThread.brainMarks().values()) {
@@ -323,12 +349,10 @@
     }
     return false;
   }
-  async function brainLook(force) {
+  async function brainLook() {
     const key = state.conversationId;
-    if (!key || brainLooking || document.visibilityState !== 'visible' || !liveSend()) return;
-    if (!force && Date.now() - brainLookAt < BRAIN_LOOK_MS) return;
+    if (!key || brainLooking || !liveSend()) return;
     brainLooking = true;
-    brainLookAt = Date.now();
     try {
       const r = await newsPost('brain-action', { op: 'status', chatKey: key });
       if (state.conversationId === key && r && Array.isArray(r.marks)) WcThread.setBrainMarks(r.marks);
@@ -338,7 +362,14 @@
       brainLooking = false;
     }
   }
-  setInterval(() => { brainLook(false); }, 5000);
+  signals.follow(['marks'], async (signal) => {
+    const key = state.conversationId;
+    if (!key) return;
+    if (!signal) { await brainLook(); return; }
+    if (!signal.payload || signal.payload.chat !== key) return;
+    const marks = await newsRpc('lex_chat_marks', { p_chat_key: key });
+    if (state.conversationId === key && Array.isArray(marks)) WcThread.setBrainMarks(marks);
+  });
   WcThread.setBrainHooks({
     onYes: () => { send('Да'); },
     onCancel: async (uid) => {
@@ -350,7 +381,7 @@
   });
 
   function resetMoney() {
-    brainLookAt = 0;
+    brainAsked = null;
     moneyEpoch++;
     if (moneyRefresher) moneyRefresher.cancel();
     WcThread.paintMoney(null);
@@ -523,6 +554,7 @@
   function buildNews() {
     return global.LexNews.createFeed({
       back: sectionBack,
+      signals,
       rpc: newsRpc,
       post: newsPost,
       copy: copyText,
@@ -573,10 +605,12 @@
   // it did for every request, its questions to the owner. A feed is an ordinary
   // conversation the database writes its entries into (supabase/migrations/em_feeds.sql):
   // it opens here like any chat, and while it is open the page follows the server — a new
-  // entry comes at the bottom, an extended one changes in place.
-  const EM_LOOK_MS = 2000;
+  // entry comes at the bottom, an extended one changes in place, at the database's signal
+  // «em» (account_signals.sql), not on a timer.
   let emOpen = null;      // { key, rev }
-  let emTimer = null;
+  let emFollower = null;
+  // A look skipped while the page was hidden or an answer was written: it goes when that ends.
+  let emLookDue = false;
   let emFrame = null;
   const emStamp = (iso) => {
     const at = iso ? new Date(iso) : null;
@@ -595,7 +629,9 @@
       title: 'Extended Mind',
       cls: 'lex-em',
       back: sectionBack,
-      every: 5000,
+      // An entry of a feed came or changed, a question came or got its answer: the signal «em».
+      signals,
+      events: ['em'],
       check: async () => {
         if (frame.screen === 'questions') { questions = (await newsRpc('lex_em_questions', {})) || []; paintQuestions(); }
         else { rows = (await newsRpc('lex_em_feed_home', {})) || []; paint(); }
@@ -756,8 +792,13 @@
     emOpen = { key, rev: (conv && conv.rev) || info.rev || 0 };
     sectionEls().main.classList.add('is-em-feed');
     WcHeader.setTitle(info.title || 'Extended Mind');
-    clearInterval(emTimer);
-    emTimer = setInterval(() => { lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message)); }, EM_LOOK_MS);
+    if (emFollower) emFollower.stop();
+    emFollower = signals.follow(['em'], async (signal) => {
+      const p = signal && signal.payload;
+      // A signal of another feed is not this one's; a look to catch up reads it anyway.
+      if (p && emOpen && p.chat !== emOpen.key && p.from !== emOpen.key) return;
+      await lookEmFeed(p && p.chat === (emOpen && emOpen.key) ? p.rev : null);
+    });
     // Shown from what was held: the press takes the visit's moment on the server now, and
     // what came after the reading ahead comes at once, not in two seconds.
     if (fromHeld) {
@@ -770,25 +811,35 @@
     emOpen = null;
     endVisit();
     WcThread.setEmAnswer(null);
-    clearInterval(emTimer);
-    emTimer = null;
+    if (emFollower) emFollower.stop();
+    emFollower = null;
+    emLookDue = false;
     sectionEls().main.classList.remove('is-em-feed');
     WcBus.call('WC_EM_FEED', {}).catch(() => {});
   }
-  // The number of the feed's last change, every two seconds; when it moved, only the new
-  // and extended entries come (lex_em_feed_changes) and take their place. The conversation is
-  // not read again: an answer just written reaches the server a moment after the screen, and
-  // reading it back would cut it. Not while an answer is written: the entries come after it.
-  async function lookEmFeed() {
+  // At the signal of this feed only the new and extended entries come (lex_em_feed_changes)
+  // and take their place; the signal carries the number of the change, so no question about
+  // it goes first. A look to catch up asks the number. The conversation is not read again: an
+  // answer just written reaches the server a moment after the screen, and reading it back
+  // would cut it. Not while an answer is written, and not while the page is hidden: the look
+  // goes when that ends (emLookDue).
+  async function lookEmFeed(told) {
     const f = emOpen;
-    if (!f || state.conversationId !== f.key || document.visibilityState !== 'visible' || WcThread.isStreaming()) return;
-    const rev = await newsRpc('lex_em_feed_rev', { p_chat_key: f.key });
-    if (emOpen !== f || rev === f.rev) return;
+    if (!f || state.conversationId !== f.key) return;
+    if (document.visibilityState !== 'visible' || WcThread.isStreaming()) { emLookDue = true; return; }
+    emLookDue = false;
+    const rev = told != null ? Number(told) : await newsRpc('lex_em_feed_rev', { p_chat_key: f.key });
+    if (emOpen !== f || rev <= f.rev) return;
     const ch = await newsRpc('lex_em_feed_changes', { p_chat_key: f.key, p_after: f.rev });
-    if (emOpen !== f || state.conversationId !== f.key || WcThread.isStreaming()) return;
+    if (emOpen !== f || state.conversationId !== f.key) return;
+    if (WcThread.isStreaming()) { emLookDue = true; return; }
     for (const row of (ch && Array.isArray(ch.turns)) ? ch.turns : []) WcThread.upsertEmEntry(WcHistory.turnOf(row));
     f.rev = Math.max(rev, (ch && ch.rev) || 0);
   }
+  function lookEmFeedIfDue() {
+    if (emLookDue && emOpen) lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message));
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lookEmFeedIfDue(); });
   // «Earlier entries» on the top of a feed that has more on the server.
   function emEarlierOf(r) {
     const key = state.conversationId;
@@ -831,6 +882,7 @@
   function buildProfi() {
     return global.LexProfi.createSection({
       back: sectionBack,
+      signals,
       rpc: newsRpc,
       copy: copyText,
       openOrder: openProfiOrder,
@@ -2043,6 +2095,17 @@
     document.getElementById('wc-gate').hidden = true;
     gateStatus('');
     document.getElementById('wc-news-back').onclick = () => sectionBack.go();
+    // The database's signals: one channel for the whole visit (sign-out reloads the page).
+    // The balance in the header follows the signal «balance» — a debit, a top-up — and is
+    // read again once after a break of the channel.
+    signals.start();
+    // The first opening of the channel is the start itself: the balance is read just below.
+    let balanceFirst = true;
+    signals.follow(['balance'], (signal) => {
+      if (!signal && balanceFirst) { balanceFirst = false; return; }
+      balanceFirst = false;
+      WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
+    });
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
@@ -2201,6 +2264,8 @@
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
         if (msg.type === 'STREAM_DONE' && profiChat) refreshProfiChat().catch(() => {});
+        // A feed's entries that came while the answer was written go in now.
+        setTimeout(lookEmFeedIfDue, 0);
         // Цена хода встанет, когда сервер запишет строку расхода: под ответом,
         // а у пустого ответа — под вопросом. Остановленный ответ сервер
         // дочитывает до конца и пишет позже; после первого хода беседы ещё

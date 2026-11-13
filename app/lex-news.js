@@ -8,6 +8,8 @@
 //
 // A window gives:
 //   back                the arrow of the window, see lex-back.js
+//   signals             the channel of the database's signals (lex-account-events.js): the
+//                       feed looks for a new letter at the signal «news»; none — it does not
 //   rpc(name, args)     a call of a database function under the person's pass
 //   post(kind, body)    a call of llm-proxy/<kind>
 //   showCard({ id, text, head, title })   put a card on screen now, from what the feed
@@ -112,7 +114,6 @@
   }
 
   // ── the feed ────────────────────────────────────────────────────────────────
-  const NEW_ITEMS_LOOK_MS = 30000;
   const KEPT_LETTERS = 50;
 
   function createFeed(deps) {
@@ -123,7 +124,9 @@
       back: deps.back,
       tools: [refreshBtn],
       gear: () => openSettings(),
-      every: NEW_ITEMS_LOOK_MS,
+      // A letter came or changed its state: the database's signal «news» (account_signals.sql).
+      signals: deps.signals,
+      events: ['news'],
       check: () => lookForNew(),
       onBack: () => backToFeed(),
     });
@@ -205,7 +208,7 @@
     // Items come by themselves. While the feed is on screen it looks whether something
     // stands above its top item, and only then offers the button. Nothing new, nothing shown.
     async function lookForNew() {
-      if (busy || document.hidden) return;
+      if (busy) return;
       const first = ((await deps.rpc('list_news', { p_limit: 1 })).blocks || [])[0];
       const top = blocksEl.firstElementChild;
       fresh.hidden = !first || (!!top && top.dataset.letter === String(first.id));

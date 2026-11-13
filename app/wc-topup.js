@@ -49,35 +49,51 @@
   const MAX_USD = 200;
   const DEFAULT_USD = 10;
 
-  // Опрос заказа до зачисления. Те же числа, что в расширении.
+  // Ждём зачисления до 5 минут. Деньги зачисляет вебхук провайдера, и в тот же миг
+  // база шлёт сигнал «balance» (supabase/migrations/account_signals.sql): по нему —
+  // один вопрос о заказе (WC_PAYMENT_STATUS), и ещё один, когда канал сигналов
+  // открылся снова после обрыва. По таймеру не спрашиваем (решение Геннадия
+  // 2026-11-13). Без канала (заглушка сборки) — прежний опрос раз в 2,5 с.
   const POLL_MS = 2500;
-  const POLL_CAP_MS = 5 * 60 * 1000;
+  const WAIT_CAP_MS = 5 * 60 * 1000;
 
-  let polling = false;
+  let waiting = false;
 
-  async function pollUntilPaid(orderId, onState) {
-    if (!orderId || polling) return;
-    polling = true;
-    const started = Date.now();
-    try {
-      while (Date.now() - started < POLL_CAP_MS) {
-        await new Promise((r) => setTimeout(r, POLL_MS));
-        let paid = false;
-        try {
-          const r = await WcBus.call('WC_PAYMENT_STATUS', { orderId });
-          paid = !!(r && r.paid);
-        } catch (_) {
-          continue;   // сеть моргнула — ещё круг
-        }
-        if (paid) { onState('paid'); return; }
-      }
-      // Потолок 5 минут: заказ, не оплаченный к этому времени, скорее всего
-      // брошен. Если деньги придут позже (ретрай вебхука, медленный банк),
-      // баланс всё равно обновится при ближайшем чтении аккаунта.
-      onState('timeout');
-    } finally {
-      polling = false;
+  function waitUntilPaid(orderId, onState) {
+    if (!orderId || waiting) return;
+    waiting = true;
+    const signals = global.WcSignals;
+    let over = false;
+    let follower = null;
+    let pollTimer = null;
+    const finish = (state) => {
+      if (over) return;
+      over = true;
+      waiting = false;
+      clearTimeout(cap);
+      clearTimeout(pollTimer);
+      if (follower) follower.stop();
+      onState(state);
+    };
+    // Потолок 5 минут: заказ, не оплаченный к этому времени, скорее всего
+    // брошен. Если деньги придут позже (ретрай вебхука, медленный банк),
+    // баланс всё равно обновится по сигналу «balance».
+    const cap = setTimeout(() => finish('timeout'), WAIT_CAP_MS);
+    const look = async () => {
+      if (over) return;
+      let paid = false;
+      try {
+        const r = await WcBus.call('WC_PAYMENT_STATUS', { orderId });
+        paid = !!(r && r.paid);
+      } catch (_) { /* сеть моргнула — следующий сигнал спросит снова */ }
+      if (paid) finish('paid');
+    };
+    if (signals) {
+      follower = signals.follow(['balance'], look);
+      return;
     }
+    const round = () => { pollTimer = setTimeout(async () => { await look(); if (!over) round(); }, POLL_MS); };
+    round();
   }
 
   const WcTopup = {
@@ -151,7 +167,7 @@
         else global.open(r.checkoutUrl, '_blank', 'noopener');   // окно заблокировали — пробуем прямо
 
         status.textContent = 'Waiting for the payment. You can close that window — the balance updates itself.';
-        pollUntilPaid(r.orderId, (state) => {
+        waitUntilPaid(r.orderId, (state) => {
           if (state === 'paid') {
             // Единственное место во всём чате, где уместен `success`. Деньги
             // человек вводил НЕ ЗДЕСЬ — касса открылась в системном браузере,
