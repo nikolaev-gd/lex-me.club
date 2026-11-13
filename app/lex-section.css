@@ -114,8 +114,23 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
+  /* The card reaches 10px past the text on both sides, so its highlight has room
+     while the words stay on the edge of the list. */
+  margin: 0 -10px;
+  padding: 0 10px;
   border-top: 1px solid var(--lex-section-line, rgba(127, 127, 127, .2));
+  border-radius: 10px;
+  transition: background-color 120ms ease;
 }
+/* Under the cursor the whole card lights up, as a line of chat history does; a title
+   is not a link and is never underlined. Touch screens have no hover. */
+@media (hover: hover) {
+  .lex-section .lex-section-row:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+}
+.lex-section .lex-section-row:has(> .lex-section-row-main:focus-visible) {
+  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
+}
+.lex-section .lex-section-row-main:focus-visible { outline: none; }
 .lex-section .lex-section-list > .lex-section-row:first-child,
 .lex-section .lex-section-list > :first-child > .lex-section-row:first-child { border-top: 0; }
 .lex-section .lex-section-row-main {
@@ -139,7 +154,7 @@
   content: '';
   position: absolute;
   top: 19px;
-  left: -12px;
+  left: -2px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -161,11 +176,6 @@
 }
 .lex-section .lex-section-row.is-unread .lex-section-row-title,
 .lex-section .lex-section-row.is-strong .lex-section-row-title { font-weight: 600; opacity: 1; }
-.lex-section .lex-section-row-main:hover .lex-section-row-title {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
 .lex-section .lex-section-row-sub {
   display: block;
   margin-top: 4px;
