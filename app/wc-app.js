@@ -280,7 +280,7 @@
     if (opts && opts.back) sectionBack.cameFrom(opts.back);
     if (opts && opts.profi) {
       enterProfiChat(opts.profi);
-      opts.profi.look = turnsLook(r.turns);
+      opts.profi.words = monitorWords(r.turns);
     }
     paintConversation(r, opts);
     WcSidebar.setActive(id);
@@ -854,9 +854,16 @@
     person.hidden = false;
     link.replaceChildren(...(bar.link ? [bar.link] : []));
   }
-  // What the screen of an order chat drew from: a turn's words and its place. When a fresh
-  // answer gives the same, only the boxes and the marks are painted again.
-  const turnsLook = (turns) => JSON.stringify((turns || []).map((t) => [t.uid || '', t.origin || '', t.text || '']));
+  // What the screen of an order chat drew of the turns that come without the person — a message
+  // of the client, what went to him, a notice of Profi: their words by uid. A fresh answer that
+  // says other words for one of them (the text of a voice message comes later) draws the chat
+  // again. The person's own turns and the answers of the model count by uid only: an answer just
+  // written reaches the server a few hundred milliseconds after the screen, and reading it back
+  // then would cut its tail (docs/BACKLOG.md, «Чат заказа на странице может показать ответ модели
+  // недописанным»).
+  const monitorWords = (turns) => new Map((turns || [])
+    .filter((t) => t.uid && /^profi_/.test(t.origin || ''))
+    .map((t) => [String(t.uid), t.text || '']));
   function makeProfiChat(order, data, keep) {
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
@@ -925,9 +932,12 @@
       ? await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks })
       : await WcBus.call('WC_LOAD_CONVERSATION', { id: state.conversationId });
     if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
-    const look = turnsLook(r.turns);
-    if (!moved && look === chat.look) { WcThread.paintProfiBoxes(); return; }
-    chat.look = look;
+    const shown = new Set(WcThread.shownUids());
+    const words = monitorWords(r.turns);
+    const before = chat.words || new Map();
+    const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
+    if (!moved && same) { WcThread.paintProfiBoxes(); return; }
+    chat.words = words;
     WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
   }
