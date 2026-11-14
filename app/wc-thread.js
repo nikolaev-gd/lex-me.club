@@ -241,11 +241,8 @@
 
   // An entry of a feed of Extended Mind: the common message of lex-message.js — the name
   // in bold and the time, the text under them. A record of «Разбор» and «Обращения к базе»
-  // is drawn from the view the server built of its data (em_entry); a question shows its
-  // words as the database wrote them. A question stands with its variants: a press answers it without a
-  // model (llm-proxy, kind em-answer). The line after the answer is the server's.
-  let emAnswerHook = null;
-  const emPending = new Map();   // chat turn uid → { choice, error }
+  // is drawn from the view the server built of its data (em_entry). A question of the database
+  // is drawn by the feed of questions (paintQuestions below); here it would stand as its words.
   function emEntryTurn(t) {
     if (t.origin === 'em_status') {
       const line = el('.wc-em-status', {}, []);
@@ -263,9 +260,7 @@
     } else {
       msg = global.LexMessage.message({ name: 'Extended Mind', at: t.authoredAt, text: (v && v.text) || t.text || '', cls: 'wc-em-text' });
     }
-    const parts = [msg];
-    if (v && v.state === 'open' && Array.isArray(v.choices) && v.choices.length) parts.push(emChoices(t, v));
-    const turn = el('.wc-turn.wc-turn-em', {}, parts);
+    const turn = el('.wc-turn.wc-turn-em', {}, [msg]);
     if (t.uid) turn.dataset.uid = String(t.uid);
     if (t.authoredAt) turn.dataset.at = t.authoredAt;
     turn.dataset.in = '1';
@@ -279,48 +274,175 @@
   function remark() {
     if (incoming && global.LexMessage) global.LexMessage.mark(elTurns, incoming.since);
   }
-  function emChoices(t, v) {
-    const box = el('.wc-em-choices', {}, []);
-    const pending = emPending.get(String(t.uid)) || null;
-    v.choices.forEach((c, i) => {
-      const b = el('button.wc-em-choice', { type: 'button' }, []);
-      b.textContent = c.label;
-      if (c.suggested) {
-        b.classList.add('is-suggested');
-        const why = el('span.wc-em-choice-why', {}, []);
-        why.textContent = 'Extended Mind thinks so';
-        b.appendChild(why);
-      }
-      if (pending && pending.choice === i && !pending.error) b.classList.add('is-busy');
-      b.disabled = !!(pending && !pending.error);
-      b.addEventListener('click', () => pressChoice(t, v, i));
-      box.appendChild(b);
+  // ── The feed of questions (2026-11-14, supabase/migrations/em_questions_feed.sql) ──────────
+  // Every question of the database is one message (LexMessage.question, ios/Lex/STANDARD.md В7.24):
+  // waiting — with its variants inside; answered or withdrawn — one line that unfolds. The waiting
+  // questions the server put in one group stand as one message (LexMessage.questionPack, В7.25) at
+  // the place of the newest of them; «One by one» lays them out there as single questions. The
+  // server's line after an answer is not drawn: the line of the question says it. A hold on a question
+  // or a pack opens the menu with Reply (В7.9): the next message is about it.
+  let qFeed = null;            // { onAnswer(uid, choice) → Promise<{ ok, text }>, onReply({ uids, text }) } while open
+  const qTurns = new Map();    // uid → the turn of a question
+  const qUi = {
+    pending: new Map(),        // uid → { choice, sent, error }: a press on its way, sent, or refused
+    open: new Set(),           // answered questions unfolded
+    packs: new Map(),          // group → { all, each, openRow, recording: { done, total } | null }
+  };
+  const qTime = (t) => { const x = Date.parse((t && t.authoredAt) || ''); return Number.isFinite(x) ? x : 0; };
+  const qOrder = (a, b) => (qTime(a) - qTime(b)) || String(a.uid).localeCompare(String(b.uid));
+
+  // A hold on a question or a pack: the menu of a hold (В7.9) with Reply.
+  function holdToReply(lit, uids, text) {
+    if (!qFeed || !qFeed.onReply) return;
+    onHold(lit, () => {
+      global.LexSendLater.menu({
+        anchor: lit.firstElementChild || lit, lit, align: 'left',
+        items: [{ label: 'Reply', icon: global.LexMessage.replyIcon(16), run: () => qFeed && qFeed.onReply({ uids, text }) }],
+      });
     });
-    if (pending) {
-      const note = el('.wc-em-choice-note', {}, []);
-      note.classList.toggle('is-error', !!pending.error);
-      note.textContent = pending.error ? `Not recorded: ${pending.error}` : (pending.sent ? 'Sent to Extended Mind. Waiting for it to record…' : 'Sending…');
-      box.appendChild(note);
-    }
-    return box;
   }
-  async function pressChoice(t, v, i) {
-    if (!emAnswerHook || !t.uid) return;
+
+  function questionMessage(t) {
     const uid = String(t.uid);
-    emPending.set(uid, { choice: i });
-    repaintEm(t);
-    try {
-      const out = await emAnswerHook(i);
-      if (!out || !out.ok) emPending.set(uid, { choice: i, error: (out && out.text) || 'the database did not take it' });
-      else emPending.set(uid, { choice: i, sent: true });
-    } catch (e) {
-      emPending.set(uid, { choice: i, error: (e && e.message) || 'no connection' });
-    }
-    repaintEm(t);
+    const v = t.emView || { text: t.text || '', state: 'open', choices: [] };
+    const msg = global.LexMessage.question(v, {
+      at: t.authoredAt,
+      pending: qUi.pending.get(uid) || null,
+      open: qUi.open.has(uid),
+      onChoice: (i) => answerOne(uid, i),
+      onToggle: () => {
+        if (qUi.open.has(uid)) qUi.open.delete(uid); else qUi.open.add(uid);
+        repaintQuestions();
+      },
+    });
+    msg.dataset.uid = uid;
+    holdToReply(msg, [uid], v.text || t.text || '');
+    return msg;
   }
-  function repaintEm(t) {
-    const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
-    if (old) old.replaceWith(emEntryTurn(t));
+
+  function questionNode(t) {
+    const node = el('.wc-turn.wc-turn-em.wc-turn-q', {}, [questionMessage(t)]);
+    node.dataset.uid = String(t.uid);
+    if (t.authoredAt) node.dataset.at = t.authoredAt;
+    node.dataset.in = '1';
+    return node;
+  }
+
+  function packNode(group, list) {
+    const ui = qUi.packs.get(group) || { all: false, each: false, openRow: null, recording: null };
+    qUi.packs.set(group, ui);
+    const members = list.map((t) => ({ uid: String(t.uid), at: t.authoredAt, view: t.emView }));
+    const node = el('.wc-turn.wc-turn-em.wc-turn-q.wc-turn-pack', {}, []);
+    node.dataset.uid = members[members.length - 1].uid;
+    node.dataset.uids = members.map((m) => m.uid).join(' ');
+    if (list[list.length - 1].authoredAt) node.dataset.at = list[list.length - 1].authoredAt;
+    node.dataset.in = '1';
+    if (ui.each) {
+      node.classList.add('is-each');
+      for (const t of list) node.appendChild(questionMessage(t));
+      return node;
+    }
+    const errors = new Map();
+    for (const m of members) {
+      const p = qUi.pending.get(m.uid);
+      if (p && p.error) errors.set(m.uid, p.error);
+    }
+    const msg = global.LexMessage.questionPack({
+      members, all: ui.all, openRow: ui.openRow, recording: ui.recording, errors, pending: qUi.pending,
+    }, {
+      onAll: () => answerPack(group),
+      onOneByOne: () => { ui.each = true; repaintQuestions(); },
+      onMore: () => { ui.all = true; repaintQuestions(); },
+      onRow: (uid) => { ui.openRow = ui.openRow === uid ? null : uid; repaintQuestions(); },
+      onChoice: (uid, i) => answerOne(uid, i),
+    });
+    msg.dataset.uids = node.dataset.uids;
+    holdToReply(msg, members.map((m) => m.uid), global.LexMessage.packTitle(members));
+    node.appendChild(msg);
+    return node;
+  }
+
+  // The questions in their places: a question by its time, a pack at the time of its newest question.
+  function paintQuestions() {
+    if (!qFeed) return;
+    for (const n of elTurns.querySelectorAll(':scope > .wc-turn-q')) n.remove();
+    const turns = [...qTurns.values()].sort(qOrder);
+    const groups = new Map();
+    for (const t of turns) {
+      const v = t.emView;
+      if (!v || v.state !== 'open' || !v.group) continue;
+      if (!groups.has(v.group)) groups.set(v.group, []);
+      groups.get(v.group).push(t);
+    }
+    const packOf = new Map();
+    for (const [g, list] of groups) if (list.length > 1) for (const t of list) packOf.set(String(t.uid), g);
+    for (const [g, ui] of [...qUi.packs]) if (!ui.recording && !(groups.get(g) && groups.get(g).length > 1)) qUi.packs.delete(g);
+    for (const t of turns) {
+      const g = packOf.get(String(t.uid));
+      if (!g) { place(questionNode(t)); continue; }
+      const list = groups.get(g);
+      if (list[list.length - 1] === t) place(packNode(g, list));
+    }
+  }
+  // Among the turns by time: before the first turn that came later.
+  function place(node) {
+    const at = Date.parse(node.dataset.at || '');
+    const next = Number.isFinite(at)
+      ? [...elTurns.children].find((n) => n.dataset && n.dataset.at && Date.parse(n.dataset.at) > at)
+      : null;
+    if (next) elTurns.insertBefore(node, next); else elTurns.append(node);
+  }
+  function repaintQuestions() {
+    paintQuestions();
+    remark();
+    if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
+  }
+
+  async function answerOne(uid, i) {
+    if (!qFeed || !qFeed.onAnswer) return;
+    const now = qUi.pending.get(uid);
+    if (now && !now.error) return;
+    qUi.pending.set(uid, { choice: i });
+    repaintQuestions();
+    let res;
+    try {
+      const out = await qFeed.onAnswer(uid, i);
+      res = (!out || !out.ok) ? { choice: i, error: (out && out.text) || 'the database did not take it' } : { choice: i, sent: true };
+    } catch (e) {
+      res = { choice: i, error: (e && e.message) || 'no connection' };
+    }
+    const t = qTurns.get(uid);
+    if (t && t.emView && t.emView.state !== 'open') qUi.pending.delete(uid);
+    else qUi.pending.set(uid, res);
+    repaintQuestions();
+  }
+
+  // The button of a pack: every question of it answered with its variant of the pack, one press of
+  // em-answer after another; what was not recorded stays in the pack, red.
+  async function answerPack(group) {
+    const ui = qUi.packs.get(group);
+    if (!ui || ui.recording || !qFeed || !qFeed.onAnswer) return;
+    const list = [...qTurns.values()].filter((t) => t.emView && t.emView.state === 'open' && t.emView.group === group).sort(qOrder);
+    if (list.length < 2) return;
+    ui.recording = { done: 0, total: list.length };
+    repaintQuestions();
+    for (const t of list) {
+      const uid = String(t.uid);
+      const k = t.emView.packChoice;
+      if (!Number.isInteger(k)) { qUi.pending.set(uid, { choice: -1, error: 'the database has no variant for all' }); continue; }
+      try {
+        const out = await qFeed.onAnswer(uid, k);
+        qUi.pending.set(uid, (!out || !out.ok) ? { choice: k, error: (out && out.text) || 'the database did not take it' } : { choice: k, sent: true });
+      } catch (e) {
+        qUi.pending.set(uid, { choice: k, error: (e && e.message) || 'no connection' });
+      }
+      const now = qTurns.get(uid);
+      if (now && now.emView && now.emView.state !== 'open') qUi.pending.delete(uid);
+      ui.recording.done++;
+      repaintQuestions();
+    }
+    ui.recording = null;
+    repaintQuestions();
   }
 
   let lastMoney = null;
@@ -469,7 +591,7 @@
     // as in Telegram: the list carries the class of the common parts (lex-message.css).
     setProfiChat(chat) {
       profiChat = chat;
-      elTurns.classList.toggle('lex-bubbles', !!chat);
+      elTurns.classList.toggle('lex-bubbles', !!chat || !!qFeed);
     },
 
     // The boxes of an order chat, from what the server says now.
@@ -505,9 +627,18 @@
     // model stays as the stream left it (its text reaches the server a moment later).
     upsertEmEntry(t) {
       if (!t || !t.uid) return;
+      // The feed of questions: the question changes in its place, a pack gathers again.
+      if (qFeed && (t.origin === 'em_question' || t.origin === 'em_status')) {
+        if (t.origin === 'em_question') {
+          const uid = String(t.uid);
+          if (t.deleted) qTurns.delete(uid); else qTurns.set(uid, t);
+          if (t.emView && t.emView.state !== 'open') qUi.pending.delete(uid);
+        }
+        repaintQuestions();
+        setEmpty(!elTurns.childElementCount);
+        return;
+      }
       const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
-      // A question the database answered or withdrew: what was pressed is done with.
-      if (t.emView && t.emView.state !== 'open') emPending.delete(String(t.uid));
       if (t.deleted) { if (old) old.remove(); }
       else if (old) old.replaceWith(emEntryTurn(t));
       else elTurns.append(emEntryTurn(t));
@@ -516,8 +647,13 @@
       if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
     },
 
-    // The press on a variant of a question: (choice index) → the server's answer.
-    setEmAnswer(fn) { emAnswerHook = fn; emPending.clear(); },
+    // The feed of questions is open: { onAnswer(uid, choice), onReply({ uids, text }) }; null — it is
+    // not. Its turns are bubbles: the list carries the class of the common parts (lex-message.css).
+    setQuestionsFeed(hooks) {
+      qFeed = hooks || null;
+      if (!qFeed) { qTurns.clear(); qUi.pending.clear(); qUi.open.clear(); qUi.packs.clear(); }
+      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed);
+    },
 
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
@@ -547,7 +683,12 @@
         b.addEventListener('click', () => opts.emEarlier());
         elTurns.append(b);
       }
+      if (qFeed) qTurns.clear();
       (turns || []).forEach((t) => {
+        // The feed of questions: a question takes its place after the loop (paintQuestions), the
+        // server's line after an answer is said by the line of its question.
+        if (qFeed && t.origin === 'em_question' && t.uid) { qTurns.set(String(t.uid), t); return; }
+        if (qFeed && t.origin === 'em_status') return;
         if (t.origin && String(t.origin).indexOf('em_') === 0) {
           elTurns.append(emEntryTurn(t));
           return;
@@ -610,6 +751,7 @@
           elTurns.append(turn);
         }
       });
+      paintQuestions();
       remark();
       // After the day lines: the line of a hidden discussion stands right over its turns.
       if (profiChat) profiChat.paintHidden(elTurns);
@@ -618,13 +760,23 @@
       // A chat that is only the news starts at its first line. A card that was on
       // screen before its chat came stays where the person is reading.
       const newsOnly = !!(turns && turns.length === 1 && turns[0].origin === 'news');
-      const place = keptTop !== null ? keptTop
+      // The third exception: a tapped notification of an entry of a feed leads to that entry — a
+      // question, or the pack that holds it.
+      const focus = opts && opts.focusUid ? [...elTurns.querySelectorAll('.wc-turn[data-uid]')]
+        .find((n) => n.dataset.uid === String(opts.focusUid) || (n.dataset.uids || '').split(' ').includes(String(opts.focusUid))) : null;
+      const where = keptTop !== null ? keptTop
         : (newsOnly && opts && opts.keepPlace ? elThread.scrollTop : null);
-      stickToBottom = !newsOnly && place === null;
+      stickToBottom = !newsOnly && where === null && !focus;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
       requestAnimationFrame(() => {
-        if (place !== null) elThread.scrollTop = place;
+        if (focus) {
+          elThread.scrollTop = Math.max(0, focus.offsetTop - (elThread.clientHeight - focus.offsetHeight) / 2);
+          const lit = focus.querySelector('.lex-q') || focus;
+          lit.classList.add('is-focus');
+          setTimeout(() => lit.classList.remove('is-focus'), 1200);
+          elJump.hidden = nearBottom();
+        } else if (where !== null) elThread.scrollTop = where;
         else if (newsOnly) elThread.scrollTop = 0;
         else scrollToBottom(false);
       });

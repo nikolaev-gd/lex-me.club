@@ -2331,6 +2331,10 @@
           // цепочку от начала беседы до выбранного сообщения сервер поднимает
           // сам. Готовый список реплик он при этом признаке не принимает вовсе.
           tree: !!(chatOptions && chatOptions.tree),
+          // The feed of questions of Extended Mind: the questions this message replies to (Reply),
+          // by their turns (supabase/migrations/em_questions_feed.sql).
+          ...(chatOptions && Array.isArray(chatOptions.emReply) && chatOptions.emReply.length
+            ? { emReply: chatOptions.emReply.slice(0, 30) } : {}),
         },
       } : null;
       // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)

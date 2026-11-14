@@ -32,7 +32,8 @@
 //                       Max, WhatsApp or on Profi.ru, supabase/migrations/chat_files.sql):
 //                       [{ kind, path, mime, bytes, name, duration, width, height, missing }] → a node
 //                       for `media` of bubble(): photos as photos() draws them, a voice message as a
-//                       row with a play button, a video as a tile that plays in place, a document as a
+//                       row with a play button and its speed (1×–2.5×, one for the device; a press —
+//                       the next one, a hold — the menu), a video as a tile that plays in place, a document as a
 //                       card that opens it; a file that did not come — the card with the reason. The
 //                       parts know no server: io = { blob(path) → Promise<object URL | null>,
 //                       link(path, { download }) → Promise<address | null> } comes from the page. None — null
@@ -48,6 +49,25 @@
 //   avatar(name)        a round letter of a person, its colour from the name
 //   eyeOff(size), sparkle(size)   the crossed eye (seen by the person alone) and the mark of
 //                       the model
+//
+// Buttons (В7.6, В7.7) and the questions of the database (2026-11-14, the feed «Questions» of
+// Extended Mind, ios/Lex/STANDARD.md В7.24–В7.26):
+//   button({ label, note, main, left })   the main button (main: true) or the second one, 44 high,
+//                       radius 12, 15/650; `left` — the words at the left, the height grows with
+//                       them (a variant of a question); `note` — a second line 12/400 under the words
+//   question(v, o)      a question of the database as one message: v is its view from the server
+//                       (lex_em_question_view: text, choices, state, answer, reason). Waiting — the
+//                       bubble with its variants inside and the quiet «Пропустить» under them;
+//                       answered or withdrawn — one line, a press unfolds it. o = { at, pending,
+//                       open, onChoice(i), onToggle() }
+//   questionPack(p, o)  the waiting questions with the same variants as one message: a title, a row
+//                       per question, one button for all and «One by one». p = { members:
+//                       [{ uid, at, view }], all, openRow, recording, errors, pending }, o = { onAll(),
+//                       onOneByOne(), onMore(), onRow(uid), onChoice(uid, i) }
+//   packTitle(members), packRows(members)   the words of a pack: what all its questions share, and
+//                       what each says of its own
+//   replyBar({ head, text, onClose })   the line over the message box: the message the next one
+//                       answers (Reply)
 //
 // A chat or a section is built only from these parts and from lex-section.js (CLAUDE.md,
 // docs/spec/27-sections.md, «Сообщения»). What is missing becomes a part here, for all.
@@ -512,6 +532,97 @@
   // One voice message plays at a time, as in a messenger.
   let playing = null;
 
+  // ── The speed of a voice message (В7.21) ──
+  // One speed for every voice message and audio on this device: the browser keeps it (the Mac app
+  // shows this page and keeps it the same way), so it stays after a restart and a new voice message
+  // plays at it at once. A press takes the next speed round, as in Telegram and WhatsApp; a hold
+  // opens the menu of the speeds — the common menu of a held button (lex-send-later.js, В7.9). The
+  // speed changes under the playing sound without a pause, and the voice keeps its pitch. The
+  // iPhone has the same speeds and words (LexVoiceSpeeds in MessageParts.swift).
+  const SPEEDS = [1, 1.25, 1.5, 2, 2.5];
+  const SPEED_KEY = 'lexVoiceSpeed';
+  const speedText = (s) => `${s}×`;
+  let speedNow = null;
+  let speedHeard = false;
+  function voiceSpeed() {
+    if (speedNow == null) {
+      let v = 1;
+      try { v = Number(global.localStorage.getItem(SPEED_KEY)) || 1; } catch (_) { /* no storage: 1× */ }
+      speedNow = SPEEDS.includes(v) ? v : 1;
+    }
+    // Another tab of the page changed it: the rows here show it too.
+    if (!speedHeard) {
+      speedHeard = true;
+      try {
+        global.addEventListener('storage', (e) => { if (e.key === SPEED_KEY) { speedNow = null; paintSpeed(); } });
+      } catch (_) { /* not a window */ }
+    }
+    return speedNow;
+  }
+  // `preservesPitch` is on by itself; it is set here on purpose, so a faster voice never sounds higher.
+  function playAt(audio, s) {
+    audio.preservesPitch = true;
+    if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+    audio.defaultPlaybackRate = s;
+    audio.playbackRate = s;
+  }
+  function showSpeed(b, s) {
+    b.firstChild.textContent = speedText(s);
+    b.setAttribute('aria-label', `Playback speed ${speedText(s)}. Press for the next speed, hold to choose`);
+  }
+  function paintSpeed() {
+    const s = voiceSpeed();
+    for (const b of document.querySelectorAll('.lex-voice-speed')) showSpeed(b, s);
+    if (playing) playAt(playing, s);
+  }
+  function setVoiceSpeed(s) {
+    if (!SPEEDS.includes(s)) return;
+    speedNow = s;
+    try { global.localStorage.setItem(SPEED_KEY, String(s)); } catch (_) { /* kept for this page only */ }
+    paintSpeed();
+  }
+  function speedMenu(b) {
+    if (b.classList.contains('is-open') || !global.LexSendLater) return;
+    if (global.WcHaptics) global.WcHaptics.press();
+    const now = voiceSpeed();
+    b.classList.add('is-open');
+    b.setAttribute('aria-expanded', 'true');
+    global.LexSendLater.menu({
+      anchor: b, align: 'right', head: 'Playback speed', choice: true,
+      items: SPEEDS.map((s) => ({ label: speedText(s), checked: s === now, run: () => setVoiceSpeed(s) })),
+      onClose: () => {
+        b.classList.remove('is-open');
+        b.setAttribute('aria-expanded', 'false');
+        // The focus was on an item of the menu, which is gone: back to the button, for the keyboard.
+        const f = document.activeElement;
+        if (!f || f === document.body) b.focus({ preventScroll: true });
+      },
+    });
+  }
+  function speedButton() {
+    const b = make('button', 'lex-voice-speed');
+    b.type = 'button';
+    b.setAttribute('aria-haspopup', 'menu');
+    b.setAttribute('aria-expanded', 'false');
+    b.appendChild(make('span', 'lex-voice-speed-pill'));
+    showSpeed(b, voiceSpeed());
+    const hold = global.LexLongPress
+      ? global.LexLongPress.attach(b, () => speedMenu(b), { when: () => !!global.LexSendLater })
+      : null;
+    b.addEventListener('click', () => {
+      if (hold && hold.didFire()) return;
+      const i = SPEEDS.indexOf(voiceSpeed());
+      setVoiceSpeed(SPEEDS[(i + 1) % SPEEDS.length]);
+    });
+    // The right button of a mouse and the menu key of a keyboard choose too.
+    b.addEventListener('contextmenu', (e) => {
+      if (!global.LexSendLater) return;
+      e.preventDefault();
+      speedMenu(b);
+    });
+    return b;
+  }
+
   function voice(f, io) {
     const root = make('div', 'lex-voice');
     const btn = make('button', 'lex-voice-play');
@@ -522,7 +633,7 @@
     const fill = make('div', 'lex-voice-fill');
     track.appendChild(fill);
     const time = make('span', 'lex-voice-time', durationText(f.duration));
-    root.append(btn, track, time);
+    root.append(btn, track, time, speedButton());
     let audio = null;
     let loading = false;
     const show = (on) => {
@@ -539,6 +650,7 @@
     const start = () => {
       if (playing && playing !== audio) playing.pause();
       playing = audio;
+      playAt(audio, voiceSpeed());
       audio.play().catch(() => show(false));
     };
     btn.addEventListener('click', () => {
@@ -722,7 +834,237 @@
     return n;
   }
 
+  // ── Buttons (В7.6, В7.7) ─────────────────────────────────────────────────────
+  // The main button — the colour of the main action (--accent), one in a row; the second — the
+  // ground of a hover (--bg-hover). 44 high, radius 12, 15/650. `left` — the words at the left and
+  // the height growing with them: a variant of a question. `note` — a second line 12/400 under the
+  // words («Extended Mind thinks so»).
+  function button(o) {
+    const b = make('button', `lex-btn${o.main ? ' is-main' : ''}${o.left ? ' is-left' : ''}`);
+    b.type = 'button';
+    b.appendChild(make('span', 'lex-btn-words', o.label || ''));
+    if (o.note) b.appendChild(make('span', 'lex-btn-note', o.note));
+    return b;
+  }
+
+  // ── A question of the database (В7.24) ──────────────────────────────────────
+  // One message: the bubble of the other side across the whole lane, the question's words, its
+  // variants under them — the one the database thinks right is the main button with «Extended Mind
+  // thinks so», the others are second buttons; the variant «Пропустить» is a quiet button at the left
+  // of the bottom line, the time at its right. Answered or withdrawn — one line of the question, under
+  // it what was answered; a press unfolds it in place.
+  const CHECK_D = ['M5 12l5 5L20 7'];
+  const DOWN_D = ['M6 9l6 6 6-6'];
+  const UP_D = ['M6 15l6-6 6 6'];
+  const REPLY_D = ['M9 14L4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'];
+  const CLOSE_D = ['M6 6l12 12', 'M18 6L6 18'];
+
+  function pendingNote(pending) {
+    if (!pending) return null;
+    const n = make('div', `lex-q-note${pending.error ? ' is-error' : ''}`,
+      pending.error ? `Not recorded: ${pending.error}` : pending.sent ? 'Sent to Extended Mind. Waiting for it to record…' : 'Sending…');
+    return n;
+  }
+
+  // The variants of a waiting question: a column of buttons; the quiet «Пропустить» goes apart.
+  function choices(v, pending, onChoice) {
+    const box = make('div', 'lex-q-choices');
+    let quiet = null;
+    const busy = !!(pending && !pending.error);
+    (v.choices || []).forEach((c, i) => {
+      if (c.quiet) { quiet = { c, i }; return; }
+      const b = button({ label: c.label, note: c.suggested ? 'Extended Mind thinks so' : null, main: !!c.suggested, left: true });
+      if (busy && pending.choice === i) b.classList.add('is-busy');
+      b.disabled = busy;
+      b.addEventListener('click', () => onChoice && onChoice(i));
+      box.appendChild(b);
+    });
+    return { box, quiet, busy };
+  }
+
+  function questionFoot(at, quiet, busy, pending, onChoice) {
+    const foot = make('div', `lex-q-foot${quiet ? ' has-quiet' : ''}`);
+    if (quiet) {
+      const q = make('button', 'lex-q-quiet', quiet.c.label);
+      q.type = 'button';
+      if (busy && pending.choice === quiet.i) q.classList.add('is-busy');
+      q.disabled = busy;
+      q.addEventListener('click', () => onChoice && onChoice(quiet.i));
+      foot.appendChild(q);
+    }
+    foot.appendChild(make('span', 'lex-q-time', timeOf(at)));
+    return foot;
+  }
+
+  function question(v, o) {
+    o = o || {};
+    if (!v || v.state !== 'open') return doneQuestion(v || {}, o);
+    const root = make('div', 'lex-q is-open');
+    const text = make('div', 'lex-q-text', v.text || '');
+    root.appendChild(text);
+    const { box, quiet, busy } = choices(v, o.pending, o.onChoice);
+    if (box.childElementCount) root.appendChild(box);
+    const note = pendingNote(o.pending);
+    if (note) root.appendChild(note);
+    root.appendChild(questionFoot(o.at, quiet, busy, o.pending, o.onChoice));
+    if (quiet) root.classList.add('has-quiet');
+    return root;
+  }
+
+  // «Answered: <the answer in the words of its variant>», «Withdrawn: <why>».
+  function doneLine(v) {
+    if (v.state === 'withdrawn') return v.reason ? `Withdrawn: ${v.reason}` : 'Withdrawn';
+    const c = (v.choices || []).find((x) => v.answer && String(x.answer).toLowerCase() === String(v.answer).toLowerCase());
+    const said = c ? c.label : v.answer;
+    return said ? `Answered: ${said}` : 'Answered';
+  }
+
+  function doneQuestion(v, o) {
+    const open = !!o.open;
+    const root = make(open ? 'div' : 'button', `lex-q is-done${open ? ' is-unfolded' : ''}`);
+    if (!open) {
+      root.type = 'button';
+      root.setAttribute('aria-expanded', 'false');
+      root.setAttribute('aria-label', `${v.state === 'withdrawn' ? 'Withdrawn' : 'Answered'} question. Show it`);
+    }
+    const head = make('span', 'lex-q-head');
+    head.append(make('span', open ? 'lex-q-text' : 'lex-q-line', v.text || ''), make('span', 'lex-q-time', timeOf(o.at)));
+    const state = make(open ? 'button' : 'span', 'lex-q-state');
+    if (open) {
+      state.type = 'button';
+      state.setAttribute('aria-expanded', 'true');
+    }
+    state.append(strokes(CHECK_D, 14), make('span', 'lex-q-state-words', doneLine(v)), strokes(open ? UP_D : DOWN_D, 16));
+    root.append(head, state);
+    (open ? state : root).addEventListener('click', () => o.onToggle && o.onToggle());
+    return root;
+  }
+
+  // ── A pack of questions (В7.25) ─────────────────────────────────────────────
+  // The waiting questions the server put in one group (the same variants, the same one the database
+  // thinks right) stand as one message: what they share as the title, a row per question with what it
+  // says of its own, the first three rows and «N more», one button that answers every question with
+  // its variant of the pack, and «One by one», which lays them out as single questions. The words
+  // come from the questions themselves: the words all of them start and end with make the title, the
+  // words between are the row.
+  const words = (t) => String(t || '').split('\n')[0].trim().split(/\s+/).filter(Boolean);
+  function packSplit(members) {
+    const ws = members.map((m) => words(m.view && m.view.text));
+    const min = Math.min(...ws.map((w) => w.length));
+    let head = 0;
+    while (head < min - 1 && ws.every((w) => w[head] === ws[0][head])) head++;
+    let tail = 0;
+    while (head + tail < min - 1 && ws.every((w) => w[w.length - 1 - tail] === ws[0][ws[0].length - 1 - tail])) tail++;
+    return { ws, head, tail };
+  }
+  // The same words in every question (one question asked again): the title is the question, the rows
+  // are what each says beyond its first line.
+  const sameWords = (ws) => ws.every((w) => w.join(' ') === ws[0].join(' '));
+  function packTitle(members) {
+    const { ws, head, tail } = packSplit(members);
+    if (sameWords(ws)) return `${members.length} questions: ${ws[0].join(' ')}`;
+    const frame = [ws[0].slice(0, head).join(' '), '…', ws[0].slice(ws[0].length - tail).join(' ')].filter(Boolean).join(' ');
+    return head || tail ? `${members.length} questions: ${frame}` : `${members.length} questions with the same answers`;
+  }
+  function packRows(members) {
+    const { ws, head, tail } = packSplit(members);
+    if (sameWords(ws)) {
+      return members.map((m) => String((m.view && m.view.text) || '').split('\n').slice(1).join(' ').trim() || ws[0].join(' '));
+    }
+    return ws.map((w) => w.slice(head, w.length - tail).join(' '));
+  }
+  const ROWS_SHOWN = 3;
+
+  function questionPack(p, o) {
+    o = o || {};
+    const members = p.members || [];
+    const first = members[0] && members[0].view;
+    const choice = first && first.choices && first.choices[first.packChoice];
+    const root = make('div', 'lex-q is-pack');
+    root.appendChild(make('div', 'lex-q-title', packTitle(members)));
+    const rows = make('div', 'lex-q-rows');
+    const said = packRows(members);
+    const recording = !!p.recording;
+    members.forEach((m, i) => {
+      if (!p.all && i >= ROWS_SHOWN && members.length > ROWS_SHOWN + 1) return;
+      const one = !/\s/.test(said[i]);
+      const row = make('button', `lex-q-row${one ? ' is-one' : ''}${p.openRow === m.uid ? ' is-open' : ''}`);
+      row.type = 'button';
+      row.setAttribute('aria-expanded', p.openRow === m.uid ? 'true' : 'false');
+      row.appendChild(make('span', 'lex-q-row-text', said[i] || (m.view && m.view.text) || ''));
+      if (one && choice) row.appendChild(make('span', 'lex-q-pill', choice.label));
+      row.disabled = recording;
+      row.addEventListener('click', () => o.onRow && o.onRow(m.uid));
+      rows.appendChild(row);
+      const err = p.errors && p.errors.get(m.uid);
+      if (err) rows.appendChild(make('div', 'lex-q-note is-error', `Not recorded: ${err}`));
+      // The row pressed: the variants of this one question under it.
+      if (p.openRow === m.uid && !recording) {
+        const pending = p.pending ? p.pending.get(m.uid) : null;
+        const inner = make('div', 'lex-q-row-open');
+        inner.appendChild(make('div', 'lex-q-text', (m.view && m.view.text) || ''));
+        const { box, quiet, busy } = choices(m.view || {}, pending, (k) => o.onChoice && o.onChoice(m.uid, k));
+        if (box.childElementCount) inner.appendChild(box);
+        const note = pendingNote(pending);
+        if (note) inner.appendChild(note);
+        if (quiet) {
+          const q = make('button', 'lex-q-quiet', quiet.c.label);
+          q.type = 'button';
+          q.disabled = busy;
+          q.addEventListener('click', () => o.onChoice && o.onChoice(m.uid, quiet.i));
+          inner.appendChild(q);
+        }
+        rows.appendChild(inner);
+      }
+    });
+    if (!p.all && members.length > ROWS_SHOWN + 1) {
+      const more = make('button', 'lex-q-more');
+      more.type = 'button';
+      more.append(make('span', '', `${members.length - ROWS_SHOWN} more`), strokes(DOWN_D, 16));
+      more.addEventListener('click', () => o.onMore && o.onMore());
+      rows.appendChild(more);
+    }
+    root.appendChild(rows);
+    const pair = make('div', 'lex-q-pair');
+    const all = button({ label: choice ? `${choice.label} — all ${members.length}` : `All ${members.length}`, main: true });
+    const each = button({ label: 'One by one' });
+    all.disabled = recording || !choice;
+    each.disabled = recording;
+    if (recording) all.classList.add('is-busy');
+    all.addEventListener('click', () => o.onAll && o.onAll());
+    each.addEventListener('click', () => o.onOneByOne && o.onOneByOne());
+    pair.append(all, each);
+    root.appendChild(pair);
+    if (recording) root.appendChild(make('div', 'lex-q-note', `Recording ${p.recording.done + 1} of ${p.recording.total}…`));
+    const foot = make('div', 'lex-q-foot');
+    foot.appendChild(make('span', 'lex-q-time', timeOf(members.length ? members[members.length - 1].at : null)));
+    root.appendChild(foot);
+    return root;
+  }
+
+  // ── The line over the message box (В7.26) ───────────────────────────────────
+  // Reply on a message: the next message answers it. The arrow of a reply, «Reply to …» and one line
+  // of the message, the cross that takes the line away.
+  function replyBar(o) {
+    const root = make('div', 'lex-reply');
+    const icon = strokes(REPLY_D, 16);
+    icon.classList.add('lex-reply-icon');
+    const words = make('span', 'lex-reply-words');
+    words.append(make('span', 'lex-reply-head', o.head || 'Reply'), make('span', 'lex-reply-text', String(o.text || '').split('\n')[0]));
+    const close = make('button', 'lex-reply-close');
+    close.type = 'button';
+    close.title = 'Cancel the reply';
+    close.setAttribute('aria-label', 'Cancel the reply');
+    close.appendChild(strokes(CLOSE_D, 16));
+    close.addEventListener('click', () => o.onClose && o.onClose());
+    root.append(icon, words, close);
+    return root;
+  }
+
+  // The arrow of a reply, 16: for the item «Reply» of a menu.
+  const replyIcon = (size) => strokes(REPLY_D, size || 16);
+
   global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    pencil, draftStamp, sendArrow, avatar };
+    pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon };
 })(typeof window !== 'undefined' ? window : globalThis);

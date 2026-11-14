@@ -2085,4 +2085,16 @@ button { font: inherit; color: inherit; }
 .wc-main.is-em-feed .wc-new-chat,
 .wc-main.is-em-feed .lex-answer-row { display: none !important; }
 .lex-em .lex-section-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
+/* The feed of questions (2026-11-14): every question one message, 16 between them; «One by one»
+ * lays a pack out as single questions in its place. The bar: the arrow back and the title, no
+ * three lines (as in an order chat). */
+.lex-bubbles > .wc-turn-q { margin-bottom: 16px; }
+.lex-bubbles > .wc-turn-pack.is-each { display: flex; flex-direction: column; gap: 16px; }
+.wc-main.is-em-questions .wc-burger { display: none !important; }
+.wc-chat-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wc-chat-title[hidden] { display: none !important; }
+.wc-chat-title-main { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
+.wc-chat-title-sub { overflow: hidden; color: var(--fg-muted); font-size: 13px; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
+.wc-reply { margin: 0 0 6px; }
+.wc-reply[hidden] { display: none !important; }
 .wc-turn-assistant > .lex-brain-marks { margin-top: 10px; --lex-brain-line: var(--line); --lex-brain-hover: var(--bg-hover); --lex-brain-danger: var(--danger); }

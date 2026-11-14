@@ -448,8 +448,10 @@
     return conversationOf(chatKey, await post('/rest/v1/rpc/' + name, args));
   }
 
-  // How many latest entries of a feed a reading takes (the item of a section asks the same).
-  const emLimit = (chatKey) => emLimits.get(chatKey) || EM_PAGE;
+  // How many latest entries of a feed a reading takes (the item of a section asks the same). The
+  // feed of questions takes the most the server gives (200): a question is a few lines, and every
+  // waiting question should be on the screen to stand in its pack.
+  const emLimit = (chatKey) => emLimits.get(chatKey) || (chatKey === '__lex_em_question__' ? 200 : EM_PAGE);
 
   // A conversation as the server gave it (list_turns, or lex_em_feed_turns for a feed),
   // whether read here or brought by the item of a section (lex_chat_open).

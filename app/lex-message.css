@@ -101,7 +101,7 @@
  * The list of turns carries `lex-bubbles`: the other person on the left, what went to them on
  * the right, a notice of a service and the day line as plates in the middle. The colours are
  * the page's palette (lex-palette.css) in the dark and their light pairs here. */
-.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp {
+.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp, .lex-q, .lex-reply {
   --lex-bubble-in: #F0F0F1;
   --lex-bubble-out: #DCE8FB;
   --lex-bubble-out-meta: rgba(0, 0, 0, .55);
@@ -116,7 +116,8 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .lex-bubbles, :root:not([data-theme="light"]) .lex-bubble,
   :root:not([data-theme="light"]) .lex-notice, :root:not([data-theme="light"]) .lex-fold,
-  :root:not([data-theme="light"]) .lex-stamp {
+  :root:not([data-theme="light"]) .lex-stamp, :root:not([data-theme="light"]) .lex-q,
+  :root:not([data-theme="light"]) .lex-reply {
     --lex-bubble-in: var(--lex-dark-bubble);
     --lex-bubble-out: var(--lex-dark-bubble-out);
     --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -130,7 +131,8 @@
   }
 }
 :root[data-theme="dark"] .lex-bubbles, :root[data-theme="dark"] .lex-bubble, :root[data-theme="dark"] .lex-notice,
-:root[data-theme="dark"] .lex-fold, :root[data-theme="dark"] .lex-stamp {
+:root[data-theme="dark"] .lex-fold, :root[data-theme="dark"] .lex-stamp, :root[data-theme="dark"] .lex-q,
+:root[data-theme="dark"] .lex-reply {
   --lex-bubble-in: var(--lex-dark-bubble);
   --lex-bubble-out: var(--lex-dark-bubble-out);
   --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -236,6 +238,26 @@
   border-radius: 2px; background: var(--lex-plain-fg);
 }
 .lex-bubble .lex-voice-time { flex: none; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--lex-plate-fg); }
+/* The speed of the sound, right of the time: a zone of 44 (В5) that stands 4 past its neighbours on each
+   side, a pill 24 high inside — radius 12, 0 8 inside, 12/650 in figures of one width. The same tokens in
+   a bubble that went to the client. Under the cursor, pressed or with its menu open — --bg-active. */
+.lex-bubble .lex-voice-speed {
+  -webkit-appearance: none; appearance: none;
+  flex: none; display: grid; place-items: center; min-width: 44px; height: 44px; margin: 0 -4px; padding: 0;
+  border: 0; background: transparent; color: var(--fg, var(--lex-plain-fg)); font: inherit; cursor: pointer;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+.lex-bubble .lex-voice-speed-pill {
+  display: block; box-sizing: border-box; height: 24px; padding: 0 8px; border-radius: 12px;
+  background: var(--lex-plate);
+  font-size: 12px; font-weight: 650; line-height: 24px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  transition: background-color 120ms ease;
+}
+.lex-bubble .lex-voice-speed:hover .lex-voice-speed-pill, .lex-bubble .lex-voice-speed:active .lex-voice-speed-pill,
+.lex-bubble .lex-voice-speed:focus-visible .lex-voice-speed-pill, .lex-bubble .lex-voice-speed.is-open .lex-voice-speed-pill {
+  background: var(--bg-active, var(--lex-plate));
+}
+.lex-bubble .lex-voice-speed:focus-visible { outline: none; }
 /* A video: a dark tile with the play button and its length; pressed — the player in its place. */
 .lex-bubble .lex-video {
   position: relative; display: grid; place-items: center; overflow: hidden;
@@ -393,3 +415,129 @@
   font-size: 13px;
 }
 .lex-bubbles > .lex-msg-new { margin: 6px 0 8px; }
+
+/* ── Buttons (В7.6, В7.7) ──────────────────────────────────────────────────────
+ * The main button — the colour of the main action, one in a row; the second — the ground of a
+ * hover. 44 high, radius 12, 15/650. `is-left` — a variant of a question: the words at the left,
+ * the height grows with them; a second line 12/400 under the words (`lex-btn-note`). */
+.lex-btn {
+  -webkit-appearance: none; appearance: none;
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+  box-sizing: border-box; min-width: 0; min-height: 44px; padding: 0 12px;
+  border: 0; border-radius: 12px; background: var(--bg-hover); color: var(--fg, var(--lex-plain-fg));
+  font: inherit; font-size: 15px; font-weight: 650; line-height: 20px; text-align: center;
+  cursor: pointer; transition: background-color 120ms ease;
+}
+.lex-btn:hover { background: var(--bg-active); }
+.lex-btn.is-main { background: var(--accent); color: var(--accent-fg); }
+.lex-btn.is-main:hover { background: var(--accent-hover, var(--accent)); }
+.lex-btn:disabled { opacity: .5; cursor: default; }
+.lex-btn.is-busy { opacity: 1; }
+.lex-btn.is-left { align-items: flex-start; padding: 10px 12px; text-align: left; }
+.lex-btn.is-left:has(> .lex-btn-note) { padding: 6px 12px; }
+.lex-btn .lex-btn-words { overflow-wrap: anywhere; }
+.lex-btn .lex-btn-note { font-size: 12px; font-weight: 400; line-height: 16px; }
+/* A press on its way: a ring turns after the words of the pressed button. */
+.lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after {
+  content: ''; display: inline-block; box-sizing: border-box; width: 12px; height: 12px; margin-left: 8px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  vertical-align: -1px; animation: lex-turn 800ms linear infinite;
+}
+@keyframes lex-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after { animation: none; }
+}
+
+/* ── A question of the database (В7.24) ─────────────────────────────────────────
+ * The bubble of the other side across the lane: radius 18 18 18 6, inside 10 12 8. The words 15,
+ * the variants under them at 10 in a column through 6, the quiet «Пропустить» at the left of the
+ * bottom line (a zone of 44), the time at its right. */
+.lex-q {
+  box-sizing: border-box; display: block; width: 100%; margin: 0;
+  padding: 10px 12px 8px; border: 0; border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in); color: var(--fg, var(--lex-plain-fg));
+  font: inherit; font-size: 15px; line-height: 1.35; text-align: left;
+}
+.lex-q.has-quiet { padding-bottom: 0; }
+.lex-q .lex-q-text { white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.lex-q .lex-q-choices { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.lex-q .lex-q-choices > .lex-btn { width: 100%; }
+.lex-q .lex-q-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.lex-q .lex-q-note.is-error { color: var(--danger); }
+.lex-q .lex-q-foot {
+  display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 6px; line-height: 16px;
+}
+.lex-q .lex-q-foot.has-quiet { justify-content: space-between; margin-top: 0; }
+.lex-q .lex-q-time { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.lex-q .lex-q-quiet {
+  -webkit-appearance: none; appearance: none; height: 44px; padding: 0; border: 0; background: transparent;
+  color: var(--fg-muted); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.lex-q .lex-q-quiet:hover { color: var(--fg, var(--lex-plain-fg)); }
+.lex-q .lex-q-quiet:disabled { opacity: .5; cursor: default; }
+/* Answered or withdrawn: one line of the question and the time, under it at 4 a tick 14 and what
+ * was answered, 13, the chevron 16 at the right. The press unfolds it: the whole question. */
+.lex-q.is-done { padding: 10px 12px; color: var(--lex-plate-fg); cursor: pointer; }
+.lex-q.is-done.is-unfolded { cursor: default; }
+.lex-q .lex-q-head { display: flex; align-items: baseline; gap: 10px; }
+.lex-q .lex-q-line { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-q.is-done .lex-q-text { flex: 1 1 auto; min-width: 0; color: var(--fg, var(--lex-plain-fg)); }
+.lex-q .lex-q-state {
+  -webkit-appearance: none; appearance: none; display: flex; align-items: center; gap: 6px;
+  box-sizing: border-box; width: 100%; margin-top: 4px; padding: 0; border: 0; background: none;
+  color: var(--fg-muted); font: inherit; font-size: 13px; line-height: 18px; text-align: left;
+}
+.lex-q button.lex-q-state { min-height: 44px; margin-top: 0; cursor: pointer; }
+.lex-q .lex-q-state svg { flex: 0 0 auto; }
+.lex-q .lex-q-state-words { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+/* The message a tapped notification led to: a light ring for a moment. */
+.lex-q.is-focus { box-shadow: 0 0 0 2px var(--line-strong); }
+
+/* ── A pack of questions (В7.25) ───────────────────────────────────────────────
+ * The same bubble: the title 15/650, under it at 6 the rows — 44 high at least, a line over each,
+ * 14 in the soft colour; the words of a row without a space (a folder) in one line with the variant
+ * of the database as a pill 12/600 at the right, a longer text in two lines. «N more» 13/600 with a
+ * chevron. Two buttons of equal width through 6, the time at the bottom right. */
+.lex-q.is-pack .lex-q-title { font-weight: 650; overflow-wrap: anywhere; }
+.lex-q .lex-q-rows { display: flex; flex-direction: column; margin-top: 6px; }
+.lex-q .lex-q-row, .lex-q .lex-q-more {
+  -webkit-appearance: none; appearance: none; display: flex; align-items: center; gap: 10px;
+  box-sizing: border-box; width: 100%; min-height: 44px; padding: 8px 0; border: 0;
+  border-top: 1px solid var(--line); background: transparent; color: var(--lex-plate-fg);
+  font: inherit; font-size: 14px; line-height: 1.35; text-align: left; cursor: pointer;
+}
+.lex-q .lex-q-row:disabled { cursor: default; }
+.lex-q .lex-q-row-text {
+  flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+.lex-q .lex-q-row.is-one .lex-q-row-text { display: block; white-space: nowrap; text-overflow: ellipsis; }
+.lex-q .lex-q-pill {
+  flex: 0 0 auto; padding: 2px 8px; border-radius: 10px; background: var(--bg-hover);
+  color: var(--fg, var(--lex-plain-fg)); font-size: 12px; font-weight: 600; line-height: 16px;
+}
+.lex-q .lex-q-more { gap: 6px; padding: 0; color: var(--fg-muted); font-size: 13px; font-weight: 600; }
+.lex-q .lex-q-row-open { padding: 0 0 8px; }
+.lex-q .lex-q-row-open > .lex-q-text { color: var(--fg, var(--lex-plain-fg)); }
+.lex-q .lex-q-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 4px; }
+
+/* ── The line over the message box (В7.26) ────────────────────────────────────
+ * Reply on a message: a pill 44 (radius 22) on the ground of the field, the arrow of a reply 16,
+ * «Reply to …» 12/600 and one line of the message 13, the cross in a zone of 44. */
+.lex-reply {
+  display: flex; align-items: center; gap: 10px; box-sizing: border-box; height: 44px; padding: 0 0 0 14px;
+  border: 1px solid var(--line); border-radius: 22px; background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+}
+.lex-reply .lex-reply-icon { flex: 0 0 auto; color: var(--fg-muted); }
+.lex-reply .lex-reply-words { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.lex-reply .lex-reply-head { color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px; }
+.lex-reply .lex-reply-text {
+  overflow: hidden; color: var(--lex-plate-fg); font-size: 13px; line-height: 18px; white-space: nowrap; text-overflow: ellipsis;
+}
+.lex-reply .lex-reply-close {
+  -webkit-appearance: none; appearance: none; flex: 0 0 auto; display: grid; place-items: center;
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+  color: var(--fg-muted); cursor: pointer;
+}
+.lex-reply .lex-reply-close:hover { background: var(--bg-hover); color: var(--fg, var(--lex-plain-fg)); }

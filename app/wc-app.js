@@ -242,7 +242,11 @@
   // после голосового разговора.
   function paintConversation(r, opts) {
     resetMoney();
-    WcThread.renderTurns(r.turns, { newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts() });
+    WcThread.renderTurns(r.turns, {
+      newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts(),
+      // A tapped notification of an entry of a feed: the chat stands on that entry.
+      focusUid: (opts && !opts.keepPlace && opts.focusUid) || null,
+    });
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
     // A message on its way: its state as the queue of the database has it now, once.
@@ -638,11 +642,14 @@
       return;
     }
     if (WcHistory.isEmFeedKey(key)) {
+      // A question — the feed of questions on it (the chat of one question of a notification from
+      // before the one feed is that question there too).
       const item = (key.match(/^__lex_em_question_(-?\d+)__$/) || [])[1];
+      const ref = typeof lex.ref === 'string' && lex.ref ? lex.ref : null;
       await showSection('em');
       if (!wanted()) return;
-      if (item) await openEmQuestion(Number(item), wanted);
-      else await openEmFeed(key.replace(/^__lex_em_|__$/g, ''), wanted);
+      if (item) await openEmFeed('question', wanted, ref || `em:${item}`);
+      else await openEmFeed(key.replace(/^__lex_em_|__$/g, ''), wanted, ref);
       return;
     }
     if (key) await openConversation(key, { wanted });
@@ -725,19 +732,8 @@
   // A look skipped while the page was hidden or an answer was written: it goes when that ends.
   let emLookDue = false;
   let emFrame = null;
-  const emStamp = (iso) => {
-    const at = iso ? new Date(iso) : null;
-    return at && !isNaN(at) ? at.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
-  };
-  // A line of the list of questions: the question, under it whether it waits and since when.
-  function emQuestionSub(q) {
-    if (q.state === 'withdrawn') return 'Withdrawn';
-    if (q.state === 'answered') return q.answer ? `Answered: ${q.answer}` : 'Answered';
-    return `Waiting for your answer${q.askedAt ? ' · ' + emStamp(q.askedAt) : ''}`;
-  }
   function buildEm() {
     let rows = [];
-    let questions = [];
     const frame = global.LexSection.createFrame({
       title: 'Extended Mind',
       cls: 'lex-em',
@@ -745,10 +741,7 @@
       // An entry of a feed came or changed, a question came or got its answer: the signal «em».
       signals,
       events: ['em'],
-      check: async () => {
-        if (frame.screen === 'questions') await readQuestions();
-        else await readHome();
-      },
+      check: async () => { await readHome(); },
       onBack: (id) => { if (id === 'home') frame.open(() => readHome(), 'The feeds did not load.'); },
     });
     emFrame = frame;
@@ -764,12 +757,11 @@
           // Questions: how many wait for an answer, and the newest of them.
           mark: isQ && r.open ? String(r.open) : null,
           sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
-          onClick: () => (isQ ? openEmQuestions() : frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.')),
+          onClick: () => frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.'),
         });
         list.appendChild(line);
-        // A feed is read ahead while its line is on the screen; the line of questions opens
-        // a list, not a chat.
-        if (!isQ) emHeld.watch(line, `feed:${r.kind}`, [r.count, r.lastAt, r.last].join('|'));
+        // A feed is read ahead while its line is on the screen: a press shows it at once.
+        emHeld.watch(line, `feed:${r.kind}`, [r.count, r.lastAt, r.last, r.open].join('|'));
       }
       frame.body.replaceChildren(list);
     }
@@ -777,34 +769,6 @@
     // then the server's answer (lex-reads.js).
     async function readHome() {
       await read('lex_em_feed_home', {}, (v) => { rows = v || []; paint(); }, () => !rows.length);
-    }
-    async function readQuestions() {
-      await read('lex_em_questions', {}, (v) => { questions = v || []; paintQuestions(); }, () => !questions.length);
-    }
-    function paintQuestions() {
-      if (frame.screen !== 'questions') return;
-      const list = global.LexSection.make('div', 'lex-section-list');
-      emHeld.unwatch();
-      for (const q of questions) {
-        const line = global.LexSection.row({
-          id: String(q.item), cls: `lex-em-question is-${q.state}`, strong: q.state === 'open', wrap: true,
-          title: q.title, sub: emQuestionSub(q), mark: q.missed ? 'Missed' : null,
-          onClick: () => frame.open((wanted) => openEmQuestion(q.item, wanted), 'The question did not open.'),
-        });
-        list.appendChild(line);
-        emHeld.watch(line, `question:${q.item}`, [q.state, q.answer, q.missed].join('|'));
-      }
-      if (!questions.length) list.appendChild(global.LexSection.make('div', 'lex-section-empty', 'No questions yet.'));
-      frame.body.replaceChildren(list);
-    }
-    async function openEmQuestions() {
-      frame.push({ id: 'questions', title: 'Questions' });
-      paintQuestions();
-      try {
-        await readQuestions();
-      } catch (e) {
-        frame.say('The questions did not load. ' + ((e && e.message) || ''), true);
-      }
     }
     return {
       el: frame.el,
@@ -818,8 +782,7 @@
         frame.enter();
         // What this device saw the last time, in the first frame; the server comes after.
         try {
-          if (frame.screen === 'questions') await readQuestions();
-          else await readHome();
+          await readHome();
         } catch (e) {
           frame.say('The feeds did not load. ' + ((e && e.message) || ''), true);
         }
@@ -864,6 +827,8 @@
     const turns = [...byUid.values()].sort((a, b) => (emTime(a) - emTime(b)) || String(a.turn_uid).localeCompare(String(b.turn_uid)));
     return Object.assign({}, held, {
       rev,
+      // The feed of questions: how many wait for an answer now.
+      ...(ch && ch.waiting != null ? { waiting: ch.waiting } : {}),
       chat: Object.assign({}, held.chat, { since: since == null ? null : since, conversation: Object.assign({}, conv, { turns, rev }) }),
     });
   }
@@ -871,7 +836,6 @@
     const at = id.indexOf(':');
     const what = id.slice(0, at);
     const arg = id.slice(at + 1);
-    if (what === 'question') return emRemember(id, await newsRpc('lex_em_question_item', { p_item: Number(arg) }));
     if (held && held.chat && held.chat.conversation) {
       const key = held.chatKey;
       const [ch, since] = await Promise.all([
@@ -899,36 +863,38 @@
     emHeld.put(id, emRemember(id, copy));
     return copy;
   }
-  async function openEmFeed(kind, wanted) {
+  async function openEmFeed(kind, wanted, focusUid) {
     const id = `feed:${kind}`;
     const held = await heldOrKept(id, 'lex_em_feed_item', { p_kind: kind });
     if (!wanted()) return;
-    if (held && held.chat) { await openEmChat(held, wanted, true); return; }
+    if (held && held.chat) { await openEmChat(held, wanted, true, focusUid); return; }
     const info = await newsRpc('lex_em_feed_item', { p_kind: kind, p_take: true, p_limit: WcHistory.emLimit(emKeyOf(kind)) });
     if (!wanted() || !info || !info.chatKey) return;
     emHeld.put(id, emRemember(id, info));
-    await openEmChat(info, wanted, false);
+    await openEmChat(info, wanted, false, focusUid);
   }
-  // The chat of one question: its first message is the question, a press on a variant
-  // answers it (llm-proxy, kind em-answer).
-  async function openEmQuestion(item, wanted) {
-    const id = `question:${item}`;
-    const held = await heldOrKept(id, 'lex_em_question_item', { p_item: item });
-    if (!wanted()) return;
-    if (held && held.chat) { await openEmChat(held, wanted, true); return; }
-    const info = await newsRpc('lex_em_question_item', { p_item: item, p_take: true });
-    if (!wanted() || !info || !info.chatKey) return;
-    emHeld.put(id, emRemember(id, info));
-    await openEmChat(info, wanted, false);
-  }
-  async function openEmChat(info, wanted, fromHeld) {
+  async function openEmChat(info, wanted, fromHeld, focusUid) {
     const key = info.chatKey;
-    WcThread.setEmAnswer(WcHistory.isEmFeedKey(key) && /^__lex_em_question_-?\d+__$/.test(key)
-      ? (choice) => newsPost('em-answer', { chatKey: key, choice })
-      : null);
+    // The feed that was open is left here, before the hooks of this one are set: leaving the section
+    // on the way (leaveSection) would otherwise take them off after they are set.
+    leaveEmFeed();
+    // The feed of questions: a press names the question by its turn, a hold offers Reply.
+    const questions = key === EM_QUESTIONS_KEY;
+    WcThread.setQuestionsFeed(questions ? {
+      onAnswer: (uid, choice) => newsPost('em-answer', { chatKey: key, choice, turnUid: uid }),
+      onReply: (r) => setReply(r),
+    } : null);
+    if (!questions) setReply(null);
+    // The title stands before the chat is drawn: drawn after, it would push the end of the chat
+    // under the message box.
+    paintChatTitle(questions ? { title: 'Questions', waiting: info.waiting } : null);
+    sectionEls().main.classList.add('is-em-feed');
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
-    await openConversation(key, { back: sectionTarget('em'), wanted, loaded: info.chat || null });
-    if (state.conversationId !== key) return;
+    await openConversation(key, { back: sectionTarget('em'), wanted, loaded: info.chat || null, focusUid });
+    if (state.conversationId !== key) {
+      if (!emOpen) { paintChatTitle(null); sectionEls().main.classList.remove('is-em-feed'); }
+      return;
+    }
     // Leaving the feed before forgot its session on the way: say it again.
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
     const conv = info.chat && info.chat.conversation;
@@ -953,7 +919,9 @@
     if (!emOpen) return;
     emOpen = null;
     endVisit();
-    WcThread.setEmAnswer(null);
+    WcThread.setQuestionsFeed(null);
+    setReply(null);
+    paintChatTitle(null);
     if (emFollower) emFollower.stop();
     emFollower = null;
     emLookDue = false;
@@ -978,11 +946,43 @@
     if (WcThread.isStreaming()) { emLookDue = true; return; }
     for (const row of (ch && Array.isArray(ch.turns)) ? ch.turns : []) WcThread.upsertEmEntry(WcHistory.turnOf(row));
     f.rev = Math.max(rev, (ch && ch.rev) || 0);
+    if (ch && ch.waiting != null && f.key === EM_QUESTIONS_KEY) paintChatTitle({ title: 'Questions', waiting: ch.waiting });
   }
   function lookEmFeedIfDue() {
     if (emLookDue && emOpen) lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message));
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lookEmFeedIfDue(); });
+  // ── The feed of questions: its title and the line of a reply ─────────────────
+  const EM_QUESTIONS_KEY = '__lex_em_question__';
+  // The title of the chat in the bar: «Questions», under it «Extended Mind · N waiting» (nothing
+  // waits — «Extended Mind»). null — no title (any other chat).
+  function paintChatTitle(t) {
+    const box = document.getElementById('wc-chat-title');
+    const main = document.querySelector('.wc-main');
+    if (!box) return;
+    box.hidden = !t;
+    if (main) main.classList.toggle('is-em-questions', !!t);
+    if (!t) { box.replaceChildren(); return; }
+    const n = Number(t.waiting) || 0;
+    box.replaceChildren(
+      WcUI.el('.wc-chat-title-main', {}, [t.title]),
+      WcUI.el('.wc-chat-title-sub', {}, [n > 0 ? `Extended Mind · ${n} waiting` : 'Extended Mind']),
+    );
+  }
+  // Reply on a question or a pack: the line over the message box; the next message carries their
+  // turns (emReply) and the model is told which questions it is about. null — no line.
+  let reply = null;
+  function setReply(r) {
+    reply = r && Array.isArray(r.uids) && r.uids.length ? { uids: r.uids.slice(0, 30), text: r.text || '' } : null;
+    const slot = document.getElementById('wc-reply');
+    if (!slot) return;
+    slot.hidden = !reply;
+    slot.replaceChildren(...(reply ? [global.LexMessage.replyBar({
+      head: 'Reply to Extended Mind', text: reply.text, onClose: () => setReply(null),
+    })] : []));
+    if (reply) WcComposer.focus();
+  }
+
   // «Earlier entries» on the top of a feed that has more on the server.
   function emEarlierOf(r) {
     const key = state.conversationId;
@@ -1308,6 +1308,9 @@
 
     const requestId = nextRequestId();
     state.requestId = requestId;
+    // The line of a reply goes with this message and leaves the box.
+    const replyNow = state.conversationId === EM_QUESTIONS_KEY ? reply : null;
+    if (reply) setReply(null);
     // Номер операции — метка ОДНОГО нажатия. Из него считаются уиды обеих
     // реплик, и ровно то же правило применяет сервер: потому в базе на пузырь
     // одна строка, а не две. requestId рядом на эту роль не годится — он живёт
@@ -1340,6 +1343,8 @@
         // Режим заготовки по списку пилюль: «отдельный разговор» страница не
         // кладёт в список урока до кадра сервера (wc-backend.js runSend).
         presetMode: (mode && opts && opts.presetMode) || null,
+        // Reply in the feed of questions: the turns of the questions this message is about.
+        emReply: (replyNow && replyNow.uids) || null,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
@@ -1978,7 +1983,8 @@
       const t = Math.round(topbar.getBoundingClientRect().height);
       const c = Math.round(composer.getBoundingClientRect().height);
       if (t !== lastTop) { lastTop = t; root.style.setProperty('--wc-topbar-h', t + 'px'); }
-      if (c !== lastBottom) { lastBottom = c; root.style.setProperty('--wc-composer-h', c + 'px'); }
+      // The box grew or shrank (lines of text, the line of a reply): a reader at the end stays at the end.
+      if (c !== lastBottom) { lastBottom = c; root.style.setProperty('--wc-composer-h', c + 'px'); WcThread.keepAtBottom(); }
     };
     const schedule = () => { if (!raf) raf = requestAnimationFrame(apply); };
     if (global.ResizeObserver) {

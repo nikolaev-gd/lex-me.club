@@ -22,7 +22,10 @@
 //   stamp(at, now)        the time under a waiting message: «Today, 18:30», «Thu 19 Nov, 18:00»
 //   scheduledLine(at)     the line of a scheduled box: «Scheduled: tomorrow at 09:00.»
 //   menu(o)               the menu of a held button: { anchor, align: 'right'|'left', head, lit,
-//                         ring, items: [{ label, icon: 'clock'|'pencil'|Node, run() }] }
+//                         ring, choice, onClose, items: [{ label, icon: 'clock'|'pencil'|Node, checked, run() }] }
+//                         choice — a menu to pick one of several (the speed of a voice message, В7.21):
+//                         nothing will leave, so nothing is dimmed; 200 wide; the picked item is
+//                         brighter, with a check on the right. onClose() — the menu went, by any way
 //   pick(o)               the sheet of the time: { text, client } → Promise<Date|null>
 (function (global) {
   'use strict';
@@ -90,8 +93,9 @@
     send: ['M22 2L11 13', 'M22 2l-7 20-4-9-9-4z'],
     close: ['M6 6l12 12', 'M18 6L6 18'],
     calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M16 3v4', 'M8 3v4', 'M3 10h18'],
+    check: ['M5 12l5 5L20 7'],
   };
-  function icon(name, size) {
+  function icon(name, size, line) {
     const s = document.createElementNS(NS, 'svg');
     s.setAttribute('viewBox', '0 0 24 24');
     s.setAttribute('width', String(size || 20));
@@ -102,7 +106,7 @@
       p.setAttribute('d', d);
       p.setAttribute('fill', 'none');
       p.setAttribute('stroke', 'currentColor');
-      p.setAttribute('stroke-width', '2');
+      p.setAttribute('stroke-width', String(line || 2));
       p.setAttribute('stroke-linecap', 'round');
       p.setAttribute('stroke-linejoin', 'round');
       s.appendChild(p);
@@ -120,26 +124,43 @@
     if (closeOpen) closeOpen();
     const host = document.body;
     const catcher = make('div', 'lex-sl-catcher');
-    const hole = make('div', 'lex-sl-hole');
-    const box = make('div', 'lex-sl-menu');
+    // A menu of choice dims nothing: nothing of the chat will leave by it.
+    const hole = o.choice ? null : make('div', 'lex-sl-hole');
+    const box = make('div', `lex-sl-menu${o.choice ? ' is-choice' : ''}`);
     box.setAttribute('role', 'menu');
-    if (o.head) box.appendChild(make('div', 'lex-sl-menu-head', o.head));
+    if (o.head) {
+      box.appendChild(make('div', 'lex-sl-menu-head', o.head));
+      box.setAttribute('aria-label', o.head);
+    }
     o.items.forEach((it) => {
-      const b = make('button', 'lex-sl-menu-item');
+      const b = make('button', `lex-sl-menu-item${it.checked ? ' is-checked' : ''}`);
       b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      const ic = make('span', 'lex-sl-menu-icon');
-      ic.appendChild(typeof it.icon === 'string' ? icon(it.icon, 16) : (it.icon || icon('send', 16)));
-      b.append(ic, make('span', '', it.label));
+      if (o.choice) {
+        b.setAttribute('role', 'menuitemradio');
+        b.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+        b.appendChild(make('span', '', it.label));
+        if (it.checked) {
+          const ck = make('span', 'lex-sl-menu-check');
+          ck.appendChild(icon('check', 16, 2.4));
+          b.appendChild(ck);
+        }
+      } else {
+        b.setAttribute('role', 'menuitem');
+        const ic = make('span', 'lex-sl-menu-icon');
+        ic.appendChild(typeof it.icon === 'string' ? icon(it.icon, 16) : (it.icon || icon('send', 16)));
+        b.append(ic, make('span', '', it.label));
+      }
       b.addEventListener('click', () => { close(); it.run(); });
       box.appendChild(b);
     });
-    const lit = o.lit || o.anchor;
-    const r = lit.getBoundingClientRect();
-    const radius = getComputedStyle(lit).borderRadius || '14px';
-    Object.assign(hole.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, borderRadius: radius });
+    if (hole) {
+      const lit = o.lit || o.anchor;
+      const r = lit.getBoundingClientRect();
+      const radius = getComputedStyle(lit).borderRadius || '14px';
+      Object.assign(hole.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, borderRadius: radius });
+    }
     if (o.ring) o.ring.classList.add('lex-sl-ring');
-    host.append(catcher, hole, box);
+    host.append(...[catcher, hole, box].filter(Boolean));
     const a = o.anchor.getBoundingClientRect();
     const m = box.getBoundingClientRect();
     const pad = 8;
@@ -153,12 +174,13 @@
       if (closeOpen !== close) return;
       closeOpen = null;
       catcher.remove();
-      hole.remove();
+      if (hole) hole.remove();
       box.remove();
       if (o.ring) o.ring.classList.remove('lex-sl-ring');
       document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);
+      if (typeof o.onClose === 'function') o.onClose();
     }
     closeOpen = close;
     catcher.addEventListener('pointerdown', (e) => { e.preventDefault(); close(); });
@@ -167,7 +189,7 @@
       window.addEventListener('resize', close);
       window.addEventListener('scroll', close, true);
     }, 0);
-    const first = box.querySelector('.lex-sl-menu-item');
+    const first = box.querySelector('.lex-sl-menu-item.is-checked') || box.querySelector('.lex-sl-menu-item');
     if (first) first.focus({ preventScroll: true });
     return close;
   }
