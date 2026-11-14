@@ -67,32 +67,35 @@
 .lex-bubbles > .wc-turn-user > .lex-bubble { align-items: stretch; max-width: 86%; padding: 7px 12px 6px; }
 .lex-bubbles > .wc-turn-user > .lex-bubble > .wc-bubble { padding: 0; border-radius: 0; background: none; }
 
-/* The answer of the model: a dashed frame on the left, the mark of the model beside it. */
-.lex-bubbles > .wc-turn-assistant.lex-profi-answer {
-  position: relative; max-width: min(86%, 560px); margin-top: 4px; margin-left: 38px;
-}
-.lex-profi-lex-avatar {
-  position: absolute; left: -38px; bottom: 0; display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 50%; background: var(--lex-bubble-self); color: var(--fg-soft, var(--fg-muted));
-}
-.lex-profi-lex-head { gap: 8px; margin-bottom: 3px; font-size: 13px; }
-.lex-profi-lex-name { color: var(--fg); font-weight: 700; }
-.lex-profi-only { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-weight: 400; }
+/* The model's word: a message without a bubble (В7.13) across the whole lane — no ground, no frame,
+ * no avatar. The head: the sparkle 14 (--fg-soft), «Lex» 15/650, the time 12, the crossed eye 12
+ * and «only you see this» 12 (--fg-muted), gaps 6; the text 2 under it. */
+.lex-bubbles > .wc-turn-assistant.lex-profi-answer { max-width: none; margin-top: 4px; padding: 0 2px; }
+.lex-profi-answer > .lex-msg-head { align-items: center; gap: 6px; margin: 0 0 2px; line-height: 20px; }
+.lex-profi-answer .lex-profi-lex-mark { display: flex; color: var(--fg-soft, var(--fg-muted)); }
+.lex-profi-answer .lex-profi-lex-mark svg { width: 14px; height: 14px; }
+.lex-profi-answer .lex-msg-name { font-size: 15px; }
+.lex-profi-answer .lex-msg-time { font-size: 12px; }
+.lex-profi-only { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 12px; font-weight: 400; }
+.lex-profi-only svg { width: 12px; height: 12px; }
 .lex-bubbles > .lex-profi-answer > .wc-turn-foot { margin-top: 0; }
+.lex-profi-boxes { display: flex; flex-direction: column; gap: 6px; }
+.lex-profi-words > :first-child { margin-top: 0; }
+.lex-profi-words > :last-child { margin-bottom: 0; }
 
-/* A box with text for the client: on the colour of what goes to him, Send and Copy under it. */
-.lex-profi-box { margin-top: 8px; text-align: left; }
-.lex-profi-box-text {
-  padding: 9px 11px; border-radius: 12px; background: var(--lex-bubble-out, var(--bg-hover));
-  line-height: 1.38; white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.lex-profi-box.is-writing { opacity: .75; }
-.lex-profi-box.is-sent .lex-profi-box-text { opacity: .7; }
-.lex-profi-box-price { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }
-.lex-profi-box-foot { display: flex; gap: 6px; margin-top: 8px; }
+/* A draft for the client (В7.20): the bubble of what went to the client on the right, up to 86 % of
+ * the lane, a dashed edge; the price, Send and Copy (equal, 44, through 6) in a row of 86 %. */
+.lex-profi-box { display: flex; flex-direction: column; align-items: flex-end; margin: 2px 0; text-align: left; }
+.lex-profi-box > .lex-bubble { max-width: 86%; }
+.lex-profi-box.is-writing > .lex-bubble { opacity: .75; }
+.lex-profi-box-price { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; }
+.lex-profi-box > .lex-profi-box-foot { width: 86%; }
+.lex-profi-box > .lex-profi-box-note { width: 86%; text-align: right; }
+.lex-profi-box-foot { display: flex; gap: 6px; margin-top: 6px; }
 .lex-profi-box-foot .lex-profi-btn {
-  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  height: 44px; padding: 0 12px; border: 0; border-radius: 12px; background: var(--bg-hover); font-size: 15px; font-weight: 650;
+  flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 0; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--bg-hover); font-size: 15px; font-weight: 650;
+  white-space: nowrap; overflow: hidden;
 }
 .lex-profi-box-foot .lex-profi-btn.is-main { background: var(--fg); color: var(--bg); }
 .lex-profi-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; }

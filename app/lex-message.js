@@ -79,6 +79,8 @@
   function message(o) {
     const root = make('div', `lex-msg${o.cls ? ` ${o.cls}` : ''}`);
     const head = make('div', 'lex-msg-head');
+    // A mark before the name (o.mark, a node): the sparkle of Lex at the model's word in an order chat.
+    if (o.mark) head.appendChild(o.mark);
     head.appendChild(make('span', 'lex-msg-name', o.name || ''));
     const time = o.timeText != null ? o.timeText : timeOf(o.at);
     if (time) head.appendChild(make('span', 'lex-msg-time', time));
@@ -351,6 +353,25 @@
 
   // The mark of the model: two stars. It stands at what the person wrote to the model and at
   // the model's answers in a chat of bubbles.
+  // A pencil: the mark of a draft — a text for the client that has not left yet.
+  function pencil(size) {
+    const n = svg('0 0 24 24', size);
+    n.setAttribute('class', 'lex-pencil');
+    for (const d of ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z']) {
+      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    return n;
+  }
+
+  // The line under a draft (В7.20) in place of the channel and the time: a pencil and «Draft,
+  // not sent». A draft is a bubble with the tone `draft`: what went to the client, with a dashed
+  // edge — `bubble({ side: 'out', tone: 'draft', text, stamp: draftStamp() })`.
+  function draftStamp() {
+    const root = make('div', 'lex-stamp lex-stamp-draft');
+    root.append(pencil(12), make('span', '', 'Draft, not sent'));
+    return root;
+  }
+
   function sparkle(size) {
     const n = svg('0 0 24 24', size);
     n.setAttribute('class', 'lex-sparkle');
@@ -381,5 +402,5 @@
   }
 
   global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
-    CHANNELS, channel, channelName, stamp, bubble, photos, notice, fold, eyeOff, sparkle, avatar };
+    CHANNELS, channel, channelName, stamp, bubble, photos, notice, fold, eyeOff, sparkle, pencil, draftStamp, avatar };
 })(typeof window !== 'undefined' ? window : globalThis);

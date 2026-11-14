@@ -163,11 +163,20 @@
     return c ? c.name : 'Профи.ру';
   }
 
-  // One box. window is the row of the server; none yet while the answer is being written.
-  // The text stands on the colour of what goes to the client; Send and Copy under it.
+  // One box: the draft for the client (В7.20) — a bubble on the right with a dashed edge and «Draft,
+  // not sent» under the text, the price under it, Send and Copy in a row of the same width. window
+  // is the row of the server; none yet while the answer is being written (paler, no buttons). A box
+  // that went shows no copy of itself: what went stands in the chat as a message with its ticks.
   function boxNode(text, win, deps) {
+    const M = global.LexMessage;
     const root = make('div', 'lex-profi-box');
-    root.appendChild(make('div', 'lex-profi-box-text', text));
+    if (win && win.state === 'sent') {
+      root.classList.add('is-sent');
+      const { note } = boxControls(win, deps, { copy: false });
+      root.appendChild(note);
+      return root;
+    }
+    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, stamp: M.draftStamp() }));
     if (!win) {
       root.classList.add('is-writing');
       return root;
@@ -177,7 +186,6 @@
     const { foot, note } = boxControls(win, deps, { copy: true });
     root.appendChild(foot);
     root.appendChild(note);
-    if (win.state === 'sent') root.classList.add('is-sent');
     return root;
   }
 
@@ -453,39 +461,52 @@
           }
           stampOf(box, t.dataset.at);
         }
+        // The model's word: a message without a bubble (В7.13) across the whole lane — the sparkle
+        // of Lex, «Lex», the time, «only you see this»; its text under it, its drafts on the right.
         for (const t of thread.querySelectorAll(':scope > .wc-turn-assistant')) {
           if (t.classList.contains('wc-turn-news') || t.classList.contains('wc-turn-error')) continue;
-          if (!t.classList.contains('lex-bubble')) {
-            t.classList.add('lex-bubble', 'is-in', 'is-bot', 'lex-profi-answer');
-            const av = make('span', 'lex-profi-lex-avatar', '');
-            av.appendChild(M.sparkle(16));
-            const label = make('div', 'lex-bubble-label lex-profi-lex-head', '');
+          let head = t.querySelector(':scope > .lex-profi-lex-head');
+          if (!head) {
+            t.classList.add('lex-msg', 'lex-profi-answer');
+            head = make('div', 'lex-msg-head lex-profi-lex-head', '');
+            const mark = make('span', 'lex-profi-lex-mark', '');
+            mark.appendChild(M.sparkle(14));
             const only = make('span', 'lex-profi-only', '');
-            only.append(M.eyeOff(13), document.createTextNode('only you see this'));
-            label.append(make('span', 'lex-profi-lex-name', 'Lex'), only);
-            t.prepend(av, label);
+            only.append(M.eyeOff(12), document.createTextNode('only you see this'));
+            head.append(mark, make('span', 'lex-msg-name', 'Lex'), make('span', 'lex-msg-time', ''), only);
+            t.prepend(head);
           }
-          if (!t.classList.contains('is-streaming')) stampOf(t, t.dataset.at, t.querySelector(':scope > .wc-turn-foot'));
+          const time = head.querySelector('.lex-msg-time');
+          const at = t.dataset.at ? M.timeOf(t.dataset.at) : '';
+          if (time.textContent !== at) time.textContent = at;
         }
       },
 
-      // The words of an answer into its bubble, its boxes under them.
-      // The words of an answer into its bubble, its boxes under them.
+      // The parts of an answer in the order the model wrote them: its words without a bubble, each
+      // draft for the client on the right with its own row of buttons (В7.20).
       paintAnswer(turn, bubble, raw, md, streaming) {
         const parts = splitAnswer(raw);
-        md.into(bubble, parts.filter((p) => p.kind === 'text').map((p) => p.text.trim()).join('\n\n'));
-        bubble.hidden = !parts.some((p) => p.kind === 'text');
-        let host = turn.querySelector('.lex-profi-boxes');
         const boxes = parts.filter((p) => p.kind === 'box');
-        if (!boxes.length) { if (host) host.remove(); return; }
-        if (!host) {
-          host = make('div', 'lex-profi-boxes');
-          bubble.after(host);
+        if (!boxes.length) {
+          bubble.classList.remove('lex-profi-boxes');
+          md.into(bubble, parts.map((p) => p.text.trim()).join('\n\n'));
+          bubble.hidden = !parts.length;
+          return;
         }
+        bubble.classList.add('lex-profi-boxes');
+        bubble.hidden = false;
         const uid = turn.dataset.uid || '';
         const wins = ((data && data.windows) || []).filter((w) => w.turn === uid);
-        host.replaceChildren(...boxes.map((b, i) => boxNode(b.text, streaming ? null : wins.find((w) => w.idx === i) || null,
-          boxDeps())));
+        let i = 0;
+        bubble.replaceChildren(...parts.map((p) => {
+          if (p.kind === 'text') {
+            const words = make('div', 'lex-profi-words', '');
+            md.into(words, p.text.trim());
+            return words;
+          }
+          const idx = i++;
+          return boxNode(p.text, streaming || p.open ? null : wins.find((w) => w.idx === idx) || null, boxDeps());
+        }));
       },
 
       // The person's own texts on their way to the client, at the end of the chat (outboxNode).

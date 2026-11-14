@@ -108,6 +108,7 @@
   --lex-bubble-self: #E6E9EB;
   --lex-bubble-bot: #FFFFFF;
   --lex-bubble-bot-line: rgba(0, 0, 0, .24);
+  --lex-bubble-draft-line: rgba(0, 0, 0, .28);
   --lex-plate: rgba(0, 0, 0, .06);
   --lex-plate-fg: rgba(0, 0, 0, .62);
   --lex-plain-fg: #1d1d1f;
@@ -122,6 +123,7 @@
     --lex-bubble-self: var(--lex-dark-raised);
     --lex-bubble-bot: var(--lex-dark-surface);
     --lex-bubble-bot-line: var(--lex-dark-line-strong);
+    --lex-bubble-draft-line: var(--lex-dark-line-focus);
     --lex-plate: var(--lex-dark-hover);
     --lex-plate-fg: var(--lex-dark-fg-soft);
     --lex-plain-fg: var(--lex-dark-fg);
@@ -135,6 +137,7 @@
   --lex-bubble-self: var(--lex-dark-raised);
   --lex-bubble-bot: var(--lex-dark-surface);
   --lex-bubble-bot-line: var(--lex-dark-line-strong);
+    --lex-bubble-draft-line: var(--lex-dark-line-focus);
   --lex-plate: var(--lex-dark-hover);
   --lex-plate-fg: var(--lex-dark-fg-soft);
   --lex-plain-fg: var(--lex-dark-fg);
@@ -155,6 +158,9 @@
 .lex-bubble.is-out { margin-left: auto; border-bottom-right-radius: 6px; background: var(--lex-bubble-out); }
 .lex-bubble.is-self { background: var(--lex-bubble-self); }
 .lex-bubble.is-bot { background: var(--lex-bubble-bot); border: 1px dashed var(--lex-bubble-bot-line); }
+/* A draft for the client (В7.20): what went to the client, not yet — a dashed edge inside. */
+.lex-bubble.is-draft { outline: 1px dashed var(--lex-bubble-draft-line); outline-offset: -1px; }
+.lex-stamp.lex-stamp-draft svg { flex: 0 0 auto; }
 /* Photos of a message (В7.19): over the text, as in Telegram; the radius of a card (В4). One photo —
    as wide as it is, up to the bubble; several — a row of squares, two in a line. */
 .lex-bubble.has-media { padding-top: 6px; }
