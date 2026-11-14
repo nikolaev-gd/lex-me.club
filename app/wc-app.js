@@ -47,17 +47,29 @@
 
   // ── Data ──────────────────────────────────────────────────────────────────
 
-  async function refreshAccount() {
+  // The balance: in the first frame as this device kept it (lex-reads.js), until the server has
+  // answered once; after that every reading is the server's alone.
+  let accountRead = false;
+  async function refreshAccount(onFirst) {
     try {
-      state.account = await WcBus.call('WC_ACCOUNT_STATE');
+      await readBus('WC_ACCOUNT_STATE', {}, (acc, fresh) => {
+        if (!acc) return;
+        // The server refused the pass of this device for good (the session is gone): the page
+        // starts again and shows the form. Its first frame came from the copy and the pass held.
+        if (fresh && acc.signedIn === false) { global.location.reload(); return; }
+        if (fresh) accountRead = true;
+        state.account = acc;
+        WcHeader.setAccount(state.account);
+        if (typeof onFirst === 'function') onFirst();
+      }, () => !accountRead);
     } catch (err) {
       // A failure to READ the balance is not a failure to be signed in. Saying
       // "signed out" here would throw the person back to the login form over a
       // blinked wifi connection.
       console.warn('[wc] account state:', err && err.message);
       state.account = Object.assign({}, state.account, { error: String(err && err.message) });
+      WcHeader.setAccount(state.account);
     }
-    WcHeader.setAccount(state.account);
   }
 
   // ── Список бесед: порциями, а не целиком ──────────────────────────────────
@@ -68,30 +80,19 @@
   // оставило бы её на старом месте вторым экземпляром.
   //
   // Без `reset` — дозагрузка следующей порции по прокрутке.
-  async function loadConversations(reset) {
+  // onFirst — the list stands in the panel: from the copy, or from the answer (the start waits
+  // for this, not for the answer).
+  async function loadConversations(reset, onFirst) {
     // Один запрос за раз. Без этого быстрая прокрутка посылает пять
     // перекрывающихся запросов с одним и тем же курсором — и в списке
     // появляются повторы.
     if (state.convsLoading) return;
     if (!reset && (state.convsDone || !state.convsCursor)) return;
     state.convsLoading = true;
-    // The first portion as this device saw it the last time (the kept screens): the list is in
-    // the panel before the server answers, and the answer takes its place. Only while the list
-    // is empty — the page has just opened.
-    if (reset && !state.conversations.length) {
-      const was = await keptScreens.read('chats:first');
-      if (was && Array.isArray(was.items) && !state.conversations.length) {
-        state.conversations = was.items;
-        WcSidebar.setItems(state.conversations, state.conversationId, { error: null, done: true });
-        syncTitle();
-      }
-    }
-    try {
-      const r = await WcBus.call('WC_LIST_CONVERSATIONS', { cursor: reset ? null : state.convsCursor });
+    const adopt = (r) => {
       const items = (r && r.ok && r.items) ? r.items : [];
       if (reset) {
         state.conversations = items;
-        if (r && r.ok) keptScreens.write('chats:first', { items });
       } else {
         // Сервер отдаёт строго убывающую пару (last_at, id), но беседа могла
         // прыгнуть наверх между двумя запросами — тогда она приедет дважды.
@@ -104,6 +105,23 @@
       // условия пустая порция оставила бы прокрутку дёргать сервер вечно.
       state.convsDone = !!(r && r.done) || !state.convsCursor;
       state.convsError = null;
+    };
+    try {
+      if (reset) {
+        // The first portion as this device kept it (lex-reads.js) while the panel holds nothing
+        // yet — the page has just opened: the list stands before the server answers, and the
+        // answer takes its place. Further portions wait for the answer.
+        await readBus('WC_LIST_CONVERSATIONS', { cursor: null }, (r, fresh) => {
+          adopt(r);
+          if (fresh) return;
+          state.convsDone = true;
+          WcSidebar.setItems(state.conversations, state.conversationId, { error: null, done: true });
+          syncTitle();
+          if (typeof onFirst === 'function') onFirst();
+        }, () => !state.conversations.length);
+      } else {
+        adopt(await WcBus.call('WC_LIST_CONVERSATIONS', { cursor: state.convsCursor }));
+      }
     } catch (err) {
       console.warn('[wc] conversations:', err && err.message);
       // Порция не пришла. Уже показанное НЕ стираем: половина списка лучше,
@@ -135,7 +153,7 @@
       .catch((err) => console.warn('[wc] titles:', err && err.message));
   }
 
-  const refreshConversations = () => loadConversations(true);
+  const refreshConversations = (onFirst) => loadConversations(true, typeof onFirst === 'function' ? onFirst : null);
   const loadMoreConversations = () => loadConversations(false);
 
   function currentItem() {
@@ -257,6 +275,12 @@
     for (const ms of global.LexVoiceFeedCheck.DELAYS_MS) setTimeout(() => { check().catch(() => {}); }, ms);
   }
 
+  // The openings of chats in order: only the last one moves the screen. openWait — the chat on
+  // the screen came from this device's copy, and whether the server's answer is in.
+  let openSeq = 0;
+  let openWait = null;   // { id, done: Promise of true once the answer is in }
+  // The settings of the start (enterApp): a turn waits for them, nothing on the screen does.
+  let settingsReady = Promise.resolve();
   async function openConversation(id, opts) {
     if (WcThread.isStreaming()) {
       // Leaving a conversation mid-answer would orphan the stream — the tokens
@@ -278,32 +302,64 @@
     // A chat of a section may come with everything already (opts.loaded: the item the section
     // holds or has just read, lex_chat_open): then nothing is asked of the server here.
     const loaded = opts && opts.loaded;
+    const mine = ++openSeq;
+    const current = () => openSeq === mine && !(opts && opts.wanted && !opts.wanted());
+    // The chat stands on the screen: the first frame of it, from the copy or from the answer.
+    let stood = false;
+    const stand = (r, again) => {
+      if (!stood) {
+        leaveSection();
+        state.conversationId = id;
+        if (opts && opts.back) sectionBack.cameFrom(opts.back);
+      }
+      if (opts && opts.profi) {
+        if (!stood) enterProfiChat(opts.profi);
+        opts.profi.words = monitorWords(r.turns);
+      }
+      paintConversation(r, again ? Object.assign({}, opts, { keepPlace: true }) : opts);
+      if (!stood) {
+        WcSidebar.setActive(id);
+        WcSidebar.close();
+      }
+      syncTitle();
+      syncAttachment();
+      stood = true;
+    };
+    let answer;
+    let copy = null;
+    if (loaded) {
+      answer = WcBus.call('WC_ADOPT_CONVERSATION', { id, conversation: loaded.conversation, money: loaded.money, marks: loaded.marks });
+    } else {
+      // An ordinary chat: the copy this device kept goes on the screen at once (lex-reads.js),
+      // and the server's answer takes its place. The person's next turn waits for the answer
+      // (openWait in send): its context is the server's, not the copy's.
+      answer = WcBus.call('WC_LOAD_CONVERSATION', { id });
+      openWait = { id, done: answer.then((x) => !!(x && x.ok), () => false) };
+      copy = await Promise.race([
+        WcBus.call('WC_LOAD_CONVERSATION', { id, kept: true }).catch(() => null),
+        answer.then(() => null, () => null),
+      ]);
+      if (copy && copy.ok && current()) stand(copy, false);
+      else copy = null;
+    }
     let r;
     try {
-      r = loaded
-        ? await WcBus.call('WC_ADOPT_CONVERSATION', { id, conversation: loaded.conversation, money: loaded.money, marks: loaded.marks })
-        : await WcBus.call('WC_LOAD_CONVERSATION', { id });
+      r = await answer;
     } catch (err) {
-      toast('Could not open the chat: ' + (err && err.message), { error: true });
+      if (current()) toast((copy ? 'The chat is shown as it was the last time: ' : 'Could not open the chat: ') + (err && err.message), { error: true });
       return;
     }
-    if (!r || !r.ok) { toast('The chat did not open', { error: true }); return; }
-    if (opts && opts.wanted && !opts.wanted()) return;
+    if (!r || !r.ok) { if (current() && !copy) toast('The chat did not open', { error: true }); return; }
+    if (!current()) return;
     if (loaded) beginVisitFrom(id, loaded.since);
     else await beginVisit(id);
-    if (opts && opts.wanted && !opts.wanted()) return;
-    leaveSection();
-    state.conversationId = id;
-    if (opts && opts.back) sectionBack.cameFrom(opts.back);
-    if (opts && opts.profi) {
-      enterProfiChat(opts.profi);
-      opts.profi.words = monitorWords(r.turns);
+    if (!current()) return;
+    // The answer is the copy, unchanged: what stands is right as it is.
+    if (copy && JSON.stringify(copy.turns) === JSON.stringify(r.turns) && !incomingOpts()) {
+      if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+      return;
     }
-    paintConversation(r, opts);
-    WcSidebar.setActive(id);
-    WcSidebar.close();
-    syncTitle();
-    syncAttachment();
+    stand(r, !!copy);
   }
 
   // ── The database's signals (2026-11-13) ─────────────────────────────────
@@ -410,19 +466,19 @@
   const newsRpc = (name, args) => WcBus.call('WC_NEWS_RPC', { name, args });
   const newsPost = (kind, body) => WcBus.call('WC_NEWS_POST', { kind, body });
   const copyText = (text) => navigator.clipboard.writeText(text).then(() => true, () => false);
-  // In WcStore: it is the person's, and WcWipe takes it away with everything else of theirs.
-  const NEWS_KEPT = 'lexNewsFeed';
-  // The screens kept on this device (lex-section.js, kept): the buttons of the sections, the
-  // list of chats, the lists of every section. Drawn in their first frame from what was read
-  // the last time; the server's answer takes their place. In WcStore too, under the account.
-  const accountNow = () => {
-    const s = WcAuth && WcAuth.session ? WcAuth.session() : null;
-    return (s && s.user && s.user.id) || null;
-  };
-  const keptScreens = global.LexSection.kept({
-    get: (key) => WcStore.one(key, null),
-    set: (key, value) => WcStore.set({ [key]: value }),
-  }, accountNow);
+  // ── What a screen shows: the copy on this device first (lex-reads.js) ──────
+  // Every screen of this page shows the server's answers through read(): the copy this device
+  // kept draws its first frame, after a restart too, and the server's answer takes its place.
+  // The copies are written where the page calls the server (wc-history.js), for every name in
+  // LexReads.KEPT, and nowhere else. readBus — the same for a read with a message of its own
+  // (a chat, the list of chats, the balance): the message with «kept» answers from the copy.
+  const kept = (name, args) => WcBus.call('WC_KEPT', { name, args }).catch(() => null);
+  const keep = (name, args, value) => WcBus.call('WC_KEEP', { name, args, value }).catch(() => false);
+  const read = (name, args, show, empty) => global.LexReads.twice(
+    () => kept(name, args), () => newsRpc(name, args), show, empty);
+  const readBus = (type, msg, show, empty) => global.LexReads.twice(
+    () => WcBus.call(type, Object.assign({}, msg, { kept: true })).catch(() => null),
+    () => WcBus.call(type, msg), show, empty);
   // The arrow in the top bar: one rule for every section, see lex-back.js.
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
   const SECTIONS = {
@@ -482,18 +538,21 @@
     const draw = (list) => global.LexNews.renderEntries(document.getElementById('wc-sections'), list, (id) => {
       if (SECTIONS[id]) showSection(id);
     });
-    const was = await keptScreens.read('home:sections');
-    if (Array.isArray(was)) draw(was);
+    let drawn = null;
     let sections = null;
-    // The sections this page knows: the server names no other.
-    try { sections = await newsRpc('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news'] }); } catch (err) {
+    // The sections this page knows: the server names no other. The copy this device kept in the
+    // first frame, the server's answer after it (lex-reads.js).
+    try {
+      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news'] }, (list, fresh, same) => {
+        if (!Array.isArray(list) || same) return;
+        drawn = list;
+        draw(list);
+      });
+    } catch (err) {
       console.warn('[wc] sections:', err && err.message);
     }
-    if (Array.isArray(sections)) {
-      if (JSON.stringify(sections) !== JSON.stringify(was)) draw(sections);
-      keptScreens.write('home:sections', sections);
-    } else if (!Array.isArray(was)) draw([]);
-    for (const s of (Array.isArray(sections) ? sections : (Array.isArray(was) ? was : []))) {
+    if (!drawn) draw([]);
+    for (const s of (Array.isArray(sections) ? sections : (drawn || []))) {
       if (!SECTIONS[s.id] || s.id === 'news') continue;
       const live = ensureSection(s.id);
       if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
@@ -616,8 +675,12 @@
         await openConversation(chatKey, { keepPlace: shown, wanted, back: sectionTarget('news') });
         if (wanted() && state.conversationId === chatKey) WcHeader.setTitle(title);
       },
-      keepFeed: (kept) => { WcStore.set({ [NEWS_KEPT]: kept }).catch((err) => console.warn('[wc] news feed:', err && err.message)); },
-      keptFeed: () => WcStore.one(NEWS_KEPT, null).catch(() => null),
+      // The feed with the place in it, kept by the feed itself among the page's copies
+      // (lex-reads.js, news_feed); its settings and the head of a news chat are read the way of
+      // every screen, the copy first.
+      keepFeed: (value) => { keep('news_feed', {}, value); },
+      keptFeed: () => kept('news_feed', {}),
+      read,
     });
   }
   // What stands over the first message of a news chat. Reading the chat again leaves
@@ -625,7 +688,7 @@
   function newsHead(head) {
     const chatKey = state.conversationId;
     return global.LexNews.createChatHead({
-      chatKey, head, rpc: newsRpc, post: newsPost,
+      chatKey, head, rpc: newsRpc, post: newsPost, read,
       onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
         if (state.conversationId !== chatKey || !sectionEls().host.hidden || WcThread.isStreaming()) return;
@@ -708,16 +771,13 @@
       }
       frame.body.replaceChildren(list);
     }
-    // The feeds and the questions as read the last time, kept on the device: drawn at once.
+    // The feeds and the questions: the copy this device kept while the section holds none yet,
+    // then the server's answer (lex-reads.js).
     async function readHome() {
-      rows = (await newsRpc('lex_em_feed_home', {})) || [];
-      keptScreens.write('em:home', rows);
-      paint();
+      await read('lex_em_feed_home', {}, (v) => { rows = v || []; paint(); }, () => !rows.length);
     }
     async function readQuestions() {
-      questions = (await newsRpc('lex_em_questions', {})) || [];
-      keptScreens.write('em:questions', questions);
-      paintQuestions();
+      await read('lex_em_questions', {}, (v) => { questions = v || []; paintQuestions(); }, () => !questions.length);
     }
     function paintQuestions() {
       if (frame.screen !== 'questions') return;
@@ -737,8 +797,6 @@
     }
     async function openEmQuestions() {
       frame.push({ id: 'questions', title: 'Questions' });
-      // Read first, then taken only if the server's answer did not come meanwhile.
-      if (!questions.length) { const was = await keptScreens.read('em:questions'); if (!questions.length && was) questions = was; }
       paintQuestions();
       try {
         await readQuestions();
@@ -756,12 +814,7 @@
       },
       async show() {
         frame.enter();
-        // What this device saw the last time, in the first frame; the server comes after. Read
-        // first, then taken only if the server's answer did not come meanwhile (the warm-up).
-        if (!rows.length) {
-          const was = await keptScreens.read('em:home');
-          if (!rows.length && was) { rows = was; paint(); }
-        }
+        // What this device saw the last time, in the first frame; the server comes after.
         try {
           if (frame.screen === 'questions') await readQuestions();
           else await readHome();
@@ -774,10 +827,6 @@
       // the section is shown, so the first press shows what is there now.
       async warm() {
         if (frame.isShown()) return;
-        if (!rows.length) {
-          const was = await keptScreens.read('em:home');
-          if (!rows.length && was) { rows = was; paint(); }
-        }
         await readHome();
       },
       hide() { frame.unwatch(); },
@@ -827,7 +876,10 @@
         newsRpc('lex_em_feed_changes', { p_chat_key: key, p_after: held.chat.conversation.rev || 0 }),
         newsRpc('lex_chat_seen', { p_chat_key: key, p_take: false }),
       ]);
-      return emRemember(id, emMerged(held, ch, since));
+      // The feed brought up to date is the newest state of its answer: the device keeps it so.
+      const merged = emMerged(held, ch, since);
+      keep('lex_em_feed_item', { p_kind: arg }, merged);
+      return emRemember(id, merged);
     }
     return emRemember(id, await newsRpc('lex_em_feed_item', { p_kind: arg, p_limit: WcHistory.emLimit(emKeyOf(arg)) }));
   }
@@ -835,9 +887,20 @@
 
   // A press on a feed or a question. What the window holds is on screen at once; otherwise one
   // answer brings everything, and the press takes the visit's moment with it.
+  // Nothing held — after a restart: the copy this device kept is held and shown the same way
+  // (lex-reads.js), and the press brings it up to date as it does what was held.
+  async function heldOrKept(id, name, args) {
+    const held = emHeld.get(id);
+    if (held && held.chat) return held;
+    const copy = await kept(name, args);
+    if (!copy || !copy.chat || !copy.chatKey || emHeld.get(id)) return emHeld.get(id);
+    emHeld.put(id, emRemember(id, copy));
+    return copy;
+  }
   async function openEmFeed(kind, wanted) {
     const id = `feed:${kind}`;
-    const held = emHeld.get(id);
+    const held = await heldOrKept(id, 'lex_em_feed_item', { p_kind: kind });
+    if (!wanted()) return;
     if (held && held.chat) { await openEmChat(held, wanted, true); return; }
     const info = await newsRpc('lex_em_feed_item', { p_kind: kind, p_take: true, p_limit: WcHistory.emLimit(emKeyOf(kind)) });
     if (!wanted() || !info || !info.chatKey) return;
@@ -848,7 +911,8 @@
   // answers it (llm-proxy, kind em-answer).
   async function openEmQuestion(item, wanted) {
     const id = `question:${item}`;
-    const held = emHeld.get(id);
+    const held = await heldOrKept(id, 'lex_em_question_item', { p_item: item });
+    if (!wanted()) return;
     if (held && held.chat) { await openEmChat(held, wanted, true); return; }
     const info = await newsRpc('lex_em_question_item', { p_item: item, p_take: true });
     if (!wanted() || !info || !info.chatKey) return;
@@ -962,7 +1026,7 @@
       back: sectionBack,
       signals,
       rpc: newsRpc,
-      kept: keptScreens,
+      read,
       copy: copyText,
       openOrder: openProfiOrder,
       notify: (text) => toast(text, { error: true }),
@@ -1034,7 +1098,18 @@
   // is on screen at once from that, and the press then goes to the server: the order is read,
   // the moment of the visit taken, and the fresh answer takes the place of what is shown.
   // Without it one answer brings everything (profi_item).
-  async function openProfiOrder(order, wanted, held, keep) {
+  async function openProfiOrder(order, wanted, heldNow, keep) {
+    // Nothing held — after a restart: the copy this device kept of the order (lex-reads.js) is
+    // held and shown the same way, and the press reads the order at once, as with what was held.
+    let held = heldNow;
+    if (!(held && held.chatKey && held.chat)) {
+      const copy = await kept('profi_item', { p_order: order });
+      if (!wanted()) return;
+      if (copy && copy.chatKey && copy.chat) {
+        held = copy;
+        if (keep) keep(copy);
+      }
+    }
     if (held && held.chatKey && held.chat) {
       const chat = makeProfiChat(order, held, keep);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId });
@@ -1155,6 +1230,24 @@
   }
 
   async function send(text, opts) {
+    await settingsReady;
+    // The chat on the screen came from this device's copy: the turn goes once the server's answer
+    // is in, so its context is the server's. The answer did not come — once more now; failing
+    // that, the turn does not go on a copy: the words go back into the field.
+    const w = openWait;
+    if (w && w.id === state.conversationId && !(await w.done) && w.id === state.conversationId) {
+      let fresh = false;
+      try {
+        const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: w.id });
+        if (again && again.ok && state.conversationId === w.id) { paintConversation(again, { keepPlace: true }); fresh = true; }
+      } catch (err) { console.warn('[wc] chat again before the turn:', err && err.message); }
+      if (!fresh) {
+        WcComposer.setText(text || '');
+        toast('No connection to the server: the message was not sent.', { error: true });
+        return;
+      }
+    }
+    if (openWait === w) openWait = null;
     // A word to Lex in an order chat brings the discussion back: its answer must be seen.
     if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
     const images = WcAttach.take();
@@ -1500,6 +1593,7 @@
   let voiceSeq = 0;
 
   async function toggleVoice(opts) {
+    await settingsReady;
     // Push-to-talk is not a different transport — it is the same live session
     // started with the microphone closed, opened only while the reader holds
     // the button on the voice screen. Doing it any other way would mean a
@@ -2244,21 +2338,14 @@
     // осталась бы на экране до перезагрузки страницы.
     if (wiped) { try { await WcSettings.applyStored(); } catch (_) { /* noop */ } }
 
-    // The curated defaults the owner publishes from the extension — models,
-    // prompts, knobs. Adopted BEFORE the first question can be asked, so a turn
-    // never goes out on a default this page was about to replace.
-    try {
-      await WcBackend.adoptPublished();
-    } catch (err) {
-      console.warn('[wc] published settings:', err && err.message);
-    }
-    // Модель по умолчанию — до первого вопроса, как и остальной набор: ход не
-    // должен уйти на модели, которую сервер сейчас заменит.
-    try {
-      await WcBackend.modelDefaults();
-    } catch (err) {
-      console.warn('[wc] model defaults:', err && err.message);
-    }
+    // The curated defaults the owner publishes from the extension — models, prompts, knobs —
+    // and the default model, side by side. Nothing on the screen waits for them: what they say
+    // lies in this page's storage from the last time. The first question waits for them (send,
+    // toggleVoice), so a turn never goes out on a default this page is about to replace.
+    settingsReady = Promise.all([
+      WcBackend.adoptPublished().catch((err) => console.warn('[wc] published settings:', err && err.message)),
+      WcBackend.modelDefaults().catch((err) => console.warn('[wc] model defaults:', err && err.message)),
+    ]);
     // Дальше набор перечитывается при открытии беседы — см. refreshPublished.
     // Список ЗАГОТОВОК ДЕЙСТВИЙ — здесь же и по той же причине, что настройки
     // выше: он отвечает только по токену, а на сборке композера токена ещё нет.
@@ -2268,14 +2355,16 @@
     WcComposer.loadPresets();
 
     document.getElementById('wc-root').hidden = false;
-    // Скелет держится, пока не приехали баланс и список бесед: заставка
+    // Скелет держится, пока на экране нет баланса и списка бесед: заставка
     // оболочки снимается по нему, и снять её раньше значит показать наполовину
-    // собранный экран — ровно то, от чего уходим.
+    // собранный экран — ровно то, от чего уходим. Both stand from the copies this device kept
+    // (lex-reads.js) in the first frame; the server is waited for only where there is no copy
+    // yet — the first start on this device.
     //
     // `finally`, а не просто по порядку: не доехало — всё равно показываем, что
     // есть. Запертый навсегда скелет хуже неполного экрана.
     try {
-      await Promise.all([refreshAccount(), refreshConversations()]);
+      await Promise.all([firstFrameOf(refreshAccount), firstFrameOf(refreshConversations)]);
     } finally {
       hideBoot();
       composerReady = true;
@@ -2293,7 +2382,30 @@
     }
   }
 
+  // The first frame of a reading: done when it called onFirst (its copy is on the screen) or when
+  // it ended, whichever is sooner.
+  function firstFrameOf(start) {
+    return new Promise((done) => {
+      Promise.resolve().then(() => start(done)).then(done, done);
+    });
+  }
+
+  // The page's own code on the device (sw.js): from the second opening on, the page and its files
+  // open with no question to the network. The browser looks for a new version at every opening
+  // (updateViaCache 'none': it asks the server for sw.js itself, past every cache) and the page
+  // asks again whenever it shows — a window of the Mac app lives for days. A new version works
+  // from the next opening of the page. No worker in this browser — the page loads as before.
+  function keepPageOnDevice() {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    }).catch((err) => console.warn('[wc] the page on the device:', err && err.message));
+  }
+
   async function boot() {
+    keepPageOnDevice();
     await WcSettings.applyStored();
 
     WcThread.init({
@@ -2431,7 +2543,12 @@
     // them before anything asks whether we are signed in.
     WcAuth.adoptRedirectSession();
 
-    const token = await WcAuth.validToken();
+    // A pass on this device with its renewal: the app stands at once from what the device keeps,
+    // and the pass is renewed by the first call to the server (validToken). Only the server's
+    // refusal of it sends the person to the form, on its answer (refreshAccount), not before it.
+    const held = WcAuth.session();
+    const token = (held && held.access_token && held.refresh_token && held.user && held.user.id)
+      ? held.access_token : await WcAuth.validToken();
     if (!token) {
       showGate();
       // If a confirmation was left pending (Create account, then the page was

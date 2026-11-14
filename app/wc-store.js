@@ -139,6 +139,19 @@
         });
     },
 
+    // The copies of the server's answers (lex-reads.js): written and removed without a word to
+    // the subscribers or the other tabs. A copy is read when a screen opens, nobody follows it,
+    // and a feed of a megabyte has no business travelling to every tab on each answer.
+    putQuiet(items) {
+      return tx('readwrite', (st) => {
+        Object.keys(items).forEach((k) => st.put(items[k], k));
+      });
+    },
+    removeQuiet(keys) {
+      const list = normalizeKeys(keys);
+      return tx('readwrite', (st) => { list.forEach((k) => st.delete(k)); });
+    },
+
     subscribe(fn) {
       if (typeof fn !== 'function') return () => {};
       subs.add(fn);

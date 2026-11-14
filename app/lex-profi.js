@@ -20,8 +20,9 @@
 //   copy(text)             put text on the clipboard, returns true when it worked
 //   notify(text)           the server is lost while an order chat stands over the section
 //   onChange()             the server changed something: read the open order chat, a promise
-//   kept                   the screens kept on the device (LexSection.kept): the list and the
-//                          feed are drawn from them in the first frame, the server comes after
+//   read(name, args, show, empty)
+//                          the window's way to read what a screen shows (lex-reads.js, twice):
+//                          the copy this device kept in the first frame, the server's answer after
 (function (global) {
   'use strict';
 
@@ -609,6 +610,9 @@
 
   // ── the section ─────────────────────────────────────────────────────────────
   function createSection(deps) {
+    // What a screen of the section shows is read the window's way (lex-reads.js): the copy first.
+    // A window that gives no such way reads the server alone.
+    const readKept = deps.read || ((name, args, show) => deps.rpc(name, args).then((v) => { show(v, true, false); return v; }));
     const frame = global.LexSection.createFrame({
       title: 'Profi.ru',
       cls: 'lex-profi',
@@ -810,14 +814,14 @@
     let lastFeed = null;
     async function paintFeed() {
       if (frame.screen !== 'feed') return;
-      // Read first, then taken only if nothing fresher came meanwhile.
-      if (!lastFeed && deps.kept) { const was = await deps.kept.read('profi:feed'); if (!lastFeed) lastFeed = was; }
-      // A feed screen just opened is empty: what was read the last time goes on it at once.
-      if (lastFeed && frame.screen === 'feed' && !frame.body.childElementCount) drawFeed(lastFeed, false);
-      const r = await deps.rpc('profi_feed', { p_limit: 60 });
-      lastFeed = r;
-      if (deps.kept) deps.kept.write('profi:feed', r);
-      drawFeed(r, true);
+      // A feed screen just opened is empty: what this window read the last time goes on it at
+      // once; with nothing read yet — the copy this device kept. The server's answer comes after.
+      if (lastFeed && !frame.body.childElementCount) drawFeed(lastFeed, false);
+      await readKept('profi_feed', { p_limit: 60 }, (r, fresh) => {
+        if (!r) return;
+        lastFeed = r;
+        if (fresh || !frame.body.childElementCount) drawFeed(r, fresh);
+      }, () => !lastFeed);
     }
 
     // fresh — the server's answer just now: the clock of the countdowns is taken from it, and the
@@ -980,11 +984,17 @@
       return null;
     }
 
-    async function reloadHome() {
-      home = await deps.rpc('profi_home', {});
-      homeFresh = true;
-      rev = home.rev;
-      if (deps.kept) deps.kept.write('profi:home', home);
+    // The list: the copy this device kept while the section holds nothing yet (onCopy — it is on
+    // the screen now), then the server's answer. Only the answer is fresh: what it says of the bot
+    // (monitorSilent) and its number of change are the server's of now, a copy's are not.
+    async function reloadHome(onCopy) {
+      await readKept('profi_home', {}, (h, fresh) => {
+        if (!h) return;
+        home = h;
+        homeFresh = fresh;
+        if (fresh) rev = h.rev;
+        else if (onCopy) onCopy();
+      }, () => !home);
     }
 
     // A change counts as seen only when it reached the screen and the open order chat: after
@@ -1034,15 +1044,8 @@
         this.watch();
         // The list as this device saw it the last time, in the first frame; the server's answer
         // takes its place. In memory it is drawn already: the section stays alive.
-        if (!home && deps.kept) {
-          const was = await deps.kept.read('profi:home');
-          if (was && !home) {
-            home = was;
-            if (frame.screen === 'home') paintHome();
-          }
-        }
         try {
-          await reloadHome();
+          await reloadHome(() => { if (frame.screen === 'home') paintHome(); });
           await paint();
         } catch (e) {
           say('The section did not load. ' + ((e && e.message) || ''), true);
@@ -1053,10 +1056,7 @@
       async warm() {
         if (frame.isShown()) return;
         try {
-          // Read first, then taken only if the server's answer did not come meanwhile.
-          if (!home && deps.kept) { const was = await deps.kept.read('profi:home'); if (!home) home = was; }
-          if (home && frame.screen === 'home') paintHome();
-          await reloadHome();
+          await reloadHome(() => { if (frame.screen === 'home') paintHome(); });
           if (!frame.isShown() && frame.screen === 'home') paintHome();
         } catch (e) {
           console.warn('[profi] warm:', e && e.message);

@@ -17,6 +17,8 @@
 //   openChat({ chatKey, title })   open this chat where chats open; a card on screen
 //                       stays where the person is reading
 //   keepFeed(blocks) / keptFeed()   what the device holds between launches, optional
+//   read(name, args, show, empty)   the window's way to read what a screen shows (lex-reads.js,
+//                       twice): the copy this device kept first; without it the server alone
 //   reload(title)       read the open chat again after Process again in its head, unless
 //                       the person left it or an answer is being written
 //   onPaint()           the head came late and pushed the feed: stand where it stood
@@ -28,6 +30,10 @@
   const LINK_RE = /\[([^\]\n]+)\]\((https?:[^\s)]+)\)/g;
 
   const { make, button, newOpId } = global.LexSection;
+
+  // What a screen shows is read the window's way: the copy kept on the device first.
+  const readOf = (deps) => deps.read
+    || ((name, args, show) => deps.rpc(name, args).then((v) => { show(v, true, false); return v; }));
 
   const ENTRY_ICON = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg>';
   const ENTRY_ICON_EM = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5.2A3 3 0 0 0 7 17a3 3 0 0 0 5 1V5.5A2.5 2.5 0 0 0 9.5 4z"/><path d="M14.5 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5.2A3 3 0 0 1 17 17a3 3 0 0 1-5 1"/></svg>';
@@ -485,12 +491,13 @@
       paint(known);
       return root;
     }
-    deps.rpc('news_chat_head', { p_chat_key: deps.chatKey })
-      .then((head) => {
-        if (!head) return;
-        paint(head);
-        if (deps.onPaint) deps.onPaint();
-      })
+    let painted = false;
+    readOf(deps)('news_chat_head', { p_chat_key: deps.chatKey }, (head, fresh, same) => {
+      if (!head || same) return;
+      painted = true;
+      paint(head);
+      if (deps.onPaint) deps.onPaint();
+    }, () => !painted)
       .catch((e) => console.warn('[news] head:', e && e.message));
     return root;
   }
@@ -615,8 +622,11 @@
     return {
       el: root,
       async load() {
-        state = await deps.rpc('news_settings', {});
-        if (state) paint();
+        await readOf(deps)('news_settings', {}, (v, fresh, same) => {
+          if (!v || same) return;
+          state = v;
+          paint();
+        }, () => !state);
         return !!state;
       },
     };

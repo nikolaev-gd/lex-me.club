@@ -151,7 +151,8 @@
   // A press shows an item at once from what the window already holds: what the section read
   // of it the last time, or read ahead while its line was on the screen. The section asks the
   // server right after the press, and the fresh answer takes the place of the held one.
-  // Nothing goes to the disk: it lives as long as the window. docs/spec/27-sections.md.
+  // This holding lives as long as the window; the device keeps its own copy of every answer
+  // (lex-reads.js), and after a restart a press takes that. docs/spec/27-sections.md.
   //
   // keep({ load, limit }):
   //   load(id, held)  the section's reading of one item; held — what is held of it now, so a
@@ -257,42 +258,6 @@
     }
 
     return { get, put, ahead, watch, unwatch, forget: (id) => items.delete(id) };
-  }
-
-  // ── screens kept on the device ──────────────────────────────────────────────
-  // What a screen showed the last time, kept on the device: the list of a section, its inner
-  // lists, the buttons of the sections, the list of chats. The next time the screen opens —
-  // after a restart too — it is drawn from that in its first frame, and the server's answer
-  // takes its place quietly (ios/Lex/STANDARD.md, 1.4; on the iPhone `ScreenStash`). The window
-  // gives the storage; the account goes inside every record, and a record of another account
-  // is not read. A change of account wipes the storage as well (webchat/wc-wipe.js).
-  //
-  // kept(storage, account):
-  //   storage    { get(key) → Promise of the value, set(key, value) → Promise }
-  //   account()  who is signed in now, or null
-  // .read(name)          what was kept, or null
-  // .write(name, value)  keep it; the newest write wins
-  function kept(storage, account) {
-    const keyOf = (name) => `lexKept:${name}`;
-    return {
-      async read(name) {
-        try {
-          const who = account();
-          const rec = who ? await storage.get(keyOf(name)) : null;
-          return rec && rec.account === who ? rec.value : null;
-        } catch (e) {
-          console.warn('[section] kept:', e && e.message);
-          return null;
-        }
-      },
-      write(name, value) {
-        const who = account();
-        if (!who || value == null) return;
-        Promise.resolve()
-          .then(() => storage.set(keyOf(name), { account: who, at: Date.now(), value }))
-          .catch((e) => console.warn('[section] kept:', e && e.message));
-      },
-    };
   }
 
   // ── the frame ───────────────────────────────────────────────────────────────
@@ -454,5 +419,5 @@
     };
   }
 
-  global.LexSection = { createFrame, row, markRead, moreButton, make, button, newOpId, keep, kept };
+  global.LexSection = { createFrame, row, markRead, moreButton, make, button, newOpId, keep };
 })(typeof window !== 'undefined' ? window : globalThis);

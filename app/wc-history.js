@@ -133,12 +133,27 @@
 
   const get = (path) => rest(path);
 
-  function post(path, body, prefer) {
-    return rest(path, {
+  // The copies of what the screens show (lex-reads.js): written HERE, where the page calls the
+  // server, for every answer to a name in LexReads.KEPT, whoever asked for it. Nothing else on
+  // the page writes a copy. In WcStore under the account; a change of account wipes them.
+  const copies = global.LexReads.create({
+    storage: {
+      get: (key) => global.WcStore.one(key, null),
+      set: (key, value) => global.WcStore.putQuiet({ [key]: value }),
+      remove: (keys) => global.WcStore.removeQuiet(keys),
+    },
+    account: accountId,
+  });
+
+  async function post(path, body, prefer) {
+    const out = await rest(path, {
       method: 'POST',
       headers: Object.assign({ 'Content-Type': 'application/json' }, prefer ? { Prefer: prefer } : {}),
       body: JSON.stringify(body),
     });
+    const name = global.LexReads.nameOfPath(path);
+    if (name && global.LexReads.KEPT[name]) copies.keep(name, body, out);
+    return out;
   }
 
   // News: its database functions and its one server call (lex-news.js).
@@ -296,13 +311,20 @@
   // строку первой.
   const LIST_PAGE = 30;
 
-  async function listChats(cursor) {
+  // kept — the first portion as this device kept it (lex-reads.js), or null without one.
+  async function listChats(cursor, opts) {
     const body = { p_limit: LIST_PAGE };
     if (cursor && cursor.lastAt) {
       body.p_cursor_last_at = cursor.lastAt;
       body.p_cursor_id = cursor.cursorId;
     }
-    const rows = (await post('/rest/v1/rpc/list_chats', body)) || [];
+    let rows;
+    if (opts && opts.kept) {
+      rows = await copies.kept('list_chats', body);
+      if (!Array.isArray(rows)) return null;
+    } else {
+      rows = (await post('/rest/v1/rpc/list_chats', body)) || [];
+    }
     const items = rows.map((r) => ({
       id: r.chat_key,
       kind: r.kind,
@@ -411,14 +433,19 @@
   // выбранной ветке. Где показать вопрос такой беседы, решил сервер (after_uid,
   // anchor_at); ставит его в ленту LexApart.merge (lex-apart.js). Учителю эти
   // реплики не уходят: в список для него страница кладёт только урок.
-  async function conversation(chatKey) {
+  // kept — the copy on this device instead of the server (lex-reads.js), or null without one.
+  async function conversation(chatKey, opts) {
+    const kept = !!(opts && opts.kept);
     // A feed of Extended Mind grows by dozens of entries a day: its latest entries, not the
     // whole conversation (lex_em_feed_turns). «Earlier entries» asks for more of them.
-    if (isEmFeedKey(chatKey)) {
-      const out = await post('/rest/v1/rpc/lex_em_feed_turns', { p_chat_key: chatKey, p_limit: emLimit(chatKey) });
-      return conversationOf(chatKey, out);
+    const [name, args] = isEmFeedKey(chatKey)
+      ? ['lex_em_feed_turns', { p_chat_key: chatKey, p_limit: emLimit(chatKey) }]
+      : ['list_turns', { p_chat_key: chatKey }];
+    if (kept) {
+      const out = await copies.kept(name, args);
+      return out == null ? null : conversationOf(chatKey, out);
     }
-    return conversationOf(chatKey, await post('/rest/v1/rpc/list_turns', { p_chat_key: chatKey }));
+    return conversationOf(chatKey, await post('/rest/v1/rpc/' + name, args));
   }
 
   // How many latest entries of a feed a reading takes (the item of a section asks the same).
@@ -500,10 +527,16 @@
   // итог — только разработчику. null — не прочиталось.
   // Рядом — пометки под ответами в чатах с базой (lex_chat_marks): кнопка «Да»
   // и сообщения, которые база поставила в очередь. Не прочитались — без них.
-  async function money(chatKey) {
+  // kept — as this device kept them (lex-reads.js); null without a copy.
+  async function money(chatKey, opts) {
+    const args = { p_chat_key: chatKey };
+    if (opts && opts.kept) {
+      const [out, marks] = await Promise.all([copies.kept('list_chat_money', args), copies.kept('lex_chat_marks', args)]);
+      return moneyOf(out, marks);
+    }
     const [out, marks] = await Promise.all([
-      post('/rest/v1/rpc/list_chat_money', { p_chat_key: chatKey }),
-      post('/rest/v1/rpc/lex_chat_marks', { p_chat_key: chatKey }).catch(() => null),
+      post('/rest/v1/rpc/list_chat_money', args),
+      post('/rest/v1/rpc/lex_chat_marks', args).catch(() => null),
     ]);
     return moneyOf(out, marks);
   }
@@ -585,6 +618,7 @@
     money,
     moneyOf,
     rpc,
+    copies,
     newsPost,
     reportStopped,
     attach,

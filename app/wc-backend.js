@@ -442,10 +442,32 @@
     return { ok: true };
   });
 
-  WcBus.on('WC_ACCOUNT_STATE', async () => {
+  WcBus.on('WC_ACCOUNT_STATE', async (m) => {
+    const accountOf = (s, rows) => {
+      const r = Array.isArray(rows) ? rows[0] : null;
+      return {
+        signedIn: true,
+        hasRow: !!r,
+        status: r ? r.status : null,
+        balanceUsd: (r && r.balance_usd != null) ? Number(r.balance_usd) : null,
+        email: s.user.email || null,
+      };
+    };
+    // The balance as this device kept it (lex-reads.js), for the first frame: the session on
+    // the device is taken as it is, the server's answer right after says whether it still holds.
+    if (m && m.kept) {
+      const s = A.session();
+      if (!s || !s.user || !s.user.id) return null;
+      const rows = await WcHistory.copies.kept('account_billing', {});
+      return rows ? Object.assign(accountOf(s, rows), { kept: true }) : null;
+    }
     const token = await A.validToken();
     const s = A.session();
-    if (!token || !s || !s.user || !s.user.id) return { signedIn: false };
+    // Signed out is no pass on this device at all: the server refused its renewal for good. A
+    // pass kept and not renewed now (no network, a user not filled in yet) is not that — it is
+    // an error, and the screen keeps what it shows.
+    if (!s) return { signedIn: false };
+    if (!token || !s.user || !s.user.id) throw new Error('the pass could not be renewed now');
     const resp = await fetch(A.supabaseUrl() + '/rest/v1/account_billing?account_id=eq.'
       + encodeURIComponent(s.user.id) + '&select=status,balance_usd', {
       headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token },
@@ -454,22 +476,25 @@
     // signed-out, and the interface must not blank a good screen over it.
     if (!resp.ok) return { signedIn: true, error: 'account_billing ' + resp.status, email: s.user.email || null };
     const rows = await resp.json();
-    const r = Array.isArray(rows) ? rows[0] : null;
-    return {
-      signedIn: true,
-      hasRow: !!r,
-      status: r ? r.status : null,
-      balanceUsd: (r && r.balance_usd != null) ? Number(r.balance_usd) : null,
-      email: s.user.email || null,
-    };
+    WcHistory.copies.keep('account_billing', {}, rows);
+    return accountOf(s, rows);
   });
 
   // Порция списка. Курсор приходит от интерфейса и уходит обратно как есть —
   // здесь его не разбирают (см. listChats в wc-history.js).
   WcBus.on('WC_LIST_CONVERSATIONS', async (m) => {
-    const r = await WcHistory.listChats(m && m.cursor);
-    return { ok: true, items: r.items, cursor: r.cursor, done: r.done };
+    // kept — the first portion as this device kept it (lex-reads.js); null without a copy.
+    const kept = !!(m && m.kept);
+    const r = await WcHistory.listChats(m && m.cursor, { kept });
+    if (!r) return null;
+    return { ok: true, items: r.items, cursor: r.cursor, done: r.done, kept };
   });
+
+  // The copies of the screens' answers (lex-reads.js) for the interface: one read, one write.
+  // The write is for a newer state of an answer the window holds (a feed brought up to date by
+  // its changes, the place in the News feed); answers of the server are kept where they come.
+  WcBus.on('WC_KEPT', (m) => WcHistory.copies.kept(m.name, m.args));
+  WcBus.on('WC_KEEP', (m) => WcHistory.copies.keep(m.name, m.args, m.value).then(() => true));
 
   // ── Имена для безымянных ──────────────────────────────────────────────────
   //
@@ -513,6 +538,16 @@
   // (WC_LOAD_CONVERSATION) or brought by the item of a section (WC_ADOPT_CONVERSATION: the
   // frame of a section holds it, or has just read it with lex_chat_open).
   WcBus.on('WC_LOAD_CONVERSATION', async (m) => {
+    // The chat as this device kept it (lex-reads.js): the same way onto the page as the
+    // server's answer, drawn while that answer is on its way. No copy — null.
+    if (m.kept) {
+      const since = freshAdopts;
+      const [conv, money] = await Promise.all([
+        WcHistory.conversation(m.id, { kept: true }),
+        WcHistory.money(m.id, { kept: true }).catch(() => null),
+      ]);
+      return conv ? adoptConversation(m.id, conv, money, { kept: true, since }) : null;
+    }
     // Что показывать, решает сервер (list_turns). Ходы заготовок — обычные
     // реплики беседы. Деньги — тем же заходом, рядом: ждать их по очереди
     // значило бы второй путь до сервера на каждое открытие.
@@ -528,7 +563,14 @@
   WcBus.on('WC_ADOPT_CONVERSATION', async (m) => adoptConversation(
     m.id, WcHistory.conversationOf(m.id, m.conversation), WcHistory.moneyOf(m.money, m.marks)));
 
-  async function adoptConversation(id, conv, money) {
+  // kept — a copy from this device: drawn, and nothing goes to the server from it. It becomes
+  // the open conversation (the context of the next turn) only if no answer of the server was
+  // adopted since its reading began (since): a copy never stands over the server's answer.
+  let freshAdopts = 0;
+  async function adoptConversation(id, conv, money, opts) {
+    const fromCopy = !!(opts && opts.kept);
+    if (!fromCopy) freshAdopts += 1;
+    const opens = () => !fromCopy || freshAdopts === opts.since;
     const m = { id };
     const turns = conv.lesson;
     // Отдельные разговоры заготовок — свои беседы; их реплики получают
@@ -554,13 +596,13 @@
     // причине: на устройстве их до сотни мегабайт, а на весь проект сейчас
     // выделен гигабайт. Разговор, в который человек не вернётся, места не
     // занимает. Fire-and-forget: показ ленты этого не ждёт.
-    backfillTurnImages(m.id, turns, imgs).catch(() => {});
+    if (!fromCopy) backfillTurnImages(m.id, turns, imgs).catch(() => {});
     // Reopening PINS the conversation's own session: minting a fresh one for an
     // existing thread would split it in two, and the second half would not be
     // findable from the extension. A feed of Extended Mind has its session from
     // lex_em_feed_open (WC_EM_FEED).
     const sid = (emFeed && emFeed.key === m.id) ? emFeed.sessionId : WcHistory.sessionIdOfKey(m.id);
-    if (sid != null) sessionId = sid;
+    if (sid != null && opens()) sessionId = sid;
 
     // Деньги беседы (list_chat_money): модель каждого ответа — для подписи
     // кнопки модели под ответом (реплика её не несёт), и, разработчику, цены
@@ -580,7 +622,7 @@
     } catch (err) {
       console.warn(TAG, 'chat money not read:', err && err.message);
     }
-    setOpen(m.id, turns, conv.apart);
+    if (opens()) setOpen(m.id, turns, conv.apart);
     // Лента — урок и под его сообщениями ходы заготовок. В памяти для учителя
     // (openTurns) — только урок.
     const shown = global.LexApart ? global.LexApart.merge(turns, conv.apart || []) : turns;
