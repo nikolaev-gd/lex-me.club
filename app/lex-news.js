@@ -389,8 +389,12 @@
       refresh,
       // The person went to another chat: the card being opened stays marked, nothing moves.
       stopOpening: frame.stopOpening,
-      // Show the feed. The first time it stands on the saved place.
-      async show() {
+      // Show the feed. Entering the section (its line, a notification) reads the feed anew
+      // and stands on the newest item (Gennady, 2026-11-14 — before, it stood on the card the
+      // person had stopped at, somewhere in the middle). The way back from a card or the
+      // settings (opts.back) reads what came and keeps the place.
+      async show(opts) {
+        const back = !!(opts && opts.back);
         frame.stopOpening();
         frame.enter();
         if (!opened) {
@@ -399,12 +403,12 @@
           const kept = deps.keptFeed ? await deps.keptFeed() : null;
           if (kept && kept.blocks && kept.blocks.length) {
             paint(kept.blocks, false);
-            standOn(kept.anchor);
+            scroller.scrollTop = 0;
           }
           try {
-            const r = await load({ toAnchor: true });
-            standOn(r.anchor);
-            lastSaved = r.anchor || null;
+            await load();
+            scroller.scrollTop = 0;
+            lastSaved = topCard();
             if (frame.isShown()) frame.watch();
           } catch (e) {
             opened = false;
@@ -413,7 +417,15 @@
           return;
         }
         frame.watch();
-        if (frame.screen === 'home') await backToFeed();
+        if (frame.screen !== 'home') return;
+        if (back) { await backToFeed(); return; }
+        if (busy) { scroller.scrollTop = 0; return; }
+        try {
+          await load();
+        } catch (e) {
+          console.warn('[news] feed:', e && e.message);
+        }
+        scroller.scrollTop = 0;
       },
       hide() {
         if (!scroller.hidden) savedTop = scroller.scrollTop;

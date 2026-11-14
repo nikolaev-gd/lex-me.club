@@ -522,7 +522,17 @@
     // Is this a news chat? The server wrote its first message.
     hasNewsTurn() { return !!elTurns.querySelector('.wc-turn-news'); },
 
+    // ⚠️ THE ONE PLACE WHERE A CHAT DECIDES WHERE IT STANDS WHEN IT IS DRAWN — every chat of the
+    // page and of the Mac app comes through here, a new section's chats too. A chat opens at its
+    // end (Gennady, 2026-11-14: before, a chat with unread messages opened at the «Новые» line,
+    // and an order chat seen for the first time stood at its top or in its middle). The «Новые»
+    // line stays as a mark of what came. Two exceptions: a chat that is only the news starts at
+    // its first line, and a repaint (keepPlace) keeps the place of a reader who is not at the
+    // end — a reader at the end, or on the way there, stays at the end.
     renderTurns(turns, opts) {
+      // Read before the old turns go: the frame that brings a chat just opened to its end may
+      // not have run yet, and the place of that moment is not where the person reads.
+      const keptTop = opts && opts.keepPlace && !stickToBottom && !nearBottom() ? elThread.scrollTop : null;
       incoming = (opts && opts.incoming) || null;
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
       // и обязан уйти вместе с ними.
@@ -608,21 +618,15 @@
       // A chat that is only the news starts at its first line. A card that was on
       // screen before its chat came stays where the person is reading.
       const newsOnly = !!(turns && turns.length === 1 && turns[0].origin === 'news');
-      const place = opts && opts.keepPlace ? elThread.scrollTop : null;
+      const place = keptTop !== null ? keptTop
+        : (newsOnly && opts && opts.keepPlace ? elThread.scrollTop : null);
       stickToBottom = !newsOnly && place === null;
       elJump.hidden = true;
       // After layout, not during: the images have no height yet on this frame.
-      // A chat with unread messages opens at the «Новые» line, not at its end.
-      const fresh = place === null && !newsOnly ? elTurns.querySelector(':scope > .lex-msg-new') : null;
       requestAnimationFrame(() => {
         if (place !== null) elThread.scrollTop = place;
         else if (newsOnly) elThread.scrollTop = 0;
-        else if (fresh) {
-          const top = fresh.getBoundingClientRect().top - elThread.getBoundingClientRect().top + elThread.scrollTop - 16;
-          elThread.scrollTop = Math.min(top, elThread.scrollHeight - elThread.clientHeight);
-          stickToBottom = nearBottom();
-          elJump.hidden = stickToBottom;
-        } else scrollToBottom(false);
+        else scrollToBottom(false);
       });
     },
 

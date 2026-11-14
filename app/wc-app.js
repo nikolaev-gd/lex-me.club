@@ -486,7 +486,7 @@
     news: { title: 'News', build: buildNews },
     profi: { title: 'Profi.ru', build: buildProfi, cutsAnswer: true, leave: leaveProfiChat },
   };
-  const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id) });
+  const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
   let sectionOn = null;
   function sectionEls() {
     return {
@@ -517,7 +517,9 @@
     }
     return section.live;
   }
-  async function showSection(id) {
+  // opts.back — the way back from a chat of the section: it stands where it was left. Without
+  // it the section is entered (its line, a notification), and News reads its feed anew.
+  async function showSection(id, opts) {
     const { main, host } = sectionEls();
     const section = SECTIONS[id];
     await endVoiceOnLeave('news');
@@ -529,7 +531,7 @@
     host.hidden = false;
     main.classList.add('is-section');
     WcSidebar.close();
-    await section.live.show();
+    await section.live.show({ back: !!(opts && opts.back) });
   }
   // The buttons of the sections: from what this device kept, then as the server names them.
   // Every section the server names is then built and its list read (warm), so its first
@@ -1038,6 +1040,8 @@
     profiChat = chat;
     WcThread.setProfiChat(chat);
     main.classList.add('is-profi-chat');
+    // The clean view the chat starts with (on, lex-profi.js createChat).
+    main.classList.toggle('is-profi-clean', !!chat.clean);
     paintProfiBar();
     paintProfiOutbox(chat);
     SECTIONS.profi.live.watch();

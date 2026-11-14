@@ -441,8 +441,10 @@
   // changed
   function createChat(deps) {
     let data = null;
-    // The clean view of the chat (the button in the bar), while the chat is open.
-    let clean = false;
+    // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
+    // with it on (Gennady, 2026-11-14): an order chat is first of all the conversation with
+    // the client; a word to Lex from the field turns it off, so that the answer is seen.
+    let clean = true;
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
@@ -730,7 +732,7 @@
       },
 
       // The clean view: only the screen, the model reads the whole chat and the server is not
-      // told. A new opening of a chat makes a new object, so it starts without it.
+      // told. A new opening of a chat makes a new object, so it starts with it on again.
       get clean() { return clean; },
       setClean(on) {
         clean = !!on;
