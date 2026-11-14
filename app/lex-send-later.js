@@ -9,10 +9,11 @@
 // comes, by the same path as Send, to the place where the client wrote last at that moment. This
 // file only offers times and names them.
 //
-// The look is the design Gennady approved on 2026-11-14 (the canvas of the Profi.ru pages,
-// «Чат заказа», screens 5–8): a menu of the held button with the chat dimmed around what will
-// leave, a sheet from below with the text, the ready times, a day and an hour, and one button that
-// names the chosen time.
+// The look is the standard of Lex (ios/Lex/STANDARD.md, В7.9 and В7.10; the canvas of the
+// Profi.ru pages, «Чат заказа», screens 5–8, version 20): the menu of a held button is the common
+// menu В7.8 with the chat dimmed (--scrim) around what will leave; the sheet of the time is the
+// common sheet В7.15 with the text as a bubble «went to the client», the ready times, a day and
+// an hour, and the main button that names the chosen time.
 //
 // Gives global.LexSendLater:
 //   quick(now)            the ready times: [{ label, at: Date, side }] — side is the grey word on
@@ -123,13 +124,12 @@
     const box = make('div', 'lex-sl-menu');
     box.setAttribute('role', 'menu');
     if (o.head) box.appendChild(make('div', 'lex-sl-menu-head', o.head));
-    o.items.forEach((it, i) => {
-      if (i) box.appendChild(make('div', 'lex-sl-menu-sep'));
+    o.items.forEach((it) => {
       const b = make('button', 'lex-sl-menu-item');
       b.type = 'button';
       b.setAttribute('role', 'menuitem');
       const ic = make('span', 'lex-sl-menu-icon');
-      ic.appendChild(typeof it.icon === 'string' ? icon(it.icon, 20) : (it.icon || icon('send', 20)));
+      ic.appendChild(typeof it.icon === 'string' ? icon(it.icon, 16) : (it.icon || icon('send', 16)));
       b.append(ic, make('span', '', it.label));
       b.addEventListener('click', () => { close(); it.run(); });
       box.appendChild(b);
@@ -214,11 +214,18 @@
       const x = make('button', 'lex-sl-close');
       x.type = 'button';
       x.setAttribute('aria-label', 'Close');
-      x.appendChild(icon('close', 20));
+      x.appendChild(icon('close', 16));
       x.addEventListener('click', () => finish(null));
       top.append(words, x);
       sheet.appendChild(top);
-      if (opts.text) sheet.appendChild(make('div', 'lex-sl-text', opts.text));
+      // The text that will leave: the common bubble «went to the client» (В7.1), on the right.
+      if (opts.text) {
+        const wrap = make('div', 'lex-sl-text lex-bubbles');
+        wrap.appendChild(global.LexMessage
+          ? global.LexMessage.bubble({ side: 'out', text: opts.text })
+          : make('div', 'lex-bubble is-out', opts.text));
+        sheet.appendChild(wrap);
+      }
 
       const list = make('div', 'lex-sl-quick');
       quick(n).forEach((q, i) => {
@@ -240,7 +247,7 @@
         inp.type = type;
         inp.value = value;
         inp.setAttribute('aria-label', label);
-        wrap.append(icon(ic, 18), inp);
+        wrap.append(icon(ic, 16), inp);
         // A press on the field opens the browser's picker of the day or the hour.
         wrap.addEventListener('click', () => { try { inp.showPicker(); } catch (_) { inp.focus(); } });
         return { wrap, inp };
@@ -255,7 +262,7 @@
       const go = make('button', 'lex-sl-go');
       go.type = 'button';
       const goText = make('span', '', '');
-      go.append(icon('clock', 18), goText);
+      go.append(icon('clock', 16), goText);
       const chosen = () => fromFields(day.inp.value, time.inp.value);
       const paint = () => {
         const d = chosen();
