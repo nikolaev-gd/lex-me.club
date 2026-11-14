@@ -474,6 +474,107 @@
     repaintQuestions();
   }
 
+  // ── The feed «Обращения к базе» (2026-11-15, supabase/migrations/em_request_tasks.sql) ─────────
+  // One task — one message (LexMessage.task, ios/Lex/STANDARD.md В7.30). The records of one task carry the
+  // same task id from the server; the newest of them carries the look, the others say `merged`. The message
+  // stands at the time of the task's last request: a new request brings it down. A task with nothing wrong
+  // (`clean`) is off the screen: one line a day at the place of the newest of them — «Ещё 5 задач без
+  // замечаний · Show» (В7.4 with a tick); Show brings them back in their places, Hide takes them away.
+  let rFeed = false;
+  const rTurns = new Map();    // uid → the turn of a record that has its task
+  const rUi = {
+    open: new Set(),           // tasks whose requests are open
+    all: new Set(),            // … with every request, not the first five
+    days: new Set(),           // days whose tasks without remarks are shown
+  };
+  const bubblesOn = () => !!profiChat || !!qFeed || rFeed || emLane != null;
+  const atOf = (s) => { const x = Date.parse(s || ''); return Number.isFinite(x) ? x : 0; };
+  const dayOfAt = (s) => { const d = new Date(atOf(s)); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; };
+  const plural = (n, one, few, many) => {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many;
+  };
+
+  // The tasks of the records on the screen: by id, the look of the newest one.
+  function requestTasks() {
+    const byId = new Map();
+    for (const t of rTurns.values()) {
+      const k = t.emEntry && t.emEntry.task;
+      if (!k || !k.id) continue;
+      const g = byId.get(k.id) || { members: [], look: null, rep: null };
+      g.members.push(String(t.uid));
+      if (!k.merged && (!g.look || atOf(k.last) >= atOf(g.look.last))) { g.look = k; g.rep = t; }
+      byId.set(k.id, g);
+    }
+    return [...byId.values()].filter((g) => g.look).sort((a, b) => atOf(a.look.last) - atOf(b.look.last));
+  }
+
+  function taskNode(g) {
+    const id = g.look.id;
+    const msg = global.LexMessage.task(g.look, {
+      open: rUi.open.has(id),
+      all: rUi.all.has(id),
+      onToggle: () => {
+        if (rUi.open.has(id)) { rUi.open.delete(id); rUi.all.delete(id); } else rUi.open.add(id);
+        repaintRequests();
+      },
+      onMore: () => { rUi.all.add(id); repaintRequests(); },
+    });
+    const node = el('.wc-turn.wc-turn-em.wc-turn-rq', {}, [msg]);
+    node.dataset.uid = String(g.rep.uid);
+    node.dataset.uids = g.members.join(' ');
+    node.dataset.at = g.look.last;
+    node.dataset.in = '1';
+    return node;
+  }
+
+  // The line of a day's tasks without remarks: «Ещё 5 задач без замечаний · Show» («5 задач без замечаний»
+  // when the day has nothing else), shown — «5 задач без замечаний · Hide».
+  function cleanLine(day, n, more, shown, at) {
+    const words = `${n} ${plural(n, 'задача', 'задачи', 'задач')} без замечаний`;
+    const b = global.LexMessage.fold({
+      icon: 'check',
+      text: !shown && more ? `Ещё ${words}` : words,
+      action: shown ? 'Hide' : 'Show',
+      onClick: () => {
+        if (rUi.days.has(day)) rUi.days.delete(day); else rUi.days.add(day);
+        repaintRequests();
+      },
+    });
+    b.setAttribute('aria-expanded', String(shown));
+    const node = el('.wc-turn.wc-turn-rq.wc-turn-rq-clean', {}, [b]);
+    node.dataset.at = at;
+    node.dataset.in = '1';
+    return node;
+  }
+
+  // The tasks in their places: a task at the time of its last request; a day's line of the tasks without
+  // remarks at the place of the newest of them.
+  function paintRequests() {
+    if (!rFeed) return;
+    for (const n of elTurns.querySelectorAll(':scope > .wc-turn-rq')) n.remove();
+    const days = new Map();
+    for (const g of requestTasks()) {
+      const day = dayOfAt(g.look.last);
+      const d = days.get(day) || { clean: [], other: 0 };
+      if (g.look.clean) d.clean.push(g); else { d.other++; place(taskNode(g)); }
+      days.set(day, d);
+    }
+    for (const [day, d] of days) {
+      if (!d.clean.length) continue;
+      const shown = rUi.days.has(day);
+      if (shown) for (const g of d.clean) place(taskNode(g));
+      place(cleanLine(day, d.clean.length, d.other > 0, shown, d.clean[d.clean.length - 1].look.last));
+    }
+  }
+  function repaintRequests() {
+    paintRequests();
+    remark();
+    setEmpty(!elTurns.childElementCount);
+    if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
+  }
+
   let lastMoney = null;
   let brainHooks = null;
   function paintBrainMarks() {
@@ -620,7 +721,7 @@
     // as in Telegram: the list carries the class of the common parts (lex-message.css).
     setProfiChat(chat) {
       profiChat = chat;
-      elTurns.classList.toggle('lex-bubbles', !!chat || !!qFeed || emLane != null);
+      elTurns.classList.toggle('lex-bubbles', bubblesOn());
     },
 
     // The feed «Разбор»: which tab is on the screen — 'people', 'work', 'all'; null — not this
@@ -630,7 +731,7 @@
       const was = emLane;
       emLane = lane || null;
       elTurns.classList.toggle('is-intake', emLane != null);
-      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed || emLane != null);
+      elTurns.classList.toggle('lex-bubbles', bubblesOn());
       if (emLane == null) { emOpenUids.clear(); emTurnsByUid.clear(); }
       for (const n of elTurns.querySelectorAll('.wc-turn-em[data-lane]')) n.hidden = !laneShows(n.dataset.lane);
       remark();
@@ -689,6 +790,12 @@
         setEmpty(!elTurns.childElementCount);
         return;
       }
+      // The feed of requests: the record joins its task (or leaves it), the tasks stand again.
+      if (rFeed && t.origin === 'em_request') {
+        const uid = String(t.uid);
+        if (!t.deleted && t.emEntry && t.emEntry.task) { rTurns.set(uid, t); repaintRequests(); return; }
+        if (rTurns.delete(uid)) { repaintRequests(); if (t.deleted) return; }
+      }
       const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
       if (t.deleted) { if (old) old.remove(); }
       else if (old) old.replaceWith(emEntryTurn(t));
@@ -703,7 +810,15 @@
     setQuestionsFeed(hooks) {
       qFeed = hooks || null;
       if (!qFeed) { qTurns.clear(); qUi.pending.clear(); qUi.open.clear(); qUi.packs.clear(); }
-      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed || emLane != null);
+      elTurns.classList.toggle('lex-bubbles', bubblesOn());
+    },
+
+    // The feed «Обращения к базе» is open (true) or not: its records stand as tasks (paintRequests). Its
+    // turns are bubbles: the list carries the class of the common parts (lex-message.css).
+    setRequestsFeed(on) {
+      rFeed = !!on;
+      if (!rFeed) { rTurns.clear(); rUi.open.clear(); rUi.all.clear(); rUi.days.clear(); }
+      elTurns.classList.toggle('lex-bubbles', bubblesOn());
     },
 
     // Is this a news chat? The server wrote its first message.
@@ -735,11 +850,14 @@
         elTurns.append(b);
       }
       if (qFeed) qTurns.clear();
+      if (rFeed) rTurns.clear();
       (turns || []).forEach((t) => {
         // The feed of questions: a question takes its place after the loop (paintQuestions), the
         // server's line after an answer is said by the line of its question.
         if (qFeed && t.origin === 'em_question' && t.uid) { qTurns.set(String(t.uid), t); return; }
         if (qFeed && t.origin === 'em_status') return;
+        // The feed of requests: a record with its task takes its place after the loop (paintRequests).
+        if (rFeed && t.origin === 'em_request' && t.uid && t.emEntry && t.emEntry.task) { rTurns.set(String(t.uid), t); return; }
         if (t.origin && String(t.origin).indexOf('em_') === 0) {
           elTurns.append(emEntryTurn(t));
           return;
@@ -803,6 +921,7 @@
         }
       });
       paintQuestions();
+      paintRequests();
       remark();
       // After the day lines: the line of a hidden discussion stands right over its turns.
       if (profiChat) profiChat.paintHidden(elTurns);

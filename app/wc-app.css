@@ -2137,7 +2137,7 @@ button { font: inherit; color: inherit; }
  * three lines (as in an order chat). */
 .lex-bubbles > .wc-turn-q { margin-bottom: 16px; }
 .lex-bubbles > .wc-turn-pack.is-each { display: flex; flex-direction: column; gap: 16px; }
-.wc-main.is-em-questions .wc-burger { display: none !important; }
+.wc-main.is-em-titled .wc-burger { display: none !important; }
 .wc-chat-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wc-chat-title[hidden] { display: none !important; }
 .wc-chat-title-main { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }

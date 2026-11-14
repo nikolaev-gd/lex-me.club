@@ -979,9 +979,13 @@
       onReply: (r) => setReply(r),
     } : null);
     if (!questions) setReply(null);
+    // The feed of requests: its records stand as tasks, one message a task (LexMessage.task, В7.30).
+    const requests = key === EM_REQUESTS_KEY;
+    WcThread.setRequestsFeed(requests);
     // The title stands before the chat is drawn: drawn after, it would push the end of the chat
     // under the message box.
-    paintChatTitle(questions ? { title: 'Questions', waiting: info.waiting } : null);
+    paintChatTitle(questions ? { title: 'Questions', sub: waitingSub(info.waiting) }
+      : requests ? { title: 'Обращения к базе', sub: daySub(emRequestsDay) } : null);
     sectionEls().main.classList.add('is-em-feed');
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
     await openConversation(key, { back: sectionTarget('em'), wanted, loaded: info.chat || null, focusUid });
@@ -1002,6 +1006,7 @@
       if (p && emOpen && p.chat !== emOpen.key && p.from !== emOpen.key) return;
       await lookEmFeed(p && p.chat === (emOpen && emOpen.key) ? p.rev : null);
     });
+    if (requests) countRequests().catch((e) => console.warn('[wc] requests:', e && e.message));
     // Shown from what was held: the press takes the visit's moment on the server now, and
     // what came after the reading ahead comes at once, not in two seconds.
     if (fromHeld) {
@@ -1014,6 +1019,7 @@
     emOpen = null;
     endVisit();
     WcThread.setQuestionsFeed(null);
+    WcThread.setRequestsFeed(false);
     setReply(null);
     paintChatTitle(null);
     if (emFollower) emFollower.stop();
@@ -1043,27 +1049,39 @@
     f.rev = Math.max(rev, (ch && ch.rev) || 0);
     // A new record of «Разбор» changes the numbers of its tabs.
     if (f.key === INTAKE_KEY) countIntake().catch((e) => console.warn('[wc] tabs:', e && e.message));
-    if (ch && ch.waiting != null && f.key === EM_QUESTIONS_KEY) paintChatTitle({ title: 'Questions', waiting: ch.waiting });
+    if (ch && ch.waiting != null && f.key === EM_QUESTIONS_KEY) paintChatTitle({ title: 'Questions', sub: waitingSub(ch.waiting) });
+    // A new request changes the number under the title of the feed of requests.
+    if (f.key === EM_REQUESTS_KEY) countRequests().catch((e) => console.warn('[wc] requests:', e && e.message));
   }
   function lookEmFeedIfDue() {
     if (emLookDue && emOpen) lookEmFeed().catch((e) => console.warn('[wc] feed:', e && e.message));
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') lookEmFeedIfDue(); });
-  // ── The feed of questions: its title and the line of a reply ─────────────────
+  // ── The feeds of questions and requests: their title and the line of a reply ──
   const EM_QUESTIONS_KEY = '__lex_em_question__';
-  // The title of the chat in the bar: «Questions», under it «Extended Mind · N waiting» (nothing
-  // waits — «Extended Mind»). null — no title (any other chat).
+  const EM_REQUESTS_KEY = '__lex_em_request__';
+  // The title of the chat in the bar, two lines: «Questions» and under it «Extended Mind · N waiting»
+  // (nothing waits — «Extended Mind»); «Обращения к базе» and «Extended Mind · N за сутки» — the requests
+  // of the last 24 hours (lex_em_requests_day). null — no title (any other chat).
+  const waitingSub = (w) => (Number(w) > 0 ? `Extended Mind · ${Number(w)} waiting` : 'Extended Mind');
+  const daySub = (n) => (Number(n) > 0 ? `Extended Mind · ${Number(n)} за сутки` : 'Extended Mind');
+  let emRequestsDay = null;
+  async function countRequests() {
+    const r = await newsRpc('lex_em_requests_day', {});
+    if (!r || r.day == null) return;
+    emRequestsDay = Number(r.day) || 0;
+    if (emOpen && emOpen.key === EM_REQUESTS_KEY) paintChatTitle({ title: 'Обращения к базе', sub: daySub(emRequestsDay) });
+  }
   function paintChatTitle(t) {
     const box = document.getElementById('wc-chat-title');
     const main = document.querySelector('.wc-main');
     if (!box) return;
     box.hidden = !t;
-    if (main) main.classList.toggle('is-em-questions', !!t);
+    if (main) main.classList.toggle('is-em-titled', !!t);
     if (!t) { box.replaceChildren(); return; }
-    const n = Number(t.waiting) || 0;
     box.replaceChildren(
       WcUI.el('.wc-chat-title-main', {}, [t.title]),
-      WcUI.el('.wc-chat-title-sub', {}, [n > 0 ? `Extended Mind · ${n} waiting` : 'Extended Mind']),
+      WcUI.el('.wc-chat-title-sub', {}, [t.sub || 'Extended Mind']),
     );
   }
   // Reply on a question or a pack: the line over the message box; the next message carries their

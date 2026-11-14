@@ -523,6 +523,73 @@
 .lex-intake-thin-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .lex-intake-thin .lex-intake-time { color: inherit; }
 
+/* ── A task of «Обращения к базе» (В7.30, 2026-11-15) ─────────────────────────
+ * One task — one message: the bubble of the other side across the whole lane, the corner 6 bottom left,
+ * 10 12 10 inside (0 at the bottom when it ends with a button). The head 13 muted — the mark 14 in the
+ * soft colour and who asked, the time 12 at the right in figures of one width; 2 under it the task in the
+ * text of the chat; 6 under it what was not right, 14, a line each, 2 apart: yellow, the soft colour, red;
+ * 2 under them how many requests, 12 muted. The face is one button; the requests open 8 under it, 6
+ * apart, 14 in the soft colour, the time 12 muted at the right, 10 from the words. It stands in a lane
+ * `lex-bubbles` (its colours). */
+.lex-task {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+  line-height: 1.35;
+  text-align: left;
+}
+.lex-task.ends-with-act { padding-bottom: 0; }
+.lex-task svg { display: block; flex: none; }
+.lex-task-face {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.lex-task-face:active { opacity: .6; }
+.lex-task-head { display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 20px; color: var(--fg-muted); font-size: 13px; }
+.lex-task-mark { width: 14px; height: 14px; color: var(--lex-plate-fg); }
+.lex-task-who { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-task-time { flex: none; margin-left: auto; padding-left: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.lex-task-why { margin-top: 2px; overflow-wrap: anywhere; }
+.lex-task-note { margin-top: 2px; font-size: 14px; overflow-wrap: anywhere; }
+.lex-task-why + .lex-task-note { margin-top: 6px; }
+.lex-task-note.is-attention { color: var(--attention); }
+.lex-task-note.is-soft { color: var(--lex-plate-fg); }
+.lex-task-note.is-danger { color: var(--danger); }
+.lex-task-count { margin-top: 2px; color: var(--fg-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lex-task-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--lex-plate-fg);
+  font-size: 14px;
+}
+.lex-task-call { display: flex; align-items: baseline; gap: 10px; }
+.lex-task-call-words { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.lex-task-call-time { flex: none; color: var(--fg-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lex-task-call-more { color: var(--fg-muted); font-size: 13px; }
+/* The line of the tasks without remarks of a day (В7.4 with a tick). */
+.lex-fold .lex-fold-check { flex: none; }
+
 /* ── Buttons (В7.6, В7.7) ──────────────────────────────────────────────────────
  * The main button — the colour of the main action, one in a row; the second — the ground of a
  * hover. 44 high, radius 12, 15/650. `is-left` — a variant of a question: the words at the left,

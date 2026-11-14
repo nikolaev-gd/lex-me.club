@@ -81,6 +81,8 @@
     // «Разбор»: the numbers of its tabs (the window keeps the last ones itself, with their day) and
     // the question a record asked, found at the press
     'lex_em_intake_today', 'lex_em_intake_question',
+    // «Обращения к базе»: how many requests of the last 24 hours, under the title (asked on every new record)
+    'lex_em_requests_day',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',

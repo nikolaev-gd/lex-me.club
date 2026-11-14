@@ -21,6 +21,11 @@
 //                       the numbers of an unfolded record; what the database dropped; «База задала
 //                       тебе вопрос». No facts — one thin line. o = { timeText, open, onToggle(),
 //                       onQuestion(texts) }
+//   task(look, o)       a task of «Обращения к базе» as one message (В7.30, 2026-11-15): who asked, the
+//                       time of the last request, the task, what was not right in words (yellow, soft,
+//                       red), how many requests; a press shows them in words, five and «Ещё N». The look
+//                       comes from the server (the key `task` of em_entry). o = { open, all, onToggle(),
+//                       onMore() }; taskWords(text, at) — a text of the look with the device's times
 //
 // A chat drawn as in Telegram (2026-11-13, the order chats of Profi.ru first; its list of turns
 // carries the class `lex-bubbles`, which also turns the day line into a plate in the middle):
@@ -53,7 +58,8 @@
 //   sendArrow({ channel })   the arrow that sends a draft to the client (В7.23): a disc with an
 //                       arrow up, the mark of the place on its corner; the press is the caller's
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
-//   fold({ text, action, onClick })   one line in the middle for what is kept off the screen
+//   fold({ text, action, onClick, icon })   one line in the middle for what is kept off the screen;
+//                       icon 'check' — a tick in place of the eye (tasks without remarks, В7.30)
 //   avatar(name)        a round letter of a person, its colour from the name
 //   order({ … })        the message of an order in the chat of new orders of Profi.ru (В7.29): the grey
 //                       part of the client, the blue part of the bot's reply with the buttons, a yellow
@@ -320,6 +326,95 @@
       tail = true;
     }
     if (tail) root.classList.add('ends-with-act');
+    return root;
+  }
+
+  // ── A task of «Обращения к базе» (В7.30, 2026-11-15) ─────────────────────────
+  // One task — one message (Gennady, 15.11.2026, the canvas «Обращения к базе: 3 варианта», board 3
+  // «Сначала то, что не так»): the records of the database with the same who and what for, gathered by the
+  // server (lex_em_request_task). The bubble of the other side across the lane. The head 13 in the muted
+  // colour — the mark 14 and who asked, the time of the last request 12 at the right; 2 under it the task in
+  // the text of the chat; 6 under it what was not right, 14, a line each: yellow — too much at once or a
+  // long wait, the soft colour — requests with an error, red — every request failed; the count 12 under
+  // them. The whole face is the button that shows the requests in words: the first five, «Ещё N» the rest.
+  // Words and thresholds come ready from the server; here only the times go in where a text says {0}.
+  const TASK_MARKS = {
+    code: INTAKE_MARKS.code,
+    chat: [['path', { d: 'M21 12a8 8 0 0 1-11.6 7.1L4 20l.9-5.4A8 8 0 1 1 21 12z' }]],
+  };
+  const TASK_SHOWN = 5;
+
+  // A text of the look with its times: «в {0} и в {1}» → «в 20:15 и в 23:57», the device's time.
+  function taskWords(text, at) {
+    return String(text || '').replace(/\{(\d+)\}/g, (_, i) => timeOf((at || [])[Number(i)]));
+  }
+
+  // The mark at who asked, 14 in the soft colour: Claude Code — a terminal, a chat of Claude — a cloud of
+  // talk, Lex — its sparkle.
+  function taskMark(icon) {
+    if (icon === 'lex') {
+      const s = sparkle(14);
+      s.classList.add('lex-task-mark');
+      return s;
+    }
+    const parts = TASK_MARKS[icon];
+    if (!parts) return null;
+    const n = svg('0 0 24 24', 14);
+    n.setAttribute('class', 'lex-task-mark');
+    for (const [tag, attrs] of parts) {
+      n.appendChild(shape(tag, Object.assign({ fill: 'none', stroke: 'currentColor', 'stroke-width': 2.2,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, attrs)));
+    }
+    return n;
+  }
+
+  // task(look, { open, all, onToggle, onMore }) — open: the requests under the face; all: every one of
+  // them, not the first five.
+  function task(v, o) {
+    o = o || {};
+    const open = !!o.open;
+    const root = make('article', `lex-task${open ? ' is-open' : ''}`);
+    const face = make('button', 'lex-task-face');
+    face.type = 'button';
+    face.setAttribute('aria-expanded', String(open));
+    const head = make('span', 'lex-task-head');
+    const mark = taskMark(v.icon);
+    if (mark) head.appendChild(mark);
+    head.append(make('span', 'lex-task-who', v.who || ''), make('span', 'lex-task-time', timeOf(v.last)));
+    face.append(head, make('span', 'lex-task-why', v.why || ''));
+    for (const n of v.notes || []) {
+      face.appendChild(make('span', `lex-task-note is-${n.tone === 'danger' || n.tone === 'attention' ? n.tone : 'soft'}`,
+        taskWords(n.t, v.at)));
+    }
+    if (v.count_line) face.appendChild(make('span', 'lex-task-count', taskWords(v.count_line, v.at)));
+    face.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (o.onToggle) o.onToggle();
+    });
+    root.appendChild(face);
+    if (!open) return root;
+    const calls = Array.isArray(v.calls) ? v.calls : [];
+    const shown = o.all ? calls : calls.slice(0, TASK_SHOWN);
+    const list = make('div', 'lex-task-calls');
+    for (const c of shown) {
+      const row = make('div', 'lex-task-call');
+      row.append(make('span', 'lex-task-call-words', c.t || ''), make('span', 'lex-task-call-time', timeOf(c.at)));
+      list.appendChild(row);
+    }
+    root.appendChild(list);
+    const rest = calls.length - shown.length + (Number(v.more) || 0);
+    if (!o.all && rest > 0) {
+      const b = intakeAct('lex-intake-more', `Ещё ${rest}`, 'down', `Show ${rest} more requests`, o.onMore);
+      b.setAttribute('aria-expanded', 'false');
+      root.appendChild(b);
+      root.classList.add('ends-with-act');
+    } else if (o.all && calls.length > TASK_SHOWN) {
+      if (Number(v.more) > 0) list.appendChild(make('div', 'lex-task-call-more', `Ещё ${v.more} — в базе`));
+      const b = intakeAct('lex-intake-more', 'Свернуть', 'up', null, o.onToggle);
+      b.setAttribute('aria-expanded', 'true');
+      root.appendChild(b);
+      root.classList.add('ends-with-act');
+    }
     return root;
   }
 
@@ -936,10 +1031,19 @@
     return n;
   }
 
+  // icon: 'check' — what is folded has nothing wrong (the tasks of «Обращения к базе» without remarks,
+  // В7.30): a tick 14 in place of the crossed eye.
   function fold(o) {
     const b = make('button', 'lex-fold');
     b.type = 'button';
-    b.append(eyeOff(14), make('span', '', `${o.text} · `), make('span', 'lex-fold-action', o.action));
+    let mark = eyeOff(14);
+    if (o.icon === 'check') {
+      mark = svg('0 0 24 24', 14);
+      mark.setAttribute('class', 'lex-fold-check');
+      mark.appendChild(shape('path', { d: CHECK_D[0], fill: 'none', stroke: 'currentColor', 'stroke-width': 2.4,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    b.append(mark, make('span', '', `${o.text} · `), make('span', 'lex-fold-action', o.action));
     if (o.onClick) b.addEventListener('click', o.onClick);
     return b;
   }
@@ -1324,7 +1428,7 @@
   // The arrow of a reply, 16: for the item «Reply» of a menu.
   const replyIcon = (size) => strokes(REPLY_D, size || 16);
 
-  global.LexMessage = { message, entry, intake, dayLine, newLine, mark, timeOf, dayOf,
+  global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
     pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
 })(typeof window !== 'undefined' ? window : globalThis);
