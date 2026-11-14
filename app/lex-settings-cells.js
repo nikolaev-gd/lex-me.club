@@ -259,7 +259,7 @@
     knobVoiceEndSensitivity: 0.5,                      // OpenAI: semantic_vad eagerness; Gemini: endOfSpeechSensitivity. 0.5 = оставить серверный дефолт
     knobVoiceLongSessions: false,                      // Gemini: contextWindowCompression
     knobVoiceOutputLanguage: 'auto',                   // Gemini: speechConfig.languageCode
-    knobVoiceThinkingLevel: 'minimal',                 // Gemini 3.1 Flash Live: thinkingConfig.thinkingLevel
+    knobVoiceThinkingLevel: 'low',                     // Gemini 3.8 Live Extended Thinking (and the hidden 3.1): thinkingConfig.thinkingLevel; Extended Thinking takes low/medium/high only
     // Эта ручка и есть тот случай, ради которого список свели в одно место:
     // она была в одной копии и отсутствовала в другой — ячейки не заводилось,
     // getChatKnobs отдавал undefined, и session.reasoning не уходил вовсе.

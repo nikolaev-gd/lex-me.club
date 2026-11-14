@@ -1172,6 +1172,15 @@
         state.items.set(itemId, { role: 'user', text: finalText });
         if (hooks.onUserDone) hooks.onUserDone(itemId, finalText);
       },
+      // Ход кончился без слов человека (ответ, который модель с фоновым
+      // размышлением прислала отдельным ходом, или речь не расшифровалась):
+      // занятое заранее место его реплики освобождается — пустой пузырь с
+      // точками читался бы как «человек промолчал».
+      onUserTranscriptFailed: ({ itemId }) => {
+        if (!mine() || !itemId) return;
+        state.items.delete(itemId);
+        if (hooks.onUserFailed) hooks.onUserFailed(itemId);
+      },
       onAssistantTranscriptDelta: ({ itemId, text }) => { if (mine() && itemId && hooks.onAssistantDelta) hooks.onAssistantDelta(itemId, appendTo(itemId, 'assistant', text)); },
       onAssistantTranscriptComplete: ({ itemId, finalText }) => {
         if (!mine() || !itemId) return;

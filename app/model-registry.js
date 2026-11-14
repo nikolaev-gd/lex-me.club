@@ -815,6 +815,25 @@
       voiceDefault: true,
     },
     {
+      // Gemini 3.8 Live Extended Thinking — the second Google voice since
+      // 2026-11-14 (Gennady: "подключить 3.8 Live Extended Thinking"); the
+      // default stays 3.8 Live. Same price table as 3.8 Live (aistudio.google.com
+      // /docs/pricing, 2026-11-14); input 131 072, output 65 536 tokens.
+      //   It thinks in the background: while it thinks it says short fillers
+      // aloud ("let me check that"), so one answer comes in several pieces of
+      // speech. Live check 2026-11-14 (dev-tools/probe-gemini-live-voice.ts):
+      // every piece ends with turnComplete and its own usage frame (a separate
+      // generation that re-reads the whole conversation); a filler carries
+      // serverContent.interactionStatus IN_PROGRESS, the end of the whole
+      // answer — IDLE. Lex closes the pair of lines and bills it at IDLE, the
+      // usage of all the pieces summed (voice/gemini-live.js, GeminiTurns.swift,
+      // voice-talk). The thinking depth is required (low/medium/high; no depth
+      // or minimal closes the socket with 1007) — the server always sends one,
+      // minimal and anything unknown as low (_shared/gemini-live-setup.ts).
+      id: 'gemini-3.8-live-extended-thinking', apiModel: 'gemini-3.8-live-extended-thinking',
+      provider: 'google', type: 'voice', label: 'G3.8 ET ♪ (Gemini 3.8 Extended Thinking)',
+    },
+    {
       // Hidden 2026-11-14 — superseded by 3.8 Live. Kept so old calls, charges
       // and saved choices that still name it resolve; whoever had it is moved
       // to 3.8 Live (migration gemini38_live_voice.sql; the extension's own
@@ -1521,10 +1540,12 @@
 
   // Voice-knob capability — per knob, which providers (and optionally
   // which voice models) expose it. Read by applyKnobsToPanel in shared.js.
-  // voiceThinkingLevel: only Gemini 3.1 Flash Live exposes the field; on
-  // 2.5 native-audio it has no effect, and 3.8 Live refuses it (the socket
-  // closes with 1007, live check 2026-11-14) — its reasoning is built in, so
-  // the server never sends the field to it (_shared/gemini-live-setup.ts).
+  // voiceThinkingLevel: Gemini 3.8 Live Extended Thinking (low/medium/high,
+  // required — the server sends low when the value is minimal or missing) and
+  // the hidden 3.1 Flash Live. On 2.5 native-audio it has no effect, and 3.8
+  // Live refuses it (the socket closes with 1007, live check 2026-11-14) — its
+  // reasoning is built in, so the server never sends the field to it
+  // (_shared/gemini-live-setup.ts).
   const VOICE_PROVIDERS_ALL = ['openai', 'google'];
   const VOICE_KNOB_AVAILABILITY = {
     voiceName:                  { providers: VOICE_PROVIDERS_ALL },
@@ -1542,7 +1563,7 @@
     voiceEndSensitivity:        { providers: VOICE_PROVIDERS_ALL },
     voiceLongSessions:          { providers: ['google'] },
     voiceOutputLanguage:        { providers: ['google'] },
-    voiceThinkingLevel:         { providers: ['google'], models: ['gemini-3.1-flash-live-preview'] },
+    voiceThinkingLevel:         { providers: ['google'], models: ['gemini-3.8-live-extended-thinking', 'gemini-3.1-flash-live-preview'] },
     // Голос Google напрямую или через наш сервер (2026-10-02, voice-talk).
     voiceRoute:                 { providers: ['google'] },
     // Live-verified 2026-07-12 against gpt-realtime-2.1/-mini AND the old
@@ -1593,6 +1614,7 @@
     'gpt-realtime-mini': 4096,
     'gpt-realtime-2.1-mini': 4096,                          // apiModel of 'gpt-realtime-mini' since 2026-07-12
     'gemini-3.8-live': 65536,                               // id === apiModel; Google's model page, 2026-11-14
+    'gemini-3.8-live-extended-thinking': 65536,             // id === apiModel; Google's model page, 2026-11-14
     'gemini-3.1-flash-live-preview': 65536,                 // id === apiModel for this one
     'gemini-live-2.5-flash-native-audio': 8192,             // UI id
     'gemini-2.5-flash-native-audio-preview-09-2025': 8192,  // its apiModel

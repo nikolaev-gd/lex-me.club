@@ -106,7 +106,28 @@
     // inputTranscription. Сбрасывается в finalizeTurn для следующего
     // turn'а.
     let speechStartedEmittedThisTurn = false;
-    let turnUsage = null;   // v1.11.0 БАГ 5: usageMetadata accumulator
+    // Расход хода по видам (parseGeminiUsageBreakdown), СУММА всех кадров
+    // расхода этого хода: у модели с фоновым размышлением (3.8 Live Extended
+    // Thinking) каждый кусок речи — отдельная генерация со своим кадром
+    // расхода (живой замер 2026-11-14); у остальных кадр на ход один.
+    let turnUsage = null;
+    // Модель думает в фоне (3.8 Live Extended Thinking, 2026-11-14): кусок речи
+    // («заполнитель» вроде «сейчас проверю») закончился turnComplete с
+    // serverContent.interactionStatus IN_PROGRESS, а нового звука и текста с
+    // тех пор не было. turnComplete у этой модели закрывает только кусок речи;
+    // ответ целиком кончен на IDLE. Пара реплик остаётся открытой: куски
+    // ложатся в один ответ учителя, их расход складывается. В этом состоянии
+    // человек, заговоривший или набравший текст, начинает НОВУЮ пару (модель
+    // ответит на новое, а ответ на прежнее пришлёт позже отдельным ходом), а
+    // отбою ждать нечего: команда обрыва ничего не оборвёт, но начнёт у Google
+    // новый ход (замер).
+    let turnThinking = false;
+    // Следующий кусок речи — с новой фразы: между кусками пробел.
+    let pieceBreak = false;
+    // Путь через сервер: текст, набранный, пока модель думала. Пару, в которую
+    // он ляжет, откроет сервер новым номером ({lex:{pair}}) — до этого текст
+    // ждёт здесь, а не ложится в закрываемую.
+    let typedAfterSplit = '';
     let sessionResumptionHandle = null;
 
     // ── Разговор на сервере ──────────────────────────────────────────────
@@ -688,6 +709,13 @@
         // «ход закончен» открытого хода здесь уже нет.
         if (turnInterrupted || turnUserText.trim() || turnAssistantText.trim() || turnUsage || pendingTyped) finalizeTurn();
         pairSeq = lex.pair;
+        // Текст, набранный, пока модель думала (sendUserText), — реплика
+        // человека новой пары.
+        if (typedAfterSplit) {
+          pendingTyped = pendingTyped ? pendingTyped + '\n' + typedAfterSplit : typedAfterSplit;
+          typedAfterSplit = '';
+          if (turnUserEndedAt == null) turnUserEndedAt = performance.now();
+        }
         // Человек заговорил поверх учителя: пузырь его реплики — уже под
         // новым номером (на прямом пути это делает finalizeTurn).
         armNextSpeech();
@@ -773,8 +801,10 @@
       if (closed && !settleResolve) return;
       // Расход хода Google кладёт В ТОТ ЖЕ кадр, что и «ход закончен»
       // (замерено 2026-09-25): читать его надо до разбора serverContent, иначе
-      // он теряется, и ход уходит на сервер без расхода.
-      if (data.usageMetadata) turnUsage = data.usageMetadata;
+      // он теряется, и ход уходит на сервер без расхода. Кадров расхода у хода
+      // бывает несколько (по куску речи у модели с фоновым размышлением) —
+      // складываются.
+      if (data.usageMetadata) turnUsage = addUsageBreakdown(turnUsage, parseGeminiUsageBreakdown(data.usageMetadata));
       if (data.setupComplete) {
         log('setupComplete received');
         setupComplete = true;
@@ -834,6 +864,25 @@
       if (va === 'ACTIVITY_START' && speechStartedEmittedThisTurn && (turnAssistantText || teacherSpokeThisTurn)) {
         pendingSpeechStart = true;
       }
+      // Человек заговорил, пока модель думает в фоне: прежняя пара (вопрос и
+      // заполнители) закрывается сейчас, его новая реплика — следующая пара.
+      // На пути через сервер пару закрывает сервер ({lex:{pair}}).
+      if (va === 'ACTIVITY_START' && turnThinking && !closed) {
+        // Запись реплики человека: следующий звук учителя отрежет его новую реплику.
+        modelSpokeThisTurn = false;
+        if (!viaServer) finalizeTurn();
+      }
+      // Состояние разговора у модели с фоновым размышлением: IN_PROGRESS —
+      // думает или говорит заполнитель, IDLE — ответ целиком закончен. Google
+      // кладёт его в serverContent рядом с turnComplete (замер 2026-11-14);
+      // документы показывают его и на верхнем уровне кадра — читаются оба.
+      const status = (data.serverContent && data.serverContent.interactionStatus) || data.interactionStatus || null;
+      // IDLE без turnComplete, пока модель думала: фоновая работа кончилась без
+      // речи — ход закрыт.
+      if (status === 'IDLE' && turnThinking && !(data.serverContent && data.serverContent.turnComplete)) {
+        turnEnded();
+        return;
+      }
       if (data.serverContent) {
         const sc = data.serverContent;
         // Кадр закрытого разговора, который досчитывает последний ход: звука
@@ -854,6 +903,8 @@
         if (sc.modelTurn && sc.modelTurn.parts) {
           for (const p of sc.modelTurn.parts) {
             if (p.inlineData && p.inlineData.data) {
+              // Новый кусок речи: модель больше не молчит в фоне.
+              turnThinking = false;
               // v1.14.x звук: первый аудио-кусок ответа модели = конец реплики
               // пользователя. Режем сегмент один раз за turn; WAV ждёт finalizeTurn.
               if (!isPtt && !modelSpokeThisTurn && segmentRecorder && segmentRecorder.isRecording()) {
@@ -867,18 +918,26 @@
           }
         }
         if (sc.inputTranscription && typeof sc.inputTranscription.text === 'string') {
-          const t = sc.inputTranscription.text;
-          turnUserText += t;
-          try { cb.onUserTranscriptDelta && cb.onUserTranscriptDelta({ itemId: `${pairId()}-u`, text: t }); } catch (_) {}
+          const t = visibleText(sc.inputTranscription.text);
+          if (t) {
+            turnUserText += t;
+            try { cb.onUserTranscriptDelta && cb.onUserTranscriptDelta({ itemId: `${pairId()}-u`, text: t }); } catch (_) {}
+          }
         }
         if (sc.outputTranscription && typeof sc.outputTranscription.text === 'string') {
-          const t = sc.outputTranscription.text;
+          let t = visibleText(sc.outputTranscription.text);
+          if (t) turnThinking = false;
+          // Следующий кусок речи того же ответа — с пробелом после прежнего.
+          if (t && pieceBreak) {
+            pieceBreak = false;
+            if (turnAssistantText && !/\s$/.test(turnAssistantText) && !/^\s/.test(t)) t = ' ' + t;
+          }
           // Оборванный ответ дальше не растёт — ни после «перебит», ни после
           // отбоя, ни после отмены в «нажми и говори»: с мига обрыва звук этого
           // хода больше не считается, и текст обязан стоять вместе с ним, иначе
           // доля прозвучавшего (heardText) легла бы на текст длиннее
           // пришедшего до обрыва звука.
-          if (!turnInterrupted && turnHeardSec === null) {
+          if (t && !turnInterrupted && turnHeardSec === null) {
             turnAssistantText += t;
             try { cb.onAssistantTranscriptDelta && cb.onAssistantTranscriptDelta({ itemId: `${pairId()}-a`, text: t, isFinal: false }); } catch (_) {}
           }
@@ -903,26 +962,46 @@
             interruptTimer = setTimeout(() => { interruptTimer = null; if (turnInterrupted) finalizeTurn(); }, INTERRUPT_CLOSE_MS);
           }
         }
-        if (sc.turnComplete) {
+        // Кусок речи кончился, а модель ещё думает (IN_PROGRESS): ход не
+        // закрывается, «нажми и говори» не возвращает микрофон — открытая в
+        // это время реплика (activityStart) останавливает модель, и ответа не
+        // будет вовсе (замер 2026-11-14). Перебитый ход закрывается, как всегда.
+        const piece = !!sc.turnComplete && status === 'IN_PROGRESS' && !turnInterrupted && !closed;
+        if (piece) {
           playbackSuppressed = false;
-          if (isPtt && !closed) {
-            if (!holdToTalk) { try { if (micTrack) micTrack.enabled = true; } catch (_) {} }
-            pttState = 'ready';
-            pttActivityOpen = false;
-            try { cb.onPttStateChange && cb.onPttStateChange('ready'); } catch (_) {}
-          }
-          finalizeTurn();
+          turnThinking = true;
+          pieceBreak = true;
+        } else if (sc.turnComplete) {
+          turnEnded();
         }
         // v1.14.x звук: модель договорила → снова очередь пользователя.
         if (!isPtt && sc.generationComplete && segmentRecorder && !closed) {
           modelSpokeThisTurn = false;
           segmentRecorder.beginSegment(); segStartTs = Date.now();
         }
+        // Заполнитель: запись реплики человека (уже отрезанная первым звуком
+        // ответа) звуком следующего куска не перезаписывается.
+        if (piece) modelSpokeThisTurn = true;
         return;
       }
       if (data.goAway) {
         log('goAway received, timeLeft =', data.goAway.timeLeft);
       }
+    }
+
+    // Ход закончен у Google — turnComplete не на заполнителе (у модели с
+    // фоновым размышлением это IDLE, у остальных каждый turnComplete) или IDLE
+    // без turnComplete после фонового размышления: в «нажми и говори» снова
+    // очередь человека, пара закрывается.
+    function turnEnded() {
+      playbackSuppressed = false;
+      if (isPtt && !closed) {
+        if (!holdToTalk) { try { if (micTrack) micTrack.enabled = true; } catch (_) {} }
+        pttState = 'ready';
+        pttActivityOpen = false;
+        try { cb.onPttStateChange && cb.onPttStateChange('ready'); } catch (_) {}
+      }
+      finalizeTurn();
     }
 
     // Закрыть ход: пузыри — итоговым текстом, пара реплик с расходом — на
@@ -941,6 +1020,11 @@
         ? Math.round(turnFirstAudioAt - turnStartedAt) : null;
       const userEndedAt = turnUserEndedAt;
       const wasInterrupted = turnInterrupted;
+      // Место реплики человека в ленте уже занято (onUserSpeechStarted): ход
+      // без его слов это место освобождает, иначе пустой пузырь остался бы
+      // висеть (у ответа модели, пришедшего после её фонового размышления
+      // отдельным ходом, реплики человека нет вовсе).
+      const hadSpeechStart = speechStartedEmittedThisTurn;
       // Ответ у Google начался (пришёл его звук или текст), даже если человек
       // не услышал из него ничего. Без расхода сервер по этому признаку
       // списывает минимум за ход (voice-floor.ts). Только у хода, закрытого
@@ -962,6 +1046,8 @@
       turnHeardSec = null;
       teacherSpokeThisTurn = false;
       speechStartedEmittedThisTurn = false;
+      turnThinking = false;
+      pieceBreak = false;
       if (typed) pendingTyped = '';
       // Последний ход закрытого разговора досчитан — связь закрывается сейчас
       // же (settleAndReport): в живом режиме Google после обрыва уже начинает
@@ -977,8 +1063,14 @@
           try { cb.onAssistantTranscriptDropped && cb.onAssistantTranscriptDropped({ itemId: `${id}-a` }); } catch (_) {}
         }
       };
+      const dropUserPlace = () => {
+        if (!userText && hadSpeechStart) {
+          try { cb.onUserTranscriptFailed && cb.onUserTranscriptFailed({ itemId: `${id}-u` }); } catch (_) {}
+        }
+      };
       if (!userText && !asstText && !usage) {
         dropStreamed();
+        dropUserPlace();
         turnIndex -= 1;
         armNextSpeech();
         return;
@@ -986,7 +1078,8 @@
       // На пути через сервер номер следующей пары назначает сервер.
       if (!viaServer) pairSeq += 1;
 
-      const breakdown = parseGeminiUsageBreakdown(usage);
+      // Расход уже разложен по видам и сложен по кадрам хода.
+      const breakdown = usage;
       if (breakdown) for (const k of Object.keys(sessionUsage)) sessionUsage[k] += Number(breakdown[k] || 0);
       if (totalMs) sessionMs += totalMs;
       const turnInfo = {
@@ -1003,6 +1096,8 @@
       if (userText) {
         noteShown(`${id}-u`, userText);
         try { cb.onUserTranscriptComplete && cb.onUserTranscriptComplete({ itemId: `${id}-u`, finalText: userText }); } catch (_) {}
+      } else {
+        dropUserPlace();
       }
       if (asstText) {
         noteShown(`${id}-a`, asstText);
@@ -1241,7 +1336,12 @@
       const personDone = turnUserEndedAt != null || !!pendingTyped || (isPtt && pttState === 'speaking');
       const answerStarted = !!(turnAssistantText || teacherSpokeThisTurn);
       const open = !!(ws && ws.readyState === WebSocket.OPEN);
-      if (open && (answerStarted || turnInterrupted || personDone)) {
+      // Модель думает в фоне (после заполнителя): обрывать нечего — команда
+      // обрыва начала бы у Google новый ход, — а ответ придёт через секунды и
+      // десятки секунд. Ход закрывается сразу тем, что уже пришло: вопрос,
+      // заполнители и их расход (размышление после последнего куска Google
+      // присылает только с куском речи, и его Lex не узнаёт).
+      if (open && !turnThinking && (answerStarted || turnInterrupted || personDone)) {
         await new Promise((resolve) => {
           settleResolve = resolve;
           // Перебит — «ход закончен» уже в пути (~50 мс), обрывать нечего.
@@ -1333,6 +1433,13 @@
             },
           }));
         } catch (err) { warn('sendUserText failed:', err); }
+        // Модель думает в фоне: набранный текст — новая пара, прежняя (вопрос
+        // и заполнители) закрывается сейчас. На пути через сервер её закрывает
+        // сервер, и текст ждёт номера новой пары ({lex:{pair}}).
+        if (turnThinking) {
+          if (viaServer) { typedAfterSplit = typedAfterSplit ? typedAfterSplit + '\n' + text : text; return; }
+          finalizeTurn();
+        }
         // Набранный текст — реплика человека ближайшего хода: расшифровки у
         // него нет, и в беседу (на сервере и в копии) он ляжет парой с ответом
         // учителя, когда ход закроется.
@@ -1391,6 +1498,10 @@
         //      has already moved on; don't wait for interrupted.
         stopPlaybackImmediately();
         playbackSuppressed = true;
+        // Модель думает в фоне: нажатие — новая реплика человека, прежняя пара
+        // (вопрос и заполнители) закрывается сейчас. «Перебит» в ответ на него
+        // не придёт — звука нет. На пути через сервер пару закрывает сервер.
+        if (turnThinking && !viaServer) finalizeTurn();
         try {
           sendFrame(JSON.stringify({ realtimeInput: { activityStart: {} } }));
           pttActivityOpen = true;
@@ -1503,6 +1614,24 @@
       onLocalStream: cfg.onLocalStream,
       onTeacherSpeaking: cfg.onTeacherSpeaking,
     };
+  }
+
+  // Сумма расхода по видам: у модели с фоновым размышлением на ход приходит
+  // несколько кадров расхода, по одному на кусок речи, и каждый — отдельная
+  // генерация (живой замер 2026-11-14). null + b = b.
+  function addUsageBreakdown(a, b) {
+    if (!b) return a || null;
+    if (!a) return Object.assign({}, b);
+    const out = Object.assign({}, a);
+    for (const k of Object.keys(b)) out[k] = Number(out[k] || 0) + Number(b[k] || 0);
+    return out;
+  }
+
+  // Расшифровка без знаков нулевой ширины: у модели с фоновым размышлением
+  // целый кусок речи пришёл расшифровкой «\u200b» (замер 2026-11-14), а trim()
+  // такие знаки не снимает — в беседу лёг бы невидимый ответ.
+  function visibleText(t) {
+    return typeof t === 'string' ? t.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '') : '';
   }
 
   // Доля текста ответа, которая прозвучала: звук обрезан на heardSec из
