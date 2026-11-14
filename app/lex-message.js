@@ -312,6 +312,23 @@
     return root;
   }
 
+  // One photo stands in its own proportions, up to 280 wide and 320 high (В7.19). Its frame is given
+  // the width the picture will have: left to the browser, the frame took the width of the bubble and
+  // the plate showed beside a picture narrower than the text under it. The size comes from the
+  // message when it has one and again from the picture when it loads (it knows its turn).
+  const PHOTO_W = 280;
+  const PHOTO_H = 320;
+  function fitPhoto(a, img, w, h) {
+    const size = (pw, ph) => {
+      if (!(pw > 0 && ph > 0)) return;
+      const s = Math.min(1, PHOTO_W / pw, PHOTO_H / ph);
+      a.style.width = `${Math.round(pw * s)}px`;
+      a.classList.add('is-sized');
+    };
+    size(w, h);
+    img.addEventListener('load', () => size(img.naturalWidth, img.naturalHeight), { once: true });
+  }
+
   function photos(list) {
     const items = (Array.isArray(list) ? list : []).filter((p) => p && typeof p.url === 'string' && /^https:\/\//.test(p.url));
     if (!items.length) return null;
@@ -327,6 +344,7 @@
       img.loading = 'lazy';
       img.decoding = 'async';
       if (p.width > 0 && p.height > 0) { img.width = p.width; img.height = p.height; }
+      if (items.length === 1) fitPhoto(a, img, p.width, p.height);
       img.src = p.url;
       a.appendChild(img);
       root.appendChild(a);
@@ -405,6 +423,7 @@
       img.alt = '';
       img.decoding = 'async';
       if (f.width > 0 && f.height > 0) { img.width = f.width; img.height = f.height; }
+      if (list.length === 1) fitPhoto(a, img, f.width, f.height);
       a.appendChild(img);
       if (io && typeof io.blob === 'function') {
         Promise.resolve(io.blob(f.path)).then((url) => { if (url) img.src = url; }, () => {});

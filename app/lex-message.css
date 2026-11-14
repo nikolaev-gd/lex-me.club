@@ -165,7 +165,7 @@
    as wide as it is, up to the bubble; several — a row of squares, two in a line. */
 .lex-bubble.has-media { padding-top: 6px; }
 .lex-bubble .lex-photos { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 -6px 6px; }
-.lex-bubble .lex-photo { display: block; overflow: hidden; border-radius: 10px; background: var(--lex-plate); line-height: 0; }
+.lex-bubble .lex-photo { display: block; max-width: 100%; overflow: hidden; border-radius: 10px; background: var(--lex-plate); line-height: 0; }
 .lex-bubble .lex-photo img { display: block; width: auto; height: auto; max-width: min(280px, 100%); max-height: 320px; object-fit: cover; }
 .lex-bubble .lex-photos.is-many .lex-photo { width: calc(50% - 2px); }
 .lex-bubble .lex-photos.is-many .lex-photo img { width: 100%; height: 140px; max-width: none; max-height: none; }
@@ -174,6 +174,9 @@
 .lex-bubble .lex-files { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
 .lex-bubble .lex-files > .lex-photos { margin-bottom: 0; }
 .lex-bubble .lex-photo img:not([src]) { width: 220px; height: 160px; }
+/* One photo whose size is known (fitPhoto in lex-message.js): the frame has the width of the picture,
+   the picture fills it in its own proportions — no plate beside it. After the rule above on purpose. */
+.lex-bubble .lex-photo.is-sized img { width: 100%; height: auto; max-width: none; max-height: none; }
 /* A voice message: the round play button (44, В5), the line of the sound, its length. */
 .lex-bubble .lex-voice { display: flex; align-items: center; gap: 10px; min-width: 220px; }
 .lex-bubble .lex-voice-play {
