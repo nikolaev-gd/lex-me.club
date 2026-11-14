@@ -242,6 +242,8 @@
   // после голосового разговора.
   function paintConversation(r, opts) {
     resetMoney();
+    // The feed «Разбор» stands under its tabs from its first frame (syncIntakeTabs below).
+    syncIntakeTabs(state.conversationId === INTAKE_KEY);
     WcThread.renderTurns(r.turns, {
       newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts(),
       // A tapped notification of an entry of a feed: the chat stands on that entry.
@@ -729,6 +731,98 @@
   // «em» (account_signals.sql), not on a timer.
   let emOpen = null;      // { key, rev }
   let emFollower = null;
+  // ── The tabs of «Разбор» (2026-11-14, ios/Lex/STANDARD.md В7.27) ──
+  // «Люди · N», «Работа · N», «Всё» over the feed: the work is Claude Code and Notion, the people
+  // everything else (the server names the tab of every record, lex_em_intake_look). N — the
+  // records of today, the device's day, as the server counts them (lex_em_intake_today); the
+  // numbers this device saw last come first. The tab chosen stays on this device.
+  const INTAKE_KEY = '__lex_em_intake__';
+  const LANE_KEPT = 'lex.emIntakeLane';
+  const COUNTS_KEPT = 'lex.emIntakeCounts';
+  let intakeTabs = null;
+  const localDay = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  };
+  function intakeLane() {
+    try {
+      const v = localStorage.getItem(LANE_KEPT);
+      if (v === 'people' || v === 'work' || v === 'all') return v;
+    } catch (_) { /* no storage: the first tab */ }
+    return 'people';
+  }
+  function keptCounts() {
+    try {
+      const c = JSON.parse(localStorage.getItem(COUNTS_KEPT) || 'null');
+      if (c && c.day === localDay()) return c;
+    } catch (_) { /* nothing kept */ }
+    return null;
+  }
+  function intakeItems(c) {
+    return [
+      { id: 'people', label: c ? `Люди · ${c.people}` : 'Люди' },
+      { id: 'work', label: c ? `Работа · ${c.work}` : 'Работа' },
+      { id: 'all', label: 'Всё' },
+    ];
+  }
+  // The tabs are there while «Разбор» is the chat on the screen, and nowhere else.
+  function syncIntakeTabs(on) {
+    const host = document.getElementById('wc-em-tabs');
+    const bar = document.querySelector('.wc-topbar');
+    WcThread.setEmLane(on ? intakeLane() : null);
+    WcThread.setEmQuestion(on ? (asked) => { openIntakeQuestion(asked).catch((e) => console.warn('[wc] question:', e && e.message)); } : null);
+    if (!host || !bar) return;
+    if (!on) {
+      host.hidden = true;
+      bar.classList.remove('has-tabs');
+      return;
+    }
+    if (!intakeTabs) {
+      intakeTabs = WcUI.tabs({
+        label: 'Whose records',
+        items: intakeItems(keptCounts()),
+        selected: intakeLane(),
+        onSelect: (id) => {
+          try { localStorage.setItem(LANE_KEPT, id); } catch (_) { /* this time only */ }
+          WcThread.setEmLane(id);
+        },
+      });
+      host.replaceChildren(intakeTabs);
+    } else intakeTabs.update(intakeItems(keptCounts()), intakeLane());
+    host.hidden = false;
+    bar.classList.add('has-tabs');
+    countIntake().catch((e) => console.warn('[wc] tabs:', e && e.message));
+  }
+  async function countIntake() {
+    const day = localDay();
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    const c = await newsRpc('lex_em_intake_today', { p_since: since.toISOString() });
+    if (!c || !intakeTabs || state.conversationId !== INTAKE_KEY) return;
+    const counts = { day, people: Number(c.people) || 0, work: Number(c.work) || 0 };
+    try { localStorage.setItem(COUNTS_KEPT, JSON.stringify(counts)); } catch (_) { /* this time only */ }
+    intakeTabs.update(intakeItems(counts));
+  }
+  // «База задала тебе вопрос»: the feed «Questions» on the question the record asked, found by its
+  // words (lex_em_intake_question) — as a notification of that question opens it. Not in Lex yet
+  // (it comes a second or two after the record): the feed of questions at its end.
+  let questionPress = 0;
+  async function openIntakeQuestion(asked) {
+    const mine = ++questionPress;
+    const wanted = () => mine === questionPress;
+    const text = Array.isArray(asked) ? asked.find((x) => typeof x === 'string' && x.trim()) : null;
+    let found = null;
+    try {
+      found = text ? await newsRpc('lex_em_intake_question', { p_text: text }) : null;
+    } catch (e) {
+      console.warn('[wc] question:', e && e.message);
+    }
+    if (!wanted()) return;
+    await showSection('em');
+    if (!wanted()) return;
+    const focus = found && found.item != null ? (found.turnUid || `em:${found.item}`) : null;
+    await openEmFeed('question', wanted, focus);
+  }
   // A look skipped while the page was hidden or an answer was written: it goes when that ends.
   let emLookDue = false;
   let emFrame = null;
@@ -927,6 +1021,7 @@
     emLookDue = false;
     sectionEls().main.classList.remove('is-em-feed');
     WcBus.call('WC_EM_FEED', {}).catch(() => {});
+    syncIntakeTabs(false);
   }
   // At the signal of this feed only the new and extended entries come (lex_em_feed_changes)
   // and take their place; the signal carries the number of the change, so no question about
@@ -946,6 +1041,8 @@
     if (WcThread.isStreaming()) { emLookDue = true; return; }
     for (const row of (ch && Array.isArray(ch.turns)) ? ch.turns : []) WcThread.upsertEmEntry(WcHistory.turnOf(row));
     f.rev = Math.max(rev, (ch && ch.rev) || 0);
+    // A new record of «Разбор» changes the numbers of its tabs.
+    if (f.key === INTAKE_KEY) countIntake().catch((e) => console.warn('[wc] tabs:', e && e.message));
     if (ch && ch.waiting != null && f.key === EM_QUESTIONS_KEY) paintChatTitle({ title: 'Questions', waiting: ch.waiting });
   }
   function lookEmFeedIfDue() {

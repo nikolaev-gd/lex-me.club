@@ -338,8 +338,56 @@
     return '$' + (Math.abs(n) < 0.01 && n !== 0 ? n.toFixed(4) : n.toFixed(2));
   }
 
+  // Tabs (ios/Lex/STANDARD.md В7.27, 2026-11-14): a row of pills under the bar of a chat, one of
+  // them chosen — «Люди · 52», «Работа · 104», «Всё» over the feed «Разбор». 44 high, radius 22,
+  // 15/650, 6 apart; the chosen one is the main button (--accent, --accent-fg), the others second
+  // buttons (--bg-hover). tabs({ label, items: [{ id, label }], selected, onSelect(id) }) → the row;
+  // row.update(items, selected) puts new words (the numbers) without a new press.
+  function tabs(o) {
+    const root = el('div.wc-tabs', { role: 'tablist', 'aria-label': o.label || '' });
+    let selected = o.selected;
+    let items = o.items || [];
+    const paint = () => {
+      const kept = new Map([...root.children].map((b) => [b.dataset.id, b]));
+      root.replaceChildren(...items.map((it) => {
+        const b = kept.get(it.id) || el('button.wc-tab', { type: 'button', role: 'tab', dataset: { id: it.id } });
+        b.textContent = it.label;
+        b.setAttribute('aria-selected', String(it.id === selected));
+        b.tabIndex = it.id === selected ? 0 : -1;
+        if (!b.dataset.wired) {
+          b.dataset.wired = '1';
+          b.addEventListener('click', () => {
+            if (b.dataset.id === selected) return;
+            selected = b.dataset.id;
+            paint();
+            if (o.onSelect) o.onSelect(selected);
+          });
+        }
+        return b;
+      }));
+    };
+    // The arrows move along the row, as in any row of tabs.
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const list = [...root.children];
+      const at = list.indexOf(document.activeElement);
+      if (at < 0) return;
+      e.preventDefault();
+      const next = list[(at + (e.key === 'ArrowRight' ? 1 : list.length - 1)) % list.length];
+      next.focus();
+      next.click();
+    });
+    paint();
+    root.update = (next, sel) => {
+      if (next) items = next;
+      if (sel != null) selected = sel;
+      paint();
+    };
+    return root;
+  }
+
   global.WcUI = {
     el, icon, iconBtn, toast, modal, confirm, prompt, menu, closeMenu, sheet, fmtMoney,
-    conversationTitle,
+    conversationTitle, tabs,
   };
 })(typeof self !== 'undefined' ? self : globalThis);

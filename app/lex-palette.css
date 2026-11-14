@@ -54,6 +54,12 @@
   --lex-dark-fg-muted:      #8BA2AD;  /* captions, meta, idle icons */
   --lex-dark-fg-faint:      #748791;  /* placeholders, group titles, empty states */
 
+  /* «Look here»: what waits for the person's decision (the band «Not sure» of an order), the unread
+   * dot and the line «Новые». The same yellow as the mark of Lex; text in it reads 11.3:1 on the base
+   * and 6.9:1 on its own wash over a bubble. */
+  --lex-dark-attention:      #F2C14B;
+  --lex-dark-attention-wash: rgba(242, 193, 75, .12);  /* the ground of a band that asks for a decision */
+
   /* The white action button (send, primary) and what is written on it. */
   --lex-dark-accent:        #EEF1F3;
   --lex-dark-accent-hover:  #FFFFFF;

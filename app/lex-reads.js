@@ -78,6 +78,9 @@
     'profi_rev', 'lex_em_feed_rev', 'lex_em_feed_changes',
     // the opening of an item on the server, the session of a feed or of a chat
     'profi_open', 'lex_em_feed_open', 'lex_em_question_open', 'chats',
+    // «Разбор»: the numbers of its tabs (the window keeps the last ones itself, with their day) and
+    // the question a record asked, found at the press
+    'lex_em_intake_today', 'lex_em_intake_question',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',

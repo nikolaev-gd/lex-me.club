@@ -416,6 +416,112 @@
 }
 .lex-bubbles > .lex-msg-new { margin: 6px 0 8px; }
 
+/* ── A record of «Разбор» (В7.28, 2026-11-14) ─────────────────────────────────
+ * One record — one message: the bubble of the other side across the whole lane (the feed has one
+ * sender, the database), the corner 6 bottom left, 10 12 10 inside (0 at the bottom when it ends
+ * with a button). The mark of the channel 14 and who it is about 15/650, the time 12 at the right;
+ * 2 under them the line of sense in the text of the chat; 8 under it the facts, 6 apart, 14 in the
+ * soft colour; a yellow line 12 only for a number over its limit; the numbers of an unfolded record
+ * in one grey line 12; the quiet buttons 13/600 with a chevron 16 in a zone 44. A record without
+ * facts is one thin line 44: a frame, no ground. It stands in a lane `lex-bubbles` (its colours). */
+.lex-intake {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+  line-height: 1.35;
+  text-align: left;
+}
+.lex-intake.ends-with-act { padding-bottom: 0; }
+.lex-intake svg, .lex-intake-thin svg { display: block; flex: none; }
+.lex-intake-head { display: flex; align-items: center; gap: 6px; min-width: 0; line-height: 20px; }
+.lex-intake-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 15px; font-weight: 650; }
+.lex-intake-time {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.lex-intake-mark { width: 14px; height: 14px; color: var(--lex-plate-fg); }
+.lex-intake-summary {
+  margin-top: 2px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.lex-intake-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  color: var(--lex-plate-fg);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.lex-intake-aside { margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
+.lex-intake-alert { margin-top: 8px; color: var(--attention); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lex-intake-alert + .lex-intake-alert { margin-top: 2px; }
+.lex-intake-numbers { margin-top: 8px; color: var(--fg-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lex-intake-act {
+  -webkit-appearance: none;
+  appearance: none;
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+.lex-intake-act + .lex-intake-act { margin-top: -8px; }
+.lex-intake-act svg { width: 16px; height: 16px; }
+.lex-intake-ask { color: var(--fg, var(--lex-plain-fg)); }
+.lex-intake-more { color: var(--fg-muted); }
+.lex-intake-more:hover, .lex-intake-more:focus-visible { color: var(--fg, var(--lex-plain-fg)); outline: none; }
+.lex-intake-act:active { opacity: .6; }
+.lex-intake-thin {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px 18px 18px 6px;
+  background: transparent;
+  color: var(--fg-faint);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-intake-thin:hover, .lex-intake-thin:focus-visible { background: var(--bg-hover); outline: none; }
+.lex-intake-thin-text { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-intake-thin .lex-intake-time { color: inherit; }
+
 /* ── Buttons (В7.6, В7.7) ──────────────────────────────────────────────────────
  * The main button — the colour of the main action, one in a row; the second — the ground of a
  * hover. 44 high, radius 12, 15/650. `is-left` — a variant of a question: the words at the left,

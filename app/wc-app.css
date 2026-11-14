@@ -61,6 +61,11 @@
   --accent-fg:     #ffffff;
   --accent-hover:  rgba(29, 29, 31, .86);
   --danger:        #d93a3a;
+  /* «Look here» (lex-palette.css, attention): a question to the person, the unread dot, «Новые».
+     On white the yellow of the dark theme does not read, so the light pair is its dark amber
+     (4.7:1 on white) on a stronger wash. */
+  --attention:      #9a6a00;
+  --attention-wash: rgba(242, 193, 75, .18);
 
   /* Account circle — a wash inside a ring, never a filled disc. */
   --avatar-bg:         rgba(0, 0, 0, .05);
@@ -166,6 +171,8 @@
     --accent-fg:   var(--lex-dark-accent-fg);
     --accent-hover: var(--lex-dark-accent-hover);
     --danger:      #ff6b6b;
+    --attention:      var(--lex-dark-attention);
+    --attention-wash: var(--lex-dark-attention-wash);
 
     --pill-bg:     var(--lex-dark-raised);
     --pill-line:   var(--lex-dark-raised-strong);
@@ -201,6 +208,8 @@
   --accent-fg:   var(--lex-dark-accent-fg);
   --accent-hover: var(--lex-dark-accent-hover);
   --danger:      #ff6b6b;
+  --attention:      var(--lex-dark-attention);
+  --attention-wash: var(--lex-dark-attention-wash);
 
   --pill-bg:     var(--lex-dark-raised);
   --pill-line:   var(--lex-dark-raised-strong);
@@ -2085,6 +2094,43 @@ button { font: inherit; color: inherit; }
 .wc-main.is-em-feed .wc-new-chat,
 .wc-main.is-em-feed .lex-answer-row { display: none !important; }
 .lex-em .lex-section-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
+
+/* Tabs (ios/Lex/STANDARD.md В7.27, 2026-11-14): pills 44 high, radius 22, 15/650, 6 apart; the
+ * chosen one — the main button, the others — the second. They stand in the bar of the chat, on a
+ * line of their own under its buttons (the bar grows, and the thread under it moves down with it:
+ * --wc-topbar-h is measured). Over the feed «Разбор»: «Люди · N», «Работа · N», «Всё». */
+.wc-topbar.has-tabs { flex-wrap: wrap; }
+.wc-em-tabs { flex: 0 0 100%; min-width: 0; padding: 0 2px; }
+.wc-em-tabs[hidden] { display: none; }
+.wc-tabs { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.wc-tabs::-webkit-scrollbar { display: none; }
+.wc-tab {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--bg-hover);
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.wc-tab:hover:not([aria-selected="true"]) { background: var(--bg-active); }
+.wc-tab[aria-selected="true"] { background: var(--accent); color: var(--accent-fg); cursor: default; }
+.wc-tab:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+/* The feed «Разбор» is drawn as a chat of bubbles: the day on a plate, the records 12 apart. A
+ * record of the other tab is off the screen. */
+.wc-turns.lex-bubbles.is-intake > .wc-turn { margin-bottom: 12px; }
+.wc-turns.is-intake > .wc-turn[hidden] { display: none; }
 /* The feed of questions (2026-11-14): every question one message, 16 between them; «One by one»
  * lays a pack out as single questions in its place. The bar: the arrow back and the title, no
  * three lines (as in an order chat). */

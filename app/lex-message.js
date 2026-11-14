@@ -13,6 +13,14 @@
 //                       (it came without the person) newer than `since` is unread
 //   entry(view, turnAt) a record of «Разбор» or «Обращения к базе» as a message, from the
 //                       view the server built of its data (em_entry, lex_em_entry_view)
+//   entry(view, turnAt, o)   a record of «Разбор» whose view has its look (`lane`, 2026-11-14,
+//                       ios/Lex/STANDARD.md В7.28) is one bubble — intake() below
+//   intake(view, o)     a record of «Разбор» as one message: the mark of the channel and who it is
+//                       about, the time; the line of sense; the facts as plain lines, more than
+//                       three folded under «Ещё N фактов»; yellow lines for a number over its limit;
+//                       the numbers of an unfolded record; what the database dropped; «База задала
+//                       тебе вопрос». No facts — one thin line. o = { timeText, open, onToggle(),
+//                       onQuestion(texts) }
 //
 // A chat drawn as in Telegram (2026-11-13, the order chats of Profi.ru first; its list of turns
 // carries the class `lex-bubbles`, which also turns the day line into a plate in the middle):
@@ -141,6 +149,8 @@
     let day = null;
     let newDone = !from;
     for (const t of [...host.children]) {
+      // A message off the screen (the other tab of «Разбор») gets no line over it.
+      if (t.hidden) continue;
       const at = toDate(t.dataset ? t.dataset.at : null);
       if (!at) continue;
       if (!newDone && t.dataset.in === '1' && at > from) {
@@ -197,8 +207,116 @@
     return timeOf(at);
   }
 
-  function entry(v, turnAt) {
+  function entry(v, turnAt, o) {
+    if (v && v.lane) return intake(v, Object.assign({ timeText: entryTime(v, turnAt) }, o || {}));
     return message({ name: v.name, timeText: entryTime(v, turnAt), body: entryBody(v) });
+  }
+
+  // ── A record of «Разбор» (В7.28, 2026-11-14) ─────────────────────────────────
+  // One record — one message: the bubble of the other side across the whole lane, the corner 6
+  // bottom left. Everything in it comes ready from the server (lex_em_intake_look): who it is about,
+  // the line of sense the database wrote, how many facts to show, the yellow lines, the numbers. The
+  // facts are plain lines: no kind, no «Куда:», no dots. A record without facts, without a question
+  // and with every number in the norm is one thin line; a press shows it whole.
+  const INTAKE_MARKS = {
+    code: [['path', { d: 'M4 17l6-5-6-5' }], ['path', { d: 'M12 19h8' }]],
+    notion: [['rect', { x: 5, y: 3, width: 14, height: 18, rx: 2 }], ['path', { d: 'M9 8h6' }], ['path', { d: 'M9 12h6' }],
+      ['path', { d: 'M9 16h4' }]],
+    call: [['path', { d: 'M6.6 3h2.8l1.4 4.2-2 1.4a12 12 0 0 0 5.6 5.6l1.4-2 4.2 1.4v2.8a2 2 0 0 1-2.2 2A16.6 16.6 0 0 1 4.6 5.2 2 2 0 0 1 6.6 3z' }]],
+    mail: [['rect', { x: 3, y: 5, width: 18, height: 14, rx: 2 }], ['path', { d: 'M3.5 7l8.5 6 8.5-6' }]],
+    calendar: [['rect', { x: 3.5, y: 5, width: 17, height: 15.5, rx: 2 }], ['path', { d: 'M3.5 10h17' }], ['path', { d: 'M8 3v4' }],
+      ['path', { d: 'M16 3v4' }]],
+  };
+  const INTAKE_CHEVRON = { down: 'M6 9l6 6 6-6', up: 'M6 15l6-6 6 6', right: 'M9 6l6 6-6 6' };
+
+  // The mark at the name, 14: a service's own (CHANNELS), or a line icon in the soft colour.
+  function intakeMark(id) {
+    if (CHANNELS[id]) return channel(id);
+    const parts = INTAKE_MARKS[id];
+    if (!parts) return null;
+    const n = svg('0 0 24 24', 14);
+    n.setAttribute('class', `lex-intake-mark is-${id}`);
+    for (const [tag, attrs] of parts) {
+      n.appendChild(shape(tag, Object.assign({ fill: 'none', stroke: 'currentColor', 'stroke-width': 2.2,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, attrs)));
+    }
+    return n;
+  }
+
+  function chevron(way) {
+    const n = svg('0 0 24 24', 16);
+    n.appendChild(shape('path', { d: INTAKE_CHEVRON[way], fill: 'none', stroke: 'currentColor', 'stroke-width': 2,
+      'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    return n;
+  }
+
+  // A quiet button of the record: 13/600, a chevron 16, a zone 44 high.
+  function intakeAct(cls, words, way, label, onPress) {
+    const b = make('button', `lex-intake-act ${cls}`);
+    b.type = 'button';
+    if (label) b.setAttribute('aria-label', label);
+    b.append(make('span', '', words), chevron(way));
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (onPress) onPress();
+    });
+    return b;
+  }
+
+  function intakeHead(v, o) {
+    const head = make('div', 'lex-intake-head');
+    const mark = intakeMark(v.icon);
+    if (mark) head.appendChild(mark);
+    head.append(make('span', 'lex-intake-name', v.title || ''), make('span', 'lex-intake-time', o.timeText || ''));
+    return head;
+  }
+
+  function intakeThin(v, o) {
+    const b = make('button', 'lex-intake-thin');
+    b.type = 'button';
+    const words = v.line || (v.summary ? `${v.title}: ${v.summary}` : (v.title || ''));
+    b.setAttribute('aria-label', `${words}. Show the details`);
+    b.setAttribute('aria-expanded', 'false');
+    const mark = intakeMark(v.icon);
+    if (mark) b.appendChild(mark);
+    b.append(make('span', 'lex-intake-thin-text', words), make('span', 'lex-intake-time', o.timeText || ''));
+    b.addEventListener('click', () => { if (o.onToggle) o.onToggle(); });
+    return b;
+  }
+
+  function intake(v, o) {
+    o = o || {};
+    const open = !!o.open;
+    if (v.thin && !open) return intakeThin(v, o);
+    const root = make('div', `lex-intake${open ? ' is-open' : ''}`);
+    root.appendChild(intakeHead(v, o));
+    if (v.summary) root.appendChild(make('div', 'lex-intake-summary', v.summary));
+    const facts = (v.facts || []).map((f) => (f && f.text) || '').filter(Boolean);
+    if (facts.length && (v.show === 'all' || (v.show === 'fold' && open))) {
+      const list = make('div', 'lex-intake-facts');
+      for (const f of facts) list.appendChild(make('div', 'lex-intake-fact', f));
+      root.appendChild(list);
+    }
+    if (v.aside) root.appendChild(make('div', 'lex-intake-aside', v.aside));
+    for (const a of v.alerts || []) root.appendChild(make('div', 'lex-intake-alert', a));
+    if (open && v.numbers) root.appendChild(make('div', 'lex-intake-numbers', v.numbers));
+    let tail = false;
+    if (v.ask) {
+      root.appendChild(intakeAct('lex-intake-ask', v.ask, 'right', null, () => o.onQuestion && o.onQuestion(v.asked || [])));
+      tail = true;
+    }
+    // Folded: «Ещё N фактов» and a chevron down; unfolded (a long record, or a thin line shown
+    // whole): «Свернуть» and a chevron up.
+    if (v.show === 'fold' || (v.thin && open)) {
+      const b = open
+        ? intakeAct('lex-intake-more', 'Свернуть', 'up', null, o.onToggle)
+        : intakeAct('lex-intake-more', v.more || 'Ещё', 'down', `Show ${facts.length} facts`, o.onToggle);
+      b.setAttribute('aria-expanded', String(open));
+      root.appendChild(b);
+      tail = true;
+    }
+    if (tail) root.classList.add('ends-with-act');
+    return root;
   }
 
   // ── a chat as in Telegram ───────────────────────────────────────────────────
@@ -1064,7 +1182,7 @@
   // The arrow of a reply, 16: for the item «Reply» of a menu.
   const replyIcon = (size) => strokes(REPLY_D, size || 16);
 
-  global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
+  global.LexMessage = { message, entry, intake, dayLine, newLine, mark, timeOf, dayOf,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
     pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon };
 })(typeof window !== 'undefined' ? window : globalThis);

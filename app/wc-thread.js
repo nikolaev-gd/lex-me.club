@@ -243,6 +243,19 @@
   // in bold and the time, the text under them. A record of «Разбор» and «Обращения к базе»
   // is drawn from the view the server built of its data (em_entry). A question of the database
   // is drawn by the feed of questions (paintQuestions below); here it would stand as its words.
+  // The feed «Разбор» (2026-11-14): its tab — 'people', 'work' or 'all' (null — another chat), the
+  // records unfolded by a press (they stay so when the database extends them), the newest data of
+  // every record by its uid (a press repaints from it), the press on «База задала тебе вопрос».
+  let emLane = null;
+  const emOpenUids = new Set();
+  const emTurnsByUid = new Map();
+  let emQuestionHook = null;
+  const laneShows = (lane) => !emLane || emLane === 'all' || !lane || lane === emLane;
+  // A record of «Разбор» drawn again in its place: a press folded or unfolded it.
+  function repaintEm(t) {
+    const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
+    if (old) old.replaceWith(emEntryTurn(t));
+  }
   function emEntryTurn(t) {
     if (t.origin === 'em_status') {
       const line = el('.wc-em-status', {}, []);
@@ -254,7 +267,19 @@
     }
     const v = t.origin === 'em_question' ? t.emView : null;
     let msg;
-    if (t.emEntry && t.origin !== 'em_question') {
+    const look = t.emEntry && t.origin !== 'em_question' && t.emEntry.lane ? t.emEntry : null;
+    if (look) {
+      const uid = String(t.uid || '');
+      if (uid) emTurnsByUid.set(uid, t);
+      msg = global.LexMessage.entry(look, t.authoredAt, {
+        open: emOpenUids.has(uid),
+        onToggle: () => {
+          if (emOpenUids.has(uid)) emOpenUids.delete(uid); else emOpenUids.add(uid);
+          repaintEm(emTurnsByUid.get(uid) || t);
+        },
+        onQuestion: (asked) => { if (emQuestionHook) emQuestionHook(asked); },
+      });
+    } else if (t.emEntry && t.origin !== 'em_question') {
       msg = global.LexMessage.entry(t.emEntry, t.authoredAt);
       msg.classList.add('wc-em-text');
     } else {
@@ -264,6 +289,10 @@
     if (t.uid) turn.dataset.uid = String(t.uid);
     if (t.authoredAt) turn.dataset.at = t.authoredAt;
     turn.dataset.in = '1';
+    if (look) {
+      turn.dataset.lane = look.lane;
+      turn.hidden = !laneShows(look.lane);
+    }
     return turn;
   }
 
@@ -591,8 +620,30 @@
     // as in Telegram: the list carries the class of the common parts (lex-message.css).
     setProfiChat(chat) {
       profiChat = chat;
-      elTurns.classList.toggle('lex-bubbles', !!chat || !!qFeed);
+      elTurns.classList.toggle('lex-bubbles', !!chat || !!qFeed || emLane != null);
     },
+
+    // The feed «Разбор»: which tab is on the screen — 'people', 'work', 'all'; null — not this
+    // feed. A record of another tab is off the screen, the day lines and «Новые» stand only over
+    // what is shown, and the feed stands on its end, as a chat that just opened.
+    setEmLane(lane) {
+      const was = emLane;
+      emLane = lane || null;
+      elTurns.classList.toggle('is-intake', emLane != null);
+      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed || emLane != null);
+      if (emLane == null) { emOpenUids.clear(); emTurnsByUid.clear(); }
+      for (const n of elTurns.querySelectorAll('.wc-turn-em[data-lane]')) n.hidden = !laneShows(n.dataset.lane);
+      remark();
+      if (emLane != null && was != null && was !== emLane) {
+        stickToBottom = true;
+        elJump.hidden = true;
+        requestAnimationFrame(() => scrollToBottom(false));
+      }
+    },
+
+    // The press on «База задала тебе вопрос» of a record: (the words of its questions) → the page
+    // opens the question.
+    setEmQuestion(fn) { emQuestionHook = fn; },
 
     // The boxes of an order chat, from what the server says now.
     paintProfiBoxes() {
@@ -652,7 +703,7 @@
     setQuestionsFeed(hooks) {
       qFeed = hooks || null;
       if (!qFeed) { qTurns.clear(); qUi.pending.clear(); qUi.open.clear(); qUi.packs.clear(); }
-      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed);
+      elTurns.classList.toggle('lex-bubbles', !!profiChat || !!qFeed || emLane != null);
     },
 
     // Is this a news chat? The server wrote its first message.
