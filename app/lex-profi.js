@@ -27,6 +27,10 @@
   'use strict';
 
   const COMMAND_WAIT_S = 20;
+  // Cancel: this long without the monitor's answer — the order counts down again with Cancel and
+  // the screen says the monitor did not answer; the order's copy takes over after CANCEL_HOLD_S.
+  const CANCEL_WAIT_S = 5;
+  const CANCEL_HOLD_S = 30;
   const STALE_S = 120;
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
 
@@ -782,8 +786,9 @@
 
     // The answer of a command comes with the signal «profi_cmd»: one look at once, in case it
     // came before the signal was followed, then a look at every signal of this command and
-    // after the channel opens again. Twenty seconds without an answer — the monitor is away.
-    function waitResult(id) {
+    // after the channel opens again. waitS (twenty seconds by default) without an answer — one
+    // last look, since the channel may have been down, and then the monitor is away.
+    function waitResult(id, waitS = COMMAND_WAIT_S) {
       return new Promise((resolve) => {
         let over = false;
         let follower = null;
@@ -794,8 +799,13 @@
           if (follower) follower.stop();
           resolve(v);
         };
-        const timer = setTimeout(() => finish({ ok: false, error: 'The monitor did not answer. Is the working Mac awake?' }),
-          COMMAND_WAIT_S * 1000);
+        const timer = setTimeout(async () => {
+          try {
+            const r = await deps.rpc('profi_command_result', { p_id: id });
+            if (r && r.done) { finish(r.result || {}); return; }
+          } catch (_) { /* the answer below */ }
+          finish({ ok: false, error: 'The monitor did not answer. Is the working Mac awake?' });
+        }, waitS * 1000);
         const look = async (signal) => {
           if (over || (signal && signal.payload && String(signal.payload.id) !== String(id))) return;
           const r = await deps.rpc('profi_command_result', { p_id: id });
@@ -887,8 +897,61 @@
     const STATE_WORDS = {
       sending: 'Sending now…', queued: 'In the queue.', sent: 'Sent.', cancelled: 'Cancelled: nothing went.',
       stopped: 'Stopped: you reply yourself.', ready: 'Not sent: press Send to send it.', failed: 'Not sent.',
-      unknown: 'The site did not confirm it. Look at the order on Profi.',
+      unknown: 'The site did not confirm it. Look at the order on Profi.', cancelling: 'Cancelling…',
     };
+
+    // Cancel answers the press at once (2026-11-14, Gennady: the button stood as it was while the
+    // monitor worked). The order shows «Cancelling…» with its buttons grey; the monitor's answer
+    // brings what the order shows after — its own view of the order, the same the next copy of the
+    // order will say; the server's copy takes over as soon as it moved on from the countdown. Before,
+    // the screen waited for that copy: 1.4–3.1 s after the press, while the sending was off in 0.4 s.
+    // «Cancelled» stands only by the monitor's word: a reply already gone is said so.
+    const cancels = new Map();   // order → { at, view: the monitor's view of the order or null }
+
+    function shown(it) {
+      const c = cancels.get(it.order);
+      if (!c) return it;
+      if ((it.state !== 'countdown' && it.state !== 'sending') || Date.now() - c.at > CANCEL_HOLD_S * 1000) {
+        cancels.delete(it.order);
+        return it;
+      }
+      if (!c.view) return Object.assign({}, it, { state: 'cancelling', stateLine: null, busy: true });
+      return Object.assign({}, it, { state: c.view.state, stateLine: c.view.state_line || null,
+        actions: c.view.actions || [], sendAt: c.view.send_at || null });
+    }
+
+    function redrawOrder(order) {
+      const e = feedEls.get(order);
+      if (!e || frame.screen !== 'feed') return;
+      const n = orderNode(shown(e.it));
+      e.n.replaceWith(n);
+      e.n = n;
+    }
+
+    async function cancelOrder(order) {
+      cancels.set(order, { at: Date.now(), view: null });
+      say('');   // a line left by an earlier press is not about this one
+      redrawOrder(order);
+      let res;
+      try {
+        const r = await command('cancel', order, { pressed_at: Date.now() / 1000 });
+        res = await waitResult(r.id, CANCEL_WAIT_S);
+      } catch (err) {
+        res = { ok: false, error: (err && err.message) || 'The command did not go.' };
+      }
+      const c = cancels.get(order);
+      if (!c) return;   // the server's copy of the order came first and said it all
+      const view = res.ok ? res.order : null;
+      if (view && view.state !== 'countdown' && view.state !== 'sending') c.view = view;
+      else if (!res.ok) {
+        cancels.delete(order);
+        if (res.state === 'pozdno') say('Too late: the reply had already gone.', true);
+        else if (res.state !== 'net') say(res.error || 'It did not cancel.', true);
+      }
+      // An answer with nothing to show yet (a sending being cut off, a monitor without the view):
+      // «Cancelling…» stays until the server's copy of the order moves on.
+      redrawOrder(order);
+    }
 
     function stateText(it) {
       if (it.state === 'countdown') {
@@ -918,12 +981,15 @@
       st.textContent = stateText(it);
       root.appendChild(st);
       const foot = make('div', 'lex-profi-order-foot');
-      const act = (label, cls, fn) => foot.appendChild(button(`lex-profi-btn ${cls}`, label, async (e) => {
-        e.currentTarget.disabled = true;
-        try { await fn(); } catch (err) { say((err && err.message) || 'The command did not go.', true); }
-      }));
+      const act = (label, cls, fn) => {
+        const b = foot.appendChild(button(`lex-profi-btn ${cls}`, label, async (e) => {
+          e.currentTarget.disabled = true;
+          try { await fn(); } catch (err) { say((err && err.message) || 'The command did not go.', true); }
+        }));
+        if (it.busy) b.disabled = true;
+      };
       for (const a of it.actions || []) {
-        if (a === 'cancel') act('Cancel', 'is-danger', () => command('cancel', it.order, { pressed_at: Date.now() / 1000 }));
+        if (a === 'cancel') act('Cancel', 'is-danger', () => cancelOrder(it.order));
         if (a === 'send') act('Send', 'is-main', () => command('send_draft', it.order));
         if (a === 'reply_self') {
           act('Reply yourself', '', async () => {
@@ -970,7 +1036,7 @@
       const items = r.items || [];
       if (!items.length) body.appendChild(make('div', 'lex-profi-empty', 'No orders yet.'));
       for (const it of items) {
-        const n = orderNode(it);
+        const n = orderNode(shown(it));
         feedEls.set(it.order, { it, n });
         body.appendChild(n);
       }
@@ -983,7 +1049,7 @@
     function tick() {
       if (frame.screen !== 'feed') return;
       for (const { it, n } of feedEls.values()) {
-        if (it.state !== 'countdown') continue;
+        if (it.state !== 'countdown' || cancels.has(it.order)) continue;
         const st = n.querySelector('.lex-profi-order-state');
         if (st) st.textContent = stateText(it);
       }
