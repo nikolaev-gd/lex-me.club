@@ -3,7 +3,8 @@
  * the container, because the dark panel of the extension and the light and dark themes of
  * the page differ while the layout does not:
  *   --lex-section-fg, --lex-section-muted, --lex-section-line, --lex-section-hover,
- *   --lex-section-danger, --lex-section-bg, --lex-section-menu, --lex-section-bg-on-fg
+ *   --lex-section-danger, --lex-section-bg, --lex-section-menu, --lex-section-bg-on-fg,
+ *   --lex-section-attention (the unread dot)
  * Selectors start with a class of this module so the styles of a host page (YouTube, any
  * site under the small window) do not reach in. */
 
@@ -158,7 +159,9 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #f2c14b;
+  /* «Look here» of the palette (lex-palette.css, attention); a window that does not name it keeps
+     the same yellow. */
+  background: var(--lex-section-attention, #f2c14b);
 }
 .lex-section .lex-section-row-top { display: flex; align-items: baseline; gap: 10px; }
 .lex-section .lex-section-row-title,

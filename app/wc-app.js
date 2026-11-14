@@ -1130,7 +1130,21 @@
       openOrder: openProfiOrder,
       notify: (text) => toast(text, { error: true }),
       onChange: refreshProfiChat,
+      head: paintProfiHead,
     });
+  }
+  // The head of New orders in the bar, where an order chat shows its client (lex-profi.js feedHead):
+  // the mark of Профи.ру, «New orders», «Профи.ру»; null — the bar as it was.
+  function paintProfiHead(nodes) {
+    const { main, person } = profiEls();
+    main.classList.toggle('is-profi-feed', !!nodes);
+    if (nodes) {
+      person.replaceChildren(...nodes);
+      person.hidden = false;
+    } else if (!profiChat) {
+      person.replaceChildren();
+      person.hidden = true;
+    }
   }
   function enterProfiChat(chat) {
     const { main } = profiEls();
@@ -1182,12 +1196,14 @@
   const monitorWords = (turns) => new Map((turns || [])
     .filter((t) => t.uid && /^profi_/.test(t.origin || ''))
     .map((t) => [String(t.uid), t.text || '']));
-  function makeProfiChat(order, data, keep) {
+  function makeProfiChat(order, data, keep, opts) {
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
       onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      // Reply yourself: the chat opens with the bot's draft and the discussion shown.
+      clean: !(opts && opts.replySelf),
       order,
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
     });
@@ -1199,7 +1215,7 @@
   // is on screen at once from that, and the press then goes to the server: the order is read,
   // the moment of the visit taken, and the fresh answer takes the place of what is shown.
   // Without it one answer brings everything (profi_item).
-  async function openProfiOrder(order, wanted, heldNow, keep) {
+  async function openProfiOrder(order, wanted, heldNow, keep, opts) {
     // Nothing held — after a restart: the copy this device kept of the order (lex-reads.js) is
     // held and shown the same way, and the press reads the order at once, as with what was held.
     let held = heldNow;
@@ -1212,7 +1228,7 @@
       }
     }
     if (held && held.chatKey && held.chat) {
-      const chat = makeProfiChat(order, held, keep);
+      const chat = makeProfiChat(order, held, keep, opts);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId });
       await openConversation(held.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: held.chat });
       // The chat is on screen: a lost answer is not «the chat did not open». The watch of the
@@ -1231,7 +1247,7 @@
     }
     if (!data || !data.chatKey) { toast('The chat did not open', { error: true }); return; }
     if (keep) keep(data);
-    const chat = makeProfiChat(order, data, keep);
+    const chat = makeProfiChat(order, data, keep, opts);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
     await openConversation(data.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: data.chat });
   }

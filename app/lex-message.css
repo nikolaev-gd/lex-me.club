@@ -66,7 +66,7 @@
   font-size: .87em;
   font-variant-numeric: tabular-nums;
 }
-.lex-msg .lex-msg-stats .is-heavy { color: #f2c14b; font-weight: 600; }
+.lex-msg .lex-msg-stats .is-heavy { color: var(--attention, #f2c14b); font-weight: 600; }
 .lex-msg .lex-msg-stats .is-failed { color: var(--danger, #ff6b6b); }
 
 /* Between two days: the date in the middle. */
@@ -78,13 +78,14 @@
   line-height: 1.3;
   text-align: center;
 }
-/* Over the first unread message: one line, the yellow of the unread dot. */
+/* Over the first unread message: one line, the yellow of the unread dot («look here» of the palette;
+ * a window that does not name it keeps the same yellow). */
 .lex-msg-new {
   display: flex;
   align-items: center;
   gap: 10px;
   margin: 4px 0 16px;
-  color: #f2c14b;
+  color: var(--attention, #f2c14b);
   font-size: 12.5px;
   font-weight: 600;
   line-height: 1.3;
@@ -647,3 +648,118 @@
   color: var(--fg-muted); cursor: pointer;
 }
 .lex-reply .lex-reply-close:hover { background: var(--bg-hover); color: var(--fg, var(--lex-plain-fg)); }
+
+/* ── The message of an order (В7.29, 2026-11-14) ───────────────────────────────
+ * One order — one message, as the bot of Profi writes it in Telegram: the bubble of the other
+ * person across the whole lane (the lane has one sender, as a channel), the corner 6 bottom left,
+ * all inside cut by its edge. On top, when the order waits for a decision it is not sure of — a band
+ * in the yellow of «look here»; then the grey part, what the client sent: the title (a link to the
+ * order on Profi), its time, the client and the budget, the text; then the blue part, what the bot
+ * answers: «Reply» and the price or how it ended, the text, the buttons (the main and the second
+ * button, В7.6–В7.7). No frames inside: the text of both parts takes the whole width. Done orders
+ * stand folded in three lines and open in place. It stands in a lane `lex-bubbles` (its colours). */
+.lex-order {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: left;
+}
+.lex-order svg { display: block; flex: none; fill: none; stroke: currentColor; }
+.lex-order-ask {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--attention-wash);
+}
+.lex-order-ask > svg { width: 18px; height: 18px; margin-top: 1px; color: var(--attention); }
+.lex-order-ask-title { color: var(--attention); font-weight: 650; }
+.lex-order-ask-text { color: var(--lex-plate-fg); font-size: 13px; }
+.lex-order-in, .lex-order-out { padding: 10px 12px 12px; }
+.lex-order-out { background: var(--lex-bubble-out); }
+.lex-order-head { display: flex; align-items: baseline; gap: 10px; }
+.lex-order-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--fg, var(--lex-plain-fg));
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+a.lex-order-title:hover { text-decoration: underline; }
+.lex-order-title > svg {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+  vertical-align: -1px;
+  color: var(--fg-soft, var(--lex-plate-fg));
+}
+.lex-order-time, .lex-order-meta-state { font-variant-numeric: tabular-nums; }
+.lex-order-time { flex: none; color: var(--fg-muted); font-size: 12px; }
+/* A done order shown whole: the chevron up beside the time folds it again. The mark is 16, the zone
+   of the press 44 and unseen, as Copy of a message. */
+.lex-order-fold {
+  -webkit-appearance: none; appearance: none;
+  position: relative; flex: none; align-self: center; display: grid; place-items: center;
+  width: 20px; height: 20px; margin: 0 -2px 0 0; padding: 0; border: 0;
+  background: transparent; color: var(--fg-muted); cursor: pointer;
+}
+.lex-order-fold::before { content: ''; position: absolute; inset: -12px; }
+.lex-order-fold:hover, .lex-order-fold:focus-visible { color: var(--fg, var(--lex-plain-fg)); outline: none; }
+.lex-order-fold > svg { width: 16px; height: 16px; }
+.lex-order-who { margin-top: 2px; color: var(--fg-muted); font-size: 13px; }
+.lex-order-text, .lex-order-reply { white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.lex-order-text { margin-top: 6px; }
+.lex-order-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--lex-bubble-out-meta);
+  font-size: 12px;
+}
+.lex-order-meta-name { flex: none; font-weight: 600; }
+/* The words stand on the line of «Reply»; the mark beside them is centred on them. */
+.lex-order-meta-state { display: flex; align-items: baseline; gap: 4px; min-width: 0; text-align: right; }
+.lex-order-meta-state.is-danger { color: var(--danger); }
+.lex-order-meta-state > svg { align-self: center; width: 14px; height: 14px; }
+.lex-order-reply { margin-top: 2px; }
+/* The countdown stands on Cancel itself (В7.29): the seconds on the right in digits of one width, under
+   the words a ground of --danger at 20 % from the left, as wide as the share of the time left. */
+.lex-order .lex-order-out .lex-order-countdown { position: relative; justify-content: space-between; padding: 0 12px; }
+.lex-order-countdown > span { position: relative; }
+.lex-order-countdown > .lex-order-countdown-fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  background: color-mix(in srgb, var(--danger) 20%, transparent);
+  pointer-events: none;
+}
+.lex-order-countdown-left { font-variant-numeric: tabular-nums; }
+/* Folded: the title in one line with the time, «client · budget», how it ended with a chevron down.
+   The whole message is the button that opens it. */
+.lex-order.is-folded {
+  -webkit-appearance: none; appearance: none;
+  margin: 0; padding: 10px 12px; border: 0;
+  font: inherit; font-size: 15px; line-height: 1.35; text-align: left; cursor: pointer;
+}
+.lex-order.is-folded > span { display: block; }
+.lex-order.is-folded > .lex-order-head, .lex-order.is-folded > .lex-order-end { display: flex; }
+.lex-order.is-folded .lex-order-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-order-end {
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.lex-order-end > svg { width: 14px; height: 14px; }
+.lex-order-end > svg:last-child { width: 16px; height: 16px; }
+.lex-order-end > span { flex: 1 1 auto; min-width: 0; }

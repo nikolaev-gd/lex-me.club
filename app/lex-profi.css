@@ -16,20 +16,21 @@
 .lex-profi-btn.is-main { border-color: var(--fg); background: var(--fg); color: var(--bg); }
 .lex-profi-btn.is-danger { border-color: var(--danger); color: var(--danger); }
 
-.lex-profi-order { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.lex-profi-order-flag { margin-bottom: 4px; color: var(--danger); font-size: 12px; font-weight: 700; }
-.lex-profi-order-title { display: block; color: var(--fg); font-weight: 600; text-decoration: none; }
-.lex-profi-order-title:hover { text-decoration: underline; }
-.lex-profi-order-desc { margin-top: 6px; color: var(--fg-muted); font-size: 14px; white-space: pre-wrap; }
-.lex-profi-order-draft {
-  margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--bg-hover);
-  font-size: 14px; white-space: pre-wrap;
+/* The chat of new orders (lex-profi.js drawFeed): every order one message of lex-message.css (В7.29)
+ * in a lane of messages, 16 between them and the plates of the days, the newest at the bottom; a
+ * short feed stands at the bottom too, as a chat does. The row of buttons in the blue part of an order
+ * is the row of the main and the second button (.lex-profi-box-foot, В7.6–В7.7), 10 under the reply. */
+.lex-profi-lane {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 16px;
+  min-height: 100%;
+  padding-top: 14px;
 }
-.lex-profi-order-price { margin-top: 8px; color: var(--fg-muted); font-size: 13px; }
-.lex-profi-order-state { margin-top: 8px; font-size: 14px; font-weight: 600; }
-.lex-profi-order-state[data-state="sent"] { color: var(--fg-muted); font-weight: 400; }
-.lex-profi-order-state[data-state="failed"], .lex-profi-order-state[data-state="unknown"] { color: var(--danger); }
-.lex-profi-order-foot { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.lex-profi-lane > .lex-msg-day { margin: 0 auto; }
+.lex-order-out > .lex-profi-box-foot { margin-top: 10px; }
 
 .lex-profi-block { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .lex-profi-block-title { color: var(--fg-muted); font-size: 13px; font-weight: 600; }
@@ -119,8 +120,14 @@
 .lex-profi-outbox-item .lex-profi-box-foot .lex-profi-btn { flex: 0 0 auto; gap: 6px; padding: 0 16px; }
 
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
- * Profi. The list of chats is a step back (the arrow), so the bar has no three lines. */
-.wc-main.is-profi-chat .wc-burger { display: none !important; }
+ * Profi. The list of chats is a step back (the arrow), so the bar has no three lines. New orders has
+ * the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place of the letter, «New orders»
+ * and «Профи.ру» under it; the section's own bar steps aside on that screen. */
+.wc-main.is-profi-chat .wc-burger,
+.wc-main.is-profi-feed .wc-burger { display: none !important; }
+.wc-main.is-profi-feed .lex-profi .lex-section-bar,
+.wc-main.is-profi-feed .wc-topbar-right { display: none; }
+.lex-profi-person .lex-profi-mark { width: 40px; height: 40px; }
 .lex-profi-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .lex-profi-person[hidden] { display: none !important; }
 .lex-profi-person-words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }

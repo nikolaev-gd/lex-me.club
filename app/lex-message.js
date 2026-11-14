@@ -55,6 +55,10 @@
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick })   one line in the middle for what is kept off the screen
 //   avatar(name)        a round letter of a person, its colour from the name
+//   order({ … })        the message of an order in the chat of new orders of Profi.ru (В7.29): the grey
+//                       part of the client, the blue part of the bot's reply with the buttons, a yellow
+//                       band «Not sure» on top; a done order folded in three lines that open in place
+//   countdown(button)   Cancel with the countdown on it: the seconds and a ground that melts → { set }
 //   eyeOff(size), sparkle(size)   the crossed eye (seen by the person alone) and the mark of
 //                       the model
 //
@@ -940,6 +944,144 @@
     return b;
   }
 
+  // ── The message of an order (В7.29) ─────────────────────────────────────────
+  // One order — one message, as the bot of Profi writes it in Telegram (Gennady, 14.11.2026, the
+  // canvas «New orders: 3 варианта», board 2). The grey part is what the client sent, the blue part
+  // what the bot answers; a band in the yellow of «look here» on top when the order waits for a
+  // decision the bot is not sure of. A done order stands folded in three lines; the whole of it is the
+  // button that opens it. The lane around it is `lex-bubbles` (its colours). What the parts know is
+  // given to them: the buttons come made (the main and the second button of the page, В7.6–В7.7), the
+  // words of the states are the caller's.
+  const ORDER_ICONS = {
+    tick: ['M5 12l5 5L20 7'],
+    cross: ['M6 6l12 12', 'M18 6L6 18'],
+    reply: ['M9 17l-5-5 5-5', 'M20 18v-2a4 4 0 0 0-4-4H4'],
+    out: ['M7 17L17 7', 'M8 7h9v9'],
+    down: ['M6 9l6 6 6-6'],
+    up: ['M18 15l-6-6-6 6'],
+  };
+  function orderIcon(name, size, width) {
+    const n = svg('0 0 24 24', size);
+    for (const d of ORDER_ICONS[name] || []) {
+      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': width || 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    return n;
+  }
+  // The question in a circle of the band «Not sure».
+  function askIcon() {
+    const n = svg('0 0 24 24', 18);
+    n.append(shape('circle', { cx: 12, cy: 12, r: 9, fill: 'none', stroke: 'currentColor', 'stroke-width': 2 }));
+    for (const d of ['M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.4v.6', 'M12 16.8h.01']) {
+      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    return n;
+  }
+  // «<client> · <budget>»: what is missing is left out.
+  const orderWho = (o) => [o.client, o.budget].map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
+
+  // order({ order, title, url, at | timeText, client, budget, text, reply, state, foot, ask, folded,
+  //         onOpen, onFold })
+  //   state   { text, icon: 'tick' | 'cross' | 'reply' | null, danger } — on the right of «Reply»: the
+  //           price before the reply leaves, how it ended after
+  //   foot    the row of buttons, made by the caller
+  //   ask     { title, text } — the band on top
+  //   folded  true — the three lines; onOpen() — a press on them; onFold() — the chevron up of a
+  //           done order shown whole (none — no chevron)
+  function order(o) {
+    const time = o.timeText != null ? o.timeText : timeOf(o.at);
+    const who = orderWho(o);
+    const st = o.state || {};
+    if (o.folded) {
+      const b = make('button', 'lex-order is-folded');
+      b.type = 'button';
+      b.setAttribute('aria-expanded', 'false');
+      b.setAttribute('aria-label', `${[o.title, o.client].filter(Boolean).join(', ')}. ${st.text || ''} Show the order`.replace(/\s+/g, ' ').trim());
+      if (o.order != null) b.dataset.order = o.order;
+      const head = make('span', 'lex-order-head');
+      head.append(make('span', 'lex-order-title', o.title || ''), make('span', 'lex-order-time', time));
+      b.appendChild(head);
+      if (who) b.appendChild(make('span', 'lex-order-who', who));
+      const end = make('span', 'lex-order-end');
+      if (st.icon) end.appendChild(orderIcon(st.icon, 14, 2.4));
+      end.append(make('span', '', st.text || ''), orderIcon('down', 16));
+      b.appendChild(end);
+      if (o.onOpen) b.addEventListener('click', o.onOpen);
+      return b;
+    }
+    const root = make('article', 'lex-order');
+    if (o.order != null) root.dataset.order = o.order;
+    if (o.ask) {
+      const band = make('div', 'lex-order-ask');
+      band.setAttribute('role', 'note');
+      const words = make('div', '');
+      words.append(make('div', 'lex-order-ask-title', o.ask.title || ''), make('div', 'lex-order-ask-text', o.ask.text || ''));
+      band.append(askIcon(), words);
+      root.appendChild(band);
+    }
+    const inPart = make('div', 'lex-order-in');
+    const head = make('div', 'lex-order-head');
+    let title;
+    if (o.url) {
+      title = make('a', 'lex-order-title', o.title || '');
+      title.href = o.url;
+      title.target = '_blank';
+      title.rel = 'noopener noreferrer';
+      title.setAttribute('aria-label', `${o.title || 'The order'}. Open the order on Profi`);
+      title.appendChild(orderIcon('out', 14, 2.4));
+    } else {
+      title = make('span', 'lex-order-title', o.title || '');
+    }
+    head.append(title, make('span', 'lex-order-time', time));
+    if (o.onFold) {
+      const fold = make('button', 'lex-order-fold');
+      fold.type = 'button';
+      fold.setAttribute('aria-expanded', 'true');
+      fold.setAttribute('aria-label', 'Fold the order');
+      fold.title = 'Fold the order';
+      fold.appendChild(orderIcon('up', 16));
+      fold.addEventListener('click', o.onFold);
+      head.appendChild(fold);
+    }
+    inPart.appendChild(head);
+    if (who) inPart.appendChild(make('div', 'lex-order-who', who));
+    if (o.text) inPart.appendChild(make('div', 'lex-order-text', o.text));
+    root.appendChild(inPart);
+    if (o.reply || o.foot) {
+      const out = make('div', 'lex-order-out');
+      const meta = make('div', 'lex-order-meta');
+      const state = make('span', `lex-order-meta-state${st.danger ? ' is-danger' : ''}`);
+      if (st.icon) state.appendChild(orderIcon(st.icon, 14, 2.4));
+      state.appendChild(make('span', '', st.text || ''));
+      meta.append(make('span', 'lex-order-meta-name', 'Reply'), state);
+      out.appendChild(meta);
+      if (o.reply) out.appendChild(make('div', 'lex-order-reply', o.reply));
+      if (o.foot) out.appendChild(o.foot);
+      root.appendChild(out);
+    }
+    return root;
+  }
+
+  // Cancel with the countdown on it (В7.29): «Cancel» on the left, the seconds on the right, under
+  // them a ground of --danger that melts from the right as the time goes. button — a button of the
+  // caller (the second button with the words in --danger); set(left, share) — the seconds left and
+  // the share of the time left, 0…1.
+  function countdown(button) {
+    button.classList.add('lex-order-countdown');
+    const fill = make('span', 'lex-order-countdown-fill');
+    fill.setAttribute('aria-hidden', 'true');
+    const word = make('span', '', button.textContent || 'Cancel');
+    const left = make('span', 'lex-order-countdown-left', '');
+    left.setAttribute('aria-hidden', 'true');
+    button.replaceChildren(fill, word, left);
+    const set = (secs, share) => {
+      const s = Math.max(0, Math.ceil(secs));
+      left.textContent = `${s} s`;
+      fill.style.width = `${Math.round(Math.max(0, Math.min(1, share)) * 1000) / 10}%`;
+      button.setAttribute('aria-label', `${word.textContent}. The reply leaves in ${s} s`);
+    };
+    return { set };
+  }
+
   // The letter of a person on a round ground; the same name always gets the same colour.
   const AVATAR_COLORS = ['#A85F2C', '#2F7D6D', '#3F6CB3', '#8A4FA8', '#A8433F', '#4F8A3A', '#9A7A22'];
   function avatar(name) {
@@ -1184,5 +1326,5 @@
 
   global.LexMessage = { message, entry, intake, dayLine, newLine, mark, timeOf, dayOf,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon };
+    pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
 })(typeof window !== 'undefined' ? window : globalThis);

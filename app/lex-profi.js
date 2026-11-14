@@ -13,13 +13,17 @@
 //                          section and an open order chat read again at the signal «profi», a
 //                          press of the bot's menu gets its answer at «profi_cmd»
 //   rpc(name, args)        a call of a database function under the person's pass
-//   openOrder(order, wanted, held, keep)
+//   openOrder(order, wanted, held, keep, opts)
 //                          open the chat of this order where chats open; held — the order chat
 //                          as the window holds it (profi_item), or null; keep(item) — hold a
-//                          fresher answer
+//                          fresher answer; opts.replySelf — opened by Reply yourself: with the
+//                          discussion shown (the draft of the bot), not in the clean view
 //   copy(text)             put text on the clipboard, returns true when it worked
 //   notify(text)           the server is lost while an order chat stands over the section
 //   onChange()             the server changed something: read the open order chat, a promise
+//   head(nodes)            what the bar of the window shows in place of the section's own bar: the
+//                          head of New orders (the mark of Профи.ру and its words), null — the bar
+//                          as it was
 //   read(name, args, show, empty)
 //                          the window's way to read what a screen shows (lex-reads.js, twice):
 //                          the copy this device kept in the first frame, the server's answer after
@@ -442,13 +446,15 @@
 
   // deps: rpc, copy, order, reload(), putBack(text) — a text taken back from the way to the
   // client, or a box to edit by hand, goes into the field; onClean(on) — the clean view
-  // changed
+  // changed; clean — false: the chat opens with the discussion shown (Reply yourself)
   function createChat(deps) {
     let data = null;
     // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
     // with it on (Gennady, 2026-11-14): an order chat is first of all the conversation with
-    // the client; a word to Lex from the field turns it off, so that the answer is seen.
-    let clean = true;
+    // the client; a word to Lex from the field turns it off, so that the answer is seen. A chat
+    // opened by Reply yourself opens with it off: the person came for the bot's draft in its box
+    // and the talk with the model about it, and the clean view hides both.
+    let clean = deps.clean !== false;
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
@@ -760,7 +766,7 @@
       events: ['profi'],
       check: (signal) => poll(signal),
       notify: deps.notify,
-      onBack: () => paint(),
+      onBack: () => { syncHead(); return paint(); },
     });
     const { say } = frame;
 
@@ -776,6 +782,7 @@
 
     function go(id, title) {
       frame.push({ id, title });
+      syncHead();
       paint();
     }
 
@@ -894,18 +901,13 @@
     }
 
     // ── new orders ───────────────────────────────────────────────────────────
-    const STATE_WORDS = {
-      sending: 'Sending now…', queued: 'In the queue.', sent: 'Sent.', cancelled: 'Cancelled: nothing went.',
-      stopped: 'Stopped: you reply yourself.', ready: 'Not sent: press Send to send it.', failed: 'Not sent.',
-      unknown: 'The site did not confirm it. Look at the order on Profi.', cancelling: 'Cancelling…',
-    };
-
     // Cancel answers the press at once (2026-11-14, Gennady: the button stood as it was while the
     // monitor worked). The order shows «Cancelling…» with its buttons grey; the monitor's answer
     // brings what the order shows after — its own view of the order, the same the next copy of the
     // order will say; the server's copy takes over as soon as it moved on from the countdown. Before,
     // the screen waited for that copy: 1.4–3.1 s after the press, while the sending was off in 0.4 s.
-    // «Cancelled» stands only by the monitor's word: a reply already gone is said so.
+    // «Cancelled» stands only by the monitor's word: a reply already gone is said so. A cancelled order
+    // then folds as every done one (В7.29).
     const cancels = new Map();   // order → { at, view: the monitor's view of the order or null }
 
     function shown(it) {
@@ -920,18 +922,10 @@
         actions: c.view.actions || [], sendAt: c.view.send_at || null });
     }
 
-    function redrawOrder(order) {
-      const e = feedEls.get(order);
-      if (!e || frame.screen !== 'feed') return;
-      const n = orderNode(shown(e.it));
-      e.n.replaceWith(n);
-      e.n = n;
-    }
-
     async function cancelOrder(order) {
       cancels.set(order, { at: Date.now(), view: null });
       say('');   // a line left by an earlier press is not about this one
-      redrawOrder(order);
+      repaintOrder(order);
       let res;
       try {
         const r = await command('cancel', order, { pressed_at: Date.now() / 1000 });
@@ -950,59 +944,145 @@
       }
       // An answer with nothing to show yet (a sending being cut off, a monitor without the view):
       // «Cancelling…» stays until the server's copy of the order moves on.
-      redrawOrder(order);
+      repaintOrder(order);
     }
 
-    function stateText(it) {
-      if (it.state === 'countdown') {
-        const left = Math.max(0, Math.ceil((it.sendAt || 0) - (Date.now() / 1000 + clockOffset)));
-        return `Sending in ${left} s`;
+    // Every order one message (В7.29, the design Gennady chose on 14.11.2026): what waits for a
+    // decision stands whole with its buttons; what is done (sent, cancelled, stopped) stands folded in
+    // three lines and opens in place. The words of the states and the buttons are the monitor's word
+    // on the server; this draws them.
+    const DONE = new Set(['sent', 'cancelled', 'stopped']);
+    // Done orders opened by a press on their three lines, and the order the screen was opened at.
+    const opened = new Set();
+    // Reply yourself pressed: the order folds at once, «Stopped: you reply yourself.», until the
+    // server says anything else of it than it said at the press (the monitor took the command, or the
+    // reply had gone already). order → the server's word at the press.
+    const replied = new Map();
+    // How long a countdown runs, when the server does not say when it began (a server before
+    // countdown_at): the seconds left when the screen first saw it.
+    const spans = new Map();
+    const wordOf = (it) => `${it.state}|${(it.actions || []).join(',')}`;
+    function stateOf(it) {
+      const at = replied.get(it.order);
+      if (at === undefined) return it.state;
+      if (at === wordOf(it)) return 'stopped';
+      replied.delete(it.order);
+      return it.state;
+    }
+
+    // What stands on the right of «Reply»: the price before the reply leaves, how it ended after.
+    function stateWords(it, state) {
+      const line = it.stateLine ? ` ${it.stateLine}` : '';
+      switch (state) {
+        case 'countdown':
+        case 'ready': {
+          const price = priceLine(it.price);
+          const words = [price ? `Price: ${price}` : '', state === 'ready' ? it.stateLine || '' : ''].filter(Boolean);
+          return { text: words.join(' · ') };
+        }
+        case 'sending': return { text: 'Sending now…' };
+        case 'cancelling': return { text: 'Cancelling…' };
+        case 'queued': return { text: 'In the queue.' };
+        case 'sent': return { text: it.paid ? `Sent. Paid ${Math.round(it.paid)} ₽.` : 'Sent.', icon: 'tick' };
+        case 'cancelled': return { text: 'Cancelled: nothing went.', icon: 'cross' };
+        case 'stopped': return { text: 'Stopped: you reply yourself.', icon: 'reply' };
+        case 'failed': return { text: `Not sent.${line}`, danger: true };
+        case 'unknown': return { text: `The site did not confirm it. Look at the order on Profi.${line}`, danger: true };
+        default: return { text: it.stateLine || '' };
       }
-      const base = STATE_WORDS[it.state] || '';
-      if (it.state === 'sent' && it.paid) return `Sent. Paid ${Math.round(it.paid)} ₽.`;
-      return it.stateLine ? `${base} ${it.stateLine}`.trim() : base;
+    }
+
+    // The seconds left and the share of the countdown left, on the server's clock.
+    function countdownOf(it) {
+      const left = Math.max(0, (it.sendAt || 0) - (Date.now() / 1000 + clockOffset));
+      let span = it.countdownAt && it.sendAt ? it.sendAt - it.countdownAt : 0;
+      if (!(span > 0)) {
+        if (!spans.has(it.order)) spans.set(it.order, left);
+        span = spans.get(it.order);
+      }
+      return { left, share: span > 0 ? left / span : 0 };
     }
 
     function orderNode(it) {
-      const root = make('article', 'lex-profi-order');
-      root.dataset.order = it.order;
-      if (it.uncertain) root.appendChild(make('div', 'lex-profi-order-flag', 'Not sure'));
-      const title = make('a', 'lex-profi-order-title', it.title + (it.budget ? ` — ${it.budget}` : ''));
-      title.href = it.orderUrl || '#';
-      title.target = '_blank';
-      title.rel = 'noopener noreferrer';
-      root.appendChild(title);
-      if (it.description) root.appendChild(make('div', 'lex-profi-order-desc', it.description));
-      if (it.draft) root.appendChild(make('div', 'lex-profi-order-draft', it.draft));
-      const price = priceLine(it.price);
-      if (price) root.appendChild(make('div', 'lex-profi-order-price', `Price: ${price}`));
-      const st = make('div', 'lex-profi-order-state');
-      st.dataset.state = it.state;
-      st.textContent = stateText(it);
-      root.appendChild(st);
-      const foot = make('div', 'lex-profi-order-foot');
+      const M = global.LexMessage;
+      // While its Cancel is under way: «Cancelling…» with the buttons grey, then the monitor's view.
+      it = shown(it);
+      const state = stateOf(it);
+      const actions = state === it.state ? (it.actions || []) : [];
+      const hasChat = it.hasChat || state !== it.state;
+      const done = DONE.has(state);
+      const base = { order: it.order, title: it.title, url: it.orderUrl, at: it.at, client: it.client, budget: it.budget,
+        state: stateWords(it, state) };
+      if (done && !opened.has(it.order)) {
+        return { node: M.order({ ...base, folded: true, onOpen: () => { opened.add(it.order); repaintOrder(it.order); } }) };
+      }
+      let cd = null;
+      const foot = make('div', 'lex-profi-box-foot');
       const act = (label, cls, fn) => {
-        const b = foot.appendChild(button(`lex-profi-btn ${cls}`, label, async (e) => {
+        const b = button(`lex-profi-btn${cls ? ` ${cls}` : ''}`, label, async (e) => {
           e.currentTarget.disabled = true;
           try { await fn(); } catch (err) { say((err && err.message) || 'The command did not go.', true); }
-        }));
+        });
         if (it.busy) b.disabled = true;
+        foot.appendChild(b);
+        return b;
       };
-      for (const a of it.actions || []) {
-        if (a === 'cancel') act('Cancel', 'is-danger', () => cancelOrder(it.order));
-        if (a === 'send') act('Send', 'is-main', () => command('send_draft', it.order));
-        if (a === 'reply_self') {
-          act('Reply yourself', '', async () => {
-            await command('reply_self', it.order, { pressed_at: Date.now() / 1000 });
-            openOrder(it.order);
-          });
+      for (const a of actions) {
+        if (a === 'cancel') {
+          const b = act('Cancel', 'is-danger', () => cancelOrder(it.order));
+          if (state === 'countdown') cd = M.countdown(b);
         }
+        if (a === 'send') act('Send', 'is-main', () => command('send_draft', it.order));
+        if (a === 'reply_self') act('Reply yourself', '', () => replySelf(it));
       }
-      if (it.hasChat && !(it.actions || []).includes('reply_self')) {
-        foot.appendChild(button('lex-profi-btn', 'Open chat', () => openOrder(it.order)));
+      if (hasChat && !actions.includes('reply_self')) foot.appendChild(button('lex-profi-btn', 'Open chat', () => openOrder(it.order)));
+      const ask = it.uncertain && !done && actions.length && !it.busy ? {
+        title: 'Not sure this order fits',
+        text: state === 'countdown' ? 'Cancel it if the order does not fit.' : 'The reply is not sent. Send it or reply yourself.',
+      } : null;
+      const node = M.order({ ...base, text: it.description, reply: it.draft, ask,
+        foot: foot.childElementCount ? foot : null,
+        onFold: done ? () => { opened.delete(it.order); repaintOrder(it.order); } : null });
+      if (cd) {
+        const c = countdownOf(it);
+        cd.set(c.left, c.share);
       }
-      if (foot.childElementCount) root.appendChild(foot);
-      return root;
+      return { node, cd };
+    }
+
+    // One order drawn again in its place: opened, folded, pressed.
+    function repaintOrder(order) {
+      const el = feedEls.get(order);
+      if (!el || !el.n.isConnected) return;
+      const { node, cd } = orderNode(el.it);
+      node.dataset.at = el.it.at || '';
+      el.n.replaceWith(node);
+      feedEls.set(order, { it: el.it, n: node, cd });
+    }
+
+    // Reply yourself: the reply stops, the chat of the order is made with the bot's draft in it, and
+    // it opens (Gennady, 14.11.2026). The order folds in the same frame; the chat comes with the one
+    // answer of the server (profi_command gives the chat, `item`; a server before that — one more
+    // reading, profi_item).
+    function replySelf(it) {
+      replied.set(it.order, wordOf(it));
+      opened.delete(it.order);
+      repaintOrder(it.order);
+      const going = command('reply_self', it.order, { pressed_at: Date.now() / 1000 });
+      frame.open(async (wanted) => {
+        let r;
+        try {
+          r = await going;
+        } catch (e) {
+          replied.delete(it.order);
+          repaintOrder(it.order);
+          throw e;
+        }
+        const item = r && r.item;
+        if (item && item.chatKey && item.chat) held.put(it.order, remember(it.order, item));
+        if (!wanted()) return;
+        await deps.openOrder(it.order, wanted, held.get(it.order), keepOf(it.order), { replySelf: true });
+      }, 'The chat did not open.');
     }
 
     function feedAtEnd(body) {
@@ -1025,34 +1105,57 @@
     }
 
     // fresh — the server's answer just now: the clock of the countdowns is taken from it, and the
-    // order to bring into view is let go once the fresh feed is drawn.
+    // order to bring into view is let go once the fresh feed is drawn. The orders stand in a lane of
+    // messages (`lex-bubbles`), a plate with the day between two days (В7.14).
     function drawFeed(r, fresh) {
       const { body } = frame;
       if (frame.screen !== 'feed') return;
       const stick = !body.childElementCount || feedAtEnd(body);
       if (fresh) clockOffset = (r.now || Date.now() / 1000) - Date.now() / 1000;
+      if (focusOrder) opened.add(focusOrder);
       feedEls = new Map();
       body.replaceChildren();
       const items = r.items || [];
-      if (!items.length) body.appendChild(make('div', 'lex-profi-empty', 'No orders yet.'));
+      if (!items.length) { body.appendChild(make('div', 'lex-profi-empty', 'No orders yet.')); return; }
+      const lane = make('div', 'lex-bubbles lex-profi-lane');
       for (const it of items) {
-        const n = orderNode(shown(it));
-        feedEls.set(it.order, { it, n });
-        body.appendChild(n);
+        const { node, cd } = orderNode(it);
+        node.dataset.at = it.at || '';
+        feedEls.set(it.order, { it, n: node, cd });
+        lane.appendChild(node);
       }
+      global.LexMessage.mark(lane);
+      body.appendChild(lane);
       const focus = focusOrder && feedEls.get(focusOrder);
       if (focus || fresh) focusOrder = null;
       if (focus) focus.n.scrollIntoView({ block: 'center' });
       else if (stick) body.scrollTop = body.scrollHeight;
     }
 
+    // The countdowns go on by themselves, between the server's words: the seconds on Cancel and the
+    // ground under them.
     function tick() {
       if (frame.screen !== 'feed') return;
-      for (const { it, n } of feedEls.values()) {
-        if (it.state !== 'countdown' || cancels.has(it.order)) continue;
-        const st = n.querySelector('.lex-profi-order-state');
-        if (st) st.textContent = stateText(it);
+      for (const { it, cd } of feedEls.values()) {
+        if (!cd) continue;
+        const c = countdownOf(it);
+        cd.set(c.left, c.share);
       }
+    }
+
+    // The head of New orders, as over an order chat (2026-11-14): the mark of Профи.ру, «New
+    // orders», «Профи.ру» under it. The window shows it in its bar while the screen is on.
+    function feedHead() {
+      const M = global.LexMessage;
+      const mark = M.channel('profi');
+      mark.classList.add('lex-profi-mark');
+      const words = make('div', 'lex-profi-person-words');
+      words.append(make('div', 'lex-profi-person-name', (home && home.feed && home.feed.title) || 'New orders'),
+        make('div', 'lex-profi-person-channel', M.CHANNELS.profi.name));
+      return [mark, words];
+    }
+    function syncHead() {
+      if (deps.head) deps.head(frame.isShown() && frame.screen === 'feed' ? feedHead() : null);
     }
 
     // ── settings: the rest of the bot's menu ─────────────────────────────────
@@ -1109,7 +1212,7 @@
       });
       chats.appendChild(only);
       chats.appendChild(make('div', 'lex-profi-line is-muted',
-        'The list keeps only the chats where the client wrote last and you have not answered yet.'));
+        'The list keeps only the chats where the client waits for your answer.'));
 
       const macs = block('Working Mac');
       for (const m of st.macs || []) {
@@ -1238,6 +1341,7 @@
       },
       async show() {
         frame.enter();
+        syncHead();
         // The signals are followed before the first reading: a change during it is not lost.
         // The person may leave during the reading: hide() stops the watch, and an order chat
         // starts its own.
@@ -1272,7 +1376,10 @@
         clearInterval(ticker);
         ticker = null;
       },
-      hide() { this.unwatch(); },
+      hide() {
+        this.unwatch();
+        if (deps.head) deps.head(null);
+      },
       // A notification of the Mac app was clicked (webchat/wc-app.js): a message of an order
       // chat opens the order the way a press on it outside the feed does; a notification
       // about an order (new, reply sent, not sent) — the feed of new orders at that order.

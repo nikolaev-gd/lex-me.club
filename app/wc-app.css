@@ -553,6 +553,7 @@ button { font: inherit; color: inherit; }
   --lex-section-line:   var(--line);
   --lex-section-hover:  var(--bg-hover);
   --lex-section-danger: var(--danger);
+  --lex-section-attention: var(--attention);
 }
 
 .wc-sidebar-title {
