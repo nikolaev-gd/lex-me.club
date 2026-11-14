@@ -169,6 +169,76 @@
 .lex-bubble .lex-photo img { display: block; width: auto; height: auto; max-width: min(280px, 100%); max-height: 320px; object-fit: cover; }
 .lex-bubble .lex-photos.is-many .lex-photo { width: calc(50% - 2px); }
 .lex-bubble .lex-photos.is-many .lex-photo img { width: 100%; height: 140px; max-width: none; max-height: none; }
+/* The stored files of a message (В7.21): photos as above; a voice message, a video and a document
+   one under another, over the text. */
+.lex-bubble .lex-files { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.lex-bubble .lex-files > .lex-photos { margin-bottom: 0; }
+.lex-bubble .lex-photo img:not([src]) { width: 220px; height: 160px; }
+/* A voice message: the round play button (44, В5), the line of the sound, its length. */
+.lex-bubble .lex-voice { display: flex; align-items: center; gap: 10px; min-width: 220px; }
+.lex-bubble .lex-voice-play {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--lex-plain-fg); color: var(--lex-bubble-in);
+}
+.lex-bubble.is-out .lex-voice-play { color: var(--lex-bubble-out); }
+.lex-bubble .lex-voice-play svg { stroke: none; }
+.lex-bubble .lex-voice.is-loading .lex-voice-play { opacity: .6; }
+.lex-bubble .lex-voice.is-failed .lex-voice-play { opacity: .35; cursor: default; }
+/* The line is 4 high; the zone a press moves the sound in is 44 (В5). */
+.lex-bubble .lex-voice-track { position: relative; flex: 1; height: 44px; cursor: pointer; }
+.lex-bubble .lex-voice-track::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px;
+  border-radius: 2px; background: var(--lex-plate);
+}
+.lex-bubble .lex-voice-fill {
+  position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; width: 0;
+  border-radius: 2px; background: var(--lex-plain-fg);
+}
+.lex-bubble .lex-voice-time { flex: none; font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; color: var(--lex-plate-fg); }
+/* A video: a dark tile with the play button and its length; pressed — the player in its place. */
+.lex-bubble .lex-video {
+  position: relative; display: grid; place-items: center; overflow: hidden;
+  width: 280px; max-width: calc(100% + 12px); aspect-ratio: 16 / 9; max-height: 320px;
+  margin: 0 -6px; border-radius: 10px; background: var(--lex-plate);
+}
+.lex-bubble .lex-video.is-on { display: block; aspect-ratio: auto; max-height: none; background: none; }
+.lex-bubble .lex-video-play { position: relative; z-index: 1; }
+.lex-bubble .lex-video video { display: block; width: 100%; max-height: 420px; border-radius: 10px; }
+.lex-bubble .lex-video-play {
+  display: grid; place-items: center; width: 52px; height: 52px; padding: 0 0 0 3px;
+  border: 0; border-radius: 50%; cursor: pointer;
+  background: var(--lex-plain-fg); color: var(--lex-bubble-in);
+}
+.lex-bubble .lex-video-play svg { stroke: none; }
+.lex-bubble .lex-video.is-failed .lex-video-play { opacity: .35; cursor: default; }
+.lex-bubble .lex-video-meta {
+  position: absolute; left: 8px; bottom: 8px; padding: 2px 6px; border-radius: 6px;
+  font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums;
+  background: var(--lex-plate); color: var(--lex-plain-fg);
+}
+/* A document: its mark with the extension, the name, the type and size; the whole card opens it. */
+.lex-bubble .lex-file {
+  display: flex; align-items: center; gap: 10px; min-width: 220px; min-height: 44px;
+  color: inherit; text-decoration: none; cursor: pointer;
+}
+.lex-bubble .lex-file.is-missing { cursor: default; }
+.lex-bubble .lex-file-icon {
+  position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px;
+  border-radius: 10px; background: var(--lex-plate); color: var(--lex-plain-fg);
+}
+.lex-bubble .lex-file-icon svg { stroke: none; }
+.lex-bubble .lex-file-ext {
+  position: absolute; bottom: 7px; font-size: 8px; font-weight: 750; letter-spacing: .02em; line-height: 10px;
+}
+.lex-bubble .lex-file-body { display: flex; flex-direction: column; min-width: 0; }
+.lex-bubble .lex-file-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
+  font-weight: 600; line-height: 20px;
+}
+.lex-bubble a.lex-file:hover .lex-file-name { text-decoration: underline; }
+.lex-bubble .lex-file-meta { font-size: 12px; line-height: 16px; color: var(--lex-plate-fg); }
+.lex-bubble .lex-file.is-missing .lex-file-name { opacity: .7; }
 .lex-bubble .lex-bubble-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

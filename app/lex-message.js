@@ -28,8 +28,16 @@
 //                       [{ url, width, height }] → a node for `media` of bubble(); a press opens the
 //                       photo whole in a new tab. Only https addresses; the server lets through only
 //                       Profi's picture server (profi_client_photos.sql). None — null
-//   bubble({ …, media })   `media` (photos) stands over the text, as in Telegram; a bubble of photos
-//                       without words has no line of text
+//   files(list, io)     the stored files of a message (2026-11-14, files a client sent in Telegram,
+//                       Max, WhatsApp or on Profi.ru, supabase/migrations/chat_files.sql):
+//                       [{ kind, path, mime, bytes, name, duration, width, height, missing }] → a node
+//                       for `media` of bubble(): photos as photos() draws them, a voice message as a
+//                       row with a play button, a video as a tile that plays in place, a document as a
+//                       card that opens it; a file that did not come — the card with the reason. The
+//                       parts know no server: io = { blob(path) → Promise<object URL | null>,
+//                       link(path, { download }) → Promise<address | null> } comes from the page. None — null
+//   bubble({ …, media })   `media` (photos, files) stands over the text, as in Telegram; a bubble of
+//                       photos without words has no line of text
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick })   one line in the middle for what is kept off the screen
 //   avatar(name)        a round letter of a person, its colour from the name
@@ -326,6 +334,233 @@
     return root;
   }
 
+  // ── The stored files of a message (В7.21) ────────────────────────────────────
+  // The bytes come through `io` of the page: blob(path) gives an object URL fetched with the person's
+  // pass (a photo, a voice message), link(path) — an address that opens the file in a new tab and
+  // lives an hour (a video, a document, a photo whole). An address is asked before the press, so a
+  // press opens it at once: in a browser a new tab, in the Mac app the system browser.
+  const LINK_FRESH_MS = 40 * 60 * 1000;
+  const MISSING = {
+    too_big: 'Larger than 50 MB: it stayed where it was sent',
+    no_file: 'The file did not come here',
+  };
+
+  // A file without a name of its own (a photo, a voice message) is called by what it is.
+  const KIND_NAME = { voice: 'Voice message', audio: 'Audio', video: 'Video', image: 'Photo' };
+
+  function sizeText(bytes) {
+    const b = Number(bytes);
+    if (!Number.isFinite(b) || b <= 0) return '';
+    if (b >= 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1).replace(/\.0$/, '')} MB`;
+    if (b >= 1024) return `${Math.round(b / 1024)} KB`;
+    return `${b} B`;
+  }
+  function durationText(sec) {
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    return `${Math.floor(s / 60)}:${pad(s % 60)}`;
+  }
+  // What a document is, in the words on its card: its extension, as people call files.
+  function typeText(f) {
+    const ext = (/\.([A-Za-z0-9]{1,6})$/.exec(String(f.name || ''))?.[1] || '').toUpperCase();
+    if (ext) return ext;
+    const m = String(f.mime || '');
+    if (m === 'application/pdf') return 'PDF';
+    return m.startsWith('video/') ? 'Video' : m.startsWith('audio/') ? 'Audio' : 'File';
+  }
+
+  // An <a> that holds a fresh address of the file: asked once when drawn, again when the address is
+  // older than 40 minutes and the pointer comes near.
+  function liveLink(a, f, io, opts) {
+    if (!io || typeof io.link !== 'function' || !f.path) return;
+    let at = 0;
+    const ask = () => {
+      if (Date.now() - at < LINK_FRESH_MS) return;
+      at = Date.now();
+      Promise.resolve(io.link(f.path, opts || {})).then((url) => {
+        if (url) a.href = url;
+        else at = 0;
+      }, () => { at = 0; });
+    };
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.addEventListener('pointerenter', ask);
+    a.addEventListener('focus', ask);
+    a.addEventListener('touchstart', ask, { passive: true });
+    // No address yet: the press waits for it instead of opening nothing.
+    a.addEventListener('click', (e) => {
+      if (a.getAttribute('href')) return;
+      e.preventDefault();
+      at = 0;
+      ask();
+    });
+    ask();
+  }
+
+  function storedPhotos(list, io) {
+    const root = make('div', `lex-photos${list.length > 1 ? ' is-many' : ''}`);
+    for (const f of list) {
+      const a = make('a', 'lex-photo');
+      a.setAttribute('aria-label', f.name ? `Photo ${f.name}` : 'Photo');
+      const img = document.createElement('img');
+      img.alt = '';
+      img.decoding = 'async';
+      if (f.width > 0 && f.height > 0) { img.width = f.width; img.height = f.height; }
+      a.appendChild(img);
+      if (io && typeof io.blob === 'function') {
+        Promise.resolve(io.blob(f.path)).then((url) => { if (url) img.src = url; }, () => {});
+      }
+      liveLink(a, f, io);
+      root.appendChild(a);
+    }
+    return root;
+  }
+
+  const PLAY = 'M8 5.5v13l11-6.5z';
+  const PAUSE = 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z';
+  function playIcon(d, size) {
+    const n = svg('0 0 24 24', size);
+    n.appendChild(shape('path', { d, fill: 'currentColor' }));
+    return n;
+  }
+
+  // One voice message plays at a time, as in a messenger.
+  let playing = null;
+
+  function voice(f, io) {
+    const root = make('div', 'lex-voice');
+    const btn = make('button', 'lex-voice-play');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Play the voice message');
+    btn.appendChild(playIcon(PLAY, 18));
+    const track = make('div', 'lex-voice-track');
+    const fill = make('div', 'lex-voice-fill');
+    track.appendChild(fill);
+    const time = make('span', 'lex-voice-time', durationText(f.duration));
+    root.append(btn, track, time);
+    let audio = null;
+    let loading = false;
+    const show = (on) => {
+      btn.replaceChildren(playIcon(on ? PAUSE : PLAY, 18));
+      btn.setAttribute('aria-label', on ? 'Pause' : 'Play the voice message');
+      root.classList.toggle('is-playing', on);
+    };
+    const tick = () => {
+      if (!audio) return;
+      const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Number(f.duration) || 0;
+      fill.style.width = total > 0 ? `${Math.min(100, (audio.currentTime / total) * 100)}%` : '0%';
+      time.textContent = durationText(audio.currentTime > 0 ? audio.currentTime : f.duration);
+    };
+    const start = () => {
+      if (playing && playing !== audio) playing.pause();
+      playing = audio;
+      audio.play().catch(() => show(false));
+    };
+    btn.addEventListener('click', () => {
+      if (audio) {
+        if (audio.paused) start(); else audio.pause();
+        return;
+      }
+      if (loading || !io || typeof io.blob !== 'function') return;
+      loading = true;
+      root.classList.add('is-loading');
+      Promise.resolve(io.blob(f.path)).then((url) => {
+        loading = false;
+        root.classList.remove('is-loading');
+        if (!url) { root.classList.add('is-failed'); return; }
+        audio = new Audio(url);
+        audio.addEventListener('play', () => show(true));
+        audio.addEventListener('pause', () => show(false));
+        audio.addEventListener('timeupdate', tick);
+        audio.addEventListener('ended', () => { show(false); fill.style.width = '0%'; time.textContent = durationText(f.duration); });
+        start();
+      }, () => { loading = false; root.classList.remove('is-loading'); root.classList.add('is-failed'); });
+    });
+    // A press on the line moves the sound to that place.
+    track.addEventListener('click', (e) => {
+      if (!audio || !Number.isFinite(audio.duration)) return;
+      const r = track.getBoundingClientRect();
+      if (r.width > 0) audio.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * audio.duration;
+      tick();
+    });
+    return root;
+  }
+
+  function video(f, io) {
+    const root = make('div', 'lex-video');
+    if (f.width > 0 && f.height > 0) root.style.aspectRatio = `${f.width} / ${f.height}`;
+    const btn = make('button', 'lex-video-play');
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Play the video');
+    btn.appendChild(playIcon(PLAY, 22));
+    root.appendChild(btn);
+    const meta = [f.duration ? durationText(f.duration) : '', sizeText(f.bytes)].filter(Boolean).join(' · ');
+    if (meta) root.appendChild(make('span', 'lex-video-meta', meta));
+    let url = null;
+    let at = 0;
+    const ask = () => {
+      if (!io || typeof io.link !== 'function' || Date.now() - at < LINK_FRESH_MS) return Promise.resolve(url);
+      at = Date.now();
+      return Promise.resolve(io.link(f.path, {})).then((u) => { url = u || url; if (!u) at = 0; return url; }, () => { at = 0; return url; });
+    };
+    ask();
+    btn.addEventListener('click', () => {
+      const play = (u) => {
+        if (!u) { root.classList.add('is-failed'); return; }
+        const v = document.createElement('video');
+        v.controls = true;
+        v.playsInline = true;
+        v.preload = 'metadata';
+        v.src = u;
+        root.replaceChildren(v);
+        root.classList.add('is-on');
+        v.play().catch(() => {});
+      };
+      if (url && Date.now() - at < LINK_FRESH_MS) play(url);
+      else ask().then(play);
+    });
+    return root;
+  }
+
+  function fileCard(f, io) {
+    const missing = f.missing && MISSING[f.missing];
+    const root = make(missing ? 'div' : 'a', `lex-file${missing ? ' is-missing' : ''}`);
+    const icon = make('span', 'lex-file-icon');
+    const doc = svg('0 0 24 24', 22);
+    doc.appendChild(shape('path', { d: 'M6 2.5h8l4.5 4.5v14.5H6z', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }));
+    doc.appendChild(shape('path', { d: 'M14 2.5V7h4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }));
+    icon.append(doc, make('span', 'lex-file-ext', typeText(f).slice(0, 4)));
+    const body = make('span', 'lex-file-body');
+    body.appendChild(make('span', 'lex-file-name', f.name || KIND_NAME[f.kind] || typeText(f)));
+    body.appendChild(make('span', 'lex-file-meta', missing
+      ? [sizeText(f.bytes), missing].filter(Boolean).join(' · ')
+      : [typeText(f), sizeText(f.bytes)].filter(Boolean).join(' · ')));
+    root.append(icon, body);
+    if (!missing) {
+      root.setAttribute('aria-label', `Open ${f.name || 'the file'}`);
+      // A PDF, a picture and a video open in the browser; anything else is saved under its own name.
+      const shows = /^(application\/pdf|image\/|video\/|audio\/|text\/plain)/.test(String(f.mime || ''));
+      liveLink(root, f, io, shows ? {} : { download: f.name || '' });
+    }
+    return root;
+  }
+
+  function files(list, io) {
+    const items = (Array.isArray(list) ? list : []).filter((f) => f && typeof f === 'object'
+      && ((typeof f.path === 'string' && f.path) || (f.missing && MISSING[f.missing])));
+    if (!items.length) return null;
+    const root = make('div', 'lex-files');
+    const shots = items.filter((f) => f.kind === 'image' && f.path && !f.missing);
+    if (shots.length) root.appendChild(storedPhotos(shots, io));
+    for (const f of items) {
+      if (shots.includes(f)) continue;
+      if (f.missing) root.appendChild(fileCard(f, io));
+      else if (f.kind === 'voice' || f.kind === 'audio') root.appendChild(voice(f, io));
+      else if (f.kind === 'video') root.appendChild(video(f, io));
+      else root.appendChild(fileCard(f, io));
+    }
+    return root;
+  }
+
   function notice(o) {
     const root = make('div', 'lex-notice');
     if (o.channel && CHANNELS[o.channel]) {
@@ -402,5 +637,6 @@
   }
 
   global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
-    CHANNELS, channel, channelName, stamp, bubble, photos, notice, fold, eyeOff, sparkle, pencil, draftStamp, avatar };
+    CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
+    pencil, draftStamp, avatar };
 })(typeof window !== 'undefined' ? window : globalThis);

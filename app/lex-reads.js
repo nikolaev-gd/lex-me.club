@@ -59,6 +59,7 @@
     news_settings: {},                                    //   its settings
     news_chat_head: { by: ['p_chat_key'], limit: 40 },    //   what stands over a news chat
     last_chat: {},  // the iPhone: the chat it was left on, ready for its first frame (LastChat.swift)
+    page_chat: { by: ['url'], limit: 60 },  // the extension: which chat a page (or a video) opens on
   };
 
   // The server functions that are asked and not kept: commands, writes, stamps of change, and

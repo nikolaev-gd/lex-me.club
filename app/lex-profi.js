@@ -108,6 +108,78 @@
     return s.replace(/\[(\s*,\s*)*\]/g, '').replace(/\n{2,}/g, '\n').trim();
   }
 
+  // The stored files of a turn (chat_files.sql): a photo, a voice message, a video, a document the
+  // client sent in a messenger or on Profi, or what went to him there. Only objects of chat-files
+  // (the server lets no other through) and the files that did not come, with their reason.
+  function storedFilesOf(attachments) {
+    return (Array.isArray(attachments) ? attachments : [])
+      .filter((a) => a && typeof a === 'object'
+        && ((typeof a.path === 'string' && a.path.indexOf('chat-files/') === 0) || typeof a.missing === 'string'));
+  }
+
+  // The words the database put into the text for a file the bubble now shows itself: «Голосовое, 0:26»
+  // over the words of a voice message, «[фото]», «[файл: …]», «[видео …]» and the like. The words the
+  // database read off the file (what the voice said, the text on a photo or in a document) stay.
+  function withoutFileMarks(text, files) {
+    const has = (kinds) => files.some((f) => kinds.includes(f.kind));
+    let s = String(text || '');
+    if (has(['voice', 'audio'])) {
+      s = s.replace(/^Голосовое, \d+:\d{2}[ \t]*(\n|$)/, '')
+        .replace(/\[(голосовое|кружок)(, [^\]\n]*| без расшифровки)?\][ \t]*/g, '');
+    }
+    if (has(['image'])) {
+      // a link of Profi to the photo whose stored copy now stands over the text («[[фото](https://cdn…)]»)
+      s = s.replace(/\[фото(?: \d+)?\]\(https?:\/\/[^\s)]+\)/g, '').replace(/\[(\s*,\s*)*\]/g, '');
+      s = s.replace(/\[фото(, текста на нём нет|, текст с картинки не прочитан)?\][ \t]*/g, '');
+    }
+    if (has(['video'])) s = s.replace(/\[(видео|кружок)(, [^\]\n]*)?\][ \t]*/g, '');
+    if (has(['file', 'video', 'audio'])) s = s.replace(/^\[файл: [^\]\n]*\][ \t]*/gm, '');
+    return s.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  // What the parts need to show the stored files (LexMessage.files): the page fetches a file with the
+  // person's pass, and asks the storage for an address of it that lives an hour — to open the file in
+  // a new tab (in the Mac app — in the system browser). The bytes and the addresses are kept for the
+  // life of the page.
+  const FILE_LINK_S = 3600;
+  const fileIo = (() => {
+    const blobs = new Map();
+    const auth = () => global.LexWebAuth;
+    const objectPath = (path) => String(path).split('/').map(encodeURIComponent).join('/');
+    function blob(path) {
+      if (!blobs.has(path)) {
+        blobs.set(path, (async () => {
+          const A = auth();
+          const token = A && (await A.validToken());
+          if (!token) return null;
+          const r = await fetch(`${A.supabaseUrl()}/storage/v1/object/authenticated/${objectPath(path)}`, {
+            headers: { apikey: A.anonKey(), Authorization: `Bearer ${token}` },
+          });
+          if (!r.ok) return null;
+          return URL.createObjectURL(await r.blob());
+        })().catch(() => null).then((url) => { if (!url) blobs.delete(path); return url; }));
+      }
+      return blobs.get(path);
+    }
+    async function link(path, o) {
+      const A = auth();
+      const token = A && (await A.validToken());
+      if (!token) return null;
+      const r = await fetch(`${A.supabaseUrl()}/storage/v1/object/sign/${objectPath(path)}`, {
+        method: 'POST',
+        headers: { apikey: A.anonKey(), Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expiresIn: FILE_LINK_S }),
+      }).catch(() => null);
+      if (!r || !r.ok) return null;
+      const j = await r.json().catch(() => null);
+      const signed = j && (j.signedURL || j.signedUrl);
+      if (typeof signed !== 'string' || !signed) return null;
+      const url = `${A.supabaseUrl()}/storage/v1${signed.startsWith('/') ? '' : '/'}${signed}`;
+      return o && o.download ? `${url}${url.includes('?') ? '&' : '?'}download=${encodeURIComponent(o.download)}` : url;
+    }
+    return { blob, link };
+  })();
+
   // ── the mark of Profi under what went to the client ─────────────────────────
   // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the
   // client has not read it yet; the second stroke and both blue, he has. The server says which.
@@ -429,10 +501,21 @@
           // The ticks are Profi's: a message that went by another channel has none.
           const tail = out && ch === CHANNEL ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
           // A photo of the client (profi_client_photos.sql): the picture over the text; its link «[фото](…)»
-          // the monitor put into the text is not repeated under it.
+          // the monitor put into the text is not repeated under it. The stored files of the turn
+          // (chat_files.sql) stand there too: a photo, a voice message, a video, a document.
           const shots = !out ? photosOf(t.attachments) : [];
-          node = M.bubble({ side: out ? 'out' : 'in', media: shots.length && M.photos ? M.photos(shots) : null,
-            body: linkedText(make('div', '', ''), shots.length ? withoutPhotoLinks(t.text, shots) : t.text),
+          const stored = M.files ? storedFilesOf(t.attachments) : [];
+          let words = shots.length ? withoutPhotoLinks(t.text, shots) : t.text;
+          if (stored.length) words = withoutFileMarks(words, stored);
+          const parts = [shots.length && M.photos ? M.photos(shots) : null, stored.length ? M.files(stored, fileIo) : null]
+            .filter(Boolean);
+          let media = parts[0] || null;
+          if (parts.length > 1) {
+            media = make('div', 'lex-files');
+            media.append(...parts);
+          }
+          node = M.bubble({ side: out ? 'out' : 'in', media,
+            body: linkedText(make('div', '', ''), words),
             stamp: M.stamp({ channel: ch, at: t.authoredAt, tail }) });
         }
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
@@ -1111,5 +1194,6 @@
   }
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
-  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode };
+  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode,
+    storedFilesOf, withoutFileMarks };
 })(typeof window !== 'undefined' ? window : globalThis);
