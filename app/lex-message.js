@@ -38,6 +38,11 @@
 //                       link(path, { download }) → Promise<address | null> } comes from the page. None — null
 //   bubble({ …, media })   `media` (photos, files) stands over the text, as in Telegram; a bubble of
 //                       photos without words has no line of text
+//   bubble({ …, copy })   `copy` → Promise<bool>: a Copy mark inside, top right, the text flows
+//                       round it (В7.22); a tick for 1,5 s once it copied
+//   draftStamp()        the line under a draft for the client (В7.20): a pencil, «Draft, not sent»
+//   sendArrow({ channel })   the arrow that sends a draft to the client (В7.23): a disc with an
+//                       arrow up, the mark of the place on its corner; the press is the caller's
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick })   one line in the middle for what is kept off the screen
 //   avatar(name)        a round letter of a person, its colour from the name
@@ -307,9 +312,71 @@
       body = make('div', 'lex-bubble-text');
       body.textContent = o.text || '';
     } else body.classList.add('lex-bubble-text');
+    // Copy of a message (В7.22): inside, top right; the text flows round it.
+    if (o.copy) body.prepend(copyCorner(o.copy));
     if (!o.media || (body.textContent || '').trim()) root.appendChild(body);
     if (o.stamp) root.appendChild(o.stamp);
     return root;
+  }
+
+  // Copy inside a message (В7.22): a mark 16 in the colour of the bubble's line, in the top right
+  // corner; the text flows round it, so only its first line is shorter. The zone of the press is 44
+  // and unseen. run() → true once the text is on the clipboard: a tick then stands for 1,5 s.
+  const COPY_D = ['M9 9h10v10H9z', 'M5 15V5h10'];
+  const TICK_D = ['M4 12l5 5L20 6'];
+  function strokes(ds, size) {
+    const n = svg('0 0 24 24', size);
+    for (const d of ds) {
+      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    return n;
+  }
+  function copyCorner(run) {
+    const b = make('button', 'lex-bubble-copy');
+    b.type = 'button';
+    b.title = 'Copy';
+    b.setAttribute('aria-label', 'Copy');
+    b.appendChild(strokes(COPY_D, 16));
+    let timer = null;
+    b.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      let ok = false;
+      try { ok = !!(await run()); } catch (_) { ok = false; }
+      if (!ok) return;
+      b.replaceChildren(strokes(TICK_D, 16));
+      b.classList.add('is-copied');
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        b.replaceChildren(strokes(COPY_D, 16));
+        b.classList.remove('is-copied');
+      }, 1500);
+    });
+    return b;
+  }
+
+  // The arrow that sends a draft to the client (В7.23): a round zone 44, inside it a disc 28 in the
+  // colour of the main button with an arrow up 16, and on the disc's bottom right corner the mark of
+  // the place it goes to (14 on a ground 18 of the lane's colour). No words on it: the place is the
+  // mark, the words are for reading from the screen. The press and the hold are the caller's.
+  function sendArrow(o) {
+    const id = CHANNELS[o && o.channel] ? o.channel : 'profi';
+    const b = make('button', 'lex-send-arrow');
+    b.type = 'button';
+    const label = `Send to ${CHANNELS[id].name}`;
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.setAttribute('aria-haspopup', 'menu');
+    const disc = make('span', 'lex-send-arrow-disc');
+    const up = svg('0 0 24 24', 16);
+    for (const d of ['M12 19V5', 'M6 11l6-6 6 6']) {
+      up.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    disc.appendChild(up);
+    const mark = make('span', `lex-send-arrow-mark is-${id}`);
+    mark.appendChild(channel(id));
+    b.append(disc, mark);
+    return b;
   }
 
   // One photo stands in its own proportions, up to 280 wide and 320 high (В7.19). Its frame is given
@@ -657,5 +724,5 @@
 
   global.LexMessage = { message, entry, dayLine, newLine, mark, timeOf, dayOf,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    pencil, draftStamp, avatar };
+    pencil, draftStamp, sendArrow, avatar };
 })(typeof window !== 'undefined' ? window : globalThis);

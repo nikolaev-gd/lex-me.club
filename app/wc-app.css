@@ -1164,8 +1164,14 @@ button { font: inherit; color: inherit; }
   --lex-answer-row-fg:       var(--fg-muted);
   --lex-answer-row-fg-hover: var(--fg);
   --lex-answer-row-bg-hover: var(--bg-hover);
-  --lex-answer-row-size:     28px;
-  --lex-answer-row-icon:     15px;
+  /* Copy of the model's word (В7.22): under the text, on the left — a button-mark, zone 44, mark 18,
+     on every surface (14.11.2026; it was 28 and 15 under the cursor). The mark stands level with the
+     text: the zone goes 13 to the left of it. */
+  --lex-answer-row-size:     44px;
+  --lex-answer-row-icon:     18px;
+  margin-top: 0;
+  margin-bottom: -8px;
+  margin-left: -13px;
 }
 .wc-turn-foot .lex-answer-row-btn { font-size: 13px; }
 
@@ -1217,8 +1223,7 @@ button { font: inherit; color: inherit; }
  * отъехала бы на все 16 px прироста коробки. С ним от нижнего края цели до
  * следующего хода остаётся 12 px (20 собственных минус 8), то есть цель ни на
  * что не налезает и снизу. */
-:root[data-lex-platform="ios"] .wc-turn-foot { --lex-answer-row-size: 44px; --lex-answer-row-icon: 18px; }
-:root[data-lex-platform="ios"] .wc-turn-foot { margin-top: 0; margin-bottom: -8px; }
+/* (Since 14.11.2026 the 44 and 18 are every surface's, .wc-turn-foot above.) */
 
 /* ── Composer ────────────────────────────────────────────────────────────── */
 

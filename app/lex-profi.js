@@ -237,27 +237,36 @@
     return c ? c.name : 'Профи.ру';
   }
 
-  // One box: the draft for the client (В7.20) — a bubble on the right with a dashed edge and «Draft,
-  // not sent» under the text, the price under it, Send and Copy in a row of the same width. window
-  // is the row of the server; none yet while the answer is being written (paler, no buttons). A box
-  // that went shows no copy of itself: what went stands in the chat as a message with its ticks.
+  // One box: the draft for the client (В7.20) — a bubble on the right with a dashed edge, Copy in its
+  // top right corner (В7.22) and «Draft, not sent» under the text; the price under it, then the arrow
+  // that sends it, with the mark of the place (В7.23), on the right. window is the row of the server;
+  // none yet while the answer is being written (paler, no Copy, no arrow). A box that went shows no
+  // copy of itself: what went stands in the chat as a message with its ticks.
   function boxNode(text, win, deps) {
     const M = global.LexMessage;
     const root = make('div', 'lex-profi-box');
     if (win && win.state === 'sent') {
       root.classList.add('is-sent');
-      const { note } = boxControls(win, deps, { copy: false });
+      const { note } = boxControls(win, deps, {});
       root.appendChild(note);
       return root;
     }
-    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, stamp: M.draftStamp() }));
+    let note = null;
+    const copy = win ? async () => {
+      const ok = await deps.copy(win.text);
+      if (!ok && note) note.textContent = 'The browser refused the clipboard.';
+      return ok;
+    } : null;
+    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, stamp: M.draftStamp(), copy }));
     if (!win) {
       root.classList.add('is-writing');
       return root;
     }
     const price = priceLine(win.price);
     if (price) root.appendChild(make('div', 'lex-profi-box-price', `Price: ${price}`));
-    const { foot, note } = boxControls(win, deps, { copy: true });
+    const controls = boxControls(win, deps, { arrow: true });
+    const foot = controls.foot;
+    note = controls.note;
     root.appendChild(foot);
     root.appendChild(note);
     return root;
@@ -287,7 +296,8 @@
   //   holding «Send to …» of a box of the model — «Schedule…» and «Edit in the field» (the text
   //     into the field, to change by hand and send by holding the arrow);
   //   the person's own text that did not leave — «Delete» as well.
-  // opts.copy — a Copy button (the box of the model has one).
+  // opts.arrow — the box of the model: «Send to …» is the arrow with the mark of the place (В7.23);
+  // the person's own text keeps the words.
   function boxControls(win, deps, opts) {
     const foot = make('div', 'lex-profi-box-foot');
     const note = make('div', 'lex-profi-box-note');
@@ -311,13 +321,21 @@
     };
     if (open || scheduled) {
       const to = deps.replyTo || null;
-      const send = button('lex-profi-btn is-main', scheduled ? 'Send now' : `Send to ${placeName(to)}`, async () => {
+      const go = async () => {
         send.disabled = true;
         const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
         if (!r) { send.disabled = false; return; }
         note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
-      });
-      send.prepend(sendIcon());
+      };
+      const arrow = open && opts && opts.arrow;
+      let send;
+      if (arrow) {
+        send = global.LexMessage.sendArrow({ channel: to || 'profi' });
+        send.addEventListener('click', go);
+      } else {
+        send = button('lex-profi-btn is-main', scheduled ? 'Send now' : `Send to ${placeName(to)}`, go);
+        send.prepend(sendIcon());
+      }
       // Holding Send: the same box at a time, or its text into the field. The menu dims the chat
       // around the answer it belongs to (lex-send-later.js). The click that follows the hold is
       // swallowed by the gesture itself (lex-long-press.js).
@@ -334,7 +352,8 @@
             },
           }];
           if (deps.putBack) items.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
-          global.LexSendLater.menu({ anchor: send, align: 'left', lit: send.closest('.wc-turn') || foot.parentElement, ring: send, items });
+          global.LexSendLater.menu({ anchor: send, align: arrow ? 'right' : 'left', lit: send.closest('.wc-turn') || foot.parentElement,
+            ring: (arrow && send.querySelector('.lex-send-arrow-disc')) || send, items });
         });
       }
       // The person's own text waiting for its time: «Cancel», then «Send now» (the design).
@@ -343,14 +362,6 @@
     }
     if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
     if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
-    if (opts && opts.copy && !scheduled) {
-      const copy = button('lex-profi-btn', 'Copy', async () => {
-        const ok = await deps.copy(win.text);
-        note.textContent = ok ? 'Copied.' : 'The browser refused the clipboard.';
-      });
-      copy.prepend(copyIcon());
-      foot.appendChild(copy);
-    }
     note.textContent = stateLine(win);
     if (!foot.childElementCount) foot.hidden = true;
     return { foot, note };
@@ -378,7 +389,7 @@
     const bubble = M.bubble({ side: 'out', body, stamp });
     if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
     root.appendChild(bubble);
-    const { foot, note } = boxControls(win, deps, { copy: false });
+    const { foot, note } = boxControls(win, deps, {});
     root.append(note, foot);
     return root;
   }
@@ -406,8 +417,6 @@
     return svg;
   }
   const sendIcon = () => strokeIcon([['path', { d: 'M22 2L11 13' }], ['path', { d: 'M22 2l-7 20-4-9-9-4z' }]], 16);
-  const copyIcon = () => strokeIcon([['rect', { x: '9', y: '9', width: '12', height: '12', rx: '2' }],
-    ['path', { d: 'M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1' }]], 16);
   // The arrow out of the window: the order on the site of Profi.
   const outIcon = () => strokeIcon([['path', { d: 'M14 4h6v6' }], ['path', { d: 'M20 4l-9 9' }],
     ['path', { d: 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }]], 20);
