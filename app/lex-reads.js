@@ -10,15 +10,19 @@
 // as it came and computes nothing of its own.
 //
 // One place. The copy is written where the window calls the server (webchat/wc-history.js on the
-// page): every answer to a name in KEPT is kept, whoever asked for it, and nothing else writes a
-// copy. A screen shows a kept name through twice(): the copy first, the answer after. A new server
+// page, the background of the extension: chat-history-server.js and background.js): every answer
+// to a name in KEPT is kept, whoever asked for it, and nothing else writes a copy. A screen shows a kept name through twice(): the copy first, the answer after. A new server
 // function goes into KEPT or into CALLS on purpose: dev-tools/test-lex-reads.mjs fails on a name
 // in neither list, on the page and on the iPhone alike, and on the two surfaces' lists differing.
 //
-// create({ storage, account }) → copies
+// create({ storage, account, skip }) → copies
 //   storage    { get(key) → Promise, set(key, value) → Promise, remove(keys) → Promise }
-//   account()  who is signed in now, or null. The account goes inside every copy and a copy of
-//              another account is never read; a change of account wipes them all (wc-wipe.js).
+//              (idbStorage(name) below gives one in a database of its own)
+//   account()  who is signed in now, or null — or a Promise of it. The account goes inside every
+//              copy and a copy of another account is never read; a change of account wipes them
+//              all (wc-wipe.js on the page, wipeAccountScopedData in the extension).
+//   skip       names this window keeps by a rule of its own: the extension keeps its chats in its
+//              store of threads (video-threads.js), and a second copy of them would be dead weight
 // .kept(name, args)        → Promise of the copy, or null
 // .keep(name, args, value) keep an answer: the call layer does it, and so does a window holding
 //                          a newer state of the same answer (a feed brought up to date by its
@@ -77,6 +81,15 @@
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',
     'models',   // the catalog of dictation, held by lex-dictation-catalog.js for the microphone
+    // the extension: its lessons on a video and on a page, kept in its store of threads and its
+    // cache of subtitles; its settings, kept in its own storage; what it writes
+    'list_turns_since', 'open_video_chat', 'select_turn', 'hide_turns', 'lex_subtitles_variants',
+    'video_subtitles', 'page_texts', 'subtitle_fetches', 'lex_save_video_subtitles',
+    'lex_save_video_raw_cues', 'lex_save_video_author_track', 'lex_save_video_page',
+    'lex_merge_video_raw_cues', 'lex_merge_asr_ranges', 'lex_asr_chunking', 'lex_asr_quote',
+    'lex_full_video_quote', 'prompts', 'user_settings', 'lex_account_settings', 'lex_am_i_developer',
+    'calls', 'word_taps', 'pronunciation_assessments', 'pronunciation_phonemes',
+    'pronunciation_syllables', 'submit_phoneme_scores', 'submit_syllable_scores',
   ];
 
   const PREFIX = 'lexKept:';
@@ -97,14 +110,16 @@
   function create(opts) {
     const storage = opts.storage;
     const account = opts.account;
+    const skip = new Set(opts.skip || []);
     // The index of a name with many copies is rewritten one write after another.
     const chains = new Map();
 
     async function kept(name, args) {
-      const key = copyKey(name, args);
-      const who = account();
-      if (!key || !who) return null;
+      const key = skip.has(name) ? null : copyKey(name, args);
+      if (!key) return null;
       try {
+        const who = await account();
+        if (!who) return null;
         const rec = await storage.get(key);
         return rec && rec.account === who && rec.value != null ? rec.value : null;
       } catch (e) {
@@ -114,15 +129,21 @@
     }
 
     function keep(name, args, value) {
-      const key = copyKey(name, args);
-      const who = account();
-      if (!key || !who || value == null) return Promise.resolve();
-      const write = () => storage.set(key, { account: who, at: Date.now(), value });
+      const key = skip.has(name) ? null : copyKey(name, args);
+      if (!key || value == null) return Promise.resolve();
+      // The account is the one that asked: taken now, not when the write comes.
+      const whoNow = Promise.resolve().then(account);
+      const write = async () => {
+        const who = await whoNow;
+        if (!who) return false;
+        await storage.set(key, { account: who, at: Date.now(), value });
+        return true;
+      };
       const limit = KEPT[name].limit || 1;
       if (limit <= 1) return Promise.resolve().then(write).catch(warn);
       const indexKey = INDEX + name;
       const run = (chains.get(name) || Promise.resolve()).then(async () => {
-        await write();
+        if (!(await write())) return;
         const list = await storage.get(indexKey);
         const next = (Array.isArray(list) ? list : []).filter((k) => k !== key).concat(key);
         const gone = next.length > limit ? next.splice(0, next.length - limit) : [];
@@ -165,6 +186,31 @@
     return r;
   }
 
+  // A storage for the copies in an IndexedDB database of their own — the extension's background
+  // keeps them so, apart from its other stores; .clear() is for the wipe of a change of account.
+  function idbStorage(dbName) {
+    let opened = null;
+    const open = () => opened || (opened = new Promise((ok, no) => {
+      const req = indexedDB.open(dbName, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore('kept'); };
+      req.onsuccess = () => ok(req.result);
+      req.onerror = () => { opened = null; no(req.error); };
+    }));
+    const run = (mode, fn) => open().then((db) => new Promise((ok, no) => {
+      const t = db.transaction('kept', mode);
+      const req = fn(t.objectStore('kept'));
+      t.oncomplete = () => ok(req ? req.result : undefined);
+      t.onerror = () => no(t.error);
+      t.onabort = () => no(t.error);
+    }));
+    return {
+      get: (key) => run('readonly', (st) => st.get(key)),
+      set: (key, value) => run('readwrite', (st) => { st.put(value, key); }),
+      remove: (keys) => run('readwrite', (st) => { for (const k of keys) st.delete(k); }),
+      clear: () => run('readwrite', (st) => { st.clear(); }),
+    };
+  }
+
   // The name of the server function in a REST path of the database: '/rest/v1/rpc/list_turns'
   // and '/rest/v1/account_billing?…' both name theirs.
   function nameOfPath(path) {
@@ -172,5 +218,5 @@
     return m ? m[1] : null;
   }
 
-  global.LexReads = { KEPT, CALLS, PREFIX, INDEX, copyKey, create, twice, nameOfPath };
+  global.LexReads = { KEPT, CALLS, PREFIX, INDEX, copyKey, create, twice, nameOfPath, idbStorage };
 })(typeof window !== 'undefined' ? window : globalThis);
