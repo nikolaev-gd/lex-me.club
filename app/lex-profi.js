@@ -89,6 +89,8 @@
   // The photos of a client's turn: attachments with an address of Profi's picture server (the server
   // lets through no other, profi_client_photos.sql; the same check here keeps an old row honest).
   const PHOTO_HOST = /^https:\/\/cdn\.profi\.ru\//;
+  // A file of an order is linked only on the site of Profi (its picture server or the site itself).
+  const PROFI_FILE = /^https:\/\/([a-z0-9-]+\.)*profi\.ru\//;
   function photosOf(attachments) {
     return (Array.isArray(attachments) ? attachments : [])
       .filter((a) => a && a.kind === 'image' && typeof a.url === 'string' && PHOTO_HOST.test(a.url))
@@ -477,7 +479,24 @@
         if ((data.facts || []).length) root.appendChild(make('div', 'lex-profi-head-facts', data.facts.join(' · ')));
         for (const s of data.sections || []) {
           root.appendChild(make('div', 'lex-profi-head-block', s.title));
-          root.appendChild(make('div', 'lex-profi-head-text', s.text));
+          // The files the client attached to the order (the block «Файлы», 2026-11-14): each name is a
+          // link to the file itself on the site of Profi, the same link as «Chat on Profi».
+          const links = (Array.isArray(s.links) ? s.links : [])
+            .filter((l) => l && typeof l.url === 'string' && PROFI_FILE.test(l.url));
+          if (!links.length) {
+            root.appendChild(make('div', 'lex-profi-head-text', s.text));
+            continue;
+          }
+          const box = make('div', 'lex-profi-head-text');
+          links.forEach((l, i) => {
+            if (i) box.appendChild(document.createElement('br'));
+            const a = make('a', 'lex-profi-link', String(l.name || 'File'));
+            a.href = l.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            box.appendChild(a);
+          });
+          root.appendChild(box);
         }
         if ((data.foot || []).length) root.appendChild(make('div', 'lex-profi-head-foot', data.foot.join(' · ')));
         return root;
