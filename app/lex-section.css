@@ -31,8 +31,8 @@
   justify-content: space-between;
   gap: 12px;
   flex: 0 0 auto;
-  min-height: 34px;
-  padding: 10px 16px;
+  min-height: 44px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25));
 }
 .lex-section .lex-section-title {
@@ -42,29 +42,10 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 650;
 }
-.lex-section .lex-section-tools { display: flex; align-items: center; flex: 0 0 auto; gap: 8px; }
+.lex-section .lex-section-tools { display: flex; align-items: center; flex: 0 0 auto; gap: 4px; margin-right: -10px; }
 .lex-section .lex-section-tools[hidden] { display: none; }
-.lex-section .lex-section-gear {
-  -webkit-appearance: none;
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--lex-section-hover, rgba(127, 127, 127, .14));
-  color: var(--lex-section-fg, inherit);
-  cursor: pointer;
-}
-.lex-section .lex-section-gear:hover { filter: brightness(1.15); }
-.lex-section .lex-section-gear svg { width: 17px; height: 17px; }
 
 .lex-section .lex-section-status {
   flex: 0 0 auto;
@@ -226,6 +207,33 @@
 .lex-section-more:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
 .lex-section-more svg { display: block; width: 16px; height: 16px; margin: 0 !important; }
 .lex-section .lex-section-row > .lex-section-more { margin: 9px -6px 0 0; }
+
+/* A button with an icon of a bar (В7.11): the gear and Refresh of a section, «Open in the browser» and
+   the three dots in the head of a news. A round zone of 44, clear at rest, the icon 20 in grey; under
+   the cursor the hover wash. A link can be one too (it opens a page). */
+.lex-section-icon {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-section-icon:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); color: var(--lex-section-fg, inherit); }
+.lex-section-icon:disabled { opacity: .5; cursor: default; background: transparent; }
+.lex-section-icon svg { display: block; width: 20px; height: 20px; margin: 0 !important; }
 
 .lex-section-menu {
   position: absolute;

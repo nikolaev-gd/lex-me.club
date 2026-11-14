@@ -215,11 +215,13 @@
 
   // The first message of a news chat: words of the letter, not a teacher's
   // answer. No Markdown (it would restyle them) and no row under it: no model
-  // wrote it, so there is nothing to copy-and-repeat with another model.
+  // wrote it, so there is nothing to copy-and-repeat with another model. Under it
+  // «Обсуждение с Lex»: the talk with the model starts there (ios/Lex/STANDARD.md В7.32).
   function newsTurn(text, head) {
     const bubble = el('.wc-bubble');
     global.LexNews.renderText(bubble, text);
-    const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, head ? [head, bubble] : [bubble]);
+    const talk = global.LexNews.talkLine ? global.LexNews.talkLine() : null;
+    const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, [head, bubble, talk]);
     turn.dataset.raw = text || '';
     if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'news');
     return { turn, bubble };

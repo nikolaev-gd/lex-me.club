@@ -242,6 +242,8 @@
   // после голосового разговора.
   function paintConversation(r, opts) {
     resetMoney();
+    // A news paints its source into the bar again as it is drawn (newsHead); any other chat has none.
+    paintNewsBar(null);
     // The feed «Разбор» stands under its tabs from its first frame (syncIntakeTabs below).
     syncIntakeTabs(state.conversationId === INTAKE_KEY);
     WcThread.renderTurns(r.turns, {
@@ -510,6 +512,7 @@
     host.hidden = true;
     sectionBack.clear();
     main.classList.remove('is-section', 'is-news-opening');
+    paintNewsBar(null);
     for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
   }
   // A section is built once and stays: built ahead of its first showing it already holds its
@@ -692,7 +695,66 @@
       keepFeed: (value) => { keep('news_feed', {}, value); },
       keptFeed: () => kept('news_feed', {}),
       read,
+      // The head of the feed stands in this bar, by the three stripes (paintNewsHead); the row of
+      // kinds of source is the common tabs (В7.27).
+      head: paintNewsHead,
+      tabs: (o) => WcUI.tabs(o),
     });
+  }
+  // The head of the feed of News in the bar (ios/Lex/STANDARD.md В7.18, 2026-11-15): «News» 18/650,
+  // Refresh and the gear as buttons with an icon of 44; null — the bar as it was.
+  function paintNewsHead(spec) {
+    const main = document.querySelector('.wc-main');
+    const slot = document.getElementById('wc-section-head');
+    if (!main || !slot) return;
+    main.classList.toggle('is-news-feed', !!spec);
+    if (!spec) { slot.replaceChildren(); slot.hidden = true; return; }
+    const refresh = WcUI.iconBtn('refresh', 'Refresh', () => spec.refresh(), 'is-44');
+    refresh.disabled = !!spec.busy;
+    slot.replaceChildren(
+      WcUI.el('.wc-section-head-title', {}, [spec.title]),
+      refresh,
+      WcUI.iconBtn('gear', 'Settings', () => spec.settings(), 'is-44'));
+    slot.hidden = false;
+  }
+  // The head of a news in the bar (В7.32): the source — the mark of its kind and its name, the date and
+  // the time under them — in place of the title of a chat, «Open in the browser» (no web version — no
+  // button) and the three dots with «Process again» on the right. null — the bar as it was.
+  let newsBar = null;
+  function paintNewsBar(x) {
+    const main = document.querySelector('.wc-main');
+    const box = document.getElementById('wc-chat-title');
+    const tools = document.getElementById('wc-news-tools');
+    if (!main || !box || !tools) return;
+    if (!x) {
+      if (!newsBar) return;
+      newsBar = null;
+      main.classList.remove('is-news-chat');
+      box.replaceChildren();
+      box.hidden = true;
+      tools.replaceChildren();
+      return;
+    }
+    const h = x.head;
+    newsBar = { letterId: h.letterId };
+    main.classList.add('is-news-chat');
+    box.replaceChildren(global.LexMessage.newsSource({
+      kind: h.kind || 'email', source: h.newsletter, at: h.at || null, timeText: h.at ? undefined : (h.date || ''),
+    }));
+    box.hidden = false;
+    const btns = [];
+    if (h.webUrl) {
+      btns.push(WcUI.el('a.wc-icon-btn.is-44.wc-news-web', {
+        href: h.webUrl, target: '_blank', rel: 'noopener noreferrer', title: 'Open in the browser', 'aria-label': 'Open in the browser',
+      }, [WcUI.icon('open')]));
+    }
+    const more = WcUI.iconBtn('dots', 'More', () => {
+      if (x.isBusy()) return;
+      WcUI.menu(more, [{ label: 'Process again', icon: 'refresh', onSelect: () => x.processAgain() }]);
+    }, 'is-44');
+    more.setAttribute('aria-haspopup', 'menu');
+    btns.push(more);
+    tools.replaceChildren(...btns);
   }
   // What stands over the first message of a news chat. Reading the chat again leaves
   // the arrow back to the feed as it was.
@@ -700,6 +762,8 @@
     const chatKey = state.conversationId;
     return global.LexNews.createChatHead({
       chatKey, head, rpc: newsRpc, post: newsPost, read,
+      // The source of the news and its two buttons stand in this bar, while this chat is on the screen.
+      onHead: (x) => { if (state.conversationId === chatKey) paintNewsBar(x); },
       onPaint: () => WcThread.keepAtBottom(),
       reload: async (title) => {
         if (state.conversationId !== chatKey || !sectionEls().host.hidden || WcThread.isStreaming()) return;
@@ -1332,6 +1396,7 @@
     state.conversationId = null;
     WcThread.clear();
     resetMoney();
+    paintNewsBar(null);
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
     syncAttachment();

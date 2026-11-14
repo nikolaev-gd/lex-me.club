@@ -102,7 +102,7 @@
  * The list of turns carries `lex-bubbles`: the other person on the left, what went to them on
  * the right, a notice of a service and the day line as plates in the middle. The colours are
  * the page's palette (lex-palette.css) in the dark and their light pairs here. */
-.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp, .lex-q, .lex-reply {
+.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp, .lex-q, .lex-reply, .lex-ncard {
   --lex-bubble-in: #F0F0F1;
   --lex-bubble-out: #DCE8FB;
   --lex-bubble-out-meta: rgba(0, 0, 0, .55);
@@ -118,7 +118,7 @@
   :root:not([data-theme="light"]) .lex-bubbles, :root:not([data-theme="light"]) .lex-bubble,
   :root:not([data-theme="light"]) .lex-notice, :root:not([data-theme="light"]) .lex-fold,
   :root:not([data-theme="light"]) .lex-stamp, :root:not([data-theme="light"]) .lex-q,
-  :root:not([data-theme="light"]) .lex-reply {
+  :root:not([data-theme="light"]) .lex-reply, :root:not([data-theme="light"]) .lex-ncard {
     --lex-bubble-in: var(--lex-dark-bubble);
     --lex-bubble-out: var(--lex-dark-bubble-out);
     --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -133,7 +133,7 @@
 }
 :root[data-theme="dark"] .lex-bubbles, :root[data-theme="dark"] .lex-bubble, :root[data-theme="dark"] .lex-notice,
 :root[data-theme="dark"] .lex-fold, :root[data-theme="dark"] .lex-stamp, :root[data-theme="dark"] .lex-q,
-:root[data-theme="dark"] .lex-reply {
+:root[data-theme="dark"] .lex-reply, :root[data-theme="dark"] .lex-ncard {
   --lex-bubble-in: var(--lex-dark-bubble);
   --lex-bubble-out: var(--lex-dark-bubble-out);
   --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -830,3 +830,124 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-order-end > svg { width: 14px; height: 14px; }
 .lex-order-end > svg:last-child { width: 16px; height: 16px; }
 .lex-order-end > span { flex: 1 1 auto; min-width: 0; }
+
+/* ── News (2026-11-15, ios/Lex/STANDARD.md В7.31–В7.32) ──────────────────────
+ * A card of the feed: the bubble of the other side across the lane, the corner 6 bottom left,
+ * 10 12 10 inside; the whole card is one button. Under the cursor and pressed the hover and the
+ * pressed wash lie over the bubble (В5). The top line 12 in grey: the yellow dot 7 of a news not
+ * read, the mark of the kind 14, the name of the source 600, the author, the time on the right in
+ * figures of one width; the title 16 (650 not read, 400 read) 4 under it; the subtitle 14 in the soft
+ * colour 2 under it, two lines; the line 12 of a long read 6 under it. */
+.lex-ncard {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+@media (hover: hover) {
+  .lex-ncard:hover { background-image: linear-gradient(var(--bg-hover, var(--lex-plate)), var(--bg-hover, var(--lex-plate))); }
+}
+.lex-ncard:active { background-image: linear-gradient(var(--bg-active, var(--lex-plate)), var(--bg-active, var(--lex-plate))); }
+.lex-ncard:focus-visible { outline: 2px solid var(--line-strong, var(--lex-plate-fg)); outline-offset: 2px; }
+.lex-ncard > span { display: block; }
+.lex-ncard > .lex-ncard-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg-muted, var(--lex-section-muted));
+  font-size: 12px;
+  line-height: 16px;
+}
+.lex-ncard svg { display: block; flex: none; }
+.lex-ncard .lex-nkind { width: 14px; height: 14px; }
+.lex-ncard .lex-ncard-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--attention, var(--lex-dark-attention));
+}
+.lex-ncard .lex-ncard-source,
+.lex-ncard .lex-ncard-author { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-ncard .lex-ncard-source { font-weight: 600; }
+.lex-ncard .lex-ncard-time { flex: none; margin-left: auto; padding-left: 6px; font-variant-numeric: tabular-nums; }
+.lex-ncard > .lex-ncard-title {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.lex-ncard.is-unread > .lex-ncard-title { font-weight: 650; }
+.lex-ncard > .lex-ncard-sub {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--lex-plate-fg);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.lex-ncard > .lex-ncard-foot {
+  margin-top: 6px;
+  color: var(--fg-muted, var(--lex-section-muted));
+  font-size: 12px;
+  line-height: 16px;
+}
+
+/* The source of a news in the head of its screen: the mark of the kind 16 in the soft colour and the
+ * name 16/650 in one line, the date and the time 13 in grey under them. */
+.lex-nsrc { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
+.lex-nsrc .lex-nsrc-main { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.lex-nsrc .lex-nkind { display: block; flex: none; width: 16px; height: 16px; color: var(--lex-plate-fg, var(--lex-section-muted)); }
+.lex-nsrc .lex-nsrc-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg, var(--lex-section-fg));
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 20px;
+}
+.lex-nsrc .lex-nsrc-time {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-muted, var(--lex-section-muted));
+  font-size: 13px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A line with words in the middle: lines --line on both sides, the words 12 in grey, 10 apart. */
+.lex-talk-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-muted, var(--lex-section-muted));
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.lex-talk-line::before, .lex-talk-line::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--line, var(--lex-section-line));
+}

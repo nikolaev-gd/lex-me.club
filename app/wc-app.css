@@ -395,6 +395,9 @@ button { font: inherit; color: inherit; }
 .wc-icon-btn:hover { background-color: var(--bg-hover); color: var(--fg); }
 .wc-icon-btn:active { background-color: var(--bg-active); }
 .wc-icon-btn[disabled] { opacity: .4; cursor: default; }
+/* The zone of the standard (ios/Lex/STANDARD.md В5, В7.11): 44 round. The page's own 36 above is a
+   debt; a new button of the bar takes 44 (the bar of News, 2026-11-15). A link can be one too. */
+.wc-icon-btn.is-44 { width: 44px; height: 44px; border-radius: 22px; text-decoration: none; }
 
 /* ── Gate ────────────────────────────────────────────────────────────────── */
 
@@ -2142,6 +2145,13 @@ button { font: inherit; color: inherit; }
 .wc-chat-title[hidden] { display: none !important; }
 .wc-chat-title-main { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
 .wc-chat-title-sub { overflow: hidden; color: var(--fg-muted); font-size: 13px; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }
+/* The head of the feed of News in the bar (2026-11-15, lex-news.js deps.head): «News» 18/650 by the
+ * three stripes, Refresh and the gear on the right as buttons with an icon of 44. A news shows its
+ * source in the title of the chat (LexMessage.newsSource) and its two buttons in .wc-news-tools. */
+.wc-section-head { display: flex; flex: 1 1 auto; align-items: center; gap: 4px; min-width: 0; }
+.wc-section-head[hidden] { display: none !important; }
+.wc-section-head-title { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--fg); font-size: 18px; font-weight: 650; line-height: 24px; white-space: nowrap; text-overflow: ellipsis; }
+.wc-news-tools { display: contents; }
 .wc-reply { margin: 0 0 6px; }
 .wc-reply[hidden] { display: none !important; }
 .wc-turn-assistant > .lex-brain-marks { margin-top: 10px; --lex-brain-line: var(--line); --lex-brain-hover: var(--bg-hover); --lex-brain-danger: var(--danger); }

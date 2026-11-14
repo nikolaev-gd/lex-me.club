@@ -84,6 +84,17 @@
 //                       onOneByOne(), onMore(), onRow(uid), onChoice(uid, i) }
 //   packTitle(members), packRows(members)   the words of a pack: what all its questions share, and
 //                       what each says of its own
+//
+// News (2026-11-15, ios/Lex/STANDARD.md В7.31–В7.32):
+//   newsCard(o)         a card of the feed of News, one button: the dot of a news not read, the mark
+//                       of the kind of source, its name, the author, the time; the title, the subtitle,
+//                       the line of a long read. o = { kind, source, author, at | timeText, title, sub,
+//                       foot, unread, onOpen }; newsCardRead(card) — read now
+//   newsKind(id, size), newsKindName(id), NEWS_KINDS   the mark and the word of a kind of source
+//   newsSource(o)       the source of a news in the head of its screen: the mark and the name, the date
+//                       and the time under them. o = { kind, source, at | timeText }; newsWhen(at) — the
+//                       words of that date
+//   talkLine(text)      a line with words in the middle — «Обсуждение с Lex» under the text of a news
 //   replyBar({ head, text, onClose })   the line over the message box: the message the next one
 //                       answers (Reply)
 //
@@ -1428,7 +1439,89 @@
   // The arrow of a reply, 16: for the item «Reply» of a menu.
   const replyIcon = (size) => strokes(REPLY_D, size || 16);
 
+  // ── News: a card of the feed and the head of a news (В7.31, В7.32) ──────────
+  // Gennady's choice of 15.11.2026 on the canvas «News: 3 + 3 варианта»: the feed — board «Лента 3.
+  // Карточки по виду источника», a news — board «Новость 1. Текст, потом разговор».
+  //
+  // A kind of source is its mark and its word: what the server says in `kind` (the letter's own
+  // `source`). Only the letters of newsletters exist today ('email'). Reddit (its section and the
+  // number of comments in the line under the title), a video (a frame 16:9 with the corners 10 over
+  // the top line, the play button 52, the length on a plate) and sites come with their sources, not
+  // before: nothing of them is drawn or made up here. A kind this file does not know yet gets the
+  // mark of a page and its own id as the word.
+  const NEWS_KINDS = {
+    email: { name: 'Рассылки', mark: 'mail' },
+  };
+  const PAGE_MARK = [['path', { d: 'M7 3h7l5 5v13H7z' }], ['path', { d: 'M14 3v5h5' }]];
+  function newsKind(id, size) {
+    const k = NEWS_KINDS[id];
+    const n = svg('0 0 24 24', size || 14);
+    n.setAttribute('class', 'lex-nkind');
+    for (const [tag, attrs] of (k ? INTAKE_MARKS[k.mark] : PAGE_MARK)) {
+      n.appendChild(shape(tag, Object.assign({ fill: 'none', stroke: 'currentColor', 'stroke-width': 2,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, attrs)));
+    }
+    return n;
+  }
+  const newsKindName = (id) => (NEWS_KINDS[id] ? NEWS_KINDS[id].name : String(id || ''));
+
+  // A card of the feed: one news — one card, the bubble of the other side across the whole lane, the
+  // corner 6 bottom left, 10 12 10 inside; the whole card is one button that opens the news. The top
+  // line 12 in grey: the yellow dot 7 of a news not read yet, the mark of the kind 14, the name of the
+  // source 600, the author when the letter names one, the time on the right in figures of one width;
+  // 4 under it the title 16 (650 not read, 400 read); 2 under it the subtitle or the start of the text
+  // 14 in the soft colour, two lines; 6 under it the line 12 in grey for a long read.
+  //   o = { kind, source, author, at | timeText, title, sub, foot, unread, onOpen }
+  function newsCard(o) {
+    const b = make('button', `lex-ncard${o.unread ? ' is-unread' : ''}`);
+    b.type = 'button';
+    const top = make('span', 'lex-ncard-top');
+    if (o.unread) top.appendChild(make('span', 'lex-ncard-dot'));
+    top.append(newsKind(o.kind, 14), make('span', 'lex-ncard-source', o.source || ''));
+    if (o.author) top.appendChild(make('span', 'lex-ncard-author', o.author));
+    top.appendChild(make('span', 'lex-ncard-time', o.timeText != null ? o.timeText : timeOf(o.at)));
+    b.append(top, make('span', 'lex-ncard-title', o.title || ''));
+    if (o.sub) b.appendChild(make('span', 'lex-ncard-sub', o.sub));
+    if (o.foot) b.appendChild(make('span', 'lex-ncard-foot', o.foot));
+    if (o.onOpen) b.addEventListener('click', o.onOpen);
+    return b;
+  }
+  // Read: no dot, the title in the plain weight.
+  function newsCardRead(card) {
+    if (!card) return;
+    card.classList.remove('is-unread');
+    const dot = card.querySelector('.lex-ncard-dot');
+    if (dot) dot.remove();
+  }
+
+  // The date and the time of a news in its head: «12 ноября, 18:31», «Сегодня, 18:31».
+  const newsWhen = (at) => (toDate(at) ? `${dayOf(at)}, ${timeOf(at)}` : '');
+
+  // The source of a news in the head of its screen: the mark of the kind 16 in the soft colour and the
+  // name 16/650, under it the date and the time 13 in grey. The window puts it in the bar of its
+  // screen (the page, the iPhone) or over the title where its bar is full (the extension).
+  //   o = { kind, source, at | timeText }
+  function newsSource(o) {
+    const root = make('div', 'lex-nsrc');
+    const main = make('div', 'lex-nsrc-main');
+    main.append(newsKind(o.kind, 16), make('span', 'lex-nsrc-name', o.source || ''));
+    root.appendChild(main);
+    const when = o.timeText != null ? o.timeText : newsWhen(o.at);
+    if (when) root.appendChild(make('div', 'lex-nsrc-time', when));
+    return root;
+  }
+
+  // A line with words in the middle: lines on both sides, the words 12 in grey. Under the text of a
+  // news it says where the talk with the model starts: «Обсуждение с Lex».
+  function talkLine(text) {
+    const n = make('div', 'lex-talk-line');
+    n.setAttribute('role', 'separator');
+    n.appendChild(make('span', 'lex-talk-line-text', text));
+    return n;
+  }
+
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf,
+    NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
     pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
 })(typeof window !== 'undefined' ? window : globalThis);

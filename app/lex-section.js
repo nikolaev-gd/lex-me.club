@@ -13,7 +13,8 @@
 //   title          the name of the section
 //   cls            one more class on the root, the section's own styles hang on it
 //   back           the arrow of the window, see lex-back.js
-//   tools          buttons of the bar, on the first screen only
+//   tools          buttons of the bar, on the first screen only; a button with an icon is
+//                  iconButton(cls + ' lex-section-icon', svg, title, onClick), a zone of 44 (В7.11)
 //   gear()         what the gear opens; no gear without it
 //   signals,       the channel of the database's signals (lex-account-events.js) and which of
 //   events         them mean «look again» for this section; no channel — no watch. The frame
@@ -110,9 +111,10 @@
     window.addEventListener('resize', close);
   }
 
-  // items: [{ label, onSelect }]. host: where the menu stands, the frame when not named.
-  function moreButton(items, host) {
-    const b = iconButton('lex-section-more', DOTS, 'More', () => {
+  // items: [{ label, onSelect }]. host: where the menu stands, the frame when not named. cls — one
+  // more class: `lex-section-icon` makes the dots a button of a bar, a zone of 44 (the head of a news).
+  function moreButton(items, host, cls) {
+    const b = iconButton(`lex-section-more${cls ? ` ${cls}` : ''}`, DOTS, 'More', () => {
       openMenu(b, items, host || b.closest('.lex-section'));
     });
     return b;
@@ -267,7 +269,8 @@
     const titleEl = make('div', 'lex-section-title', opts.title);
     const tools = make('div', 'lex-section-tools');
     tools.append(...(opts.tools || []));
-    if (opts.gear) tools.appendChild(iconButton('lex-section-gear', GEAR, 'Settings', opts.gear));
+    // The gear is a button with an icon of the bar, a zone of 44 (В7.11), as every tool of the bar.
+    if (opts.gear) tools.appendChild(iconButton('lex-section-gear lex-section-icon', GEAR, 'Settings', opts.gear));
     bar.append(titleEl, tools);
     const status = make('div', 'lex-section-status');
     status.setAttribute('role', 'status');
@@ -419,5 +422,5 @@
     };
   }
 
-  global.LexSection = { createFrame, row, markRead, moreButton, make, button, newOpId, keep };
+  global.LexSection = { createFrame, row, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep };
 })(typeof window !== 'undefined' ? window : globalThis);

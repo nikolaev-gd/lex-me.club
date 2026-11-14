@@ -24,12 +24,58 @@
 //   onPaint()           the head came late and pushed the feed: stand where it stood
 //   copy(text)          put text on the clipboard, returns true when it worked
 //   pickModel(anchor, modelId, onPick)   the common model menu
+//   head(spec)          optional: the window shows the head of the feed in its own bar (the page and
+//                       the Mac app, where the three stripes stand): { title, busy, refresh(),
+//                       settings() } while the feed is on the screen, null — the bar as it was. A window
+//                       without it shows the section's own bar (the extension, whose bar is full)
+//   tabs(o)             optional: the common tabs (В7.27, WcUI.tabs on the page) for the row of kinds of
+//                       source over the feed; it shows only when the feed holds two kinds or more
+//
+// The look is the standard of Lex (ios/Lex/STANDARD.md): a card of the feed is В7.31, the head of a
+// news and the line «Обсуждение с Lex» under its text — В7.32 (lex-message.js); Gennady's choice of
+// 2026-11-15, the canvas «News: 3 + 3 варианта», boards «Лента 3» and «Новость 1».
 (function (global) {
   'use strict';
 
   const LINK_RE = /\[([^\]\n]+)\]\((https?:[^\s)]+)\)/g;
 
   const { make, button, newOpId } = global.LexSection;
+  const M = () => global.LexMessage;
+
+  const REFRESH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>';
+  const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>';
+  // The same circle arrow as a node, 16: the item «Process again» of the menu of a held card.
+  function againIcon() {
+    const box = make('span');
+    box.innerHTML = REFRESH_ICON;
+    const n = box.firstChild;
+    n.setAttribute('width', '16');
+    n.setAttribute('height', '16');
+    return n;
+  }
+
+  // ── words of the reading time ───────────────────────────────────────────────
+  // The minutes and the limit of a long read come from the server (lex_news_minutes,
+  // news_cards_by_source.sql); a server without them says nothing, and nothing is shown.
+  function minutesWord(n) {
+    const a = n % 10;
+    const b = n % 100;
+    if (a === 1 && b !== 11) return `${n} минута`;
+    if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return `${n} минуты`;
+    return `${n} минут`;
+  }
+  // The line of a long read on a card: «Длинное чтение, 18 минут».
+  const longLine = (card) => (card && card.long && card.minutes > 0 ? `Длинное чтение, ${minutesWord(card.minutes)}` : '');
+  // The line under the title of a news: the author when the letter names one, and the reading time —
+  // «Mike Taylor, 18 минут чтения».
+  const readLine = (head) => [head && head.author, head && head.minutes > 0 ? `${minutesWord(head.minutes)} чтения` : '']
+    .filter(Boolean).join(', ');
+  // Under the text of a news: where the talk with the model starts.
+  const talkLine = () => {
+    const n = M().talkLine('Обсуждение с Lex');
+    n.classList.add('lex-news-talk');
+    return n;
+  };
 
   // What a screen shows is read the window's way: the copy kept on the device first.
   const readOf = (deps) => deps.read
@@ -65,11 +111,16 @@
     });
   }
 
+  // A paragraph that is one bold run and nothing else is a subheading of the letter («**Why it
+  // matters**»): 16/650 (ios/Lex/STANDARD.md В7.32).
+  const HEAD_RE = /^\*\*(?:(?!\*\*)[^\n])+\*\*$/;
+
   function renderText(host, text) {
     host.replaceChildren();
     for (const para of String(text || '').split(/\n{2,}/)) {
       if (!para.trim()) continue;
       const p = make('p', 'lex-news-text-para');
+      if (HEAD_RE.test(para.trim())) p.classList.add('is-head');
       const point = para.startsWith('• ');
       if (point) {
         p.classList.add('is-point');
@@ -123,7 +174,9 @@
   const KEPT_LETTERS = 50;
 
   function createFeed(deps) {
-    const refreshBtn = button('lex-news-refresh', 'Refresh');
+    // The bar of the section: «News», Refresh and the gear as buttons with an icon, a zone of 44
+    // (В7.11). A window with a bar of its own (deps.head) shows them there instead.
+    const refreshBtn = global.LexSection.iconButton('lex-news-refresh lex-section-icon', REFRESH_ICON, 'Refresh', null);
     const frame = global.LexSection.createFrame({
       title: 'News',
       cls: 'lex-news',
@@ -140,7 +193,8 @@
     fresh.hidden = true;
     frame.el.appendChild(fresh);
     const scroller = frame.body;
-    const blocksEl = make('div', 'lex-news-blocks lex-section-list');
+    // The cards stand as bubbles: the day line between two days is a plate (lex-message.css).
+    const blocksEl = make('div', 'lex-news-blocks lex-bubbles');
     const empty = make('div', 'lex-news-empty', 'Nothing here yet.');
     empty.hidden = true;
     scroller.append(blocksEl, empty);
@@ -153,28 +207,75 @@
     let saveTimer = null;
     let lastSaved = null;
     let keptBlocks = null;
+    // The kind of source the row of tabs shows, 'all' — every kind.
+    let kind = 'all';
+    let kindsRow = null;
 
     const setStatus = (text, isError) => frame.say(text, isError, busy);
 
-    function cardNode(card, block) {
-      const row = global.LexSection.row({
-        id: card.id,
-        cls: 'lex-news-card',
-        title: card.title,
-        sub: card.description,
-        dot: !card.read,
-        wrap: true,
-        more: [{ label: 'Process again', onSelect: () => processAgain(block) }],
-        onClick: () => openCard(card, block, row),
-      });
-      return row;
+    // The head in the window's own bar: on the first screen of the section, while it is shown.
+    function syncHead() {
+      if (!deps.head) return;
+      deps.head(frame.isShown() && frame.screen === 'home'
+        ? { title: 'News', busy, refresh, settings: openSettings }
+        : null);
+    }
+    function setBusy(v) {
+      busy = v;
+      refreshBtn.disabled = v;
+      syncHead();
     }
 
-    // A letter has no header of its own: the feed is one list of cards. It stays a
-    // node only so that a next page does not bring a letter twice.
+    // The menu of a held card (В7.9): the card is lit, «Process again» over it. The extension has
+    // no common menu of a held button: there the menu of the section, the one its three dots had.
+    function holdMenu(node, block) {
+      if (busy) return;
+      if (global.LexSendLater && global.LexSendLater.menu) {
+        global.LexSendLater.menu({
+          anchor: node, lit: node, align: 'left',
+          items: [{ label: 'Process again', icon: againIcon(), run: () => processAgain(block) }],
+        });
+      } else {
+        global.LexSection.openMenu(node, [{ label: 'Process again', onSelect: () => processAgain(block) }], frame.el);
+      }
+    }
+
+    // One news — one card (В7.31): the whole card opens it, a hold (or the right button of the
+    // mouse) gives «Process again».
+    function cardNode(card, block) {
+      const node = M().newsCard({
+        kind: block.kind || 'email',
+        source: block.title,
+        author: card.author || null,
+        at: block.at || null,
+        // A server before 2026-11-15 gives no moment, only the day: the day stands for the time.
+        timeText: block.at ? undefined : (block.date || ''),
+        title: card.title,
+        sub: card.description,
+        foot: longLine(card),
+        unread: !card.read,
+      });
+      node.dataset.id = card.id;
+      const hold = global.LexLongPress ? global.LexLongPress.attach(node, () => holdMenu(node, block)) : null;
+      node.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        holdMenu(node, block);
+      });
+      node.addEventListener('click', () => {
+        if (hold && hold.didFire()) return;
+        openCard(card, block, node);
+      });
+      return node;
+    }
+
+    // A letter has no header of its own: the feed is one list of cards, the newest letter on top,
+    // its cards in the order of the letter. It stays a node only so that a next page does not bring
+    // a letter twice, and for the day lines: its moment is the letter's.
     function blockNode(block) {
       const art = make('article', 'lex-news-block');
       art.dataset.letter = String(block.id);
+      art.dataset.kind = block.kind || 'email';
+      if (block.at) art.dataset.at = block.at;
       if (block.state === 'failed') {
         const row = make('div', 'lex-news-failed', `${block.title} was not processed. ${block.error || ''} `);
         row.appendChild(button('lex-news-failed-again', 'Process again', () => processAgain(block)));
@@ -184,13 +285,40 @@
       return art;
     }
 
+    // The row of kinds of source over the feed: only when the feed holds two kinds or more, so with
+    // the letters of newsletters alone there is no row. «Всё» and a tab per kind.
+    function syncKinds() {
+      const kinds = [...new Set([...blocksEl.querySelectorAll('.lex-news-block')].map((n) => n.dataset.kind))];
+      if (kinds.length < 2 || !deps.tabs) {
+        if (kindsRow) { kindsRow.remove(); kindsRow = null; }
+        if (kind !== 'all') { kind = 'all'; showKind(); }
+        return;
+      }
+      if (kind !== 'all' && !kinds.includes(kind)) kind = 'all';
+      const items = [{ id: 'all', label: 'Всё' }, ...kinds.map((k) => ({ id: k, label: M().newsKindName(k) }))];
+      if (kindsRow) { kindsRow.update(items, kind); return; }
+      kindsRow = deps.tabs({
+        label: 'Kind of source', items, selected: kind,
+        onSelect: (id) => { kind = id; showKind(); scroller.scrollTop = 0; },
+      });
+      kindsRow.classList.add('lex-news-kinds');
+      frame.el.insertBefore(kindsRow, frame.el.querySelector('.lex-section-body'));
+    }
+    // The cards of the other kinds leave the screen; the day lines stand over what is shown.
+    function showKind() {
+      for (const b of blocksEl.querySelectorAll('.lex-news-block')) b.hidden = kind !== 'all' && b.dataset.kind !== kind;
+      M().mark(blocksEl, null);
+    }
+
     function paint(blocks, append) {
       if (!append) blocksEl.replaceChildren();
-      const have = new Set([...blocksEl.children].map((n) => n.dataset.letter));
+      const have = new Set([...blocksEl.querySelectorAll('.lex-news-block')].map((n) => n.dataset.letter));
       for (const b of blocks) {
         if (!have.has(String(b.id))) blocksEl.appendChild(blockNode(b));
       }
-      empty.hidden = !!blocksEl.childElementCount;
+      syncKinds();
+      showKind();
+      empty.hidden = !!blocksEl.querySelector('.lex-news-block');
     }
 
     async function load(opts) {
@@ -216,7 +344,7 @@
     async function lookForNew() {
       if (busy) return;
       const first = ((await deps.rpc('list_news', { p_limit: 1 })).blocks || [])[0];
-      const top = blocksEl.firstElementChild;
+      const top = blocksEl.querySelector('.lex-news-block');
       fresh.hidden = !first || (!!top && top.dataset.letter === String(first.id));
     }
     fresh.addEventListener('click', async () => {
@@ -238,7 +366,7 @@
       }
     }
 
-    const cardNodeOf = (itemId) => (itemId ? blocksEl.querySelector(`.lex-news-card[data-id="${itemId}"]`) : null);
+    const cardNodeOf = (itemId) => (itemId ? blocksEl.querySelector(`.lex-ncard[data-id="${itemId}"]`) : null);
 
     function standOn(itemId) {
       const node = cardNodeOf(itemId);
@@ -249,8 +377,8 @@
     // screen. The top card goes to the server when scrolling stops.
     function topCard() {
       const top = scroller.getBoundingClientRect().top;
-      for (const c of blocksEl.querySelectorAll('.lex-news-card')) {
-        if (c.getBoundingClientRect().bottom > top + 1) return c.dataset.id;
+      for (const c of blocksEl.querySelectorAll('.lex-ncard')) {
+        if (c.offsetParent && c.getBoundingClientRect().bottom > top + 1) return c.dataset.id;
       }
       return null;
     }
@@ -270,13 +398,15 @@
 
     // The text is on the device, so the card is on screen in the same moment. The chat
     // behind it comes after: it writes the mark and brings the field and earlier turns.
-    function openCard(card, block, row) {
+    function openCard(card, block, node) {
       savedTop = scroller.scrollTop;
-      global.LexSection.markRead(row);
+      M().newsCardRead(node);
+      card.read = true;
       lastSaved = card.id;
       return frame.open(async (wanted) => {
         const head = {
           letterId: block.id, title: card.title, newsletter: block.title, date: block.date,
+          at: block.at || null, kind: block.kind || 'email', minutes: card.minutes || null,
           author: card.author || null, webUrl: block.webUrl || null,
         };
         const text = card.body ? card.body + (card.sourceUrl ? `\n\n[Source](${card.sourceUrl})` : '') : '';
@@ -298,7 +428,7 @@
     // The letter stays where it stood, whatever new cards it got.
     async function processAgain(block) {
       if (busy) return;
-      busy = true;
+      setBusy(true);
       setStatus(`Processing ${block.title} again…`);
       const letter = () => blocksEl.querySelector(`[data-letter="${block.id}"]`);
       let end;
@@ -312,14 +442,13 @@
       } catch (e) {
         end = ['Process again failed. ' + ((e && e.message) || ''), true];
       }
-      busy = false;
+      setBusy(false);
       setStatus(...end);
     }
 
     async function refresh() {
       if (busy) return;
-      busy = true;
-      refreshBtn.disabled = true;
+      setBusy(true);
       setStatus('Updating…');
       const round = newOpId();
       let failed = [];
@@ -347,8 +476,7 @@
       } catch (e) {
         end = ['Refresh failed. ' + ((e && e.message) || ''), true];
       }
-      busy = false;
-      refreshBtn.disabled = false;
+      setBusy(false);
       setStatus(...end);
     }
     refreshBtn.addEventListener('click', refresh);
@@ -358,6 +486,7 @@
       savedTop = scroller.scrollTop;
       const block = createSettings(deps);
       const body = frame.push({ id: 'settings', title: 'Settings' });
+      syncHead();
       body.appendChild(block.el);
       try {
         if (!(await block.load())) frame.say('The settings did not load.', true);
@@ -369,6 +498,7 @@
     // Letters come by themselves, so the way back reads the feed again, and what was on
     // screen stays where it was even when new cards came above it.
     async function backToFeed() {
+      syncHead();
       scroller.scrollTop = savedTop;
       if (busy) return;
       const keep = cardNodeOf(topCard());
@@ -397,6 +527,7 @@
         const back = !!(opts && opts.back);
         frame.stopOpening();
         frame.enter();
+        syncHead();
         if (!opened) {
           opened = true;
           // What the device holds comes first, the server corrects it a moment later.
@@ -430,24 +561,33 @@
       hide() {
         if (!scroller.hidden) savedTop = scroller.scrollTop;
         frame.unwatch();
+        if (deps.head) deps.head(null);
       },
     };
   }
 
-  // ── the head of a news chat ────────────────────────────
-  // Stands over the first message and outside it: the title of the card and a small
-  // gray line of where it came from. So the message stays the words of the letter, and
-  // word picking counts them as ever. The server answers null for a chat that is not
-  // news, and then nothing shows. A window gives chatKey, rpc, post and reload.
+  // ── the head of a news ──────────────────────────────────────────────────────
+  // The news is its text first, then the talk (В7.32). Over the first message and outside it: the
+  // title 22/650, under it 13 in grey the author and the reading time («Mike Taylor, 18 минут
+  // чтения»), and the line of a round of Process again. So the message stays the words of the letter,
+  // and word picking counts them as ever. Where the news came from — the mark of the kind and the
+  // name of the source, the date and the time, «Open in the browser» and the three dots with «Process
+  // again» — stands in the head of the screen: a window with a bar of its own takes them through
+  // deps.onHead({ head, processAgain, isBusy }) (the page, the Mac app); the extension's bar is full, so
+  // there they stand here, over the title. The server answers null for a chat that is not news, and
+  // then nothing shows. A window gives chatKey, rpc, post and reload.
   function createChatHead(deps) {
     const root = make('header', 'lex-news-chat-head');
     root.hidden = true;
+    const top = deps.onHead ? null : make('div', 'lex-news-chat-top');
     const title = make('h2', 'lex-news-chat-title');
-    const line = make('div', 'lex-news-chat-source lex-msg-head');
+    const meta = make('div', 'lex-news-chat-meta');
+    meta.hidden = true;
     const note = make('div', 'lex-news-chat-note');
     note.setAttribute('role', 'status');
     note.hidden = true;
-    root.append(title, line, note);
+    if (top) root.appendChild(top);
+    root.append(title, meta, note);
     let busy = false;
 
     const say = (text, isError) => {
@@ -476,26 +616,35 @@
       say(...end);
     }
 
+    // The source of the news, as the head of a screen: the extension draws it here.
+    function paintTop(head) {
+      top.replaceChildren(M().newsSource({
+        kind: head.kind || 'email', source: head.newsletter, at: head.at || null,
+        timeText: head.at ? undefined : (head.date || ''),
+      }));
+      if (head.webUrl) {
+        const open = make('a', 'lex-section-icon lex-news-web');
+        open.href = head.webUrl;
+        open.target = '_blank';
+        open.rel = 'noopener noreferrer';
+        open.title = 'Open in the browser';
+        open.setAttribute('aria-label', 'Open in the browser');
+        open.innerHTML = OPEN_ICON;
+        top.appendChild(open);
+      }
+      top.appendChild(global.LexSection.moreButton([
+        { label: 'Process again', onSelect: () => processAgain(head.letterId) },
+      ], root, 'lex-section-icon'));
+    }
+
     function paint(head) {
       title.textContent = head.title || '';
-      line.replaceChildren();
-      // The line of the letter's sender is the head of the common message (lex-message.css):
-      // the newsletter in bold, the date beside it in grey; the words of the letter under it.
-      let name;
-      if (head.webUrl) {
-        name = make('a', 'lex-news-chat-newsletter lex-msg-name', `${head.newsletter} ↗`);
-        name.href = head.webUrl;
-        name.target = '_blank';
-        name.rel = 'noopener noreferrer';
-      } else {
-        name = make('span', 'lex-news-chat-newsletter lex-msg-name', head.newsletter);
-      }
-      line.append(name, make('span', 'lex-msg-time', head.date));
-      if (head.author) line.appendChild(make('span', 'lex-msg-time', head.author));
-      line.appendChild(global.LexSection.moreButton([
-        { label: 'Process again', onSelect: () => processAgain(head.letterId) },
-      ], root));
+      const words = readLine(head);
+      meta.textContent = words;
+      meta.hidden = !words;
+      if (top) paintTop(head);
       root.hidden = false;
+      if (deps.onHead) deps.onHead({ head, processAgain: () => processAgain(head.letterId), isBusy: () => busy });
     }
 
     const known = deps.head || knownHeads.get(deps.chatKey);
@@ -644,6 +793,6 @@
     };
   }
 
-  const api = { createFeed, createChatHead, renderEntries, renderText, plainText, newOpId };
+  const api = { createFeed, createChatHead, renderEntries, renderText, plainText, newOpId, talkLine, readLine, longLine, minutesWord };
   global.LexNews = api;
 })(typeof window !== 'undefined' ? window : globalThis);
