@@ -776,6 +776,21 @@
 
     shownUids() { return [...elTurns.querySelectorAll('.wc-turn[data-uid]')].map((t) => t.dataset.uid); },
 
+    // «Show in chat» of the sheet of a message (В7.37): the chat goes to the message — it stands in the
+    // middle of the screen — and its bubble is lit for 1,5 s (a frame 2 --line-strong). The whole chat is
+    // on the screen already (an order chat reads all its turns); a message it does not have — false.
+    showTurn(uid) {
+      const node = [...elTurns.querySelectorAll('.wc-turn[data-uid]')].find((n) => n.dataset.uid === String(uid));
+      if (!node) return false;
+      stickToBottom = false;
+      elThread.scrollTop = Math.max(0, node.offsetTop - (elThread.clientHeight - node.offsetHeight) / 2);
+      elJump.hidden = nearBottom();
+      const lit = node.querySelector('.lex-bubble, .lex-sticker-pic') || node;
+      lit.classList.add('is-focus');
+      setTimeout(() => lit.classList.remove('is-focus'), 1500);
+      return true;
+    },
+
     // A new or extended entry of the open feed: an extended one takes the place of the old,
     // a new one comes at the end. Nothing else of the chat is touched — an answer of the
     // model stays as the stream left it (its text reaches the server a moment later).

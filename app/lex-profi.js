@@ -44,7 +44,14 @@
 
   // ── a box with text for the client inside an answer ─────────────────────────
   // What the model marked: <client_text>…</client_text>. An answer still being written has
-  // an opening tag and no end: its text is already the box, and it has no buttons yet.
+  // an opening tag and no end: its text is already the box, and it has no buttons yet. A box that
+  // answers one message of the client names it in its tag, <client_text reply_to="3fa9c1"> (the short
+  // number of the message, profi_message_looks.sql): `replyTo` of the part — the number, '' — no quote,
+  // undefined — the tag says nothing.
+  function replyAttr(tag) {
+    const m = /\breply_to\s*=\s*"([^"]*)"/.exec(tag || '');
+    return m ? m[1].trim().toLowerCase() : undefined;
+  }
   function splitAnswer(text) {
     const parts = [];
     let rest = String(text || '');
@@ -54,10 +61,11 @@
       if (at > 0) parts.push({ kind: 'text', text: rest.slice(0, at) });
       const gt = rest.indexOf('>', at);
       if (gt < 0) { rest = ''; parts.push({ kind: 'box', text: '', open: true }); break; }
+      const replyTo = replyAttr(rest.slice(at, gt));
       const after = rest.slice(gt + 1);
       const end = after.indexOf('</client_text>');
-      if (end < 0) { parts.push({ kind: 'box', text: after, open: true }); rest = ''; break; }
-      parts.push({ kind: 'box', text: after.slice(0, end).trim(), open: false });
+      if (end < 0) { parts.push({ kind: 'box', text: after, open: true, replyTo }); rest = ''; break; }
+      parts.push({ kind: 'box', text: after.slice(0, end).trim(), open: false, replyTo });
       rest = after.slice(end + '</client_text>'.length);
     }
     if (rest) {
@@ -190,41 +198,12 @@
     return { blob, link };
   })();
 
-  // ── the mark of Profi under what went to the client ─────────────────────────
+  // ── the ticks under what went to the client ─────────────────────────────────
   // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the
-  // client has not read it yet; the second stroke and both blue, he has. The server says which.
+  // client has not read it yet; the second stroke and both blue, he has. The server says which. It is
+  // the common part of the stamp now (LexMessage.ticks, В7.2): under what went in every channel.
   const TICK_NS = 'http://www.w3.org/2000/svg';
-  const TICK_GREY = '#838398';
-  const TICK_BLUE = '#617EF8';
-
-  function tickNode(read) {
-    const svg = document.createElementNS(TICK_NS, 'svg');
-    svg.setAttribute('viewBox', '0 -1 13 13');
-    svg.setAttribute('width', '16');
-    svg.setAttribute('height', '16');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('class', 'lex-profi-tick');
-    for (const d of ['m.62 7.18 2.5 2.74L9.3 3.08', 'm6.21 9.92 6.17-6.84']) {
-      const p = document.createElementNS(TICK_NS, 'path');
-      p.setAttribute('stroke-width', '1.2');
-      p.setAttribute('stroke-linecap', 'round');
-      p.setAttribute('stroke-linejoin', 'round');
-      p.setAttribute('d', d);
-      svg.appendChild(p);
-    }
-    setTick(svg, read);
-    return svg;
-  }
-
-  function setTick(svg, read) {
-    const [first, second] = svg.querySelectorAll('path');
-    first.setAttribute('stroke', read ? TICK_BLUE : TICK_GREY);
-    if (read) second.setAttribute('stroke', TICK_BLUE); else second.removeAttribute('stroke');
-    second.setAttribute('stroke-dasharray', '10');
-    second.setAttribute('stroke-dashoffset', read ? '0' : '10');
-    svg.dataset.read = read ? '1' : '0';
-    svg.setAttribute('aria-label', read ? 'Read by the client' : 'Not read yet');
-  }
+  const tickNode = (read) => global.LexMessage.ticks(read);
 
   function priceLine(price) {
     if (!price) return '';
@@ -250,7 +229,8 @@
   // (В7.23): «Hold to send to <client>» with the mark of the place, and «⋯». window is the row of the
   // server; none yet while the answer is being written (paler, no Copy, no row). A box that went shows
   // no copy of itself: what went stands in the chat as a message with its ticks.
-  function boxNode(text, win, deps) {
+  // A draft that answers one message of the client carries its quote (В7.35), as the client will see it.
+  function boxNode(text, win, deps, quote) {
     const M = global.LexMessage;
     const root = make('div', 'lex-profi-box');
     if (win && win.state === 'sent') {
@@ -265,7 +245,8 @@
       if (!ok && note) note.textContent = 'The browser refused the clipboard.';
       return ok;
     } : null;
-    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, copy }));
+    const q = quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null;
+    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, copy, quote: q }));
     if (!win) {
       root.classList.add('is-writing');
       return root;
@@ -328,7 +309,9 @@
       if (r && r.state === 'removed' && r.text && deps.putBack) deps.putBack(r.text);
     };
     if (open || scheduled) {
-      const to = deps.replyTo || null;
+      // Where it goes: the window says (`to`, a reply goes to the channel of the message it quotes);
+      // an older server — the place of the client's latest message.
+      const to = win.to || deps.replyTo || null;
       const name = firstName(deps.client);
       const again = open && win.state === 'failed';
       const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : name ? `Hold to send to ${name}` : 'Hold to send';
@@ -441,9 +424,53 @@
     if (before) host.insertBefore(line, before); else host.appendChild(line);
   }
 
+  // The words of a message of the monitor as its bubble shows them: the links to its photos and the marks
+  // of its files the bubble draws itself are out (the quote of it and Copy take the same words).
+  function wordsOf(t) {
+    const out = t.origin === 'profi_sent';
+    const shots = !out ? photosOf(t.attachments) : [];
+    const stored = storedFilesOf(t.attachments);
+    let words = shots.length ? withoutPhotoLinks(t.text, shots) : String(t.text || '');
+    if (stored.length) words = withoutFileMarks(words, stored);
+    return words;
+  }
+
+  // What a quote says of a message the screen has (В7.35), while the server has not said it yet: the
+  // draft of an answer still being written names the message it answers by its short number (the
+  // attribute `reply_to` of <client_text>, profi_message_looks.sql); the window of the box brings the
+  // server's quote when the answer is done.
+  function quoteOfTurn(t, look, client) {
+    const files = storedFilesOf(t.attachments);
+    const voice = files.find((f) => f.kind === 'voice' || f.kind === 'audio');
+    const photo = files.find((f) => f.kind === 'image' && f.path) || photosOf(t.attachments)[0] || null;
+    const video = files.find((f) => f.kind === 'video');
+    const kind = look.sticker ? 'sticker' : voice ? 'voice' : video ? 'video' : photo ? 'photo' : files.length ? 'file' : 'text';
+    const mine = t.origin !== 'profi_client';
+    return {
+      uid: String(t.uid || ''), who: mine ? 'me' : 'client', name: mine ? null : (client || null),
+      text: look.sticker ? (look.sticker.emoji || '') : wordsOf(t), kind,
+      seconds: (voice || video || {}).duration || null,
+      photo: photo ? (photo.path ? { path: photo.path } : { url: photo.url }) : null,
+    };
+  }
+
+  // The short number of a message in what the model reads (profi_message_looks.sql): the first 6 hex of
+  // SHA-256 of its uid. The page counts it for the messages it shows, to find the one a draft answers.
+  function shortNumber(uid) {
+    const subtle = global.crypto && global.crypto.subtle;
+    if (!subtle || typeof TextEncoder !== 'function') return Promise.resolve(null);
+    return subtle.digest('SHA-256', new TextEncoder().encode(uid))
+      .then((buf) => [...new Uint8Array(buf).slice(0, 3)].map((b) => b.toString(16).padStart(2, '0')).join(''))
+      .catch(() => null);
+  }
+
   // deps: rpc, copy, order, reload(), putBack(text) — a text taken back from the way to the
   // client, or a box to edit by hand, goes into the field; onClean(on) — the clean view
-  // changed; clean — false: the chat opens with the discussion shown (Reply yourself)
+  // changed; clean — false: the chat opens with the discussion shown (Reply yourself);
+  // the look of a message (В7.35–В7.40): sheet({ title, body, onClose }) → { close } — the common sheet
+  // of the window; showInChat(uid) — the chat goes to a message and lights it; reply({ quoteUid, head,
+  // text }) — the line of a reply over the field (В7.26); replyQuote() — the uid of the message the line
+  // of a reply answers now, or null; replyDone() — the text left with it, the line goes
   function createChat(deps) {
     let data = null;
     // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
@@ -453,9 +480,36 @@
     // and the talk with the model about it, and the clean view hides both.
     let clean = deps.clean !== false;
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload,
-      putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null });
+      putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
+      openQuote: (q) => self.openQuote(q) });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
     const revealed = new Set();
+    // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
+    // of a quote shows one with its neighbours, a toggle draws one again); their short numbers; the edited
+    // ones whose earlier text is open; the message the last word to Lex answered (its draft carries its
+    // quote while it is being written); the list of turns the screen draws into.
+    const drawn = new Map();
+    const numbers = new Map();
+    const counted = new Set();
+    const earlierOpen = new Set();
+    let sentQuote = null;
+    let lane = null;
+    const lookOf = (uid) => {
+      const l = data && data.looks && uid ? data.looks[uid] : null;
+      return l && typeof l === 'object' ? l : {};
+    };
+    // What a message is drawn from: its look, its open earlier text, what Profi said the client read.
+    const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid)]);
+    const remember = (t) => {
+      const uid = String(t.uid || '');
+      if (!uid) return;
+      drawn.set(uid, t);
+      if (counted.has(uid)) return;
+      counted.add(uid);
+      shortNumber(uid).then((n) => { if (n) numbers.set(n, uid); });
+    };
+    // Who said a message, for the line of a reply: the client by his first name, mine «You».
+    const replyHead = (q) => `Reply to ${q.who === 'client' ? (firstName(q.name) || 'the client') : global.LexMessage.quoteName(q)}`;
     const self = {
       order: deps.order,
       get data() { return data; },
@@ -525,43 +579,196 @@
       // in the middle. Every message says the channel it came by beside its time: the server
       // names the turns that came from elsewhere (`channels`, profi_open), the rest came from
       // Profi.ru. The parts know every channel (lex-message.js).
-      messageNode(t) {
+      // The look of a message (В7.35–В7.40, `looks` of profi_open by uid): «Forwarded from …», the quote of
+      // the message it answers, emoji alone at 22, a sticker without a bubble, reactions left of the stamp,
+      // «edited» and the earlier text, a deleted one paler; the ticks under what went, in every channel.
+      // A press on the right button of a mouse, or a finger held 480 ms, opens its menu (В7.36).
+      // o.still — a copy for the sheet of a message: no menu, a quote that does not open.
+      messageNode(t, o) {
         const M = global.LexMessage;
         const out = t.origin === 'profi_sent';
         const notice = t.origin === 'profi_notice';
-        const named = data && data.channels && data.channels[String(t.uid || '')];
+        const uid = String(t.uid || '');
+        const named = data && data.channels && data.channels[uid];
         const ch = !notice && named && M.CHANNELS[named] ? named : CHANNEL;
+        const look = lookOf(uid);
+        const still = !!(o && o.still);
+        if (!still) remember(t);
         let node;
         if (notice) {
           node = M.notice({ channel: ch, at: t.authoredAt, body: linkedText(make('span', 'lex-notice-text', ''), t.text) });
         } else {
-          // The ticks are Profi's: a message that went by another channel has none.
-          const tail = out && ch === CHANNEL ? tickNode(new Set((data && data.readTurns) || []).has(String(t.uid || ''))) : null;
-          // A photo of the client (profi_client_photos.sql): the picture over the text; its link «[фото](…)»
-          // the monitor put into the text is not repeated under it. The stored files of the turn
-          // (chat_files.sql) stand there too: a photo, a voice message, a video, a document.
-          const shots = !out ? photosOf(t.attachments) : [];
-          const stored = M.files ? storedFilesOf(t.attachments) : [];
-          let words = shots.length ? withoutPhotoLinks(t.text, shots) : t.text;
-          if (stored.length) words = withoutFileMarks(words, stored);
-          const parts = [shots.length && M.photos ? M.photos(shots) : null, stored.length ? M.files(stored, fileIo) : null]
-            .filter(Boolean);
-          let media = parts[0] || null;
-          if (parts.length > 1) {
-            media = make('div', 'lex-files');
-            media.append(...parts);
+          // The ticks under everything that went, in every channel (В7.2): the server's `delivery`; an
+          // older server — what Profi said it read (`readTurns`).
+          const read = look.delivery ? look.delivery === 'read' : new Set((data && data.readTurns) || []).has(uid);
+          const tail = out ? tickNode(read) : null;
+          // An edited message says when its text was written (`editedAt`), as the canvas has it.
+          const at = look.editedAt && !look.deletedAt ? look.editedAt : t.authoredAt;
+          if (look.sticker && typeof look.sticker === 'object') {
+            // The picture of a sticker of Telegram comes as the turn's stored image too: it is drawn as the
+            // sticker, never as a photo in a bubble, and its words («[стикер 👍]») are not shown.
+            const pic = storedFilesOf(t.attachments).find((f) => f.kind === 'image' && f.path);
+            const sticker = look.sticker.path || look.sticker.url || !pic ? look.sticker
+              : Object.assign({}, look.sticker, { path: pic.path, mime: pic.mime || look.sticker.mime });
+            node = M.sticker({ side: out ? 'out' : 'in', sticker, at, tail, io: fileIo });
+          } else {
+            // A photo of the client (profi_client_photos.sql): the picture over the text; its link «[фото](…)»
+            // the monitor put into the text is not repeated under it. The stored files of the turn
+            // (chat_files.sql) stand there too: a photo, a voice message, a video, a document.
+            const shots = !out ? photosOf(t.attachments) : [];
+            const stored = M.files ? storedFilesOf(t.attachments) : [];
+            const words = wordsOf(t);
+            const parts = [shots.length && M.photos ? M.photos(shots) : null, stored.length ? M.files(stored, fileIo) : null]
+              .filter(Boolean);
+            let media = parts[0] || null;
+            if (parts.length > 1) {
+              media = make('div', 'lex-files');
+              media.append(...parts);
+            }
+            const quote = look.quote && typeof look.quote === 'object'
+              ? M.quote(look.quote, { io: fileIo, onPress: still ? null : (q) => self.openQuote(q) }) : null;
+            const edited = Array.isArray(look.edits) && look.edits.length > 0;
+            node = M.bubble({ side: out ? 'out' : 'in', media,
+              body: linkedText(make('div', '', ''), words),
+              // «Forwarded from <name>»; `forwarded` alone — the author is not known (WhatsApp): «Forwarded».
+              forwarded: typeof look.forwardedFrom === 'string' && look.forwardedFrom.trim() ? look.forwardedFrom.trim()
+                : look.forwarded === true ? true : null,
+              quote,
+              big: !media && M.emojiOnly(words),
+              reactions: M.reactions(look.reactions, { client: data && data.client }),
+              after: edited && earlierOpen.has(uid) ? M.earlier(look.edits) : null,
+              faded: !!look.deletedAt,
+              stamp: M.stamp({ channel: ch, at, tail, edited: edited || !!look.editedAt, deleted: !!look.deletedAt }) });
           }
-          node = M.bubble({ side: out ? 'out' : 'in', media,
-            body: linkedText(make('div', '', ''), words),
-            stamp: M.stamp({ channel: ch, at: t.authoredAt, tail }) });
         }
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
         root.appendChild(node);
-        if (t.uid) root.dataset.uid = String(t.uid);
+        if (t.uid) root.dataset.uid = uid;
         if (t.authoredAt) root.dataset.at = t.authoredAt;
+        // What the look was drawn from: a fresh reading that says otherwise draws the message again
+        // (paintHidden), a reaction or an edit comes without a new turn.
+        root.dataset.look = sigOf(uid);
         // The client's words and Profi's notices come without the person: they can be new.
         if (!out) root.dataset.in = '1';
+        if (!notice && !still) self.attachMenu(root, node, t);
         return root;
+      },
+
+      // The menu of a message (В7.36): Reply, Copy, and Show the earlier text of an edited one — the
+      // common menu of a held button without the dim (LexSendLater.menu, plain), at the pointer. The right
+      // button of a mouse opens it; a finger opens it by the hold of Lex (480 ms, lex-long-press.js). Copy
+      // takes what is selected in the message, or the whole of it.
+      attachMenu(root, face, t) {
+        if (!global.LexSendLater) return;
+        const M = global.LexMessage;
+        const uid = String(t.uid || '');
+        let finger = false;
+        const open = (x, y) => {
+          const look = lookOf(uid);
+          const items = [
+            { label: 'Reply', icon: M.messageIcon('reply', 16), run: () => self.replyTo(uid) },
+            {
+              label: 'Copy',
+              icon: M.messageIcon('copy', 16),
+              run: () => {
+                const sel = global.getSelection ? String(global.getSelection() || '') : '';
+                const inside = sel && global.getSelection().anchorNode && face.contains(global.getSelection().anchorNode);
+                deps.copy(inside ? sel : (look.sticker ? (look.sticker.emoji || 'Sticker') : wordsOf(t)));
+              },
+            },
+          ];
+          if (Array.isArray(look.edits) && look.edits.length) {
+            items.push({
+              label: earlierOpen.has(uid) ? 'Hide the earlier text' : 'Show the earlier text',
+              icon: M.messageIcon('earlier', 16),
+              run: () => {
+                if (earlierOpen.has(uid)) earlierOpen.delete(uid); else earlierOpen.add(uid);
+                const live = root.isConnected ? root : null;
+                if (live) live.replaceWith(self.messageNode(t));
+              },
+            });
+          }
+          global.LexSendLater.menu({ plain: true, at: { x, y }, items });
+        };
+        face.classList.add('has-hold');
+        face.addEventListener('pointerdown', (e) => { finger = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
+        face.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          // A long touch of a finger is the hold below, not this.
+          if (finger || e.pointerType === 'touch' || e.pointerType === 'pen') return;
+          open(e.clientX, e.clientY);
+        });
+        if (global.LexLongPress) {
+          global.LexLongPress.attach(face, (e) => {
+            const sel = global.getSelection && global.getSelection();
+            if (sel && sel.removeAllRanges) sel.removeAllRanges();
+            open(e.clientX, e.clientY);
+          }, { when: () => finger });
+        }
+      },
+
+      // Reply to a message (В7.26): the line of a reply over the field; the next word to Lex, or one's own
+      // text to the client, goes as the answer to it (`quoteUid`).
+      replyTo(uid) {
+        const t = drawn.get(uid);
+        if (!t || typeof deps.reply !== 'function') return;
+        const q = quoteOfTurn(t, lookOf(uid), data && data.client);
+        deps.reply({ quoteUid: uid, head: replyHead(q), text: global.LexMessage.quoteWords(q) });
+      },
+
+      // A word to Lex went with the line of a reply: the draft being written for it carries the quote of
+      // that message until the server's window brings its own (see boxQuote).
+      quoteSent(uid) { sentQuote = uid || null; },
+
+      // The quote over a draft (В7.35): the server's (`quote` of its window), or, while the answer is
+      // being written, the message its tag names (`reply_to`, a short number) or the one the word to Lex
+      // answered; `reply_to=""` — no quote.
+      boxQuote(part, win) {
+        if (win && Object.prototype.hasOwnProperty.call(win, 'quote')) return win.quote && typeof win.quote === 'object' ? win.quote : null;
+        if (part.replyTo === '') return null;
+        const uid = part.replyTo ? numbers.get(part.replyTo) : sentQuote;
+        const t = uid ? drawn.get(uid) : null;
+        return t ? quoteOfTurn(t, lookOf(uid), data && data.client) : null;
+      },
+
+      // A press on a quote (В7.37): the sheet of that message over the chat, which does not move — when it
+      // was, the message in a frame with one message before it and two after, «Show in chat» and «Reply».
+      // A message this chat does not have — the quote's own words, «Show in chat» off.
+      openQuote(q) {
+        const M = global.LexMessage;
+        if (!q || typeof deps.sheet !== 'function') return;
+        const uid = String(q.uid || '');
+        const t = uid ? drawn.get(uid) : null;
+        let nodes;
+        let lit;
+        let title = 'Message';
+        if (t) {
+          const order = lane ? [...lane.querySelectorAll(':scope > .lex-profi-msg[data-uid]')].map((n) => n.dataset.uid) : [uid];
+          const at = Math.max(0, order.indexOf(uid));
+          const near = order.slice(Math.max(0, at - 1), at + 3).filter((u) => drawn.has(u));
+          nodes = near.map((u) => self.messageNode(drawn.get(u), { still: true }));
+          const own = nodes[near.indexOf(uid)];
+          lit = own ? own.querySelector('.lex-bubble, .lex-sticker-pic') : null;
+          title = M.newsWhen(t.authoredAt) || title;
+        } else {
+          const bubble = M.bubble({ side: q.who === 'client' ? 'in' : 'out', text: q.text || M.quoteWords(q) });
+          const root = make('div', `wc-turn lex-profi-msg ${q.who === 'client' ? 'is-client' : 'is-sent'}`);
+          root.appendChild(bubble);
+          nodes = [root];
+          lit = bubble;
+        }
+        let sheet = null;
+        const body = M.messageSheet({
+          nodes, lit,
+          onShow: t && typeof deps.showInChat === 'function' ? () => { if (sheet) sheet.close(); deps.showInChat(uid); } : null,
+          onReply: () => {
+            if (sheet) sheet.close();
+            if (t) { self.replyTo(uid); return; }
+            if (typeof deps.reply === 'function') deps.reply({ quoteUid: uid, head: replyHead(q), text: M.quoteWords(q) });
+          },
+        });
+        M.mark(body.querySelector('.lex-msgsheet-lane'), null);
+        sheet = deps.sheet({ title, body });
       },
 
       // The person's word to the model: on the right, grey, «To Lex» over it, the time under it.
@@ -625,7 +832,8 @@
             return words;
           }
           const idx = i++;
-          return boxNode(p.text, streaming || p.open ? null : wins.find((w) => w.idx === idx) || null, boxDeps());
+          const win = streaming || p.open ? null : wins.find((w) => w.idx === idx) || null;
+          return boxNode(p.text, win, boxDeps(), self.boxQuote(p, win));
         }));
       },
 
@@ -644,14 +852,21 @@
       // LexSendLater.menu: a grey line on top, the mark of the place by the first item.
       sendMenu(text) {
         if (!data || !data.chatKey || !String(text || '').trim()) return null;
+        // The line of a reply over the field (В7.26): the text goes as the answer to that message, and
+        // the line leaves with it. Without a line the call is as it was.
+        const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
         const send = async (at) => {
           const r = await deps.rpc('profi_send_text', {
             p_op_id: newOpId(), p_order: deps.order, p_text: text, p_at: at ? at.toISOString() : null,
+            ...(quoteUid ? { p_quote_uid: quoteUid } : {}),
           });
           deps.reload();
+          if (r && quoteUid && typeof deps.replyDone === 'function') deps.replyDone();
           return !!r;
         };
-        const place = data.replyTo || null;
+        // A reply goes to the channel of the message it answers (profi_message_looks.sql); without a line of
+        // a reply — where the client wrote last.
+        const place = quoteUid ? ((data.channels && data.channels[quoteUid]) || 'profi') : (data.replyTo || null);
         const mark = global.LexMessage && global.LexMessage.channel(place || 'profi');
         return {
           head: `To ${data.client || 'the client'}, without Lex`,
@@ -703,10 +918,13 @@
           if (n.classList.contains('lex-profi-hidden')) n.classList.remove('lex-profi-hidden');
         }
         flush();
-        const read = new Set((data && data.readTurns) || []);
-        for (const svg of thread.querySelectorAll('.lex-profi-msg.is-sent[data-uid] .lex-profi-tick')) {
-          const uid = svg.closest('[data-uid]').dataset.uid;
-          if ((svg.dataset.read === '1') !== read.has(uid)) setTick(svg, read.has(uid));
+        // A message whose look the fresh reading says otherwise — a reaction, an edit, a deletion, the
+        // client read it — is drawn again in its place (the ticks turn blue so too).
+        lane = thread;
+        for (const n of thread.querySelectorAll(':scope > .lex-profi-msg[data-uid]')) {
+          const t = drawn.get(n.dataset.uid);
+          if (!t) continue;
+          if (n.dataset.look !== sigOf(n.dataset.uid)) n.replaceWith(self.messageNode(t));
         }
       },
 

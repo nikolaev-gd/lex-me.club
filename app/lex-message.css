@@ -723,6 +723,110 @@
 }
 .lex-reply .lex-reply-close:hover { background: var(--bg-hover); color: var(--fg, var(--lex-plain-fg)); }
 
+/* ── The look of a message as in Telegram (В7.35–В7.40, 2026-11-16) ─────────────
+ * A quote (В7.35) over the text of a reply: a bar 2 (radius 1) --fg-soft, through 8 the name 13/600
+ * --fg-soft and one line 13 --fg-muted with an ellipsis (lines 18), 4 over the text; in a bubble that
+ * went and in a draft all three take the colour of the bubble's line. A voice message — the microphone
+ * 16 before the words; a photo — 36 square, radius 6, before the words. The quote is one button: its
+ * zone of 44 goes 4 past it up and down, unseen; under the cursor --bg-hover. */
+.lex-quote {
+  -webkit-appearance: none; appearance: none;
+  position: relative; display: flex; align-items: stretch; gap: 8px;
+  box-sizing: border-box; width: 100%; min-width: 0; margin: 0 0 4px; padding: 0;
+  border: 0; border-radius: 6px; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; transition: background-color 120ms ease;
+}
+.lex-quote::before { content: ''; position: absolute; inset: -4px 0; }
+.lex-quote:hover, .lex-quote:focus-visible { background: var(--bg-hover, var(--lex-plate)); outline: none; }
+.lex-quote:active { background: var(--bg-active, var(--lex-plate)); }
+.lex-quote:disabled { cursor: default; background: transparent; }
+.lex-quote-bar { flex: 0 0 auto; width: 2px; border-radius: 1px; background: var(--fg-soft, var(--lex-plate-fg)); }
+.lex-quote-photo { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--lex-plate); }
+.lex-quote-words { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.lex-quote-name {
+  overflow: hidden; color: var(--fg-soft, var(--lex-plate-fg));
+  font-size: 13px; font-weight: 600; line-height: 18px; white-space: nowrap; text-overflow: ellipsis;
+}
+.lex-quote-line { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.lex-quote-mark { flex: 0 0 auto; width: 16px; height: 16px; }
+.lex-quote-text { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Copy (В7.22) over a quote: the same box 20 in the same corner (8 from the top, 4 into the padding of
+ * 12), the quote beside it 24 narrower — 20 of the box and 8 to its left, less the 4. */
+.lex-bubble.has-quote-copy > .lex-bubble-copy { position: absolute; top: 8px; right: 8px; float: none; margin: 0; }
+.lex-bubble.has-quote-copy > .lex-quote { width: calc(100% - 24px); }
+.lex-bubble.is-out .lex-quote-bar { background: var(--lex-bubble-out-meta); }
+.lex-bubble.is-out .lex-quote-name, .lex-bubble.is-out .lex-quote-line { color: var(--lex-bubble-out-meta); }
+
+/* Reactions (В7.38): pills 24 (radius 12) on --bg-hover, the emoji 15, at the bottom left of the bubble;
+ * the stamp at the right of the same row, which stands 4 under the text. */
+.lex-bubble-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.lex-bubble-foot > .lex-stamp { margin-top: 0; margin-left: auto; }
+.lex-reacts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.lex-react {
+  flex: 0 0 auto; box-sizing: border-box; height: 24px; padding: 0 8px; border-radius: 12px;
+  background: var(--bg-hover, var(--lex-plate)); font-size: 15px; line-height: 24px;
+}
+
+/* Forwarded, edited, deleted (В7.39): «Forwarded from <name>» over the text — the mark 16 --fg-muted
+ * and the words 600 --fg-soft, through 6, 2 over what follows; «edited», or a bin 12 and «deleted»,
+ * in the stamp before the time; a deleted message paler. The earlier text of an edited one opens under
+ * a line --line across the bubble: «Before the edit · 10:24» 12/600 and the text 13, both --fg-muted. */
+.lex-forward {
+  display: flex; align-items: center; gap: 6px; min-width: 0; margin-bottom: 2px;
+  color: var(--fg-soft, var(--lex-plate-fg)); font-size: 13px; font-weight: 600; line-height: 18px;
+}
+.lex-forward-mark { flex: 0 0 auto; width: 16px; height: 16px; color: var(--fg-muted); }
+.lex-forward-words { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-bubble.is-out .lex-forward, .lex-bubble.is-out .lex-forward-mark { color: var(--lex-bubble-out-meta); }
+.lex-stamp-deleted { display: inline-flex; align-items: center; gap: 4px; }
+.lex-stamp-deleted svg { flex: 0 0 auto; width: 12px; height: 12px; }
+.lex-bubble.is-deleted { opacity: .5; }
+.lex-earlier-line { height: 1px; margin: 6px -12px 0; background: var(--line, var(--lex-plate)); }
+.lex-earlier-head {
+  margin-top: 6px; color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.lex-earlier-text {
+  margin-top: 2px; color: var(--fg-muted); font-size: 13px; line-height: 18px;
+  white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text;
+}
+.lex-bubble.is-out .lex-earlier-head, .lex-bubble.is-out .lex-earlier-text { color: var(--lex-bubble-out-meta); }
+
+/* Emoji and a sticker (В7.40): a message of emoji alone — 22 in its usual bubble; a sticker — the picture
+ * 120, radius 10, without a bubble, and under it through 4 the pill «Sticker · 10:31» 12 on --bg-hover. */
+.lex-bubble .lex-bubble-text.is-emoji { font-size: 22px; line-height: 28px; }
+.lex-sticker { display: flex; flex-direction: column; align-items: flex-start; margin-right: auto; }
+.lex-sticker.is-out { align-items: flex-end; margin-right: 0; margin-left: auto; }
+.lex-sticker-pic {
+  display: grid; place-items: center; width: 120px; height: 120px; overflow: hidden;
+  border-radius: 10px; background: var(--bg-hover, var(--lex-plate));
+}
+.lex-sticker-pic img, .lex-sticker-pic video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.lex-sticker-pic svg { display: block; width: 120px; height: 120px; }
+.lex-sticker-stamp {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 0 8px; border-radius: 10px;
+  background: var(--bg-hover, var(--lex-plate)); color: var(--fg-muted);
+  font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+/* The ticks under what went (В7.2), in every channel; a message lit by «Show in chat» for 1,5 s and the
+ * message itself in its sheet (В7.37) — a frame 2 --line-strong. */
+.lex-ticks { flex: 0 0 auto; width: 16px; height: 16px; }
+.lex-bubble.is-focus, .lex-sticker-pic.is-focus { box-shadow: 0 0 0 2px var(--line-strong, var(--lex-bubble-draft-line)); }
+
+/* The sheet of a message (В7.37): the common sheet В7.15 holds the message with its neighbours as
+ * bubbles, and under them two buttons of equal width through 6 — «Show in chat» and «Reply». */
+.lex-msgsheet { display: flex; flex-direction: column; }
+.lex-msgsheet-lane { display: flex; flex-direction: column; padding: 10px 0 0; }
+.lex-msgsheet-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; padding-top: 16px; }
+/* The menu of a message (В7.36): a finger held on a message with a menu opens it — no callout of the
+ * system and no selection under the finger; Copy is in the menu. A mouse selects the text as before. */
+@media (pointer: coarse) {
+  .lex-bubble.has-hold, .lex-sticker.has-hold { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+}
+.lex-btn.has-icon { flex-direction: row; gap: 8px; }
+.lex-btn.has-icon > svg { flex: 0 0 auto; width: 16px; height: 16px; }
+
 /* ── The message of an order (В7.29, 2026-11-14) ───────────────────────────────
  * One order — one message, as the bot of Profi writes it in Telegram: the bubble of the other
  * person across the whole lane (the lane has one sender, as a channel), the corner 6 bottom left,

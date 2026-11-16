@@ -59,9 +59,8 @@
 .lex-profi-head-foot { margin-top: 8px; color: var(--fg-muted); font-size: 12px; }
 .lex-profi-link { color: inherit; text-decoration: underline; }
 
-/* The messages of an order chat are the bubbles of lex-message.css, as in Telegram; the mark of
- * Profi stands after the time of what went to the client. */
-.lex-profi-tick { flex: 0 0 auto; width: 16px; height: 16px; }
+/* The messages of an order chat are the bubbles of lex-message.css, as in Telegram; the ticks
+ * (LexMessage.ticks, В7.2) stand after the time of what went to the client, in every channel. */
 .lex-bubbles > .wc-turn { margin-bottom: 6px; }
 .lex-bubbles > .wc-turn.lex-profi-msg { display: flex; flex-direction: column; }
 

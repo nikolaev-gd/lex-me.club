@@ -101,6 +101,24 @@
 //   replyBar({ head, text, onClose })   the line over the message box: the message the next one
 //                       answers (Reply)
 //
+// The look of a message as in Telegram (2026-11-16, ios/Lex/STANDARD.md В7.35–В7.40; what a message
+// carries is `looks` of profi_open):
+//   quote(q, o)         the quote of the message a reply answers, inside its bubble: a bar, the name and
+//                       one line; a press opens its sheet. q = { uid, who, name, text, kind, seconds,
+//                       photo }, o = { io, onPress(q) }
+//   bubble({ …, forwarded, quote, big, reactions, after, faded })   «Forwarded from …» on top, the
+//                       quote over the text, emoji alone at 22, the reactions left of the stamp, the
+//                       earlier text under it, a deleted message paler
+//   stamp({ …, edited, deleted })   «edited», or a bin and «deleted», before the time
+//   emojiOnly(text)     the text is emoji alone
+//   reactions(list, o), forwarded(name), earlier(edits)   the pills of reactions, the line of a
+//                       forward, the earlier versions of an edited message
+//   sticker(o)          a sticker without a bubble and the pill «Sticker · time» under it
+//   ticks(read), setTicks(svg, read)   the ticks under what went, in every channel (В7.2)
+//   messageSheet({ nodes, lit, onShow, onReply })   the insides of the sheet of a message: the
+//                       message in a frame with its neighbours, «Show in chat» and «Reply»
+//   messageIcon(name, size)   the marks of the menu of a message: 'reply', 'copy', 'earlier'
+//
 // A chat or a section is built only from these parts and from lex-section.js (CLAUDE.md,
 // docs/spec/27-sections.md, «Сообщения»). What is missing becomes a part here, for all.
 (function (global) {
@@ -548,25 +566,53 @@
     if (o.channel && CHANNELS[o.channel]) {
       root.append(channel(o.channel), channelName(o.channel), make('span', 'lex-stamp-dot', '·'));
     }
+    // В7.39: a message the person deleted at his side — a bin 12 and «deleted»; an edited one — «edited»;
+    // both before the time.
+    if (o.deleted) {
+      const gone = make('span', 'lex-stamp-deleted');
+      gone.append(strokes(TRASH_D, 12), make('span', '', 'deleted'));
+      root.appendChild(gone);
+    } else if (o.edited) root.appendChild(make('span', 'lex-stamp-edited', 'edited'));
     const time = o.timeText != null ? o.timeText : timeOf(o.at);
     if (time) root.appendChild(make('span', 'lex-stamp-time', time));
     if (o.tail) root.appendChild(o.tail);
     return root;
   }
 
+  // The look of a message as in Telegram (В7.35–В7.40) rides on the same bubble:
+  //   forwarded   «Forwarded from <name>» over everything (В7.39); true — «Forwarded», the author not known
+  //   quote       the quote of the message it answers, over the text (В7.35, quote() below)
+  //   big         the text is emoji alone: 22 (В7.40, emojiOnly())
+  //   reactions   the pills of the reactions (reactions()): at the bottom left, the stamp right of them
+  //   after       what opens under the stamp: the earlier text of an edited message (earlier())
+  //   faded       the person deleted it at his side: paler (В7.39); its stamp says so (stamp({ deleted }))
   function bubble(o) {
-    const root = make('div', `lex-bubble is-${o.side === 'out' ? 'out' : 'in'}${o.tone ? ` is-${o.tone}` : ''}${o.media ? ' has-media' : ''}`);
+    const corner = o.copy ? copyCorner(o.copy) : null;
+    const root = make('div', `lex-bubble is-${o.side === 'out' ? 'out' : 'in'}${o.tone ? ` is-${o.tone}` : ''}${o.media ? ' has-media' : ''}${o.faded ? ' is-deleted' : ''}${corner && o.quote ? ' has-quote-copy' : ''}`);
     if (o.label) root.appendChild(typeof o.label === 'string' ? make('div', 'lex-bubble-label', o.label) : o.label);
+    // Copy of a message (В7.22) stands in the top right corner of the bubble: over a quote it is the
+    // first thing of the bubble and the quote stands beside it, as narrow as the corner leaves it; without
+    // a quote it is in the text, which flows round it.
+    if (corner && o.quote) root.appendChild(corner);
+    if (o.forwarded) root.appendChild(forwarded(o.forwarded === true ? '' : o.forwarded));
+    if (o.quote) root.appendChild(o.quote);
     if (o.media) root.appendChild(o.media);
     let body = o.body;
     if (!body) {
       body = make('div', 'lex-bubble-text');
       body.textContent = o.text || '';
     } else body.classList.add('lex-bubble-text');
+    if (o.big) body.classList.add('is-emoji');
     // Copy of a message (В7.22): inside, top right; the text flows round it.
-    if (o.copy) body.prepend(copyCorner(o.copy));
+    if (corner && !o.quote) body.prepend(corner);
     if (!o.media || (body.textContent || '').trim()) root.appendChild(body);
-    if (o.stamp) root.appendChild(o.stamp);
+    if (o.reactions) {
+      const foot = make('div', 'lex-bubble-foot');
+      foot.appendChild(o.reactions);
+      if (o.stamp) foot.appendChild(o.stamp);
+      root.appendChild(foot);
+    } else if (o.stamp) root.appendChild(o.stamp);
+    if (o.after) root.appendChild(o.after);
     return root;
   }
 
@@ -1252,8 +1298,10 @@
   // the height growing with them: a variant of a question. `note` — a second line 12/400 under the
   // words («Extended Mind thinks so»).
   function button(o) {
-    const b = make('button', `lex-btn${o.main ? ' is-main' : ''}${o.left ? ' is-left' : ''}`);
+    const b = make('button', `lex-btn${o.main ? ' is-main' : ''}${o.left ? ' is-left' : ''}${o.icon ? ' has-icon' : ''}`);
     b.type = 'button';
+    // `icon` — a mark 16 before the words, through 8: the arrow of a reply on «Reply» (В7.37).
+    if (o.icon) b.appendChild(o.icon);
     b.appendChild(make('span', 'lex-btn-words', o.label || ''));
     if (o.note) b.appendChild(make('span', 'lex-btn-note', o.note));
     return b;
@@ -1476,6 +1524,257 @@
   // The arrow of a reply, 16: for the item «Reply» of a menu.
   const replyIcon = (size) => strokes(REPLY_D, size || 16);
 
+  // ── The look of a message as in Telegram (В7.35–В7.40) ───────────────────────
+  // Gennady's decision of 2026-11-16 (the canvas «Разделы Lex по стандарту», the page «Ответы на сообщения:
+  // утверждено»): a reply carries the quote of the message it answers inside its bubble; a press on the
+  // quote opens a sheet with that message and the chat does not move; every message has its menu by a long
+  // press — Reply, Copy, and Show the earlier text of an edited one; reactions, the forwarded, both versions
+  // of the edited, the deleted, a message of emoji alone, a sticker, the ticks of what went in every
+  // channel. What a message carries comes from the server (`looks` of profi_open); these parts only draw.
+  const FORWARD_D = ['M15 17l5-5-5-5', 'M4 18v-2a4 4 0 0 1 4-4h12'];
+  const MIC_D = ['M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z', 'M19 11a7 7 0 0 1-14 0', 'M12 18v3'];
+  const TRASH_D = ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'];
+  const EARLIER_D = ['M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8', 'M3 3v5h5', 'M12 7v5l4 2'];
+  const MESSAGE_ICONS = { reply: REPLY_D, copy: COPY_D, earlier: EARLIER_D };
+  // The marks of the items of a message's menu (В7.36): 'reply', 'copy', 'earlier'.
+  const messageIcon = (name, size) => strokes(MESSAGE_ICONS[name] || COPY_D, size || 16);
+
+  // Who said the quoted message: mine — «You» (Gennady's word on the canvas); the bot's — its name or «Bot»,
+  // as «Bot:» in the line of a chat (В7.34); the other person — his name.
+  function quoteName(q) {
+    if (q.who === 'me') return 'You';
+    const name = String(q.name || '').trim();
+    return name || (q.who === 'bot' ? 'Bot' : 'Client');
+  }
+  // The second line of a quote: the start of the message in one line, or what it was.
+  const QUOTE_KINDS = { voice: 'Voice message', photo: 'Photo', video: 'Video', file: 'File', sticker: 'Sticker' };
+  function quoteWords(q) {
+    const text = String(q.text || '').replace(/\s+/g, ' ').trim();
+    const kind = q.kind || 'text';
+    const long = Number(q.seconds) > 0 ? `, ${durationText(q.seconds)}` : '';
+    if (kind === 'voice') return `Voice message${long}`;
+    if (kind === 'sticker') return text ? `${text} Sticker` : 'Sticker';
+    if (kind === 'video' && !text) return `Video${long}`;
+    return text || QUOTE_KINDS[kind] || '';
+  }
+  // The photo of a quoted message, small, by its two lines: an address of Profi's picture server, or a
+  // stored file the window fetches (io.blob, as files() does).
+  function quotePhoto(p, io) {
+    if (!p || typeof p !== 'object') return null;
+    const img = make('img', 'lex-quote-photo');
+    img.alt = '';
+    img.decoding = 'async';
+    if (typeof p.url === 'string' && /^https:\/\//.test(p.url)) img.src = p.url;
+    else if (typeof p.path === 'string' && io && typeof io.blob === 'function') {
+      io.blob(p.path).then((u) => { if (u) img.src = u; else img.remove(); }, () => img.remove());
+    } else return null;
+    return img;
+  }
+
+  // A quote (В7.35): over the text of a reply, the message it answers — a bar 2 (radius 1), through 8 the
+  // name 600 and one line of the message with an ellipsis, 4 over the text; a voice message — the
+  // microphone 16 and «Voice message, 0:42», a photo — the photo small. In a bubble that went to the client
+  // and in a draft its colours are those of the bubble's line. The whole quote is one button with a zone of
+  // 44: a press opens the sheet of that message (В7.37), the chat does not move.
+  //   quote(q, o) — q as the server gives it: { uid, who: 'client'|'me'|'bot', name, text, kind, seconds,
+  //   photo: { url } | { path } }; o = { io, onPress(q) }
+  function quote(q, o) {
+    const opts = o || {};
+    const b = make('button', 'lex-quote');
+    b.type = 'button';
+    const name = quoteName(q);
+    b.setAttribute('aria-label', `Quote: ${name}. Show the message`);
+    b.appendChild(make('span', 'lex-quote-bar'));
+    const pic = quotePhoto(q.photo, opts.io);
+    if (pic) b.appendChild(pic);
+    const words = make('span', 'lex-quote-words');
+    const line = make('span', 'lex-quote-line');
+    if (q.kind === 'voice') {
+      const mic = strokes(MIC_D, 16);
+      mic.classList.add('lex-quote-mark');
+      line.appendChild(mic);
+    }
+    line.appendChild(make('span', 'lex-quote-text', quoteWords(q)));
+    words.append(make('span', 'lex-quote-name', name), line);
+    b.appendChild(words);
+    // A quote that leads nowhere (a copy of a message in its sheet) is not pressed.
+    if (typeof opts.onPress !== 'function') b.disabled = true;
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (typeof opts.onPress === 'function') opts.onPress(q);
+    });
+    return b;
+  }
+
+  // A message of emoji alone (В7.40) is 22 in its usual bubble. One rule with the iPhone (`LexEmoji.only`,
+  // MessageParts.swift): every letter of it, spaces aside, is a picture — its first sign is drawn as an
+  // emoji by itself, or is an emoji followed by more signs (❤️, 1️⃣, 👍🏽, a flag, a family).
+  const EMOJI_SELF = /\p{Emoji_Presentation}/u;
+  const EMOJI_ANY = /\p{Emoji}/u;
+  let graphemes = null;
+  function emojiOnly(text) {
+    const s = String(text || '').replace(/\s+/g, '');
+    if (!s) return false;
+    if (graphemes === null) {
+      graphemes = typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : false;
+    }
+    const letters = graphemes ? Array.from(graphemes.segment(s), (g) => g.segment) : [...s];
+    return letters.every((g) => {
+      const signs = [...g];
+      return EMOJI_SELF.test(signs[0]) || (signs.length > 1 && EMOJI_ANY.test(signs[0]));
+    });
+  }
+
+  // Reactions (В7.38): a pill 24 (radius 12) on --bg-hover, the emoji 15, one a reaction, at the bottom left
+  // of the bubble; the stamp stays at the right of the same row (bubble({ reactions })).
+  //   reactions(list, o) — list [{ emoji, who: 'client'|'me', at }]; o = { client } — the other person's
+  //   name for the words read from the screen. None — null.
+  function reactions(list, o) {
+    const items = (Array.isArray(list) ? list : []).filter((r) => r && typeof r.emoji === 'string' && r.emoji.trim());
+    if (!items.length) return null;
+    const row = make('div', 'lex-reacts');
+    for (const r of items) {
+      const e = r.emoji.trim();
+      const pill = make('span', 'lex-react', e);
+      pill.setAttribute('role', 'img');
+      pill.setAttribute('aria-label', `${r.who === 'me' ? 'You' : ((o && o.client) || 'The client')} reacted ${e}`);
+      row.appendChild(pill);
+    }
+    return row;
+  }
+
+  // Forwarded (В7.39): «Forwarded from <name>» over the text — the mark of a forward 16 --fg-muted and the
+  // words 600 --fg-soft, through 6; the author not known (WhatsApp keeps no author of the original) —
+  // «Forwarded» alone.
+  function forwarded(name) {
+    const n = make('div', 'lex-forward');
+    const mark = strokes(FORWARD_D, 16);
+    mark.classList.add('lex-forward-mark');
+    n.append(mark, make('span', 'lex-forward-words', name ? `Forwarded from ${name}` : 'Forwarded'));
+    return n;
+  }
+
+  // Both versions of an edited message (В7.39): Show the earlier text of its menu opens them in the bubble,
+  // under a line --line across it: «Before the edit · 10:24» 12/600 --fg-muted and the earlier text
+  // --fg-muted, the newest of them first. edits — [{ text, at }], the oldest first, as the server keeps
+  // them; none — null.
+  function earlier(edits) {
+    const list = (Array.isArray(edits) ? edits : []).filter((e) => e && typeof e.text === 'string');
+    if (!list.length) return null;
+    const n = make('div', 'lex-earlier');
+    n.appendChild(make('div', 'lex-earlier-line'));
+    for (const e of list.slice().reverse()) {
+      const time = timeOf(e.at);
+      n.append(make('div', 'lex-earlier-head', time ? `Before the edit · ${time}` : 'Before the edit'),
+        make('div', 'lex-earlier-text', e.text));
+    }
+    return n;
+  }
+
+  // A sticker (В7.40): the picture 120 (radius 10) without a bubble; under it, through 4, the pill «Sticker ·
+  // 10:31» 12 on --bg-hover, the ticks after it under what went. A sticker with no picture to draw (an
+  // animated one, a file that did not come) — its emoji large on the same plate.
+  //   sticker({ side, sticker: { emoji, path, url, mime }, at | timeText, tail, io })
+  function sticker(o) {
+    const s = (o && o.sticker) || {};
+    const root = make('div', `lex-sticker is-${o.side === 'out' ? 'out' : 'in'}`);
+    root.setAttribute('role', 'img');
+    root.setAttribute('aria-label', s.emoji ? `Sticker ${s.emoji}` : 'Sticker');
+    const pic = make('div', 'lex-sticker-pic');
+    // The emoji of the sticker drawn as its picture, 56 in the middle of the 120 (as on the canvas).
+    const face = () => {
+      const drawing = svg('0 0 120 120', 120);
+      if (s.emoji) {
+        const t = shape('text', { x: 60, y: 78, 'text-anchor': 'middle', 'font-size': 56, fill: 'currentColor', stroke: 'none' });
+        t.textContent = s.emoji;
+        drawing.appendChild(t);
+      }
+      pic.replaceChildren(drawing);
+    };
+    const mime = String(s.mime || '');
+    const drawn = !mime || /^(image|video)\//.test(mime);
+    const show = (src) => {
+      if (!src) { face(); return; }
+      const media = /^video\//.test(mime) ? make('video') : make('img');
+      if (media.tagName === 'VIDEO') {
+        media.muted = true;
+        media.loop = true;
+        media.autoplay = true;
+        media.playsInline = true;
+        media.setAttribute('muted', '');
+        media.setAttribute('playsinline', '');
+      } else {
+        media.alt = '';
+        media.decoding = 'async';
+      }
+      media.addEventListener('error', face);
+      media.src = src;
+      pic.replaceChildren(media);
+    };
+    if (drawn && typeof s.url === 'string' && /^https:\/\//.test(s.url)) show(s.url);
+    else if (drawn && typeof s.path === 'string' && o.io && typeof o.io.blob === 'function') o.io.blob(s.path).then(show, face);
+    else face();
+    const pill = make('div', 'lex-sticker-stamp');
+    const time = o.timeText != null ? o.timeText : timeOf(o.at);
+    pill.appendChild(make('span', '', time ? `Sticker · ${time}` : 'Sticker'));
+    if (o.tail) pill.appendChild(o.tail);
+    root.append(pic, pill);
+    return root;
+  }
+
+  // The ticks of what went (В7.2): the tick of Profi's own list of chats — the same drawing, colours and
+  // size — under everything that went, in every channel (2026-11-16): one grey stroke, it went; the second
+  // stroke and both blue, read. The server says which (`delivery` of a message). setTicks(svg, read) —
+  // the same ticks turn blue in place.
+  const TICK_GREY = '#838398';
+  const TICK_BLUE = '#617EF8';
+  function ticks(read) {
+    const n = svg('0 -1 13 13', 16);
+    n.removeAttribute('aria-hidden');
+    n.setAttribute('role', 'img');
+    n.setAttribute('fill', 'none');
+    n.setAttribute('class', 'lex-ticks');
+    for (const d of ['m.62 7.18 2.5 2.74L9.3 3.08', 'm6.21 9.92 6.17-6.84']) {
+      n.appendChild(shape('path', { d, 'stroke-width': 1.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    setTicks(n, read);
+    return n;
+  }
+  function setTicks(n, read) {
+    const [first, second] = n.querySelectorAll('path');
+    first.setAttribute('stroke', read ? TICK_BLUE : TICK_GREY);
+    if (read) second.setAttribute('stroke', TICK_BLUE); else second.removeAttribute('stroke');
+    second.setAttribute('stroke-dasharray', '10');
+    second.setAttribute('stroke-dashoffset', read ? '0' : '10');
+    n.dataset.read = read ? '1' : '0';
+    n.setAttribute('aria-label', read ? 'Read by the client' : 'Not read yet');
+  }
+
+  // The sheet of a message (В7.37): a press on a quote opens the common sheet В7.15 over the chat, which does
+  // not move; its title is when the message was («Вчера, 18:02», newsWhen). These are its insides: the
+  // message itself in a frame 2 --line-strong and its neighbours, as bubbles; under them two buttons of
+  // equal width through 6 — «Show in chat» (the second): the chat goes to the message and lights it for
+  // 1,5 s; «Reply» (the main, with the arrow of a reply): the line of a reply over the field (В7.26).
+  //   messageSheet({ nodes, lit, onShow, onReply }) — lit: the bubble of the message itself; no onShow —
+  //   the message is not in this chat, «Show in chat» is off.
+  function messageSheet(o) {
+    const root = make('div', 'lex-msgsheet');
+    const lane = make('div', 'lex-msgsheet-lane lex-bubbles');
+    lane.append(...(o.nodes || []));
+    if (o.lit) o.lit.classList.add('is-focus');
+    const foot = make('div', 'lex-msgsheet-foot');
+    const show = button({ label: 'Show in chat' });
+    show.disabled = typeof o.onShow !== 'function';
+    show.addEventListener('click', () => { if (typeof o.onShow === 'function') o.onShow(); });
+    const reply = button({ label: 'Reply', main: true, icon: replyIcon(16) });
+    reply.addEventListener('click', () => { if (typeof o.onReply === 'function') o.onReply(); });
+    foot.append(show, reply);
+    root.append(lane, foot);
+    return root;
+  }
+
   // ── News: a card of the feed and the head of a news (В7.31, В7.32) ──────────
   // Gennady's choice of 15.11.2026 on the canvas «News: 3 + 3 варианта»: the feed — board «Лента 3.
   // Карточки по виду источника», a news — board «Новость 1. Текст, потом разговор».
@@ -1560,5 +1859,6 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
+    sendHold, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1327,6 +1327,8 @@
         ...((inProfi || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
         // Reply in the feed of questions: the turns of the questions this message is about.
         ...(Array.isArray(m.emReply) && m.emReply.length ? { emReply: m.emReply.slice(0, 30) } : {}),
+        // Reply in an order chat: the message this word to Lex answers, by its turn (В7.26).
+        ...(typeof m.quoteUid === 'string' && m.quoteUid ? { quoteUid: m.quoteUid } : {}),
         // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
         // самому. chatKey — ключ, под которым строки реально ложатся (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).

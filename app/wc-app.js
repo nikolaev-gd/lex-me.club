@@ -1144,15 +1144,20 @@
     );
   }
   // Reply on a question or a pack: the line over the message box; the next message carries their
-  // turns (emReply) and the model is told which questions it is about. null — no line.
+  // turns (emReply) and the model is told which questions it is about. Reply on a message of an order
+  // chat (В7.26, 2026-11-16): the same line, «Reply to Dmitry»; the next word to Lex carries the message
+  // (quoteUid), and so does one's own text to the client (profi_send_text). null — no line.
   let reply = null;
   function setReply(r) {
-    reply = r && Array.isArray(r.uids) && r.uids.length ? { uids: r.uids.slice(0, 30), text: r.text || '' } : null;
+    const uids = r && Array.isArray(r.uids) ? r.uids.slice(0, 30) : [];
+    const quoteUid = r && typeof r.quoteUid === 'string' && r.quoteUid ? r.quoteUid : null;
+    reply = uids.length || quoteUid
+      ? { uids, quoteUid, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
     const slot = document.getElementById('wc-reply');
     if (!slot) return;
     slot.hidden = !reply;
     slot.replaceChildren(...(reply ? [global.LexMessage.replyBar({
-      head: 'Reply to Extended Mind', text: reply.text, onClose: () => setReply(null),
+      head: reply.head, text: reply.text, onClose: () => setReply(null),
     })] : []));
     if (reply) WcComposer.focus();
   }
@@ -1189,6 +1194,8 @@
     link.replaceChildren();
     main.classList.remove('is-profi-chat', 'is-profi-clean');
     paintProfiOutbox(null);
+    // The line of a reply on a message of this chat does not go to another chat.
+    if (reply && reply.quoteUid) setReply(null);
     if (profiChat) {
       profiChat = null;
       endVisit();
@@ -1288,6 +1295,13 @@
       // Reply yourself: the chat opens with the bot's draft and the discussion shown.
       clean: !(opts && opts.replySelf),
       order,
+      // The look of a message (В7.35–В7.40): the sheet of a quoted message (the common sheet В7.15), the
+      // way to it in the chat, and the line of a reply over the field (В7.26).
+      sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
+      showInChat: (uid) => WcThread.showTurn(uid),
+      reply: (r) => setReply(r),
+      replyQuote: () => (reply && reply.quoteUid) || null,
+      replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the list of the section is shown.
@@ -1512,6 +1526,9 @@
     state.requestId = requestId;
     // The line of a reply goes with this message and leaves the box.
     const replyNow = state.conversationId === EM_QUESTIONS_KEY ? reply : null;
+    // In an order chat — the message this word answers: its draft carries the quote while it is written.
+    const quoteNow = profiChat && reply && reply.quoteUid ? reply.quoteUid : null;
+    if (profiChat) profiChat.quoteSent(quoteNow);
     if (reply) setReply(null);
     // Номер операции — метка ОДНОГО нажатия. Из него считаются уиды обеих
     // реплик, и ровно то же правило применяет сервер: потому в базе на пузырь
@@ -1547,6 +1564,8 @@
         presetMode: (mode && opts && opts.presetMode) || null,
         // Reply in the feed of questions: the turns of the questions this message is about.
         emReply: (replyNow && replyNow.uids) || null,
+        // Reply in an order chat: the message this word to Lex answers (В7.26).
+        quoteUid: quoteNow,
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.

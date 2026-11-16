@@ -2335,6 +2335,10 @@
           // by their turns (supabase/migrations/em_questions_feed.sql).
           ...(chatOptions && Array.isArray(chatOptions.emReply) && chatOptions.emReply.length
             ? { emReply: chatOptions.emReply.slice(0, 30) } : {}),
+          // An order chat of Profi.ru: the message this word to Lex answers (Reply, В7.26), by its turn;
+          // the server tells the model and keeps it on the turn (profi_message_looks.sql).
+          ...(chatOptions && typeof chatOptions.quoteUid === 'string' && chatOptions.quoteUid
+            ? { quoteUid: chatOptions.quoteUid } : {}),
         },
       } : null;
       // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)
