@@ -16,6 +16,7 @@
 //   WC_LOAD_CONVERSATION  {id} → {ok, turns:[{role, text, uid, images}]}
 //   WC_RENAME_CONVERSATION{id, title} → {ok}
 //   WC_DELETE_CONVERSATION{id} → {ok}
+//   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread (the menu of a chat, В7.33)
 //   WC_SEND               {requestId, conversationId, text, images} → {ok, conversationId}
 //   WC_STOP               {requestId} → {ok}
 //   WC_MODELS             → {items, activeId}
@@ -661,8 +662,19 @@
   // Hiding, not deleting — the same rule as everywhere else in Lex. The rows in
   // public.video_chat_turns are never touched; that table keeps everything.
   // Отметка теперь на СЕРВЕРЕ, то есть скрытие видно на всех устройствах сразу.
+  // Delete chat of the menu of a chat goes by the common door of every list (chat_act,
+  // chat_states.sql): it hides the chat as set_chat_hidden did and keeps the mark with the others.
   WcBus.on('WC_DELETE_CONVERSATION', async (m) => {
-    await WcHistory.setChatHidden(m.id, true);
+    await WcHistory.chatAct(m.id, 'delete');
+    WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
+    return { ok: true };
+  });
+
+  // Pin, Unpin, Mark as read, Mark as unread: the server keeps the state of the chat, every device
+  // draws it from the next list.
+  WcBus.on('WC_CHAT_ACT', async (m) => {
+    if (!['pin', 'unpin', 'read', 'unread'].includes(m && m.act)) return { ok: false, error: 'no such act' };
+    await WcHistory.chatAct(m.id, m.act);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true };
   });

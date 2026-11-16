@@ -69,7 +69,7 @@
     // commands and writes
     'profi_command', 'profi_command_result', 'profi_send', 'profi_send_text', 'profi_send_at',
     'profi_send_cancel', 'profi_show_only_unanswered', 'open_news_item', 'save_news_position',
-    'save_news_settings', 'rename_chat', 'set_chat_hidden', 'lex_turn_stopped', 'attach_to_turn',
+    'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',
     'lex_live_register', 'lex_notification_set', 'lex_patch_user_settings',
     // the moment a chat was last open: taken and written, never shown from a copy

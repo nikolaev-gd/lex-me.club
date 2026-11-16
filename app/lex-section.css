@@ -174,6 +174,19 @@
   white-space: normal;
 }
 .lex-section .lex-section-row.is-wrap .lex-section-row-title { -webkit-line-clamp: 3; }
+/* A line of a chat (В7.34): the pin 14 and the time 12 at the right end of the title, 6 apart; the
+   digits of the time one width; «Bot:» before the last message of the bot in the soft colour. */
+.lex-section .lex-section-row.is-chat .lex-section-row-top { align-items: center; gap: 6px; }
+.lex-section .lex-section-row-pin { flex: 0 0 auto; display: flex; width: 14px; height: 14px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-section .lex-section-row-pin svg { display: block; width: 14px; height: 14px; }
+.lex-section .lex-section-row-time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-variant-numeric: tabular-nums;
+}
+.lex-section .lex-section-row-bot { color: var(--lex-section-soft, var(--lex-section-fg, #1d1d1f)); }
 .lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
 .lex-section .lex-section-mark {
   flex: 0 0 auto;

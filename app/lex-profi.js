@@ -870,6 +870,46 @@
       return !at || Date.now() - at > STALE_S * 1000;
     }
 
+    // The menu of a chat (lex-chat-menu.js, В7.33): Pin or Unpin, Mark as read or unread, Delete
+    // chat. The server decides what the press means for the list (chat_states.sql); the list is read
+    // anew at once, and every other window reads it by the signal of the change.
+    const DELETE_TEXT = 'It disappears from Lex. Nothing changes on Profi.ru or in the messengers. '
+      + 'A new message of the client brings it back.';
+    // The chats the client never answered stand folded in one line; Show opens them in place.
+    // Open or not is this window's own and lives as long as it.
+    let silentOpen = false;
+
+    async function chatAct(c, act) {
+      try {
+        await deps.rpc('chat_act', { p_op_id: newOpId(), p_chat_key: c.chatKey, p_act: act });
+      } catch (e) {
+        say((e && e.message) || 'It did not work.', true);
+        return;
+      }
+      await reloadHome();
+      if (frame.screen === 'home') paintHome();
+    }
+
+    // A line of a chat (В7.34): the name and the order, the time, the pin of a pinned one; the last
+    // message, «Bot:» before the bot's; the tick of Profi when Gennady or the bot wrote last.
+    function chatLine(c) {
+      const line = global.LexSection.row({
+        title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
+        end: c.tick ? tickNode(c.tick === 'read') : null,
+        time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot',
+      });
+      if (c.chatKey && global.LexChatMenu) {
+        const act = (name) => chatAct(c, name);
+        global.LexChatMenu.attach(line, () => ({
+          title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
+          remove: () => global.LexChatMenu.remove({ confirm: deps.confirm, text: DELETE_TEXT, act }),
+        }));
+      }
+      // A reply that waits in the feed opens the feed, not the chat: nothing to read ahead.
+      if (!c.feed) held.watch(line, c.order, stampOf(c));
+      return line;
+    }
+
     function paintHome() {
       const { body } = frame;
       held.unwatch();
@@ -885,19 +925,27 @@
         title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
       }));
-      for (const c of home.chats || []) {
-        const line = global.LexSection.row({
-          title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
-          // Gennady wrote last: the tick of Profi at the last message, as in Profi's list.
-          end: c.tick ? tickNode(c.tick === 'read') : null,
-        });
-        list.appendChild(line);
-        // A reply that waits in the feed opens the feed, not the chat: nothing to read ahead.
-        if (!c.feed) held.watch(line, c.order, stampOf(c));
-      }
+      // The order is the server's: pinned, the talk, the silent ones last (chat_states.sql).
+      const chats = home.chats || [];
+      const silent = chats.filter((c) => c.group === 'silent');
+      for (const c of chats) if (c.group !== 'silent') list.appendChild(chatLine(c));
       body.appendChild(list);
+      if (silent.length) {
+        const fold = global.LexMessage.fold({
+          text: (home.silent && home.silent.text) || `${silent.length} chats with no reply`,
+          action: silentOpen ? 'Hide' : 'Show',
+          onClick: () => { silentOpen = !silentOpen; paintHome(); },
+        });
+        fold.classList.add('lex-profi-fold');
+        body.appendChild(fold);
+        if (silentOpen) {
+          const rest = make('div', 'lex-section-list');
+          for (const c of silent) rest.appendChild(chatLine(c));
+          body.appendChild(rest);
+        }
+      }
       // «Only unanswered» left no chat: the server says so in its words.
-      if (!(home.chats || []).length && home.empty) body.appendChild(make('div', 'lex-profi-empty', home.empty));
+      if (!chats.length && home.empty) body.appendChild(make('div', 'lex-profi-empty', home.empty));
     }
 
     // ── new orders ───────────────────────────────────────────────────────────
@@ -1291,7 +1339,7 @@
     // the screen now), then the server's answer. Only the answer is fresh: what it says of the bot
     // (monitorSilent) and its number of change are the server's of now, a copy's are not.
     async function reloadHome(onCopy) {
-      await readKept('profi_home', {}, (h, fresh) => {
+      await readKept('profi_home', { p_groups: true }, (h, fresh) => {
         if (!h) return;
         home = h;
         homeFresh = fresh;

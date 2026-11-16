@@ -3,6 +3,8 @@
  * are the page's variables. */
 
 .lex-profi-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
+/* The line of the silent chats under the list (В7.4): 16 above it, 4 to the lines it opens. */
+.lex-profi .lex-fold.lex-profi-fold { margin: 16px auto 4px; }
 .lex-profi-text { padding: 16px 0; white-space: pre-wrap; font-size: 14px; }
 
 .lex-profi-btn {

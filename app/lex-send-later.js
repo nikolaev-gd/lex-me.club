@@ -21,11 +21,16 @@
 //   when(at, now)         a time for a line: «today at 18:30», «tomorrow at 09:00», «Thu 19 Nov at 18:00»
 //   stamp(at, now)        the time under a waiting message: «Today, 18:30», «Thu 19 Nov, 18:00»
 //   scheduledLine(at)     the line of a scheduled box: «Scheduled: tomorrow at 09:00.»
-//   menu(o)               the menu of a held button: { anchor, align: 'right'|'left', head, lit,
-//                         ring, choice, onClose, items: [{ label, icon: 'clock'|'pencil'|Node, checked, run() }] }
+//   menu(o)               the menu of a held button: { anchor, align: 'right'|'left', at: {x, y}, head,
+//                         lit, ring, choice, plain, onClose,
+//                         items: [{ label, icon: 'clock'|'pencil'|'pin'|…|Node, checked, danger, run() }] }
 //                         choice — a menu to pick one of several (the speed of a voice message, В7.21):
 //                         nothing will leave, so nothing is dimmed; 200 wide; the picked item is
-//                         brighter, with a check on the right. onClose() — the menu went, by any way
+//                         brighter, with a check on the right. plain — the menu of a chat in a list
+//                         (В7.33, lex-chat-menu.js): nothing is dimmed, `lit` (the line of the chat)
+//                         stands on --bg-hover while the menu is open; at — the menu opens at this
+//                         point (the pointer of a right click), not over the anchor. danger — the item
+//                         is red (Delete chat). onClose() — the menu went, by any way
 //   pick(o)               the sheet of the time: { text, client } → Promise<Date|null>
 (function (global) {
   'use strict';
@@ -94,6 +99,12 @@
     close: ['M6 6l12 12', 'M18 6L6 18'],
     calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M16 3v4', 'M8 3v4', 'M3 10h18'],
     check: ['M5 12l5 5L20 7'],
+    // The menu of a chat in a list (В7.33): pin, unpin, read, unread, delete.
+    pin: ['M12 17v5', 'M8 3h8', 'M9 3v7l-3 4h12l-3-4V3'],
+    pinOff: ['M12 17v5', 'M8 3h8', 'M9 3v7l-3 4h12l-3-4V3', 'M3 3l18 18'],
+    read: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M8 12l3 3 5-6'],
+    unread: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z'],
+    trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
   };
   function icon(name, size, line) {
     const s = document.createElementNS(NS, 'svg');
@@ -124,8 +135,10 @@
     if (closeOpen) closeOpen();
     const host = document.body;
     const catcher = make('div', 'lex-sl-catcher');
-    // A menu of choice dims nothing: nothing of the chat will leave by it.
-    const hole = o.choice ? null : make('div', 'lex-sl-hole');
+    // A menu of choice dims nothing: nothing of the chat will leave by it. Nor does the menu of a
+    // chat in a list (plain): its line only lights up.
+    const plain = !!o.plain;
+    const hole = o.choice || plain ? null : make('div', 'lex-sl-hole');
     const box = make('div', `lex-sl-menu${o.choice ? ' is-choice' : ''}`);
     box.setAttribute('role', 'menu');
     if (o.head) {
@@ -133,7 +146,7 @@
       box.setAttribute('aria-label', o.head);
     }
     o.items.forEach((it) => {
-      const b = make('button', `lex-sl-menu-item${it.checked ? ' is-checked' : ''}`);
+      const b = make('button', `lex-sl-menu-item${it.checked ? ' is-checked' : ''}${it.danger ? ' is-danger' : ''}`);
       b.type = 'button';
       if (o.choice) {
         b.setAttribute('role', 'menuitemradio');
@@ -160,13 +173,23 @@
       Object.assign(hole.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, borderRadius: radius });
     }
     if (o.ring) o.ring.classList.add('lex-sl-ring');
+    if (plain && o.lit) o.lit.classList.add('lex-sl-lit');
     host.append(...[catcher, hole, box].filter(Boolean));
-    const a = o.anchor.getBoundingClientRect();
     const m = box.getBoundingClientRect();
     const pad = 8;
-    let top = a.top - m.height - 8;
-    if (top < pad) top = a.bottom + 8;
-    let left = o.align === 'left' ? a.left : a.right - m.width;
+    let top;
+    let left;
+    if (o.at) {
+      // At the pointer, as the menu of a right click opens; turned back where it would not fit.
+      top = o.at.y + m.height > window.innerHeight - pad ? o.at.y - m.height : o.at.y;
+      left = o.at.x + m.width > window.innerWidth - pad ? o.at.x - m.width : o.at.x;
+      top = Math.max(pad, Math.min(top, window.innerHeight - m.height - pad));
+    } else {
+      const a = o.anchor.getBoundingClientRect();
+      top = a.top - m.height - 8;
+      if (top < pad) top = a.bottom + 8;
+      left = o.align === 'left' ? a.left : a.right - m.width;
+    }
     left = Math.max(pad, Math.min(left, window.innerWidth - m.width - pad));
     Object.assign(box.style, { left: `${left}px`, top: `${top}px` });
     const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -177,6 +200,7 @@
       if (hole) hole.remove();
       box.remove();
       if (o.ring) o.ring.classList.remove('lex-sl-ring');
+      if (plain && o.lit) o.lit.classList.remove('lex-sl-lit');
       document.removeEventListener('keydown', onKey, true);
       window.removeEventListener('resize', close);
       window.removeEventListener('scroll', close, true);

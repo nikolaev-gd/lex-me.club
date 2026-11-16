@@ -37,6 +37,8 @@
 
   const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
   const DOTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5h.01M12 12h.01M12 19h.01"/></svg>';
+  // The pin of a pinned chat (В7.34), the same drawing as Pin in the menu of a chat (lex-send-later.js).
+  const PIN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Pinned"><path d="M12 17v5"/><path d="M8 3h8"/><path d="M9 3v7l-3 4h12l-3-4V3"/></svg>';
 
   function make(tag, cls, text) {
     const n = document.createElement(tag);
@@ -124,27 +126,59 @@
   // What stands in it is the section's: title, sub, mark (a small label at the title), dot
   // (not read yet), strong (bold whatever is read), wrap (the title and the sub take several
   // lines), end (a node at the right end of the sub line), more (the menu of the dots), id and
-  // cls (of the main button), onClick.
+  // cls (of the main button), onClick. A line of a chat (В7.34) has more: time (at the right end
+  // of the title, listTime), pinned (the pin before the time) and bot (the last message is the
+  // bot's: «Bot:» before it). Its menu is the menu of a chat (lex-chat-menu.js).
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
     el.classList.toggle('is-strong', !!o.strong);
     el.classList.toggle('is-wrap', !!o.wrap);
+    el.classList.toggle('is-chat', o.time != null || !!o.pinned);
     const main = button(`lex-section-row-main${o.cls ? ` ${o.cls}` : ''}`, null, o.onClick);
     if (o.id != null) main.dataset.id = o.id;
     const top = make('span', 'lex-section-row-top');
     top.appendChild(make('span', 'lex-section-row-title', o.title));
     if (o.mark) top.appendChild(make('span', 'lex-section-mark', o.mark));
+    if (o.pinned) {
+      const pin = make('span', 'lex-section-row-pin');
+      pin.innerHTML = PIN;
+      top.appendChild(pin);
+    }
+    if (o.time) top.appendChild(make('span', 'lex-section-row-time', o.time));
     main.appendChild(top);
+    const sub = () => {
+      const n = make('span', 'lex-section-row-sub');
+      if (o.bot) n.append(make('span', 'lex-section-row-bot', 'Bot:'), ' ');
+      n.append(o.sub || '');
+      return n;
+    };
     if (o.end) {
       const line = make('span', 'lex-section-row-subline');
-      line.appendChild(make('span', 'lex-section-row-sub', o.sub || ''));
+      line.appendChild(sub());
       line.appendChild(o.end);
       main.appendChild(line);
-    } else if (o.sub) main.appendChild(make('span', 'lex-section-row-sub', o.sub));
+    } else if (o.sub) main.appendChild(sub());
     el.appendChild(main);
     if (o.more && o.more.length) el.appendChild(moreButton(o.more));
     return el;
+  }
+
+  // The time of a line of a chat (В7.34), the device's day: today — the hour, yesterday — «Вчера»,
+  // this year — the day and the month, before — the date.
+  function listTime(at, now) {
+    const d = at instanceof Date ? at : new Date(at);
+    if (!at || Number.isNaN(d.getTime())) return '';
+    const n = now ? new Date(now) : new Date();
+    const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const pad = (x) => String(x).padStart(2, '0');
+    const days = Math.round((day(n) - day(d)) / 86400000);
+    if (days <= 0) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if (days === 1) return 'Вчера';
+    if (d.getFullYear() === n.getFullYear()) {
+      return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' }).format(d);
+    }
+    return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`;
   }
 
   const markRead = (rowEl) => rowEl.classList.remove('is-unread');
@@ -422,5 +456,5 @@
     };
   }
 
-  global.LexSection = { createFrame, row, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep };
+  global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep };
 })(typeof window !== 'undefined' ? window : globalThis);

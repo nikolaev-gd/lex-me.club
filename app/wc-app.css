@@ -49,6 +49,8 @@
   --bg-bubble:     #f0f0f1;
 
   --fg:            #1d1d1f;
+  /* Secondary text that still reads at a glance: «Bot:» in a line of a chat (В7.34). */
+  --fg-soft:       rgba(0, 0, 0, .62);
   --fg-muted:      rgba(0, 0, 0, .56);
   --fg-faint:      rgba(0, 0, 0, .40);
 
@@ -161,6 +163,7 @@
     --bg-bubble:   var(--lex-dark-bubble);
 
     --fg:          var(--lex-dark-fg);
+    --fg-soft:     var(--lex-dark-fg-soft);
     --fg-muted:    var(--lex-dark-fg-muted);
     --fg-faint:    var(--lex-dark-fg-faint);
 
@@ -198,6 +201,7 @@
   --bg-bubble:   var(--lex-dark-bubble);
 
   --fg:          var(--lex-dark-fg);
+  --fg-soft:     var(--lex-dark-fg-soft);
   --fg-muted:    var(--lex-dark-fg-muted);
   --fg-faint:    var(--lex-dark-fg-faint);
 
@@ -553,6 +557,7 @@ button { font: inherit; color: inherit; }
   --lex-section-bg-on-fg: var(--bg);
   --lex-section-fg:     var(--fg);
   --lex-section-muted:  var(--fg-muted);
+  --lex-section-soft:   var(--fg-soft);
   --lex-section-line:   var(--line);
   --lex-section-hover:  var(--bg-hover);
   --lex-section-danger: var(--danger);
@@ -619,6 +624,22 @@ button { font: inherit; color: inherit; }
   font-size: 14px;
 }
 .wc-conv-title.is-untitled { color: var(--fg-muted); }
+/* A chat marked unread (В7.34): the dot 7 of «look here» on the margin, the title 600; a pinned
+   chat: the pin 14 before the three dots. */
+.wc-conv.is-unread::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--attention);
+  transform: translateY(-50%);
+}
+.wc-conv.is-unread .wc-conv-title { font-weight: 600; }
+.wc-conv-pin { flex: none; display: flex; width: 14px; height: 14px; color: var(--fg-muted); }
+.wc-conv-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Kept in the DOM rather than added on hover: an element that only exists
    while the pointer is over it is unreachable by keyboard and by touch. It is

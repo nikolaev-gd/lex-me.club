@@ -13,10 +13,15 @@
 // СПИСОК ПРИХОДИТ ПОРЦИЯМИ. Дотянул до низа — просим следующую. Порог берётся
 // с запасом в пол-экрана, чтобы следующая порция успевала приехать до того,
 // как человек упрётся в конец.
+//
+// The menu of a row is the menu of a chat of every list (lex-chat-menu.js, В7.33): Pin or Unpin,
+// Mark as read or Mark as unread, Rename, Delete chat — by the three dots, a right click and a hold
+// on a touch screen. The pinned chats stand first under «Pinned», a chat marked unread has the dot:
+// both are the server's (chat_states.sql), the list draws them.
 (function (global) {
   'use strict';
 
-  const { el, icon, iconBtn, menu, confirm, prompt } = WcUI;
+  const { el, icon, iconBtn, confirm, prompt } = WcUI;
 
   let elList, elSidebar, elRoot, elScrim;
   let hooks = {};
@@ -63,26 +68,23 @@
     await hooks.onRename(id, next);
   }
 
-  function rowMenu(anchor, it) {
-    menu(anchor, [
-      { label: 'Rename', icon: 'pencil', onSelect: () => doRename(it.id) },
-      { separator: true },
-      {
-        label: 'Delete',
-        icon: 'trash',
-        danger: true,
-        onSelect: async () => {
-          const t = displayTitle(it);
-          const ok = await confirm(
-            'Delete this chat?',
-            'It disappears from the list. The conversation itself stays in the cloud — nothing is lost there.'
-              + (t.untitled ? '' : '\n\n' + t.text),
-            { okText: 'Delete', danger: true }
-          );
-          if (ok) await hooks.onDelete(it.id);
-        },
-      },
-    ]);
+  // What the menu of a chat knows of this row at the moment of the press.
+  function chatMenu(it) {
+    const t = displayTitle(it);
+    const act = (name) => (name === 'delete' ? hooks.onDelete(it.id) : hooks.onAct(it.id, name));
+    return {
+      title: t.untitled ? 'Chat' : t.text,
+      pinned: !!it.pinned,
+      unread: !!it.unread,
+      act,
+      rename: () => doRename(it.id),
+      remove: () => global.LexChatMenu.remove({
+        confirm,
+        text: 'It disappears from the list. The conversation itself stays in the cloud — nothing is lost there.'
+          + (t.untitled ? '' : '\n\n' + t.text),
+        act,
+      }),
+    };
   }
 
   function row(it) {
@@ -104,26 +106,36 @@
     }
 
     const t = displayTitle(it);
+    let line = null;
     const more = iconBtn('dots', 'More', (e) => {
       e.stopPropagation();
-      rowMenu(e.currentTarget, it);
+      const r = e.currentTarget.getBoundingClientRect();
+      global.LexChatMenu.open({ ...chatMenu(it), row: line, at: { x: r.left, y: r.bottom } });
     }, 'wc-conv-more');
 
-    return el('.wc-conv' + (it.id === activeId ? '.is-active' : ''), {
+    // The pin and the dot are the server's word (В7.34); a press on an unread chat reads it.
+    line = el('.wc-conv' + (it.id === activeId ? '.is-active' : '') + (it.unread ? '.is-unread' : ''), {
       role: 'listitem',
       tabindex: '0',
-      onclick: () => hooks.onOpen(it.id),
+      onclick: () => open(it),
       onkeydown: (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); hooks.onOpen(it.id); }
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(it); }
         else if (e.key === 'F2') { e.preventDefault(); doRename(it.id); }
       },
-      // A long press is how a touch device reaches a hover menu. Kept
-      // alongside the visible button, not instead of it.
-      oncontextmenu: (e) => { e.preventDefault(); rowMenu(more, it); },
     }, [
       el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
+      ...(it.pinned ? [el('span.wc-conv-pin', { title: 'Pinned' }, [icon('pin')])] : []),
       more,
     ]);
+    // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside
+    // the visible button, not instead of it.
+    global.LexChatMenu.attach(line, () => chatMenu(it));
+    return line;
+  }
+
+  function open(it) {
+    hooks.onOpen(it.id);
+    if (it.unread && hooks.onAct) hooks.onAct(it.id, 'read');
   }
 
   // Отказ сети — ОТДЕЛЬНОЕ состояние от пустого списка, и это не педантизм:
@@ -149,7 +161,8 @@
     const nodes = [];
     let lastGroup = null;
     items.forEach((it) => {
-      const g = groupOf(it.updatedAt);
+      // The pinned chats come first from the server (list_chats with p_pins), under their own line.
+      const g = it.pinned ? 'Pinned' : groupOf(it.updatedAt);
       if (g !== lastGroup) { nodes.push(el('.wc-convs-group', { text: g })); lastGroup = g; }
       nodes.push(row(it));
     });

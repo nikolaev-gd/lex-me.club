@@ -1213,6 +1213,8 @@
       notify: (text) => toast(text, { error: true }),
       onChange: refreshProfiChat,
       head: paintProfiHead,
+      // Delete chat asks first (the dialog В7.16).
+      confirm: (title, text, o) => WcUI.confirm(title, text, o),
     });
   }
   // The head of New orders in the bar, where an order chat shows its client (lex-profi.js feedHead):
@@ -1721,6 +1723,20 @@
       if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
     } catch (err) {
       toast('Could not rename: ' + (err && err.message), { error: true });
+    }
+    await refreshConversations();
+  }
+
+  // The menu of a chat (lex-chat-menu.js): Pin, Unpin, Mark as read, Mark as unread. The list is read
+  // anew: what the press means for it is the server's. A read on opening says nothing when it fails.
+  async function actConversation(id, act) {
+    try {
+      const r = await WcBus.call('WC_CHAT_ACT', { id, act });
+      if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
+    } catch (err) {
+      if (act === 'read') console.warn('[wc] read:', err && err.message);
+      else toast('Could not change the chat: ' + (err && err.message), { error: true });
+      return;
     }
     await refreshConversations();
   }
@@ -2527,6 +2543,12 @@
       balanceFirst = false;
       WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
     });
+    // The state of a chat in a list changed on any device (chat_states.sql): pinned, read, unread,
+    // deleted. The list Chats is read anew; the list of Profi.ru follows its own signal «profi».
+    signals.follow(['chats'], (signal) => {
+      if (signal && signal.payload && String(signal.payload.chat || '').startsWith('__lex_profi__')) return;
+      if (signal) refreshConversations();
+    });
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
@@ -2642,6 +2664,7 @@
       onNew: newConversation,
       onRename: renameConversation,
       onDelete: deleteConversation,
+      onAct: actConversation,
       onToggle: onSidebarToggle,
       onLoadMore: loadMoreConversations,
       onRetry: refreshConversations,

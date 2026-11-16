@@ -313,7 +313,9 @@
 
   // kept — the first portion as this device kept it (lex-reads.js), or null without one.
   async function listChats(cursor, opts) {
-    const body = { p_limit: LIST_PAGE };
+    // The pinned chats first (chat_states.sql): the server puts them at the head of the first
+    // portion and leaves them out of the further ones.
+    const body = { p_limit: LIST_PAGE, p_pins: true };
     if (cursor && cursor.lastAt) {
       body.p_cursor_last_at = cursor.lastAt;
       body.p_cursor_id = cursor.cursorId;
@@ -335,15 +337,18 @@
       attachmentUrl: r.attachment_url || '',
       updatedAt: Date.parse(r.last_at) || 0,
       turnCount: r.turn_count || 0,
+      // The state of the chat in the list, the server's (chat_states.sql): pinned, marked unread.
+      pinned: !!r.pinned,
+      unread: !!r.unread,
     }));
-    const tail = rows[rows.length - 1];
+    const tail = rows.filter((r) => !r.pinned).pop() || rows[rows.length - 1];
     return {
       items,
       cursor: tail ? { lastAt: tail.last_at, cursorId: tail.cursor_id } : null,
       // «Пришло меньше, чем просили» — единственный честный признак конца.
       // Поэтому предел передаётся ЯВНО: положись мы на умолчание сервера,
       // сравнивать было бы не с чем, и прокрутка дёргала бы сервер без конца.
-      done: rows.length < LIST_PAGE,
+      done: rows.filter((r) => !r.pinned).length < LIST_PAGE,
     };
   }
 
@@ -364,6 +369,11 @@
   // беседа, убранная здесь, исчезает и в расширении, и на телефоне.
   const setChatHidden = (chatKey, hidden) =>
     post('/rest/v1/rpc/set_chat_hidden', { p_chat_key: chatKey, p_hidden: !!hidden });
+
+  // The menu of a chat (lex-chat-menu.js, В7.33): pin, unpin, read, unread, delete — the common door
+  // of every list (chat_states.sql). Delete hides a chat of the model as set_chat_hidden did.
+  const chatAct = (chatKey, act) =>
+    post('/rest/v1/rpc/chat_act', { p_op_id: (global.crypto && global.crypto.randomUUID ? global.crypto.randomUUID() : String(Date.now()) + Math.random()), p_chat_key: chatKey, p_act: act });
 
   // ── Попросить сервер придумать имя ───────────────────────────────────────
   //
@@ -611,6 +621,7 @@
     listChats,
     renameChat,
     setChatHidden,
+    chatAct,
     requestTitle,
     conversation,
     conversationOf,
