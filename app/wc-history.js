@@ -444,6 +444,29 @@
   // «Earlier entries»: the next reading of this feed takes one page more.
   function emEarlier(key) { emLimits.set(key, (emLimits.get(key) || EM_PAGE) + EM_PAGE); }
 
+  // ── The chats of the folders (Kolya, Other) ───────────────────────────────
+  // A chat of a person holds his whole past from every messenger: its latest messages
+  // (lex_folder_turns, folder_chats.sql), and «Earlier messages» takes one page more.
+  const FOLDER_KEY = /^__lex_folder__[0-9]{1,18}$/;
+  const FOLDER_PAGE = 300;
+  const folderLimits = new Map();
+  const isFolderKey = (key) => typeof key === 'string' && FOLDER_KEY.test(key);
+  const folderLimit = (key) => folderLimits.get(key) || FOLDER_PAGE;
+  function folderEarlier(key) { folderLimits.set(key, folderLimit(key) + FOLDER_PAGE); }
+  // Send of a chat of a folder: the text for the person, through the edge function folder-send.
+  async function folderSend(body) {
+    const token = await A().validToken();
+    if (!token) throw new Error('Sign in again.');
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/folder-send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body || {}),
+    });
+    const out = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    return out;
+  }
+
   // ── One conversation ─────────────────────────────────────────────────────
   //
   // ЧТО ПОКАЗАТЬ, РЕШАЕТ СЕРВЕР. Прямого запроса к video_chat_turns здесь
@@ -469,6 +492,7 @@
     // whole conversation (lex_em_feed_turns). «Earlier entries» asks for more of them.
     const [name, args] = isEmFeedKey(chatKey)
       ? ['lex_em_feed_turns', { p_chat_key: chatKey, p_limit: emLimit(chatKey) }]
+      : isFolderKey(chatKey) ? ['lex_folder_turns', { p_chat_key: chatKey, p_limit: folderLimit(chatKey) }]
       : ['list_turns', { p_chat_key: chatKey }];
     if (kept) {
       const out = await copies.kept(name, args);
@@ -498,6 +522,8 @@
       if (!key || key !== chatKey) continue;
       lesson.push(toTurn(r));
     }
+    // A chat of a folder: whether the server has earlier messages than these.
+    if (isFolderKey(chatKey)) return { lesson, apart: [], folderMore: !!(out && out.more) };
     const apart = [];
     const A = global.LexApart;
     for (const th of ((out && Array.isArray(out.apart)) ? out.apart : [])) {
@@ -647,6 +673,10 @@
     // One row of a conversation as the page holds a turn (a feed's changes come as rows).
     turnOf: (r) => toTurn(r),
     isEmFeedKey,
+    isFolderKey,
+    folderLimit,
+    folderEarlier,
+    folderSend,
     emEarlier,
     emLimit,
     money,

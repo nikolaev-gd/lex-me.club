@@ -202,7 +202,7 @@
   // a new one, and the «Новые» line stands over the first message that came after it. The
   // moment stays for the whole visit — a repaint does not move the line — and leaving the
   // chat, or the page going to the background, marks what came meanwhile as read.
-  const isIncomingKey = (key) => !!key && (WcHistory.isEmFeedKey(key) || /^__lex_profi__\d/.test(key));
+  const isIncomingKey = (key) => !!key && (WcHistory.isEmFeedKey(key) || WcHistory.isFolderKey(key) || /^__lex_profi__\d/.test(key));
   let visit = null;   // { key, since }
   async function beginVisit(key) {
     if (visit && visit.key === key) return;
@@ -490,7 +490,19 @@
     em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },
     profi: { title: 'Profi.ru', build: buildProfi, dropsStream: true, leave: leaveProfiChat },
+    // Questions: a button of its own (2026-11-17), it opens the feed of questions of the database
+    // itself, the one Extended Mind held before; no list of its own.
+    questions: { title: 'Questions', opens: () => openQuestions() },
   };
+  // A folder of chats (Kolya, Other; lex-folders.js) is a section the server names 'folder:<id>' with
+  // its title (lex_home_sections): its entry here is made when the server names it.
+  function folderSection(id, title) {
+    if (!/^folder:[a-z][a-z0-9_]{0,30}$/.test(String(id || ''))) return null;
+    if (!SECTIONS[id]) {
+      SECTIONS[id] = { title: title || id.slice(7), build: () => buildFolder(id), dropsStream: true, leave: leaveFolderChat, folder: id.slice(7) };
+    } else if (title) SECTIONS[id].title = title;
+    return SECTIONS[id];
+  }
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
   let sectionOn = null;
   function sectionEls() {
@@ -543,15 +555,19 @@
   // Every section the server names is then built and its list read (warm), so its first
   // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
   async function loadSections() {
-    const draw = (list) => global.LexNews.renderEntries(document.getElementById('wc-sections'), list, (id) => {
-      if (SECTIONS[id]) showSection(id);
-    });
+    const draw = (list) => {
+      for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
+      global.LexNews.renderEntries(document.getElementById('wc-sections'), list, (id) => {
+        if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
+        else if (SECTIONS[id]) showSection(id);
+      });
+    };
     let drawn = null;
     let sections = null;
     // The sections this page knows: the server names no other. The copy this device kept in the
     // first frame, the server's answer after it (lex-reads.js).
     try {
-      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news'] }, (list, fresh, same) => {
+      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news', 'folders', 'questions'] }, (list, fresh, same) => {
         if (!Array.isArray(list) || same) return;
         drawn = list;
         draw(list);
@@ -561,7 +577,8 @@
     }
     if (!drawn) draw([]);
     for (const s of (Array.isArray(sections) ? sections : (drawn || []))) {
-      if (!SECTIONS[s.id] || s.id === 'news') continue;
+      if (String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
+      if (!SECTIONS[s.id] || s.id === 'news' || !SECTIONS[s.id].build) continue;
       const live = ensureSection(s.id);
       if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
     }
@@ -649,10 +666,12 @@
       // before the one feed is that question there too).
       const item = (key.match(/^__lex_em_question_(-?\d+)__$/) || [])[1];
       const ref = typeof lex.ref === 'string' && lex.ref ? lex.ref : null;
-      await showSection('em');
+      // Questions have a button of their own: their feed opens straight, not through Extended Mind.
+      const kind = item ? 'question' : key.replace(/^__lex_em_|__$/g, '');
+      if (kind !== 'question') await showSection('em');
       if (!wanted()) return;
       if (item) await openEmFeed('question', wanted, ref || `em:${item}`);
-      else await openEmFeed(key.replace(/^__lex_em_|__$/g, ''), wanted, ref);
+      else await openEmFeed(kind, wanted, ref);
       return;
     }
     if (key) await openConversation(key, { wanted });
@@ -880,10 +899,15 @@
       console.warn('[wc] question:', e && e.message);
     }
     if (!wanted()) return;
-    await showSection('em');
-    if (!wanted()) return;
     const focus = found && found.item != null ? (found.turnUid || `em:${found.item}`) : null;
     await openEmFeed('question', wanted, focus);
+  }
+  // The button Questions: the feed of questions, the copy first as every feed.
+  let questionsPress = 0;
+  function openQuestions() {
+    const mine = ++questionsPress;
+    const wanted = () => mine === questionsPress;
+    openEmFeed('question', wanted).catch((e) => toast('The feed did not open. ' + ((e && e.message) || ''), { error: true }));
   }
   // A look skipped while the page was hidden or an answer was written: it goes when that ends.
   let emLookDue = false;
@@ -924,7 +948,7 @@
     // The feeds and the questions: the copy this device kept while the section holds none yet,
     // then the server's answer (lex-reads.js).
     async function readHome() {
-      await read('lex_em_feed_home', {}, (v) => { rows = v || []; paint(); }, () => !rows.length);
+      await read('lex_em_feed_home', { p_without: ['question'] }, (v) => { rows = v || []; paint(); }, () => !rows.length);
     }
     return {
       el: frame.el,
@@ -1050,7 +1074,7 @@
       : requests ? { title: 'Обращения к базе', sub: daySub(emRequestsDay) } : null);
     sectionEls().main.classList.add('is-em-feed');
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
-    await openConversation(key, { back: sectionTarget('em'), wanted, loaded: info.chat || null, focusUid });
+    await openConversation(key, { back: questions ? null : sectionTarget('em'), wanted, loaded: info.chat || null, focusUid });
     if (state.conversationId !== key) {
       if (!emOpen) { paintChatTitle(null); sectionEls().main.classList.remove('is-em-feed'); }
       return;
@@ -1168,6 +1192,18 @@
   // «Earlier entries» on the top of a feed that has more on the server.
   function emEarlierOf(r) {
     const key = state.conversationId;
+    // A chat of a folder: «Earlier messages» reads one page more of its past.
+    if (r && r.folderMore && WcHistory.isFolderKey(key)) {
+      const more = async () => {
+        await WcBus.call('WC_FOLDER_EARLIER', { key });
+        const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
+        if (!again || !again.ok || state.conversationId !== key) return;
+        if (profiChat) profiChat.words = monitorWords(again.turns);
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts() });
+      };
+      more.label = 'Earlier messages';
+      return more;
+    }
     if (!r || !r.emMore || !WcHistory.isEmFeedKey(key)) return null;
     return async () => {
       await WcBus.call('WC_EM_EARLIER', { key });
@@ -1244,7 +1280,9 @@
     main.classList.toggle('is-profi-clean', !!chat.clean);
     paintProfiBar();
     paintProfiOutbox(chat);
-    SECTIONS.profi.live.watch();
+    // The section the chat came from follows the server while it is open: Profi.ru, or its folder.
+    const from = SECTIONS[chat.sectionId || 'profi'];
+    if (from && from.live) from.live.watch();
     // The label of «Text model» in this chat: the model of order chats, the monitor's of
     // this chat by default — known once WC_PROFI_CHAT told it.
     refreshTextModelLabel();
@@ -1287,7 +1325,7 @@
   // then would cut its tail (docs/BACKLOG.md, «Чат заказа на странице может показать ответ модели
   // недописанным»).
   const monitorWords = (turns) => new Map((turns || [])
-    .filter((t) => t.uid && /^profi_/.test(t.origin || ''))
+    .filter((t) => t.uid && /^(profi|folder)_/.test(t.origin || ''))
     // a call (В7.42) draws from its view in the turn: a summary or a transcript that came changes the view
     .map((t) => [String(t.uid), (t.text || '') + (t.origin === 'profi_call' ? JSON.stringify(t.attachments || null) : '')]));
   function makeProfiChat(order, data, keep, opts) {
@@ -1363,6 +1401,7 @@
   async function refreshProfiChat(opts) {
     const chat = profiChat;
     if (!chat) return;
+    if (chat.folder) { await refreshFolderChat(opts); return; }
     const take = !!(opts && opts.take);
     const data = await newsRpc('profi_item', {
       p_order: chat.order, p_on_screen: take || document.visibilityState === 'visible', p_take: take,
@@ -1401,6 +1440,134 @@
     WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
     restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
+  }
+
+  // ── Folders of chats: Kolya, Other ────────────────────────────────────────
+  // The list of a folder is lex-folders.js; a chat of it is drawn by the order chat object of
+  // lex-profi.js (createChat with folder): the person's messages from every messenger, Gennady's,
+  // the marks of the messengers, files. There is no model in it: Send gives the text to the
+  // database, which sends it where the person wrote last (the edge function folder-send). A group
+  // has no Send. The chat lives in the same place as an order chat (profiChat).
+  function buildFolder(id) {
+    return global.LexFolders.createSection({
+      folder: SECTIONS[id].folder,
+      title: SECTIONS[id].title,
+      back: sectionBack,
+      signals,
+      rpc: newsRpc,
+      read,
+      openChat: (key, wanted, held, keepIt) => openFolderChat(id, key, wanted, held, keepIt),
+      notify: (text) => toast(text, { error: true }),
+      onChange: (payload) => refreshFolderChat({ payload }),
+      confirm: (title, text, o) => WcUI.confirm(title, text, o),
+    });
+  }
+  function leaveFolderChat() {
+    for (const s of Object.values(SECTIONS)) if (s.folder && s.live) s.live.unwatch();
+  }
+  function makeFolderChat(sectionId, data, keepIt) {
+    const chat = global.LexProfi.createChat({
+      folder: true,
+      rpc: newsRpc,
+      copy: copyText,
+      putBack: putBackIntoField,
+      clean: false,
+      sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
+      showInChat: (uid) => WcThread.showTurn(uid),
+      reply: (r) => setReply(r),
+      replyQuote: () => (reply && reply.quoteUid) || null,
+      replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
+      reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
+      sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
+    });
+    chat.folder = true;
+    chat.sectionId = sectionId;
+    chat.data = data;
+    chat.keep = keepIt || null;
+    return chat;
+  }
+  // A press on a chat of a folder: what the section holds (or this device kept) is on screen at once,
+  // and the press then reads it and takes the moment of the visit; nothing held — one answer.
+  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt) {
+    let held = heldNow;
+    if (!(held && held.chatKey && held.chat)) {
+      const copy = await kept('folder_item', { p_chat_key: key });
+      if (!wanted()) return;
+      if (copy && copy.chatKey && copy.chat) {
+        held = copy;
+        if (keepIt) keepIt(copy);
+      }
+    }
+    if (held && held.chatKey && held.chat) {
+      const chat = makeFolderChat(sectionId, held, keepIt);
+      await openConversation(held.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: held.chat });
+      if (profiChat === chat) await refreshFolderChat({ take: true }).catch((e) => console.warn('[wc] folder chat:', e && e.message));
+      return;
+    }
+    const data = await newsRpc('folder_item', { p_chat_key: key, p_on_screen: true, p_take: true });
+    if (!wanted()) return;
+    if (!data || !data.chatKey || !data.chat) { toast('The chat did not open', { error: true }); return; }
+    if (keepIt) keepIt(data);
+    const chat = makeFolderChat(sectionId, data, keepIt);
+    await openConversation(data.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: data.chat });
+  }
+  // The database changed something: a message came, one changed (a reaction, an edit, its file), a
+  // text went or did not. A signal about another chat is not read. take — the press that showed the
+  // chat from what was held: it is read and the visit's moment taken.
+  async function refreshFolderChat(opts) {
+    const chat = profiChat;
+    if (!chat || !chat.folder || !chat.data) return;
+    const told = opts && opts.payload && opts.payload.chatKey;
+    if (told && told !== chat.data.chatKey) return;
+    const take = !!(opts && opts.take);
+    const data = await newsRpc('folder_item', {
+      p_chat_key: chat.data.chatKey, p_on_screen: take || document.visibilityState === 'visible', p_take: take,
+      p_limit: WcHistory.folderLimit(chat.data.chatKey),
+    });
+    if (!data || !data.chatKey || profiChat !== chat) return;
+    if (chat.keep) chat.keep(data);
+    let moved = false;
+    if (take && data.chat && visit && visit.key === data.chatKey && (data.chat.since || null) !== (visit.since || null)) {
+      visit.since = data.chat.since || null;
+      moved = true;
+    }
+    chat.data = data;
+    paintProfiBar();
+    paintProfiOutbox(chat);
+    if (!data.chat || state.conversationId !== data.chatKey) return;
+    const r = await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks });
+    if (!r || !r.ok || profiChat !== chat || state.conversationId !== data.chatKey) return;
+    const shown = new Set(WcThread.shownUids());
+    const words = monitorWords(r.turns);
+    const before = chat.words || new Map();
+    const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
+    if (!moved && same) { WcThread.paintProfiBoxes(); return; }
+    chat.words = words;
+    WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r) });
+  }
+  // Send in a chat of a folder: the text goes to the database for the person (folder-send), which
+  // sends it where he wrote last, or to the messenger of the message it answers; it stands under the
+  // last message until it went. true — the server took it.
+  async function sendToFolder(chat, text, quoteUid) {
+    const words = String(text || '').trim();
+    if (!words || !chat || !chat.data) return false;
+    if (!chat.data.send) {
+      toast(chat.data.kind === 'group' ? 'Lex does not write to groups: answer in the messenger.' : 'This chat takes no messages now.', { error: true });
+      return false;
+    }
+    let out;
+    try {
+      out = await WcBus.call('WC_FOLDER_SEND', {
+        body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId(), ...(quoteUid ? { quoteUid } : {}) },
+      });
+    } catch (err) {
+      toast('Not sent. ' + ((err && err.message) || ''), { error: true });
+      return false;
+    }
+    if (quoteUid && reply && reply.quoteUid === quoteUid) setReply(null);
+    if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
+    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    return true;
   }
 
   // A chat left open behind other windows gets read when the person comes back to it.
@@ -1456,6 +1623,19 @@
 
   async function send(text, opts) {
     await settingsReady;
+    // A chat of a folder has no model: the text is for the person. A preset talks to the model, a
+    // picture is not sent to people (only text): both stay as they were.
+    if (profiChat && profiChat.folder) {
+      const chat = profiChat;
+      if ((opts && opts.mode) || WcAttach.count() > 0) {
+        if (!(opts && opts.mode)) WcComposer.setText(text || '');
+        toast('Only text goes to a person from Lex.', { error: true });
+        return;
+      }
+      const ok = await sendToFolder(chat, text, (reply && reply.quoteUid) || null);
+      if (!ok && profiChat === chat) WcComposer.setText(text || '');
+      return;
+    }
     // The chat on the screen came from this device's copy: the turn goes once the server's answer
     // is in, so its context is the server's. The answer did not come — once more now; failing
     // that, the turn does not go on a copy: the words go back into the field.
@@ -1682,7 +1862,7 @@
   // умолчанию модель монитора), в остальных — модель чатов Lex. Какая из двух, решает
   // открытый чат; хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
-    const profi = !!profiChat;
+    const profi = !!profiChat && !profiChat.folder;
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
     openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
@@ -1970,6 +2150,11 @@
 
   async function toggleVoice(opts) {
     await settingsReady;
+    // A chat of a folder is the conversation with a person: Lex does not talk in it.
+    if (profiChat && profiChat.folder && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
+      toast('Voice talk with Lex is not in the chats of folders.');
+      return;
+    }
     // Push-to-talk is not a different transport — it is the same live session
     // started with the microphone closed, opened only while the reader holds
     // the button on the voice screen. Doing it any other way would mean a
@@ -2835,7 +3020,7 @@
       attachedPage: () => attachedPage,
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
       // открывает меню моделей. Видят все, в каждом чате.
-      textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
+      textModel: () => ({ label: profiChat && !profiChat.folder ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
       // Holding the arrow: in an order chat the text goes to the client at once, without the
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),

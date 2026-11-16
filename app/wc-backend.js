@@ -1485,6 +1485,9 @@
   WcBus.on('WC_NEWS_POST', (m) => WcHistory.newsPost(m.kind, m.body));
   // The card of a person (lex-person.js, В7.41): one door of the server for the card, Edit and the marks.
   WcBus.on('WC_PERSON', (m) => WcHistory.personCard(m.body));
+  // A chat of a folder: Send to the person (folder-send), and one page more of its past.
+  WcBus.on('WC_FOLDER_SEND', (m) => WcHistory.folderSend(m.body));
+  WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
 
   WcBus.on('WC_STOP', async (m) => {
     const entry = inflightStreams.get(m.requestId);

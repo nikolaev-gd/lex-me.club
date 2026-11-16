@@ -55,6 +55,9 @@
     lex_em_feed_item: { by: ['p_kind'], limit: 10 },      //   a feed with its chat
     lex_em_question_item: { by: ['p_item'], limit: 60 },  //   a question with its chat
     lex_em_feed_turns: { by: ['p_chat_key'], limit: 10 }, //   a feed read as a chat
+    folder_home: { by: ['p_folder'], limit: 10 },          // a folder of chats (Kolya, Other): its list
+    folder_item: { by: ['p_chat_key'], limit: 60 },       //   a chat of it with its messages
+    lex_folder_turns: { by: ['p_chat_key'], first: ['p_before_uid'], limit: 40 }, //   its messages
     news_feed: {},                                        // News: its first letters and the place in them
     news_settings: {},                                    //   its settings
     news_chat_head: { by: ['p_chat_key'], limit: 40 },    //   what stands over a news chat
@@ -75,9 +78,9 @@
     // the moment a chat was last open: taken and written, never shown from a copy
     'lex_chat_seen',
     // stamps and changes: is there something new, what changed since
-    'profi_rev', 'lex_em_feed_rev', 'lex_em_feed_changes',
+    'profi_rev', 'lex_em_feed_rev', 'lex_em_feed_changes', 'folder_rev',
     // the opening of an item on the server, the session of a feed or of a chat
-    'profi_open', 'lex_em_feed_open', 'lex_em_question_open', 'chats',
+    'profi_open', 'lex_em_feed_open', 'lex_em_question_open', 'folder_open', 'chats',
     // «Разбор»: the numbers of its tabs (the window keeps the last ones itself, with their day) and
     // the question a record asked, found at the press
     'lex_em_intake_today', 'lex_em_intake_question',

@@ -427,7 +427,7 @@
   // The words of a message of the monitor as its bubble shows them: the links to its photos and the marks
   // of its files the bubble draws itself are out (the quote of it and Copy take the same words).
   function wordsOf(t) {
-    const out = t.origin === 'profi_sent';
+    const out = t.origin === 'profi_sent' || t.origin === 'folder_out';
     const shots = !out ? photosOf(t.attachments) : [];
     const stored = storedFilesOf(t.attachments);
     let words = shots.length ? withoutPhotoLinks(t.text, shots) : String(t.text || '');
@@ -445,9 +445,11 @@
     const photo = files.find((f) => f.kind === 'image' && f.path) || photosOf(t.attachments)[0] || null;
     const video = files.find((f) => f.kind === 'video');
     const kind = look.sticker ? 'sticker' : voice ? 'voice' : video ? 'video' : photo ? 'photo' : files.length ? 'file' : 'text';
-    const mine = t.origin !== 'profi_client';
+    // The person of a chat of a folder writes as folder_in; in a group his name rides in the look (author).
+    const mine = t.origin !== 'profi_client' && t.origin !== 'folder_in';
+    const author = typeof look.author === 'string' && look.author.trim() ? look.author.trim() : null;
     return {
-      uid: String(t.uid || ''), who: mine ? 'me' : 'client', name: mine ? null : (client || null),
+      uid: String(t.uid || ''), who: mine ? 'me' : 'client', name: mine ? null : (author || client || null),
       text: look.sticker ? (look.sticker.emoji || '') : wordsOf(t), kind,
       seconds: (voice || video || {}).duration || null,
       photo: photo ? (photo.path ? { path: photo.path } : { url: photo.url }) : null,
@@ -470,8 +472,12 @@
   // the look of a message (В7.35–В7.40): sheet({ title, body, onClose }) → { close } — the common sheet
   // of the window; showInChat(uid) — the chat goes to a message and lights it; reply({ quoteUid, head,
   // text }) — the line of a reply over the field (В7.26); replyQuote() — the uid of the message the line
-  // of a reply answers now, or null; replyDone() — the text left with it, the line goes
+  // of a reply answers now, or null; replyDone() — the text left with it, the line goes.
+  // folder — the chat of a person or a group of a folder of chats (Kolya, Other; folder_chats.sql): the same
+  // messages, with no order over them, no model, no clean view; sendText(text, quoteUid) → true once the
+  // server took the text for the person (the edge function folder-send). A group has no Send.
   function createChat(deps) {
+    const folder = !!deps.folder;
     let data = null;
     // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
     // with it on (Gennady, 2026-11-14): an order chat is first of all the conversation with
@@ -521,6 +527,8 @@
       // The order the way Profi shows it. On top what matters at a glance, then its blocks,
       // below what is seen less often. What stands where is the monitor's and the server's word.
       head() {
+        // A chat of a folder has no order: nothing stands over its messages.
+        if (folder) return document.createDocumentFragment();
         const root = make('header', 'lex-profi-head');
         if (!data) return root;
         // The title opens the order on the site of Profi (the arrow of the bar moved here,
@@ -589,11 +597,13 @@
       // o.still — a copy for the sheet of a message: no menu, a quote that does not open.
       messageNode(t, o) {
         const M = global.LexMessage;
-        const out = t.origin === 'profi_sent';
+        // A chat of a folder: what the person wrote on the left (folder_in), Gennady's on the right
+        // (folder_out), whichever messenger it went by.
+        const out = t.origin === 'profi_sent' || t.origin === 'folder_out';
         const notice = t.origin === 'profi_notice';
         const uid = String(t.uid || '');
         const named = data && data.channels && data.channels[uid];
-        const ch = !notice && named && M.CHANNELS[named] ? named : CHANNEL;
+        const ch = !notice && named && M.CHANNELS[named] ? named : folder ? null : CHANNEL;
         const look = lookOf(uid);
         const still = !!(o && o.still);
         if (!still) remember(t);
@@ -632,6 +642,8 @@
               ? M.quote(look.quote, { io: fileIo, onPress: still ? null : (q) => self.openQuote(q) }) : null;
             const edited = Array.isArray(look.edits) && look.edits.length > 0;
             node = M.bubble({ side: out ? 'out' : 'in', media,
+              // A group of a folder: the name of who wrote over his message, as Telegram has it.
+              label: folder && !out && typeof look.author === 'string' && look.author.trim() ? look.author.trim() : null,
               body: linkedText(make('div', '', ''), words),
               // «Forwarded from <name>»; `forwarded` alone — the author is not known (WhatsApp): «Forwarded».
               forwarded: typeof look.forwardedFrom === 'string' && look.forwardedFrom.trim() ? look.forwardedFrom.trim()
@@ -896,6 +908,29 @@
       // The person's own texts on their way to the client, at the end of the chat (outboxNode).
       paintOutbox(host) {
         if (!host) return;
+        // A chat of a folder: what Gennady sent and the database has not sent yet, and what it could not
+        // send (the last ten minutes). A sent one stands in the chat as his message once the database has it.
+        if (folder) {
+          const M = global.LexMessage;
+          // A stand account (not an account of the database) sends to nobody: its text says so.
+          const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent');
+          host.replaceChildren(...sends.map((s) => {
+            const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
+            const body = make('div', '', '');
+            body.textContent = s.text || '';
+            root.appendChild(M.bubble({ side: 'out', body }));
+            const note = make('div', 'lex-profi-box-note');
+            note.setAttribute('role', 'status');
+            note.textContent = s.state === 'failed'
+              ? `Not sent. ${s.error || ''}`.trim()
+              : s.state === 'stand' ? 'A stand account: this text goes to nobody.'
+              : `${s.channel ? `Sending to ${placeName(s.channel)}` : 'Sending'}${s.test ? ' (test chat)' : ''}…`;
+            root.appendChild(note);
+            return root;
+          }));
+          host.hidden = !sends.length;
+          return;
+        }
         const wins = ((data && data.windows) || []).filter((w) => w.outbox);
         host.replaceChildren(...wins.map((w) => outboxNode(w, boxDeps())));
         host.hidden = !wins.length;
@@ -911,6 +946,17 @@
         // The line of a reply over the field (В7.26): the text goes as the answer to that message, and
         // the line leaves with it. Without a line the call is as it was.
         const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
+        // A chat of a folder: the text goes to the person now, where he wrote last, or to the messenger of
+        // the message it answers; no time to pick (the queue of the database sends at once). A group — none.
+        if (folder) {
+          if (!data.send || typeof deps.sendText !== 'function') return null;
+          const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
+          const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
+          return {
+            head: `To ${data.client || data.title || 'the person'}`,
+            items: [{ label: `Send to ${where ? placeName(where) : 'the person'} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
+          };
+        }
         const send = async (at) => {
           const r = await deps.rpc('profi_send_text', {
             p_op_id: newOpId(), p_order: deps.order, p_text: text, p_at: at ? at.toISOString() : null,
@@ -991,6 +1037,17 @@
       bar() {
         const M = global.LexMessage;
         const person = make('div', 'lex-profi-person', '');
+        // A chat of a folder: the person or the group, and the messenger he wrote by last (a group: its
+        // own); no clean view (there is no talk with the model), no card yet (it opens from an order chat).
+        if (folder) {
+          const name = (data && (data.client || data.title)) || 'Chat';
+          const where = data && data.replyTo && M.CHANNELS[data.replyTo] ? M.CHANNELS[data.replyTo].name : '';
+          const line = data && data.kind === 'group' ? (where ? `Group · ${where}` : 'Group') : where;
+          const words = make('div', 'lex-profi-person-words', '');
+          words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
+          person.append(M.avatar(name, { io: fileIo }), words);
+          return { person, link: null, open: null, who: name };
+        }
         const who = (data && data.client) || 'Client';
         const words = make('div', 'lex-profi-person-words', '');
         words.append(make('div', 'lex-profi-person-name', who), make('div', 'lex-profi-person-channel', M.CHANNELS[CHANNEL].name));

@@ -866,7 +866,7 @@
       // A feed shows its latest entries; the earlier ones come by this button.
       if (opts && opts.emEarlier) {
         const b = el('button.wc-em-earlier', { type: 'button' }, []);
-        b.textContent = 'Earlier entries';
+        b.textContent = opts.emEarlier.label || 'Earlier entries';
         b.addEventListener('click', () => opts.emEarlier());
         elTurns.append(b);
       }
@@ -885,7 +885,9 @@
         }
         // The monitor's turns of an order chat: a message of the client, what went to him, a
         // notice of Profi.
-        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice')) {
+        // A chat of a folder: the person's messages and Gennady's, from every messenger.
+        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice'
+          || t.origin === 'folder_in' || t.origin === 'folder_out')) {
           elTurns.append(profiChat.messageNode(t));
           return;
         }
