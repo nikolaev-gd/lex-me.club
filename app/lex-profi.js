@@ -510,6 +510,9 @@
     };
     // Who said a message, for the line of a reply: the client by his first name, mine «You».
     const replyHead = (q) => `Reply to ${q.who === 'client' ? (firstName(q.name) || 'the client') : global.LexMessage.quoteName(q)}`;
+    // The calls the person opened, and their whole transcripts once loaded, while the chat is open: a repaint of the
+    // chat keeps a call open (В7.42).
+    const calls = new Map();
     const self = {
       order: deps.order,
       get data() { return data; },
@@ -837,6 +840,59 @@
         }));
       },
 
+      // A call with the client (В7.42, profi_calls.sql): the block with its summaries at the time of the call, or a
+      // plate for a missed call and a call without a recording (В7.3). Its view rides in the turn ({kind: 'call'});
+      // the whole transcript comes from the server when the person asks for it. It is the conversation with the
+      // client, so the clean view keeps it (lex-profi-msg).
+      callNode(t) {
+        const M = global.LexMessage;
+        const v = ((Array.isArray(t.attachments) ? t.attachments : []).find((a) => a && a.kind === 'call') || {}).call || {};
+        const root = make('div', 'wc-turn lex-profi-msg is-call');
+        if (t.uid) root.dataset.uid = String(t.uid);
+        if (t.authoredAt) root.dataset.at = t.authoredAt;
+        const ch = M.CHANNELS[v.channel] ? v.channel : null;
+        const at = v.at || t.authoredAt;
+        if (v.kind && v.kind !== 'call') {
+          root.classList.add('is-notice');
+          const who = firstName(data && data.client) || 'the client';
+          const text = v.kind === 'missed' ? `Missed call from ${who}`
+            : v.kind === 'noanswer' ? `Call to ${who}, no answer`
+            : v.kind === 'unrecorded' ? `Call, ${M.callLength(v.seconds)}, not recorded`
+            : v.direction === 'out' ? `Call to ${who}` : `Call from ${who}`;
+          root.appendChild(M.notice({ channel: ch, text, at }));
+          return root;
+        }
+        const key = String(v.key || '');
+        const st = calls.get(key) || { open: false, all: false, lines: null, loading: false };
+        calls.set(key, st);
+        const paint = () => root.replaceChildren(M.call({
+          channel: ch, at, seconds: v.seconds, state: v.state, short: v.short, sections: v.sections, lines: v.lines,
+          head: v.head, transcript: st.lines, open: st.open, all: st.all, loading: st.loading,
+          onToggle: (open) => {
+            st.open = open;
+            if (!open) st.all = false;
+            paint();
+          },
+          onAll: async () => {
+            if (!st.lines) {
+              st.loading = true;
+              paint();
+              try {
+                const r = await deps.rpc('profi_call_transcript', { p_order: deps.order, p_key: key });
+                st.lines = Array.isArray(r) ? r : null;
+              } catch (_) {
+                st.lines = null;
+              }
+              st.loading = false;
+            }
+            if (st.lines && st.lines.length) st.all = true;
+            paint();
+          },
+        }));
+        paint();
+        return root;
+      },
+
       // The person's own texts on their way to the client, at the end of the chat (outboxNode).
       paintOutbox(host) {
         if (!host) return;
@@ -928,7 +984,7 @@
         }
       },
 
-      // The bar over the chat: the client's letter, name and channel, and on the right the
+      // The bar over the chat: the client's photo or letter (В7.12), name and channel, and on the right the
       // button of the clean view (2026-11-14): pressed, only the conversation with the client
       // stays on the screen — the card of the order, the client's messages, what went to him and
       // the notices of Profi. The order on the site of Profi is the title of the card now.
@@ -938,12 +994,12 @@
         const who = (data && data.client) || 'Client';
         const words = make('div', 'lex-profi-person-words', '');
         words.append(make('div', 'lex-profi-person-name', who), make('div', 'lex-profi-person-channel', M.CHANNELS[CHANNEL].name));
-        person.append(M.avatar(who), words);
+        person.append(M.avatar(who, { photo: data && data.photo, io: fileIo }), words);
         // The photo and the name are one button of the window: it opens the card of the person
         // (lex-person.js, В7.41). null — the window gives no door of the card.
         const open = global.LexPerson && deps.person && data && data.chatKey
           ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
-            onChanged: deps.onPersonChanged, onGone: deps.onPersonGone })
+            onChanged: deps.onPersonChanged, onGone: deps.onPersonGone, io: fileIo })
           : null;
         const link = make('button', 'wc-icon-btn lex-profi-clean', '');
         link.type = 'button';
@@ -1055,11 +1111,14 @@
     const held = global.LexSection.keep({
       load: (order) => deps.rpc('profi_item', { p_order: order }).then((item) => remember(order, item)),
     });
-    const stampOf = (c) => [c.at, c.last, c.tick, c.unread, c.closed].join('|');
+    // the photo too: a new photo of the client is read again for the bar over the chat
+    const stampOf = (c) => [c.at, c.last, c.tick, c.unread, c.closed, c.photo || ''].join('|');
     const keepOf = (order) => (item) => held.put(order, remember(order, item));
 
-    const openOrder = (order) => frame.open(
-      (wanted) => deps.openOrder(order, wanted, held.get(order), keepOf(order)), 'The chat did not open.');
+    // opts.showLex — the chat opens with the discussion shown: the notification of a draft after a call brings the
+    // person to that draft (В7.42), which the clean view would hide.
+    const openOrder = (order, opts) => frame.open(
+      (wanted) => deps.openOrder(order, wanted, held.get(order), keepOf(order), opts), 'The chat did not open.');
 
     // A press on an order outside the feed. While its reply still waits there (Cancel or
     // Send), the order opens in the feed, the way Telegram shows it: opening a chat for it
@@ -1067,7 +1126,7 @@
     // of the list says so (feed); an order that has no line in the list asks the feed itself.
     // A failed read counts as waiting, so that a bad network never stops a reply either.
     let focusOrder = null;
-    async function openOrderOrFeed(order) {
+    async function openOrderOrFeed(order, opts) {
       const line = ((home && home.chats) || []).find((c) => c.order === order);
       let waits = true;
       if (line && typeof line.feed === 'boolean') waits = line.feed;
@@ -1078,7 +1137,7 @@
           waits = !!it && (it.actions || []).some((a) => a === 'cancel' || a === 'send');
         } catch (_) { waits = true; }
       }
-      if (!waits) { openOrder(order); return; }
+      if (!waits) { openOrder(order, opts); return; }
       focusOrder = order;
       if (frame.screen === 'feed') await paintFeed();
       else go('feed', (home && home.feed && home.feed.title) || 'New orders');
@@ -1111,10 +1170,12 @@
       if (frame.screen === 'home') paintHome();
     }
 
-    // A line of a chat (В7.34): the name and the order, the time, the pin of a pinned one; the last
-    // message, «Bot:» before the bot's; the tick of Profi when Gennady or the bot wrote last.
+    // A line of a chat (В7.34): the photo or the letter of the client 48 (В7.12), the name and the
+    // order, the time, the pin of a pinned one; the last message, «Bot:» before the bot's; the tick of
+    // Profi when Gennady or the bot wrote last.
     function chatLine(c) {
       const line = global.LexSection.row({
+        lead: global.LexMessage.avatar(c.client || c.title, { photo: c.photo, io: fileIo, size: 48 }),
         title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
@@ -1143,6 +1204,7 @@
       const list = make('div', 'lex-section-list');
       const feed = home.feed || {};
       list.appendChild(global.LexSection.row({
+        lead: global.LexMessage.avatarMark('profi', 48),
         title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
       }));

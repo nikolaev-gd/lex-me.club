@@ -636,7 +636,8 @@
     if (kind === 'profi_order' || (key.startsWith('__lex_profi__') && order)) {
       await showSection('profi');
       if (!wanted()) return;
-      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order);
+      // A draft after a call (В7.42): the chat opens with the discussion shown, on the draft.
+      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order, kind === 'profi_call_draft' ? { showLex: true } : undefined);
       else if (order) await SECTIONS.profi.live.openFeedAt(order);
       else SECTIONS.profi.live.openFeed();
       return;
@@ -1285,15 +1286,17 @@
   // недописанным»).
   const monitorWords = (turns) => new Map((turns || [])
     .filter((t) => t.uid && /^profi_/.test(t.origin || ''))
-    .map((t) => [String(t.uid), t.text || '']));
+    // a call (В7.42) draws from its view in the turn: a summary or a transcript that came changes the view
+    .map((t) => [String(t.uid), (t.text || '') + (t.origin === 'profi_call' ? JSON.stringify(t.attachments || null) : '')]));
   function makeProfiChat(order, data, keep, opts) {
     const chat = global.LexProfi.createChat({
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
       onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
-      // Reply yourself: the chat opens with the bot's draft and the discussion shown.
-      clean: !(opts && opts.replySelf),
+      // Reply yourself, and a notification of a draft after a call: the chat opens with the draft and the
+      // discussion shown.
+      clean: !(opts && (opts.replySelf || opts.showLex)),
       order,
       // The look of a message (В7.35–В7.40): the sheet of a quoted message (the common sheet В7.15), the
       // way to it in the chat, and the line of a reply over the field (В7.26).

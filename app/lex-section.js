@@ -130,16 +130,26 @@
   // lines), end (a node at the right end of the sub line), more (the menu of the dots), id and
   // cls (of the main button), onClick. A line of a chat (В7.34) has more: time (at the right end
   // of the title, listTime), pinned (the pin before the time) and bot (the last message is the
-  // bot's: «Bot:» before it). Its menu is the menu of a chat (lex-chat-menu.js).
+  // bot's: «Bot:» before it), and lead — the photo or the letter of the person 48 at the left
+  // (LexMessage.avatar, В7.12; New orders — LexMessage.avatarMark), 12 before the words; the dot of
+  // the unread then stands left of the photo. Its menu is the menu of a chat (lex-chat-menu.js).
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
     el.classList.toggle('is-strong', !!o.strong);
     el.classList.toggle('is-wrap', !!o.wrap);
     el.classList.toggle('is-chat', o.time != null || !!o.pinned);
+    el.classList.toggle('has-lead', !!o.lead);
     el.classList.toggle('is-muted', !!o.muted);
     const main = button(`lex-section-row-main${o.cls ? ` ${o.cls}` : ''}`, null, o.onClick);
     if (o.id != null) main.dataset.id = o.id;
+    // With a photo the words go into a block of their own, right of it.
+    let words = main;
+    if (o.lead) {
+      main.appendChild(o.lead);
+      words = make('span', 'lex-section-row-words');
+      main.appendChild(words);
+    }
     const top = make('span', 'lex-section-row-top');
     top.appendChild(make('span', 'lex-section-row-title', o.title));
     if (o.muted) {
@@ -154,7 +164,7 @@
       top.appendChild(pin);
     }
     if (o.time) top.appendChild(make('span', 'lex-section-row-time', o.time));
-    main.appendChild(top);
+    words.appendChild(top);
     const sub = () => {
       const n = make('span', 'lex-section-row-sub');
       if (o.bot) n.append(make('span', 'lex-section-row-bot', 'Bot:'), ' ');
@@ -165,8 +175,8 @@
       const line = make('span', 'lex-section-row-subline');
       line.appendChild(sub());
       line.appendChild(o.end);
-      main.appendChild(line);
-    } else if (o.sub) main.appendChild(sub());
+      words.appendChild(line);
+    } else if (o.sub) words.appendChild(sub());
     el.appendChild(main);
     if (o.more && o.more.length) el.appendChild(moreButton(o.more));
     return el;

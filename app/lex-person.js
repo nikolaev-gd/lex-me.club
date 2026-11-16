@@ -13,8 +13,10 @@
 // `blocks` as they come — a new block of the server is drawn with no change here — and sends three
 // questions: the card, Edit, Mute/Delete/Restore.
 //
-//   LexPerson.open({ chatKey, name, call, onGone })
+//   LexPerson.open({ chatKey, name, call, onGone, io })
 //     call(body) → Promise<{ card }>, refuses with Error(<words of the server>)
+//     io         — the files of the person's chats ({ blob(path) }, fileIo of lex-profi.js): the photo
+//                  the server keeps (`card.photo`) comes through it; none — the letter alone
 //     onGone()   — the sheet closed on a person deleted from Lex: his chat is off the list now
 (function (global) {
   'use strict';
@@ -119,12 +121,12 @@
   }
 
   // ── the card ─────────────────────────────────────────────────────────────────
-  function cardNode(card, act) {
+  function cardNode(card, act, io) {
     const M = global.LexMessage;
     const root = make('div', 'lex-person');
     const head = make('div', 'lex-person-head');
     const photo = make('div', 'lex-person-photo');
-    photo.appendChild(M.avatar(card.name, { photo: card.photo || null, size: 96 }));
+    photo.appendChild(M.avatar(card.name, { photo: card.photo || null, io, size: 96 }));
     head.append(photo, make('div', 'lex-person-name', card.name || ''));
     if (card.who) head.appendChild(make('div', 'lex-person-who', card.who));
     root.appendChild(head);
@@ -209,7 +211,7 @@
 
     const paint = () => {
       if (!sheet || editing) return;
-      sheet.body.replaceChildren(cardNode(card, act));
+      sheet.body.replaceChildren(cardNode(card, act, o.io));
     };
     const fail = (e) => UI.toast((e && e.message) || 'The server of Lex did not answer.', { error: true });
 

@@ -16,12 +16,6 @@
   align-items: center;
   text-align: center;
 }
-/* The photo or the letter 96 (В7.12): the part takes `size`; until it does, the letter is made 96 here. */
-.lex-person-photo .lex-avatar {
-  width: 96px;
-  height: 96px;
-  font-size: 40px;
-}
 .lex-person-name {
   margin-top: 12px;
   font-size: 22px;

@@ -375,6 +375,61 @@
 .lex-notice .lex-channel-name { font-weight: 650; }
 .lex-notice a { color: inherit; text-decoration: underline; }
 
+/* A call in a chat (В7.42, 2026-11-16): one block across the lane on the ground of the other person's bubble. The
+ * head — the mark of the place 20, «Zoom call» 15/650, « · 42 min · 12:00» quieter; 8 below — the short summary in
+ * the size of the conversation; 10 below — «Show the whole call». Open: under a line the detailed summary (titles
+ * 15/650, items with a dot), under a line the transcript (time 12, the name 12/600, the words 15), «Show the whole
+ * transcript» and «Hide»; in the head a chevron up in a zone of 44. While there is no summary — a ring and «Lex is
+ * writing the summary…». */
+.lex-call {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px 12px;
+  border-radius: 18px;
+  background: var(--lex-bubble-in);
+  color: var(--fg, var(--lex-plain-fg));
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.lex-call-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
+.lex-call-head > .lex-channel-icon { flex: 0 0 auto; display: block; }
+.lex-call-title { flex: 1 1 auto; min-width: 0; font-size: 15px; line-height: 20px; }
+.lex-call-name { font-weight: 650; }
+.lex-call-meta { font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.lex-call-fold {
+  -webkit-appearance: none; appearance: none;
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin: -10px -12px -10px 0; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--fg-muted);
+  cursor: pointer; transition: background-color 120ms ease;
+}
+.lex-call-fold:hover { background: var(--bg-hover); }
+.lex-call-short { margin-top: 8px; white-space: pre-wrap; }
+.lex-call-wait { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
+.lex-call-ring {
+  flex: 0 0 auto; box-sizing: border-box; width: 14px; height: 14px;
+  border: 2px solid var(--line); border-top-color: var(--fg-soft, var(--lex-plate-fg)); border-radius: 50%;
+  animation: lex-turn .9s linear infinite;
+}
+.lex-btn.has-icon > .lex-call-chevron { flex: 0 0 auto; display: block; }
+.lex-call .lex-call-more { display: flex; width: 100%; margin-top: 10px; }
+.lex-call .lex-call-more.is-hide { margin-top: 6px; }
+.lex-call-rule { height: 1px; margin: 12px -12px 0; background: var(--line); }
+.lex-call-rule.is-tr { margin-top: 14px; }
+.lex-call-sec { margin-top: 14px; font-size: 15px; font-weight: 650; line-height: 20px; }
+.lex-call-sec.is-tr { margin-top: 12px; }
+.lex-call-item { display: flex; gap: 8px; margin-top: 4px; }
+.lex-call-dot { flex: 0 0 auto; color: var(--fg-muted); }
+.lex-call-text { margin-top: 4px; white-space: pre-wrap; }
+.lex-call-tr { margin-top: 8px; }
+.lex-call-tr-head { display: flex; gap: 6px; font-size: 12px; line-height: 16px; color: var(--fg-muted); }
+.lex-call-tr-time { font-variant-numeric: tabular-nums; }
+.lex-call-tr-who { font-weight: 600; color: var(--fg-soft, var(--lex-plate-fg)); }
+.lex-call-tr-text { font-size: 15px; line-height: 20px; white-space: pre-wrap; }
+@media (prefers-reduced-motion: reduce) {
+  .lex-call-ring { animation: none; }
+}
+
 /* What is kept off the screen: one line in the middle, its action brighter. */
 .lex-fold {
   -webkit-appearance: none;
@@ -397,20 +452,38 @@
 .lex-fold .lex-fold-action { color: var(--lex-plain-fg); font-weight: 650; }
 .lex-fold:hover .lex-fold-action { text-decoration: underline; }
 
-/* A round letter of a person. */
+/* The photo or the letter of a person (В7.12): the letter on its colour, the photo over it once it came.
+   40 by default (the bar over a chat), 48 in the line of a chat, 96 in the card of a person. */
 .lex-avatar {
+  position: relative;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
+  overflow: hidden;
   border-radius: 50%;
   color: #FFFFFF;
   font-size: 17px;
   font-weight: 700;
   line-height: 1;
 }
+.lex-avatar.is-48 { width: 48px; height: 48px; font-size: 18px; }
+.lex-avatar.is-96 { width: 96px; height: 96px; font-size: 40px; }
+.lex-avatar > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.lex-avatar.has-photo > img { opacity: 1; }
+/* A channel in place of a person (the line of New orders): its mark 28 on the ground of a hover. */
+.lex-avatar.is-mark { background: var(--bg-hover, rgba(127, 127, 127, .16)); }
+.lex-avatar.is-mark > .lex-channel-icon { width: 28px; height: 28px; }
 
 /* In a chat of bubbles the day is a plate in the middle, as the notices are. */
 .lex-bubbles > .lex-msg-day {

@@ -191,6 +191,13 @@
   font-variant-numeric: tabular-nums;
 }
 .lex-section .lex-section-row-bot { color: var(--lex-section-soft, var(--lex-section-fg, #1d1d1f)); }
+/* A line of a chat with the photo or the letter of the person 48 at the left (В7.12, В7.34): 10 above
+   and below, the words 12 right of the photo; the dot of the unread stands left of the photo, at its
+   middle — the line starts 12 in for it. */
+.lex-section .lex-section-row.has-lead { padding-left: 12px; }
+.lex-section .lex-section-row.has-lead > .lex-section-row-main { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.lex-section .lex-section-row-words { display: block; flex: 1 1 auto; min-width: 0; }
+.lex-section .lex-section-row.has-lead.is-unread::before { top: 31px; left: 0; }
 .lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
 .lex-section .lex-section-mark {
   flex: 0 0 auto;

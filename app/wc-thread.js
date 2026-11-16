@@ -885,6 +885,11 @@
           elTurns.append(profiChat.messageNode(t));
           return;
         }
+        // A call with the client of an order (В7.42): the block with its summaries, or a plate.
+        if (profiChat && t.origin === 'profi_call' && profiChat.callNode) {
+          elTurns.append(profiChat.callNode(t));
+          return;
+        }
         // t.images is a list of ready object URLs — the backend resolved them
         // from this browser's picture store while loading the conversation.
         if (t.role === 'user') {

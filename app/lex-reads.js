@@ -83,6 +83,8 @@
     'lex_em_intake_today', 'lex_em_intake_question',
     // «Обращения к базе»: how many requests of the last 24 hours, under the title (asked on every new record)
     'lex_em_requests_day',
+    // the whole transcript of a call of an order chat, asked when the person opens it (В7.42)
+    'profi_call_transcript',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',
