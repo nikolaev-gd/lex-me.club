@@ -1064,13 +1064,14 @@
     paintUnsent(turn, o) {
       if (!turn) return;
       turn.classList.add('lex-unsent');
-      const holder = turn.firstElementChild || turn;
-      const old = holder.querySelector(':scope > .lex-unsent-note');
-      if (old) old.remove();
+      // The part goes into the row AFTER its `> div`, not into it: in an order chat that div is
+      // the bubble itself (lex-profi.js, dress), and the part would stand inside the bubble. The
+      // class of the row lays the part out under the bubble in both chats (lex-message.css).
+      for (const old of turn.querySelectorAll(':scope > .lex-unsent-note, :scope > div > .lex-unsent-note')) old.remove();
       const part = global.LexMessage && typeof global.LexMessage.unsent === 'function'
         ? global.LexMessage.unsent(o)
         : null;
-      if (part) { part.classList.add('lex-unsent-note'); holder.append(part); }
+      if (part) { part.classList.add('lex-unsent-note'); turn.append(part); }
       syncFeet();
     },
 
