@@ -2889,6 +2889,20 @@
       if (signal && signal.payload && String(signal.payload.chat || '').startsWith('__lex_profi__')) return;
       if (signal) refreshConversations();
     });
+    // A row of Claude Code that came without the owner's message — the Mac's work on a code
+    // task from this chat, its progress and its Итог (lex_cc_row_put, claude_code_rows.sql): the
+    // open chat is read anew, so the row appears and grows while the Mac works. Not while this
+    // page draws its own answer: the next signal after it brings the row. An order chat of Profi
+    // shows the row when opened again (its section reads it on its own signal).
+    let ccRowTimer = null;
+    signals.follow(['chat'], (signal) => {
+      const key = signal && signal.payload && String(signal.payload.chat || '');
+      if (!key || key !== state.conversationId || key.startsWith('__lex_profi__')) return;
+      clearTimeout(ccRowTimer);
+      ccRowTimer = setTimeout(() => {
+        if (state.conversationId === key && !WcThread.isStreaming()) openConversation(key).catch(() => {});
+      }, 300);
+    });
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.

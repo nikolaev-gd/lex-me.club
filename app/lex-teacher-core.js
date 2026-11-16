@@ -2394,6 +2394,9 @@
             type: 'STREAM_TOOL', requestId, phase: d.phase,
             id: typeof d.id === 'string' ? d.id : '', name: typeof d.name === 'string' ? d.name : '',
             label: typeof d.label === 'string' ? d.label : '', ok: d.ok !== false,
+            // Claude Code by the subscription (_shared/claude-code.ts): the whole line to show, and
+            // the line stays under the growing answer until the turn ends.
+            line: typeof d.line === 'string' ? d.line : '', cc: d.cc === true,
           });
         };
         proxy.onHeaders = (h) => {

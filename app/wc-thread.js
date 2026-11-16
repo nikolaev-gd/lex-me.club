@@ -1145,11 +1145,16 @@
       if (!entry) return;
       let line = entry.turn.querySelector(':scope > .wc-brain-work');
       if (msg.phase === 'start') {
+        // A turn of Claude Code by the subscription (msg.cc) says the whole line itself and
+        // works on after its first words: the line stands under the growing answer and stays
+        // until the turn ends (done / error), changed by every next action.
+        if (msg.cc) entry.cc = true;
         if (!line) {
           line = el('.wc-brain-work');
-          entry.turn.insertBefore(line, entry.bubble);
+          if (entry.cc) entry.bubble.after(line);
+          else entry.turn.insertBefore(line, entry.bubble);
         }
-        line.textContent = 'Extended Mind: ' + (msg.label || msg.name || 'working');
+        line.textContent = msg.line || ('Extended Mind: ' + (msg.label || msg.name || 'working'));
         maybeStick();
       }
     },
@@ -1161,7 +1166,7 @@
       // used — it carries _debug_model and nothing else. Rendering it would
       // re-parse the document for no change.
       if (!msg.text) return;
-      clearBrainWork(entry);
+      if (!entry.cc) clearBrainWork(entry);
       entry.text += msg.text;
       entry.turn.dataset.raw = entry.text;
       if (profiChat) profiChat.paintAnswer(entry.turn, entry.bubble, entry.text, WcMarkdown, true);
@@ -1199,8 +1204,12 @@
       const show = !!(money && money.showMoney);
       for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
         const old = t.querySelector(':scope > .wc-turn-foot > .wc-price, :scope > div > .wc-turn-foot > .wc-price');
-        const a = show ? money.answers.get(t.dataset.uid) : null;
-        const usd = (a && a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
+        // An answer of Claude Code by the owner's subscription (claude_code_chats.sql): no
+        // price, the words «по подписке» in its place — shown whether prices are or not.
+        const any = money && money.answers ? money.answers.get(t.dataset.uid) : null;
+        const sub = !!(any && any.subscription === true);
+        const a = show || sub ? any : null;
+        const usd = sub ? 0 : (a && a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
         if (usd == null) { if (old) old.remove(); continue; }
         let foot = t.classList.contains('wc-turn-user')
           ? t.querySelector(':scope > div > .wc-turn-foot')
@@ -1215,7 +1224,8 @@
           }
         }
         const node = old || el('span.wc-price');
-        node.textContent = global.LexChatMoney.format(usd);
+        node.textContent = sub ? 'по подписке' : global.LexChatMoney.format(usd);
+        node.classList.toggle('wc-price-sub', sub);
         node.dataset.lexUsd = String(usd);
         node.title = [a.model, a.effort].filter(Boolean).join(' · ');
         if (!old) foot.append(node);

@@ -1223,6 +1223,10 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .wc-prices-hidden .wc-price { display: none; }
+/* Ответ Claude Code по подписке Геннадия: вместо цены — «по подписке», и видно его
+   всегда, а не только с ценами (раздел «Claude Code по подписке», 20-chat.md). */
+.wc-price.wc-price-sub { font-family: inherit; }
+.wc-prices-hidden .wc-price.wc-price-sub { display: inline-block; }
 /* Цена пустого ответа — под вопросом, у правого края, как сам вопрос. */
 .wc-turn-foot-question { justify-content: flex-end; }
 .wc-turn-foot-question .wc-price { margin-left: 0; }
