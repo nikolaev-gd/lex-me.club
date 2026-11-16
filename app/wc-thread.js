@@ -17,6 +17,10 @@
   let stickToBottom = true;
   // The order chat of the Profi.ru section that is open, or null (lex-profi.js).
   let profiChat = null;
+  // Who keeps a message Lex did not take (wc-app.js): called with the person's turn and why.
+  let onUnsent = null;
+  // Requests whose chat the person left mid-answer: still read by the page, no longer shown.
+  const left = new Set();
   // The streaming turn, keyed by requestId: {node, bubble, text}. A map rather
   // than one variable because a stopped stream can still deliver a trailing
   // frame after the next one has started.
@@ -1041,6 +1045,52 @@
       scrollToBottom(false);
     },
 
+    // ── A message Lex did not take ──────────────────────────────────────────
+    // The person's bubble stays in the chat, marked by the common part of messages
+    // (LexMessage.unsent): why it did not go and what can be done — Retry, Top up, Edit, Delete.
+    setUnsentHook(fn) { onUnsent = typeof fn === 'function' ? fn : null; },
+
+    // The person left the chat while this answer was on its way. Its words are no longer shown,
+    // but the request goes on: the server writes the answer, and a refusal still reaches onUnsent.
+    detach(requestId) {
+      if (!requestId) return;
+      live.delete(requestId);
+      left.add(requestId);
+    },
+    // The answer of a left chat ended without a refusal.
+    settled(requestId) { left.delete(requestId); },
+
+    // Mark a person's turn as not sent. o — the part's options (lex-message.js, unsent).
+    paintUnsent(turn, o) {
+      if (!turn) return;
+      turn.classList.add('lex-unsent');
+      const holder = turn.firstElementChild || turn;
+      const old = holder.querySelector(':scope > .lex-unsent-note');
+      if (old) old.remove();
+      const part = global.LexMessage && typeof global.LexMessage.unsent === 'function'
+        ? global.LexMessage.unsent(o)
+        : null;
+      if (part) { part.classList.add('lex-unsent-note'); holder.append(part); }
+      syncFeet();
+    },
+
+    // A message kept on this device, put back at the end of the chat when it opens.
+    appendUnsent(text, opts, o) {
+      setEmpty(false);
+      const node = userTurn(text, [], opts);
+      node.dataset.at = (opts && opts.at) || new Date().toISOString();
+      elTurns.append(node);
+      if (o) this.paintUnsent(node, o);
+      return node;
+    },
+
+    removeTurn(turn) {
+      if (!turn || !turn.parentNode) return;
+      turn.remove();
+      if (!elTurns.querySelector('.wc-turn')) setEmpty(true);
+      syncFeet();
+    },
+
     // Переспрос пишется В ТОТ ЖЕ пузырь, а не добавляет второй ответ: это
     // замена ответа, а не ещё один. Прежний текст и модель запоминаются —
     // переспрос без единого слова возвращает их на место (restorePrevious).
@@ -1270,6 +1320,16 @@
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)
           : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 
+      // The person left this chat while Lex was taking the message (WcThread.detach): nothing of
+      // it is on the screen now, the page only keeps it (onUnsent without a turn).
+      if (!entry && left.has(msg.requestId)) {
+        left.delete(msg.requestId);
+        if (onUnsent) {
+          onUnsent({ requestId: msg.requestId, turn: null,
+            note: gate ? global.LexBillingGate.message(text) : shown, money: !!gate, gateRaw: gate ? text : null });
+        }
+        return;
+      }
       const paint = (turn, bubble) => {
         turn.classList.add(gate ? 'wc-turn-gate' : 'wc-turn-error');
         if (gate) {
@@ -1299,6 +1359,25 @@
           return;
         }
         if (!entry.text) {
+          // Lex did not take the message (Gennady, 2026-11-16): the person's own bubble stays,
+          // marked as not sent, with the reason and Retry, as in other chats; the empty answer
+          // goes. The page keeps it on this device (wc-app.js, onUnsent), so it is there again
+          // when the chat is opened later.
+          let ask = entry.turn.previousElementSibling;
+          while (ask && !ask.classList.contains('wc-turn-user')) ask = ask.previousElementSibling;
+          if (onUnsent && ask) {
+            entry.turn.remove();
+            onUnsent({
+              requestId: msg.requestId,
+              turn: ask,
+              note: gate ? global.LexBillingGate.message(text) : shown,
+              money: !!gate,
+              gateRaw: gate ? text : null,
+            });
+            syncFeet();
+            maybeStick();
+            return;
+          }
           paint(entry.turn, entry.bubble);
           syncFeet();
           maybeStick();

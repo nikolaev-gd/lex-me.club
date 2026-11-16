@@ -256,6 +256,8 @@
     // A message on its way: its state as the queue of the database has it now, once.
     brainAsked = state.conversationId;
     brainLook();
+    // Messages Lex did not take stand at the end of the chat again.
+    restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
   }
 
   // Разговор голосом кончился — лента сверяется с беседой на сервере
@@ -1398,6 +1400,7 @@
     chat.words = words;
     WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+    restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
   }
 
   // A chat left open behind other windows gets read when the person comes back to it.
@@ -1538,6 +1541,14 @@
     // только внутри страницы и до сервера не доезжает вовсе.
     const opId = global.LexTurnId.newOpId();
     const pressedAt = Date.now();
+    // Kept on this device from this moment, until the server has it (restoreUnsent). A message
+    // with pictures is not kept: the pictures live only in this page.
+    const kept = images.length ? null : {
+      id: opId, chatKey: state.conversationId || null, text: turn.visible,
+      at: new Date(pressedAt).toISOString(), state: 'sending',
+      opts: { mode, slotId, modelId, presetMode: (mode && opts && opts.presetMode) || null },
+    };
+    if (kept) { outbox.set(requestId, kept); if (kept.chatKey) unsentPut(kept); }
     WcThread.beginAssistant(requestId);
     WcComposer.setStreaming(true, requestId);
 
@@ -1574,6 +1585,10 @@
       if (r && r.conversationId && !state.conversationId) {
         state.conversationId = r.conversationId;
         WcSidebar.setActive(r.conversationId);
+      }
+      if (kept && !kept.chatKey && r && r.conversationId) {
+        kept.chatKey = r.conversationId;
+        if (outbox.get(requestId) === kept) unsentPut(kept);
       }
     } catch (err) {
       WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });
@@ -1742,14 +1757,119 @@
       .catch((err) => console.warn('[wc] stop:', err && err.message));
   }
 
-  // The person left the chat mid-answer: another chat, a new one, a section. The page drops
-  // its stream, so the words do not land in a chat that is no longer on the screen, but no
-  // count of seen characters goes to the server: leaving is not Stop. The server writes the
-  // answer to its end (llm-proxy), and the chat opened again shows it whole.
+  // The person left the chat mid-answer: another chat, a new one, a section. Leaving is not
+  // Stop: no count of seen characters goes to the server, and the request is not cut. Its words
+  // stop landing on the screen (WcThread.detach), the server writes the answer to its end
+  // (llm-proxy), and the page still hears how it ended: a refusal keeps the message as not sent
+  // (onUnsent), an answer done in the chat that is open again repaints it (STREAM_DONE below).
+  const leftChats = new Map();   // requestId → the key of the chat it was sent in
   function leaveStream() {
     if (!state.requestId) return;
-    WcBus.call('WC_STOP', { requestId: state.requestId, left: true })
-      .catch((err) => console.warn('[wc] leave:', err && err.message));
+    leftChats.set(state.requestId, state.conversationId || null);
+    WcThread.detach(state.requestId);
+    state.requestId = null;
+    WcComposer.setStreaming(false);
+  }
+
+  // ── Messages Lex did not take (Gennady, 2026-11-16) ─────────────────────────────────────
+  // As in other chats: a message that did not go stays in the chat, the person's own bubble with
+  // why it did not go and Retry, Top up, Edit, Delete (the part LexMessage.unsent). The page
+  // keeps such messages on this device, in its store (WcStore, wiped with the account), by the
+  // key of the chat, and puts them back at the end of the chat when it opens. A message is kept
+  // from the moment it goes («sending»): the app closed or the network gone before an answer, it
+  // is still there. It leaves the store when the server has it (its question is in the chat) or
+  // when the person retries, edits or deletes it. A message whose fate was never heard is shown as
+  // not sent after UNSENT_LOST_MS without its question on the server.
+  const UNSENT_KEY = 'lexUnsent';
+  const UNSENT_LOST_MS = 120000;
+  const UNSENT_LOST_NOTE = 'Lex did not get this message.';
+  const outbox = new Map();      // requestId → the kept message of a request on its way
+  let unsentChain = Promise.resolve();
+  async function unsentAll() {
+    try { const v = await WcStore.one(UNSENT_KEY, null); return Array.isArray(v) ? v : []; } catch (_) { return []; }
+  }
+  function unsentEdit(fn) {
+    unsentChain = unsentChain
+      .then(async () => { const next = fn(await unsentAll()); await WcStore.putQuiet({ [UNSENT_KEY]: next.slice(-50) }); })
+      .catch((err) => console.warn('[wc] unsent not kept:', err && err.message));
+    return unsentChain;
+  }
+  const unsentPut = (item) => unsentEdit((l) => l.filter((i) => i.id !== item.id).concat([item]));
+  const unsentDrop = (id) => unsentEdit((l) => l.filter((i) => i.id !== id));
+
+  // The options of the part for one kept message, with what its buttons do.
+  function unsentPart(item, turn) {
+    const forget = () => { if (item.id) unsentDrop(item.id); WcThread.removeTurn(turn); };
+    return {
+      note: item.note || UNSENT_LOST_NOTE,
+      money: !!item.money,
+      gateRaw: item.gateRaw || null,
+      sending: false,
+      onRetry: () => {
+        if (state.requestId) { toast('Wait until the answer is written.'); return; }
+        forget();
+        send(item.text, item.opts || {});
+      },
+      onTopUp: item.money ? () => WcTopup.open({ onPaid: refreshAccount }) : null,
+      onEdit: () => { forget(); WcComposer.setText(item.text || ''); WcComposer.focus(); },
+      onDelete: forget,
+    };
+  }
+
+  // The words under a message that did not go: what the browser says of a lost network is no
+  // sentence for a person.
+  const UNSENT_NO_NETWORK = 'No connection to Lex. Check the internet and try again.';
+  function unsentNote(note) {
+    const t = String(note || '').trim();
+    if (!t) return null;
+    if (/failed to fetch|networkerror|load failed|network connection was lost|internet connection appears to be offline/i.test(t)) return UNSENT_NO_NETWORK;
+    return t;
+  }
+
+  // Lex refused a message (WcThread.error): kept as not sent, and marked if it is on the screen.
+  function onUnsent(u) {
+    const kept = outbox.get(u.requestId);
+    outbox.delete(u.requestId);
+    leftChats.delete(u.requestId);
+    const bubble = u.turn && u.turn.querySelector('.wc-bubble');
+    const item = Object.assign({}, kept || {
+      id: null,
+      text: bubble ? (bubble.dataset.editText || bubble.textContent || '') : '',
+      at: new Date().toISOString(),
+    }, { state: 'failed', note: unsentNote(u.note), money: !!u.money, gateRaw: u.gateRaw || null });
+    if (item.id && item.chatKey) unsentPut(item);
+    if (u.turn) WcThread.paintUnsent(u.turn, unsentPart(item, u.turn));
+  }
+
+  // The chat painted from the server: its kept messages go back at its end. One the server has
+  // leaves the store; one still on its way in this page waits for its own end.
+  async function restoreUnsent(r) {
+    const key = state.conversationId;
+    if (!key || !r || !Array.isArray(r.turns)) return;
+    const have = new Set(r.turns.map((t) => t && t.uid).filter(Boolean));
+    const going = new Set([...outbox.values()].map((i) => i.id));
+    const now = Date.now();
+    const show = [];
+    // What this page has just written is read back, not an older state.
+    await unsentChain;
+    for (const item of (await unsentAll()).filter((i) => i.chatKey === key)) {
+      if (have.has(global.LexTurnId.userTurnUid(item.id))) { unsentDrop(item.id); continue; }
+      if (going.has(item.id)) continue;
+      if (item.state !== 'failed') {
+        if (now - Date.parse(item.at) < UNSENT_LOST_MS) continue;
+        item.state = 'failed';
+        item.note = UNSENT_LOST_NOTE;
+        unsentPut(item);
+      }
+      show.push(item);
+    }
+    if (state.conversationId !== key || !show.length) return;
+    // A word to Lex in an order chat is part of the discussion: the clean view would hide it.
+    if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
+    for (const item of show) {
+      const turn = WcThread.appendUnsent(item.text, { at: item.at, presetSlot: (item.opts && item.opts.mode) ? item.opts.slotId : null }, null);
+      WcThread.paintUnsent(turn, unsentPart(item, turn));
+    }
   }
 
   async function renameConversation(id, title) {
@@ -2671,6 +2791,7 @@
     keepPageOnDevice();
     await WcSettings.applyStored();
 
+    WcThread.setUnsentHook(onUnsent);
     WcThread.init({
       onPickModel: pickModelForAnswer,
       onEdit: editTurn,
@@ -2760,6 +2881,26 @@
         if (msg.requestId === state.requestId) {
           state.requestId = null;
           WcComposer.setStreaming(false);
+        }
+        // The message got its answer, or a part of one the server keeps: it leaves the store.
+        // A refusal took it out of the outbox already (onUnsent, called by WcThread.error).
+        // After the thread's own handling of the same event, whatever the order of the listeners.
+        const rid = msg.requestId;
+        setTimeout(() => {
+          const kept = outbox.get(rid);
+          if (kept) { outbox.delete(rid); unsentDrop(kept.id); }
+        }, 0);
+        // An answer of a chat the person left: the thread forgets it; that chat open again
+        // now shows it as the server wrote it.
+        if (leftChats.has(msg.requestId)) {
+          const key = leftChats.get(msg.requestId);
+          leftChats.delete(msg.requestId);
+          WcThread.settled(msg.requestId);
+          if (msg.type === 'STREAM_DONE' && key && key === state.conversationId && !profiChat && !WcThread.isStreaming()) {
+            WcBus.call('WC_LOAD_CONVERSATION', { id: key })
+              .then((again) => { if (again && again.ok && state.conversationId === key && !WcThread.isStreaming()) paintConversation(again, { keepPlace: true }); })
+              .catch(() => {});
+          }
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
         if (msg.type === 'STREAM_DONE' && profiChat) refreshProfiChat().catch(() => {});

@@ -18,7 +18,7 @@
 //   WC_DELETE_CONVERSATION{id} → {ok}
 //   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread (the menu of a chat, В7.33)
 //   WC_SEND               {requestId, conversationId, text, images} → {ok, conversationId}
-//   WC_STOP               {requestId, seenChars | left} → {ok}
+//   WC_STOP               {requestId, seenChars} → {ok}
 //   WC_MODELS             → {items, activeId}
 //   WC_TOPUP / WC_SIGN_OUT → {ok}
 //
@@ -1499,11 +1499,8 @@
     //
     // Только для хода, который ведёт сервер: на обычном аккаунте строки
     // операции нет, и вызов всё равно ничего бы не сделал.
-    //
-    // Not when the person only left the chat (m.left): the answer is not cut then, the
-    // server writes it whole (2026-11-16).
     const stopOpId = serverOps.get(m.requestId) || null;
-    if (!m.left && stopOpId && Number.isFinite(Number(m.seenChars))) {
+    if (stopOpId && Number.isFinite(Number(m.seenChars))) {
       WcHistory.reportStopped(stopOpId, Math.max(0, Math.round(Number(m.seenChars))))
         .catch((err) => console.warn(TAG, 'stop not reported:', err && err.message));
     }
