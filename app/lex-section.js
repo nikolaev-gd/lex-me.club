@@ -39,6 +39,8 @@
   const DOTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5h.01M12 12h.01M12 19h.01"/></svg>';
   // The pin of a pinned chat (В7.34), the same drawing as Pin in the menu of a chat (lex-send-later.js).
   const PIN = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Pinned"><path d="M12 17v5"/><path d="M8 3h8"/><path d="M9 3v7l-3 4h12l-3-4V3"/></svg>';
+  // Mute in the card of a person (В7.41): the crossed bell 14 right after the name.
+  const MUTED = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Muted"><path d="M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5"/><path d="M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M2 2l20 20"/></svg>';
 
   function make(tag, cls, text) {
     const n = document.createElement(tag);
@@ -135,10 +137,16 @@
     el.classList.toggle('is-strong', !!o.strong);
     el.classList.toggle('is-wrap', !!o.wrap);
     el.classList.toggle('is-chat', o.time != null || !!o.pinned);
+    el.classList.toggle('is-muted', !!o.muted);
     const main = button(`lex-section-row-main${o.cls ? ` ${o.cls}` : ''}`, null, o.onClick);
     if (o.id != null) main.dataset.id = o.id;
     const top = make('span', 'lex-section-row-top');
     top.appendChild(make('span', 'lex-section-row-title', o.title));
+    if (o.muted) {
+      const bell = make('span', 'lex-section-row-muted');
+      bell.innerHTML = MUTED;
+      top.appendChild(bell);
+    }
     if (o.mark) top.appendChild(make('span', 'lex-section-mark', o.mark));
     if (o.pinned) {
       const pin = make('span', 'lex-section-row-pin');

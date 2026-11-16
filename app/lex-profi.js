@@ -721,6 +721,12 @@
         const words = make('div', 'lex-profi-person-words', '');
         words.append(make('div', 'lex-profi-person-name', who), make('div', 'lex-profi-person-channel', M.CHANNELS[CHANNEL].name));
         person.append(M.avatar(who), words);
+        // The photo and the name are one button of the window: it opens the card of the person
+        // (lex-person.js, В7.41). null — the window gives no door of the card.
+        const open = global.LexPerson && deps.person && data && data.chatKey
+          ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
+            onChanged: deps.onPersonChanged, onGone: deps.onPersonGone })
+          : null;
         const link = make('button', 'wc-icon-btn lex-profi-clean', '');
         link.type = 'button';
         const paint = () => {
@@ -735,7 +741,7 @@
         };
         paint();
         link.addEventListener('click', () => { self.setClean(!clean); paint(); });
-        return { person, link };
+        return { person, link, open, who };
       },
 
       // The clean view: only the screen, the model reads the whole chat and the server is not
@@ -893,7 +899,7 @@
       const line = global.LexSection.row({
         title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
         end: c.tick ? tickNode(c.tick === 'read') : null,
-        time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot',
+        time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
       });
       if (c.chatKey && global.LexChatMenu) {
         const act = (name) => chatAct(c, name);

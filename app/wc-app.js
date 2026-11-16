@@ -290,15 +290,10 @@
   // The settings of the start (enterApp): a turn waits for them, nothing on the screen does.
   let settingsReady = Promise.resolve();
   async function openConversation(id, opts) {
-    if (WcThread.isStreaming()) {
-      // Leaving a conversation mid-answer would orphan the stream — the tokens
-      // keep arriving for a turn that is no longer on screen, and the account
-      // is charged for them either way.
-      const ok = await WcUI.confirm('The answer is still being written',
-        'Opening another chat will cut it off.', { okText: 'Open', danger: true });
-      if (!ok) return;
-      stopStream();
-    }
+    // Leaving a conversation mid-answer does not cut the answer (Gennady, 2026-11-16: «нужно,
+    // чтобы всегда отвечала»): the page stops showing it, the server writes it to its end, and
+    // the chat shows it whole when opened again. No question asked: nothing is lost.
+    if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // Уход из беседы (решение владельца 2026-09-09, docs/spec/30-voice.md):
     // открыли ДРУГУЮ беседу — живой разговор кончился, микрофон закрыт. Именно
@@ -492,7 +487,7 @@
   const SECTIONS = {
     em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },
-    profi: { title: 'Profi.ru', build: buildProfi, cutsAnswer: true, leave: leaveProfiChat },
+    profi: { title: 'Profi.ru', build: buildProfi, dropsStream: true, leave: leaveProfiChat },
   };
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
   let sectionOn = null;
@@ -532,7 +527,7 @@
     const { main, host } = sectionEls();
     const section = SECTIONS[id];
     await endVoiceOnLeave('news');
-    if (section.cutsAnswer && WcThread.isStreaming()) stopStream();
+    if (section.dropsStream && WcThread.isStreaming()) leaveStream();
     leaveSection();
     ensureSection(id);
     for (const el of host.children) el.hidden = el !== section.live.el;
@@ -1251,6 +1246,10 @@
     if (!profiChat || !profiChat.data) return;
     const bar = profiChat.bar();
     person.replaceChildren(...bar.person.childNodes);
+    // The photo and the name are one button: the card of the person (lex-person.js, В7.41).
+    person.onclick = bar.open || null;
+    person.disabled = !bar.open;
+    person.setAttribute('aria-label', (bar.who || 'Client') + '. Open the card of the person');
     person.hidden = false;
     link.replaceChildren(...(bar.link ? [bar.link] : []));
   }
@@ -1290,6 +1289,11 @@
       clean: !(opts && opts.replySelf),
       order,
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
+      // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
+      // a person deleted from Lex takes his chat off the list — the list of the section is shown.
+      person: (body) => WcBus.call('WC_PERSON', { body }),
+      onPersonChanged: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
+      onPersonGone: () => showSection('profi', { back: true }),
     });
     chat.data = data;
     chat.keep = keep || null;
@@ -1386,7 +1390,7 @@
   });
 
   async function newConversation() {
-    if (WcThread.isStreaming()) stopStream();
+    if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же
     // решение, что в openConversation). Карандаш во время звонка спрятан, но
@@ -1715,6 +1719,16 @@
     const seenChars = WcThread.seenChars(state.requestId);
     WcBus.call('WC_STOP', { requestId: state.requestId, seenChars })
       .catch((err) => console.warn('[wc] stop:', err && err.message));
+  }
+
+  // The person left the chat mid-answer: another chat, a new one, a section. The page drops
+  // its stream, so the words do not land in a chat that is no longer on the screen, but no
+  // count of seen characters goes to the server: leaving is not Stop. The server writes the
+  // answer to its end (llm-proxy), and the chat opened again shows it whole.
+  function leaveStream() {
+    if (!state.requestId) return;
+    WcBus.call('WC_STOP', { requestId: state.requestId, left: true })
+      .catch((err) => console.warn('[wc] leave:', err && err.message));
   }
 
   async function renameConversation(id, title) {

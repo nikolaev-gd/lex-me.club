@@ -176,6 +176,25 @@
     return out;
   }
 
+  // The card of a person (supabase/functions/person-card, В7.41): the card, Edit and the marks.
+  // A refusal of the server comes back as an Error with its words, to be shown as they are.
+  async function personCard(body) {
+    const token = await A().validToken();
+    if (!token) throw new Error('Sign in again.');
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/person-card', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: A().anonKey(),
+        Authorization: 'Bearer ' + token,
+      },
+      body: JSON.stringify(body || {}),
+    });
+    const out = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    return out;
+  }
+
   // ── Sessions ─────────────────────────────────────────────────────────────
   // Not optional bookkeeping: llm-proxy refuses a paid call whose meta carries
   // no session id ('no_session'), so a conversation without a row here cannot
@@ -635,6 +654,7 @@
     rpc,
     copies,
     newsPost,
+    personCard,
     reportStopped,
     attach,
     newUid,

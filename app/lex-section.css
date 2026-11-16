@@ -179,6 +179,10 @@
 .lex-section .lex-section-row.is-chat .lex-section-row-top { align-items: center; gap: 6px; }
 .lex-section .lex-section-row-pin { flex: 0 0 auto; display: flex; width: 14px; height: 14px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
 .lex-section .lex-section-row-pin svg { display: block; width: 14px; height: 14px; }
+/* Mute (В7.41): the crossed bell 14 after the name, the colour of the pin. */
+.lex-section .lex-section-row-muted { flex: 0 0 auto; display: flex; width: 14px; height: 14px; margin-right: auto; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-section .lex-section-row.is-muted .lex-section-row-title { flex: 0 1 auto; min-width: 0; }
+.lex-section .lex-section-row-muted svg { display: block; width: 14px; height: 14px; }
 .lex-section .lex-section-row-time {
   flex: 0 0 auto;
   font-size: 12px;

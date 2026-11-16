@@ -18,7 +18,7 @@
 //   WC_DELETE_CONVERSATION{id} → {ok}
 //   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread (the menu of a chat, В7.33)
 //   WC_SEND               {requestId, conversationId, text, images} → {ok, conversationId}
-//   WC_STOP               {requestId} → {ok}
+//   WC_STOP               {requestId, seenChars | left} → {ok}
 //   WC_MODELS             → {items, activeId}
 //   WC_TOPUP / WC_SIGN_OUT → {ok}
 //
@@ -1481,6 +1481,8 @@
   // News (lex-news.js): database functions and the one server call.
   WcBus.on('WC_NEWS_RPC', (m) => WcHistory.rpc(m.name, m.args));
   WcBus.on('WC_NEWS_POST', (m) => WcHistory.newsPost(m.kind, m.body));
+  // The card of a person (lex-person.js, В7.41): one door of the server for the card, Edit and the marks.
+  WcBus.on('WC_PERSON', (m) => WcHistory.personCard(m.body));
 
   WcBus.on('WC_STOP', async (m) => {
     const entry = inflightStreams.get(m.requestId);
@@ -1495,8 +1497,11 @@
     //
     // Только для хода, который ведёт сервер: на обычном аккаунте строки
     // операции нет, и вызов всё равно ничего бы не сделал.
+    //
+    // Not when the person only left the chat (m.left): the answer is not cut then, the
+    // server writes it whole (2026-11-16).
     const stopOpId = serverOps.get(m.requestId) || null;
-    if (stopOpId && Number.isFinite(Number(m.seenChars))) {
+    if (!m.left && stopOpId && Number.isFinite(Number(m.seenChars))) {
       WcHistory.reportStopped(stopOpId, Math.max(0, Math.round(Number(m.seenChars))))
         .catch((err) => console.warn(TAG, 'stop not reported:', err && err.message));
     }
