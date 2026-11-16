@@ -54,9 +54,12 @@
 //                       photos without words has no line of text
 //   bubble({ …, copy })   `copy` → Promise<bool>: a Copy mark inside, top right, the text flows
 //                       round it (В7.22); a tick for 1,5 s once it copied
-//   draftStamp()        the line under a draft for the client (В7.20): a pencil, «Draft, not sent»
-//   sendArrow({ channel })   the arrow that sends a draft to the client (В7.23): a disc with an
-//                       arrow up, the mark of the place on its corner; the press is the caller's
+//   bubble({ side: 'out', tone: 'draft', text, copy })   a draft for the client (В7.20): what went
+//                       to the client with a dashed edge inside; no line under the text
+//   sendHold({ channel, words, label, onSend, items, fit })   the button that sends a text to a
+//                       person (В7.23): a second button with the mark of the place and «Hold to send
+//                       to Dmitry»; a tap sends nothing, a hold of 480 ms sends; «⋯» by it opens
+//                       items() → { send, more }
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick, icon })   one line in the middle for what is kept off the screen;
 //                       icon 'check' — a tick in place of the eye (tasks without remarks, В7.30)
@@ -603,28 +606,81 @@
     return b;
   }
 
-  // The arrow that sends a draft to the client (В7.23): a round zone 44, inside it a disc 28 in the
-  // colour of the main button with an arrow up 16, and on the disc's bottom right corner the mark of
-  // the place it goes to (14 on a ground 18 of the lane's colour). No words on it: the place is the
-  // mark, the words are for reading from the screen. The press and the hold are the caller's.
-  function sendArrow(o) {
+  // The button that sends a text to a person (В7.23, Gennady's decision of 2026-11-16: «пусть это
+  // просто будет обычное долгое нажатие … коснувшись, оно не уходило»). The second button (В7.7): 44
+  // high, radius 12, --bg-hover, the words 15/650; in the middle the mark 18 of the place it goes to
+  // and the words in one line («Hold to send to Dmitry»). A tap and a click send nothing — only the
+  // press shows; a hold of 480 ms sends: the common hold of Lex (lex-long-press.js), a finger that went
+  // more than 10 is a scroll. No hint, no countdown, no fill, no question. A white arrow is the send of
+  // the field to the model only: this is not it.
+  //
+  // items() — the menu of «⋯» by it (the icon button В7.11, zone 44): the common menu of a held button
+  // without the dim (lex-send-later.js, `plain`), nothing leaves by opening it; the right button of a
+  // mouse on the send opens the same menu. A long touch is the hold, never the menu.
+  //   sendHold({ channel, words, label, onSend, items, fit }) → { send, more }
+  //     words — what the button says; label — what is read from the screen («Send to Dmitry on
+  //     Профи.ру. Hold to send»); fit — its own width (one's own text at the end of the chat), else it
+  //     takes what the row leaves; more — null without items. The caller disables send (0.5) while the
+  //     text is on its way.
+  const DOTS = [5, 12, 19];
+  function sendHold(o) {
     const id = CHANNELS[o && o.channel] ? o.channel : 'profi';
-    const b = make('button', 'lex-send-arrow');
-    b.type = 'button';
-    const label = `Send to ${CHANNELS[id].name}`;
-    b.title = label;
-    b.setAttribute('aria-label', label);
-    b.setAttribute('aria-haspopup', 'menu');
-    const disc = make('span', 'lex-send-arrow-disc');
-    const up = svg('0 0 24 24', 16);
-    for (const d of ['M12 19V5', 'M6 11l6-6 6 6']) {
-      up.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    const send = make('button', `lex-send-hold${o.fit ? ' is-fit' : ''}`);
+    send.type = 'button';
+    send.setAttribute('aria-label', o.label || o.words || 'Hold to send');
+    send.append(channel(id), make('span', 'lex-send-hold-words', o.words || 'Hold to send'));
+    let more = null;
+    let open = false;
+    const menu = () => {
+      if (open || !more || !global.LexSendLater) return;
+      const items = o.items();
+      if (!items || !items.length) return;
+      open = true;
+      more.classList.add('is-open');
+      more.setAttribute('aria-expanded', 'true');
+      global.LexSendLater.menu({
+        anchor: more, align: 'right', plain: true, items,
+        onClose: () => {
+          open = false;
+          more.classList.remove('is-open');
+          more.setAttribute('aria-expanded', 'false');
+          // The focus was on an item of the menu, which is gone: back to «⋯», for the keyboard.
+          const f = document.activeElement;
+          if (!f || f === document.body) more.focus({ preventScroll: true });
+        },
+      });
+    };
+    if (typeof o.items === 'function') {
+      more = make('button', 'lex-send-more');
+      more.type = 'button';
+      more.title = 'More';
+      more.setAttribute('aria-label', 'More');
+      more.setAttribute('aria-haspopup', 'menu');
+      more.setAttribute('aria-expanded', 'false');
+      const dots = svg('0 0 24 24', 20);
+      for (const cx of DOTS) dots.appendChild(shape('circle', { cx, cy: 12, r: 1.8, fill: 'currentColor' }));
+      more.appendChild(dots);
+      more.addEventListener('click', menu);
     }
-    disc.appendChild(up);
-    const mark = make('span', `lex-send-arrow-mark is-${id}`);
-    mark.appendChild(channel(id));
-    b.append(disc, mark);
-    return b;
+    // Ctrl and the button of a Mac's mouse is its right button: the menu opens at once, and the hold
+    // under it must not send while the button is still down.
+    let ctrl = false;
+    send.addEventListener('pointerdown', (e) => { ctrl = !!e.ctrlKey; });
+    const hold = global.LexLongPress
+      ? global.LexLongPress.attach(send, () => {
+        if (send.disabled || open || typeof o.onSend !== 'function') return;
+        if (global.WcHaptics) global.WcHaptics.press();
+        o.onSend();
+      }, { when: () => !ctrl && !send.disabled })
+      : null;
+    // A tap or a click: nothing goes. The press only shows (:active).
+    send.addEventListener('click', (e) => { e.preventDefault(); });
+    send.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (e.pointerType === 'touch' || e.pointerType === 'pen' || (hold && hold.didFire())) return;
+      menu();
+    });
+    return { send, more };
   }
 
   // One photo stands in its own proportions, up to 280 wide and 320 high (В7.19). Its frame is given
@@ -1014,25 +1070,6 @@
 
   // The mark of the model: two stars. It stands at what the person wrote to the model and at
   // the model's answers in a chat of bubbles.
-  // A pencil: the mark of a draft — a text for the client that has not left yet.
-  function pencil(size) {
-    const n = svg('0 0 24 24', size);
-    n.setAttribute('class', 'lex-pencil');
-    for (const d of ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z']) {
-      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-    }
-    return n;
-  }
-
-  // The line under a draft (В7.20) in place of the channel and the time: a pencil and «Draft,
-  // not sent». A draft is a bubble with the tone `draft`: what went to the client, with a dashed
-  // edge — `bubble({ side: 'out', tone: 'draft', text, stamp: draftStamp() })`.
-  function draftStamp() {
-    const root = make('div', 'lex-stamp lex-stamp-draft');
-    root.append(pencil(12), make('span', '', 'Draft, not sent'));
-    return root;
-  }
-
   function sparkle(size) {
     const n = svg('0 0 24 24', size);
     n.setAttribute('class', 'lex-sparkle');
@@ -1523,5 +1560,5 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    pencil, draftStamp, sendArrow, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
+    sendHold, avatar, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown };
 })(typeof window !== 'undefined' ? window : globalThis);

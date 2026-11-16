@@ -245,17 +245,17 @@
     return c ? c.name : 'Профи.ру';
   }
 
-  // One box: the draft for the client (В7.20) — a bubble on the right with a dashed edge, Copy in its
-  // top right corner (В7.22) and «Draft, not sent» under the text; the price under it, then the arrow
-  // that sends it, with the mark of the place (В7.23), on the right. window is the row of the server;
-  // none yet while the answer is being written (paler, no Copy, no arrow). A box that went shows no
-  // copy of itself: what went stands in the chat as a message with its ticks.
+  // One box: the draft for the client (В7.20) — a bubble on the right with a dashed edge and Copy in its
+  // top right corner (В7.22), no line under the text; the price under it, then the row that sends it
+  // (В7.23): «Hold to send to <client>» with the mark of the place, and «⋯». window is the row of the
+  // server; none yet while the answer is being written (paler, no Copy, no row). A box that went shows
+  // no copy of itself: what went stands in the chat as a message with its ticks.
   function boxNode(text, win, deps) {
     const M = global.LexMessage;
     const root = make('div', 'lex-profi-box');
     if (win && win.state === 'sent') {
       root.classList.add('is-sent');
-      const { note } = boxControls(win, deps, {});
+      const { note } = boxControls(win, deps);
       root.appendChild(note);
       return root;
     }
@@ -265,14 +265,14 @@
       if (!ok && note) note.textContent = 'The browser refused the clipboard.';
       return ok;
     } : null;
-    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, stamp: M.draftStamp(), copy }));
+    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, copy }));
     if (!win) {
       root.classList.add('is-writing');
       return root;
     }
     const price = priceLine(win.price);
     if (price) root.appendChild(make('div', 'lex-profi-box-price', `Price: ${price}`));
-    const controls = boxControls(win, deps, { arrow: true });
+    const controls = boxControls(win, deps);
     const foot = controls.foot;
     note = controls.note;
     root.appendChild(foot);
@@ -296,17 +296,17 @@
   }
 
   // The buttons of a box and its line, from its state on the server. One set for the box in an
-  // answer of the model and for the person's own text at the end of the chat (outboxNode):
-  //   may leave (ready, failed with «Send again») — «Send to …»; holding it — «Schedule…»
-  //     (lex-send-later.js), the same text at a time;
-  //   scheduled — «Send now» and «Cancel»: the box of the model waits for Send again, the
+  // answer of the model and for the person's own text at the end of the chat (outboxNode). What sends
+  // to the client goes by a hold only (В7.23, Gennady 16.11.2026: a tap sends nothing anywhere):
+  //   may leave (ready) — «Hold to send to <client>»; failed with a retry — «Hold to send again»;
+  //     a box of the model has «⋯» by it (and the right button on the send): «Schedule…» — the same
+  //     text at a time (lex-send-later.js) — and «Edit in the field» — the text into the field, to
+  //     change by hand and send by holding the arrow;
+  //   scheduled — «Hold to send now» and «Cancel»: the box of the model waits for a send again, the
   //     person's own text leaves the chat and comes back into the field (deps.putBack);
-  //   holding «Send to …» of a box of the model — «Schedule…» and «Edit in the field» (the text
-  //     into the field, to change by hand and send by holding the arrow);
   //   the person's own text that did not leave — «Delete» as well.
-  // opts.arrow — the box of the model: «Send to …» is the arrow with the mark of the place (В7.23);
-  // the person's own text keeps the words.
-  function boxControls(win, deps, opts) {
+  // «Cancel» and «Delete» work by a tap, as before: nothing goes to a person by them.
+  function boxControls(win, deps) {
     const foot = make('div', 'lex-profi-box-foot');
     const note = make('div', 'lex-profi-box-note');
     note.setAttribute('role', 'status');
@@ -329,50 +329,48 @@
     };
     if (open || scheduled) {
       const to = deps.replyTo || null;
-      const go = async () => {
-        send.disabled = true;
-        const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
-        if (!r) { send.disabled = false; return; }
-        note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
-      };
-      const arrow = open && opts && opts.arrow;
-      let send;
-      if (arrow) {
-        send = global.LexMessage.sendArrow({ channel: to || 'profi' });
-        send.addEventListener('click', go);
-      } else {
-        send = button('lex-profi-btn is-main', scheduled ? 'Send now' : `Send to ${placeName(to)}`, go);
-        send.prepend(sendIcon());
-      }
-      // Holding Send: the same box at a time, or its text into the field. The menu dims the chat
-      // around the answer it belongs to (lex-send-later.js). The click that follows the hold is
-      // swallowed by the gesture itself (lex-long-press.js).
-      if (open && !win.direct && global.LexLongPress && global.LexSendLater) {
-        global.LexLongPress.attach(send, () => {
-          if (global.WcHaptics) global.WcHaptics.press();
-          const items = [{
-            label: 'Schedule…',
-            icon: 'clock',
-            run: async () => {
-              const at = await global.LexSendLater.pick({ text: win.text, client: deps.client });
-              if (!at) return;
-              await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
-            },
-          }];
-          if (deps.putBack) items.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
-          global.LexSendLater.menu({ anchor: send, align: arrow ? 'right' : 'left', lit: send.closest('.wc-turn') || foot.parentElement,
-            ring: (arrow && send.querySelector('.lex-send-arrow-disc')) || send, items });
-        });
-      }
-      // The person's own text waiting for its time: «Cancel», then «Send now» (the design).
+      const name = firstName(deps.client);
+      const again = open && win.state === 'failed';
+      const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : name ? `Hold to send to ${name}` : 'Hold to send';
+      const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${name || 'the client'} on ${placeName(to)}. Hold to send`;
+      // «⋯» of a box of the model: the same box at a time, or its text into the field.
+      const items = open && !win.direct ? () => {
+        const list = [{
+          label: 'Schedule…',
+          icon: 'clock',
+          run: async () => {
+            const at = await global.LexSendLater.pick({ text: win.text, client: deps.client });
+            if (!at) return;
+            await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
+          },
+        }];
+        if (deps.putBack) list.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
+        return list;
+      } : null;
+      const { send, more } = global.LexMessage.sendHold({
+        channel: to || 'profi', words, label, fit: !!win.direct, items,
+        onSend: async () => {
+          send.disabled = true;
+          const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
+          if (!r) { send.disabled = false; return; }
+          note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
+        },
+      });
+      // The person's own text waiting for its time: «Cancel», then «Hold to send now» (the design).
       if (scheduled && win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
       foot.appendChild(send);
+      if (more) foot.appendChild(more);
     }
     if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
     if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
     note.textContent = stateLine(win);
     if (!foot.childElementCount) foot.hidden = true;
     return { foot, note };
+  }
+
+  // The client as the button names him: the first word of his name («Дмитрий Петров» → «Дмитрий»).
+  function firstName(client) {
+    return String(client || '').trim().split(/\s+/)[0] || '';
   }
 
   // The person's own text to the client, sent without the model (profi_send_text): it has no
@@ -397,7 +395,7 @@
     const bubble = M.bubble({ side: 'out', body, stamp });
     if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
     root.appendChild(bubble);
-    const { foot, note } = boxControls(win, deps, {});
+    const { foot, note } = boxControls(win, deps);
     root.append(note, foot);
     return root;
   }
@@ -424,7 +422,6 @@
     }
     return svg;
   }
-  const sendIcon = () => strokeIcon([['path', { d: 'M22 2L11 13' }], ['path', { d: 'M22 2l-7 20-4-9-9-4z' }]], 16);
   // The arrow out of the window: the order on the site of Profi.
   const outIcon = () => strokeIcon([['path', { d: 'M14 4h6v6' }], ['path', { d: 'M20 4l-9 9' }],
     ['path', { d: 'M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }]], 20);

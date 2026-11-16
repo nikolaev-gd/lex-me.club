@@ -161,9 +161,9 @@
 .lex-bubble.is-out { margin-left: auto; border-bottom-right-radius: 6px; background: var(--lex-bubble-out); }
 .lex-bubble.is-self { background: var(--lex-bubble-self); }
 .lex-bubble.is-bot { background: var(--lex-bubble-bot); border: 1px dashed var(--lex-bubble-bot-line); }
-/* A draft for the client (В7.20): what went to the client, not yet — a dashed edge inside. */
-.lex-bubble.is-draft { outline: 1px dashed var(--lex-bubble-draft-line); outline-offset: -1px; }
-.lex-stamp.lex-stamp-draft svg { flex: 0 0 auto; width: 12px; height: 12px; }
+/* A draft for the client (В7.20): what went to the client, not yet — a dashed edge inside. No line
+   under the text (Gennady, 2026-11-14: «Draft, not sent» nowhere), so 8 at the bottom too. */
+.lex-bubble.is-draft { padding-bottom: 8px; outline: 1px dashed var(--lex-bubble-draft-line); outline-offset: -1px; }
 /* Copy of a message (В7.22): inside, top right, a mark 16 in the colour of the bubble's line; the text
    flows round it. The box is 20, the zone of the press 44 and unseen (it may go past the bubble). */
 .lex-bubble .lex-bubble-copy {
@@ -177,30 +177,37 @@
 .lex-bubble .lex-bubble-copy:hover, .lex-bubble .lex-bubble-copy:focus-visible { color: var(--fg, var(--lex-plain-fg)); outline: none; }
 .lex-bubble .lex-bubble-copy svg { display: block; width: 16px; height: 16px; stroke-width: 2; }
 
-/* The arrow that sends a draft to the client (В7.23): a round zone 44, under the cursor --bg-hover;
-   inside a disc 28 of the main button's colour with an arrow up 16; the mark of the place 14 on a
-   ground 18 of the lane's colour, 2 from the zone's right and bottom edge — 12 over the disc's corner,
-   6 past it. The zone stands 2 past the bubble's edge, so the ground ends with the bubble. */
-.lex-send-arrow {
+/* The button that sends a text to a person (В7.23): the second button (В7.7) — 44, radius 12,
+   --bg-hover, the words --fg 15/650, 0 12 inside; in the middle through 8 the mark of the place 18 and
+   the words in one line with an ellipsis. Under the cursor and pressed — --bg-active; while the text is
+   on its way — 0.5. It takes what the row leaves (by «⋯», or by «Cancel» of a scheduled box); `is-fit` —
+   its own width. No hint, no countdown, no fill: a tap only shows the press, a hold sends. */
+.lex-send-hold {
   -webkit-appearance: none; appearance: none;
-  position: relative; flex: none; display: grid; place-items: center;
-  width: 44px; height: 44px; margin: 0 -2px 0 0; padding: 0; border: 0; border-radius: 50%;
-  background: transparent; cursor: pointer;
+  flex: 1 1 0; min-width: 0; height: 44px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 12px; border: 0; border-radius: 12px;
+  background: var(--bg-hover); color: var(--fg, var(--lex-plain-fg));
+  font: inherit; font-size: 15px; font-weight: 650; line-height: 20px;
+  cursor: pointer; transition: background-color 120ms ease;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
 }
-.lex-send-arrow:hover, .lex-send-arrow:focus-visible { background: var(--bg-hover); outline: none; }
-.lex-send-arrow:disabled { opacity: .5; cursor: default; }
-.lex-send-arrow-disc {
-  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 14px;
-  background: var(--accent); color: var(--accent-fg);
+.lex-send-hold:hover, .lex-send-hold:active, .lex-send-hold:focus-visible { background: var(--bg-active); outline: none; }
+.lex-send-hold:disabled { opacity: .5; cursor: default; background: var(--bg-hover); }
+.lex-send-hold.is-fit { flex: 0 0 auto; }
+.lex-send-hold .lex-channel-icon { flex: none; display: block; width: 18px; height: 18px; }
+.lex-send-hold-words { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* «⋯» by it (the icon button В7.11): a round zone 44, three dots 20 --fg-muted; under the cursor
+   --bg-hover, with its menu open --bg-active. */
+.lex-send-more {
+  -webkit-appearance: none; appearance: none;
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0;
+  border-radius: 50%; background: transparent; color: var(--fg-muted); cursor: pointer;
+  transition: background-color 120ms ease;
 }
-.lex-send-arrow-disc svg { display: block; width: 16px; height: 16px; stroke-width: 2.6; }
-.lex-send-arrow-mark {
-  position: absolute; right: 2px; bottom: 2px; box-sizing: border-box;
-  display: grid; place-items: center; width: 18px; height: 18px; padding: 2px;
-  border-radius: 6px; background: var(--bg);
-}
-.lex-send-arrow-mark.is-telegram { border-radius: 50%; }
-.lex-send-arrow-mark svg { display: block; width: 14px; height: 14px; }
+.lex-send-more:hover, .lex-send-more:focus-visible { background: var(--bg-hover); outline: none; }
+.lex-send-more:active, .lex-send-more.is-open { background: var(--bg-active); }
+.lex-send-more svg { display: block; width: 20px; height: 20px; }
 /* Photos of a message (В7.19): over the text, as in Telegram; the radius of a card (В4). One photo —
    as wide as it is, up to the bubble; several — a row of squares, two in a line. */
 .lex-bubble.has-media { padding-top: 6px; }

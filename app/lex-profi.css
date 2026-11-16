@@ -87,8 +87,10 @@
 .lex-profi-words > :last-child { margin-bottom: 0; }
 
 /* A draft for the client (В7.20): the bubble of what went to the client on the right, up to 86 % of
- * the lane, a dashed edge, Copy in its corner (В7.22); the price, then the arrow with the mark of the
- * place (В7.23) on the right; a scheduled one — «Cancel» and «Send now» (equal, 44, through 6). */
+ * the lane, a dashed edge, Copy in its corner (В7.22); the price, then the row of the send (В7.23):
+ * 86 % of the lane, its right edge the bubble's, «Hold to send to …» (the rest) and «⋯» through 6;
+ * a scheduled one — «Hold to send now» (the rest) and «Cancel» at its own width, through 6: halves
+ * cut «Hold to send now» on a narrow screen. */
 .lex-profi-box { display: flex; flex-direction: column; align-items: flex-end; margin: 2px 0; text-align: left; }
 .lex-profi-box > .lex-bubble { max-width: 86%; }
 .lex-profi-box.is-writing > .lex-bubble { opacity: .75; }
@@ -97,7 +99,7 @@
 .lex-profi-box > .lex-profi-box-note { width: 86%; text-align: right; }
 .lex-profi-box-foot { display: flex; gap: 6px; margin-top: 6px; }
 .lex-profi-box > .lex-profi-box-foot { justify-content: flex-end; }
-.lex-profi-box > .lex-profi-box-foot:has(> .lex-send-arrow) { margin-top: 2px; }
+.lex-profi-box > .lex-profi-box-foot > .lex-profi-btn { flex: 0 0 auto; padding: 0 16px; }
 .lex-profi-box-foot .lex-profi-btn {
   flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 0; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--bg-hover); font-size: 15px; font-weight: 650;

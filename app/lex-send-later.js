@@ -30,7 +30,8 @@
 //                         (В7.33, lex-chat-menu.js): nothing is dimmed, `lit` (the line of the chat)
 //                         stands on --bg-hover while the menu is open; at — the menu opens at this
 //                         point (the pointer of a right click), not over the anchor. danger — the item
-//                         is red (Delete chat). onClose() — the menu went, by any way
+//                         is red (Delete chat). plain without lit is the menu of «⋯» by the button that sends to the client
+//                         (В7.23): nothing leaves by opening it. onClose() — the menu went, by any way
 //   pick(o)               the sheet of the time: { text, client } → Promise<Date|null>
 (function (global) {
   'use strict';
@@ -135,8 +136,9 @@
     if (closeOpen) closeOpen();
     const host = document.body;
     const catcher = make('div', 'lex-sl-catcher');
-    // A menu of choice dims nothing: nothing of the chat will leave by it. Nor does the menu of a
-    // chat in a list (plain): its line only lights up.
+    // A menu of choice dims nothing: nothing of the chat will leave by it. Nor does a plain menu: the
+    // menu of a chat in a list, whose line only lights up, and «⋯» under a draft (В7.23), which only
+    // opens the sheet of the time or puts the text into the field.
     const plain = !!o.plain;
     const hole = o.choice || plain ? null : make('div', 'lex-sl-hole');
     const box = make('div', `lex-sl-menu${o.choice ? ' is-choice' : ''}`);
