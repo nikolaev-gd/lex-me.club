@@ -81,6 +81,11 @@
 //   button({ label, note, main, left })   the main button (main: true) or the second one, 44 high,
 //                       radius 12, 15/650; `left` — the words at the left, the height grows with
 //                       them (a variant of a question); `note` — a second line 12/400 under the words
+//   unsent({ note, money, gateRaw, sending, onRetry, onTopUp, onEdit, onDelete })   under the
+//                       person's bubble when Lex did not take the message (В7.47, 2026-11-16): the red
+//                       «Not sent» and the reason, «Top up» (money only), «Retry», «⋯» with «Edit» and
+//                       «Delete»; `sending` — a retry on its way. The person's row carries `lex-unsent`.
+//                       el.update(o) redraws it in place
 //   question(v, o)      a question of the database as one message: v is its view from the server
 //                       (lex_em_question_view: text, choices, state, answer, reason). Waiting — the
 //                       bubble with its variants inside and the quiet «Пропустить» under them;
@@ -698,52 +703,58 @@
   //     takes what the row leaves; more — null without items. The caller disables send (0.5) while the
   //     text is on its way.
   const DOTS = [5, 12, 19];
+  // «⋯» — the icon button В7.11 (a round zone 44, three dots 20) that opens the common menu of a held
+  // button without the dim (`plain`): the menu of a draft's send (В7.23) and of a message that was
+  // not sent (В7.47). items() → the items of LexSendLater.menu. → { more, open(), isOpen() }
+  function moreMenu(items) {
+    const more = make('button', 'lex-send-more');
+    more.type = 'button';
+    more.title = 'More';
+    more.setAttribute('aria-label', 'More');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('aria-expanded', 'false');
+    const dots = svg('0 0 24 24', 20);
+    for (const cx of DOTS) dots.appendChild(shape('circle', { cx, cy: 12, r: 1.8, fill: 'currentColor' }));
+    more.appendChild(dots);
+    let shown = false;
+    const open = () => {
+      if (shown || more.disabled || !global.LexSendLater) return;
+      const list = items();
+      if (!list || !list.length) return;
+      shown = true;
+      more.classList.add('is-open');
+      more.setAttribute('aria-expanded', 'true');
+      global.LexSendLater.menu({
+        anchor: more, align: 'right', plain: true, items: list,
+        onClose: () => {
+          shown = false;
+          more.classList.remove('is-open');
+          more.setAttribute('aria-expanded', 'false');
+          // The focus was on an item of the menu, which is gone: back to «⋯», for the keyboard.
+          const f = document.activeElement;
+          if ((!f || f === document.body) && more.isConnected) more.focus({ preventScroll: true });
+        },
+      });
+    };
+    more.addEventListener('click', open);
+    return { more, open, isOpen: () => shown };
+  }
+
   function sendHold(o) {
     const id = CHANNELS[o && o.channel] ? o.channel : 'profi';
     const send = make('button', `lex-send-hold${o.fit ? ' is-fit' : ''}`);
     send.type = 'button';
     send.setAttribute('aria-label', o.label || o.words || 'Hold to send');
     send.append(channel(id), make('span', 'lex-send-hold-words', o.words || 'Hold to send'));
-    let more = null;
-    let open = false;
-    const menu = () => {
-      if (open || !more || !global.LexSendLater) return;
-      const items = o.items();
-      if (!items || !items.length) return;
-      open = true;
-      more.classList.add('is-open');
-      more.setAttribute('aria-expanded', 'true');
-      global.LexSendLater.menu({
-        anchor: more, align: 'right', plain: true, items,
-        onClose: () => {
-          open = false;
-          more.classList.remove('is-open');
-          more.setAttribute('aria-expanded', 'false');
-          // The focus was on an item of the menu, which is gone: back to «⋯», for the keyboard.
-          const f = document.activeElement;
-          if (!f || f === document.body) more.focus({ preventScroll: true });
-        },
-      });
-    };
-    if (typeof o.items === 'function') {
-      more = make('button', 'lex-send-more');
-      more.type = 'button';
-      more.title = 'More';
-      more.setAttribute('aria-label', 'More');
-      more.setAttribute('aria-haspopup', 'menu');
-      more.setAttribute('aria-expanded', 'false');
-      const dots = svg('0 0 24 24', 20);
-      for (const cx of DOTS) dots.appendChild(shape('circle', { cx, cy: 12, r: 1.8, fill: 'currentColor' }));
-      more.appendChild(dots);
-      more.addEventListener('click', menu);
-    }
+    const m = typeof o.items === 'function' ? moreMenu(o.items) : null;
+    const more = m ? m.more : null;
     // Ctrl and the button of a Mac's mouse is its right button: the menu opens at once, and the hold
     // under it must not send while the button is still down.
     let ctrl = false;
     send.addEventListener('pointerdown', (e) => { ctrl = !!e.ctrlKey; });
     const hold = global.LexLongPress
       ? global.LexLongPress.attach(send, () => {
-        if (send.disabled || open || typeof o.onSend !== 'function') return;
+        if (send.disabled || (m && m.isOpen()) || typeof o.onSend !== 'function') return;
         if (global.WcHaptics) global.WcHaptics.press();
         o.onSend();
       }, { when: () => !ctrl && !send.disabled })
@@ -753,7 +764,7 @@
     send.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       if (e.pointerType === 'touch' || e.pointerType === 'pen' || (hold && hold.didFire())) return;
-      menu();
+      if (m) m.open();
     });
     return { send, more };
   }
@@ -1502,6 +1513,89 @@
     return b;
   }
 
+  // ── A message that was not sent (В7.47, 2026-11-16) ─────────────────────────
+  // The person sent a word to Lex and Lex did not take it: no connection, not enough money, the server
+  // busy, the model refused before its first word. As in ChatGPT and Telegram the message stays in the
+  // chat as the person's own bubble; this note stands under it, at its right edge:
+  //   - a line 13: the alert mark 14 and «Not sent» 600 in the red of errors, then «· <the reason>» in
+  //     grey. With the numbers of a refusal for money the reason says what is needed and what there is
+  //     (the words of lex-billing-gate.js); without them it is the caller's phrase;
+  //   - 6 under it the buttons of their own width, 6 apart, at the right: «Top up» — the main button,
+  //     only when the reason is money; «Retry» — the main button, the second one by «Top up»; «⋯» with
+  //     «Edit» (the text back into the message box) and «Delete» (red, asks first).
+  // While a retry is on its way the line says «Sending…» in grey, a ring turns on Retry, every button
+  // is off (0.5). The caller puts the class `lex-unsent` on the person's row: the note goes under the
+  // bubble, not beside it; the bubble keeps its look — the person's words stay as they were written.
+  //   unsent({ note, money, gateRaw, sending, onRetry, onTopUp, onEdit, onDelete }) → the element;
+  //   el.update(o) redraws it in place (the options not given stay as they were).
+  const ALERT_D = ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 7.5v5', 'M12 16.5v.01'];
+  function unsentWhy(o) {
+    const gate = global.LexBillingGate;
+    if (o.money && o.gateRaw && gate && typeof gate.message === 'function') {
+      const words = gate.message(o.gateRaw);
+      // No numbers in the refusal: the gate says only «Please top up», the caller's phrase says more.
+      if (words && words !== gate.message(null)) return words;
+    }
+    return o.note || '';
+  }
+  function unsent(opts) {
+    const root = make('div', 'lex-unsent-note');
+    root.setAttribute('role', 'group');
+    root.setAttribute('aria-label', 'Not sent');
+    let o = Object.assign({}, opts);
+    const run = (name) => () => { if (!o.sending && typeof o[name] === 'function') o[name](); };
+    const ask = async () => {
+      if (o.sending || typeof o.onDelete !== 'function') return;
+      const ui = global.WcUI;
+      if (ui && typeof ui.confirm === 'function') {
+        const yes = await ui.confirm('Delete this message?', 'It was not sent. Its words will be gone from the chat.',
+          { okText: 'Delete', danger: true });
+        if (!yes) return;
+      }
+      o.onDelete();
+    };
+    const paint = () => {
+      const line = make('div', `lex-unsent-line${o.sending ? ' is-sending' : ''}`);
+      line.setAttribute('role', 'status');
+      if (o.sending) line.textContent = 'Sending…';
+      else {
+        const mark = strokes(ALERT_D, 14);
+        mark.setAttribute('class', 'lex-unsent-mark');
+        mark.setAttribute('aria-hidden', 'true');
+        line.append(mark, make('span', 'lex-unsent-word', 'Not sent'));
+        const why = unsentWhy(o);
+        if (why) line.append(make('span', 'lex-unsent-why', ` · ${why}`));
+      }
+      const acts = make('div', 'lex-unsent-acts');
+      if (o.money) {
+        const top = button({ label: 'Top up', main: true });
+        top.disabled = !!o.sending;
+        top.addEventListener('click', run('onTopUp'));
+        acts.appendChild(top);
+      }
+      const retry = button({ label: 'Retry', main: !o.money });
+      retry.disabled = !!o.sending;
+      if (o.sending) retry.classList.add('is-busy');
+      retry.addEventListener('click', () => {
+        if (o.sending || typeof o.onRetry !== 'function') return;
+        // A retry is a sending, as by the arrow of the field.
+        if (global.WcHaptics) global.WcHaptics.tap();
+        o.onRetry();
+      });
+      acts.appendChild(retry);
+      const more = moreMenu(() => (o.sending ? [] : [
+        { label: 'Edit', icon: 'pencil', run: run('onEdit') },
+        { label: 'Delete', icon: 'trash', danger: true, run: ask },
+      ]));
+      more.more.disabled = !!o.sending;
+      acts.appendChild(more.more);
+      root.replaceChildren(line, acts);
+    };
+    root.update = (next) => { o = Object.assign({}, o, next); paint(); };
+    paint();
+    return root;
+  }
+
   // ── A question of the database (В7.24) ──────────────────────────────────────
   // One message: the bubble of the other side across the whole lane, the question's words, its
   // variants under them — the one the database thinks right is the main button with «Extended Mind
@@ -2054,6 +2148,6 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, avatar, avatarMark, button, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon };
 })(typeof window !== 'undefined' ? window : globalThis);

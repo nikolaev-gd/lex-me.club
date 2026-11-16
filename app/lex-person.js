@@ -1,17 +1,19 @@
 // lex-person.js — the card of a person (ios/Lex/STANDARD.md В7.41, Gennady 16.11.2026).
 //
 // A press on the photo or the name in the bar of an order chat of Profi.ru opens the card of the
-// person on the page and in the program for the Mac: the sheet in the middle (В7.15). On top the
-// photo or the letter 96 (В7.12), the name 22/650 and who he is 15 `--fg-muted`; the blocks of the
-// server — rows from 56 high, the label 13 `--fg-muted` and the value; a link has the mark of its
-// service 24 on the left and a chevron 18 on the right; then the actions, rows of 44: Edit contact
-// (a pencil), Mute with a switch, Delete contact in `--danger`. The iPhone draws the same card in
-// PersonCard.swift by the same numbers.
+// person on the page and in the program for the Mac: the sheet in the middle (В7.15). The card is a
+// text about the person (Gennady, 16.11.2026, after the first card): on top the photo or the letter 96
+// (В7.12), the name 22/650 and who he is 15 `--fg-muted`; then «About» — his own text from his profile
+// in Telegram or Max, read only, with its place («From Telegram»); then «Your notes» — Gennady's own
+// text about him, with «Edit» (or «Add a note») in its head; then «Open the chat in» — second buttons
+// (В7.7) of 44, of equal width, with the mark of the service 18: Telegram, WhatsApp, Profi.ru; the
+// phone with a button that copies it; Mute with a switch and Delete contact in `--danger`. The iPhone
+// draws the same card in PersonCard.swift by the same numbers.
 //
-// Everything the card shows comes from the server (supabase/functions/person-card): the server
-// asks the database of Gennady who the person is and puts the rows together. The card only draws
-// `blocks` as they come — a new block of the server is drawn with no change here — and sends three
-// questions: the card, Edit, Mute/Delete/Restore.
+// Everything the card shows comes from the server (supabase/functions/person-card): the server asks
+// the database of Gennady who the person is and puts the card together. `extra` — the blocks the server
+// adds later — is drawn as it comes, with no change here. Three questions go to the server: the card,
+// the notes, Mute/Delete/Restore.
 //
 //   LexPerson.open({ chatKey, name, call, onGone, io })
 //     call(body) → Promise<{ card }>, refuses with Error(<words of the server>)
@@ -29,7 +31,8 @@
       'M10.3 21a1.94 1.94 0 0 0 3.4 0', 'M2 2l20 20'],
     trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
     undo: ['M9 14L4 9l5-5', 'M4 9h10.5a5.5 5.5 0 0 1 0 11H11'],
-    chevron: ['M9 18l6-6-6-6'],
+    copy: ['M9 9h10v10H9z', 'M5 15V5h10'],
+    check: ['M4 12l5 5L20 6'],
   };
 
   function make(tag, cls, text) {
@@ -59,13 +62,13 @@
     return svg;
   }
 
-  // The mark of a service 24: the same one as in the stamp of a message (В7.2), bigger.
-  function mark(channel) {
+  // The mark of a service: the same one as in the stamp of a message (В7.2), bigger.
+  function mark(channel, size) {
     const M = global.LexMessage;
     const n = M && M.channel ? M.channel(channel) : null;
     if (!n) return null;
-    n.setAttribute('width', '24');
-    n.setAttribute('height', '24');
+    n.setAttribute('width', String(size));
+    n.setAttribute('height', String(size));
     n.classList.add('lex-person-mark');
     return n;
   }
@@ -73,27 +76,6 @@
   // The first word of the name: «Delete Dmitry from Lex?».
   const firstWord = (name) => (String(name || '').trim().split(/\s+/)[0] || 'this person');
   const newOp = () => (global.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
-
-  // ── the rows ─────────────────────────────────────────────────────────────────
-  function row(r) {
-    const link = !!r.url;
-    const n = make(link ? 'a' : 'div', 'lex-person-row' + (link ? ' is-link' : ''));
-    if (link) {
-      n.href = r.url;
-      n.target = '_blank';
-      n.rel = 'noopener';
-    }
-    if (r.channel) {
-      const m = mark(r.channel);
-      if (m) n.appendChild(m);
-    }
-    const words = make('span', 'lex-person-words');
-    words.append(make('span', 'lex-person-label', r.label || ''), make('span', 'lex-person-value', r.value || ''));
-    n.appendChild(words);
-    if (link) n.appendChild(icon('chevron', 18));
-    if (r.kind) n.dataset.kind = r.kind;
-    return n;
-  }
 
   function action(o) {
     const n = make(o.tag || 'button', 'lex-person-act' + (o.danger ? ' is-danger' : ''));
@@ -120,6 +102,25 @@
     return { label, input };
   }
 
+  // A block of the server added later (`extra`): rows of a label and a value, a link opens its place.
+  function extraBlock(b) {
+    const block = make('div', 'lex-person-block');
+    block.dataset.block = b.id || '';
+    for (const r of b.rows || []) {
+      const row = make(r.url ? 'a' : 'div', 'lex-person-row' + (r.url ? ' is-link' : ''));
+      if (r.url) {
+        row.href = r.url;
+        row.target = '_blank';
+        row.rel = 'noopener';
+      }
+      const words = make('span', 'lex-person-words');
+      words.append(make('span', 'lex-person-label', r.label || ''), make('span', 'lex-person-value', r.value || ''));
+      row.appendChild(words);
+      block.appendChild(row);
+    }
+    return block;
+  }
+
   // ── the card ─────────────────────────────────────────────────────────────────
   function cardNode(card, act, io) {
     const M = global.LexMessage;
@@ -131,45 +132,99 @@
     if (card.who) head.appendChild(make('div', 'lex-person-who', card.who));
     root.appendChild(head);
 
-    for (const b of card.blocks || []) {
-      if (!(b.rows || []).length) continue;
-      const block = make('div', 'lex-person-block');
-      block.dataset.block = b.id || '';
-      for (const r of b.rows) block.appendChild(row(r));
+    // About: the person's own text from his profile.
+    if (card.about && card.about.text) {
+      const about = make('div', 'lex-person-block lex-person-text');
+      const top = make('div', 'lex-person-text-head');
+      top.appendChild(make('span', 'lex-person-text-title', 'About'));
+      if (card.about.from) {
+        const m = card.about.source ? mark(card.about.source, 14) : null;
+        if (m) top.appendChild(m);
+        top.appendChild(make('span', 'lex-person-from', card.about.from));
+      }
+      about.append(top, make('div', 'lex-person-text-body', card.about.text));
+      root.appendChild(about);
+    }
+
+    // Your notes: Gennady's own text about the person.
+    const notes = card.notes || {};
+    if (notes.can) {
+      const block = make('div', 'lex-person-block lex-person-text lex-person-notes');
+      const top = make('div', 'lex-person-text-head');
+      top.appendChild(make('span', 'lex-person-text-title', 'Your notes'));
+      const edit = make('button', 'lex-person-edit-btn');
+      edit.type = 'button';
+      edit.append(icon('pencil', 16), make('span', '', notes.text ? 'Edit' : 'Add a note'));
+      edit.addEventListener('click', () => act('notes'));
+      top.appendChild(edit);
+      block.appendChild(top);
+      if (notes.text) block.appendChild(make('div', 'lex-person-text-body', notes.text));
       root.appendChild(block);
     }
+
+    // Open the chat in: the places the person can be written to.
+    if ((card.open || []).length) {
+      const wrap = make('div', 'lex-person-open');
+      wrap.appendChild(make('div', 'lex-person-label', 'Open the chat in'));
+      const row = make('div', 'lex-person-open-row');
+      for (const o of card.open) {
+        const b = M.button({ label: o.label });
+        const m = mark(o.channel, 18);
+        if (m) b.prepend(m);
+        b.setAttribute('aria-label', 'Open the chat in ' + o.label);
+        b.dataset.channel = o.channel;
+        b.addEventListener('click', () => global.open(o.url, '_blank', 'noopener'));
+        row.appendChild(b);
+      }
+      wrap.appendChild(row);
+      root.appendChild(wrap);
+    }
+
+    // The phone, with a button that copies it.
+    if (card.phone) {
+      const block = make('div', 'lex-person-block');
+      const row = make('div', 'lex-person-row lex-person-phone');
+      const words = make('span', 'lex-person-words');
+      words.append(make('span', 'lex-person-label', 'Phone'), make('span', 'lex-person-value', card.phone));
+      const copy = make('button', 'wc-icon-btn is-44 lex-person-copy');
+      copy.type = 'button';
+      copy.setAttribute('aria-label', 'Copy the phone');
+      copy.title = 'Copy the phone';
+      copy.appendChild(icon('copy', 18));
+      copy.addEventListener('click', async () => {
+        const ok = await navigator.clipboard.writeText(card.phone.replace(/[^\d+]/g, '')).then(() => true, () => false);
+        if (!ok) return;
+        copy.replaceChildren(icon('check', 18));
+        setTimeout(() => copy.replaceChildren(icon('copy', 18)), 1500);
+      });
+      row.append(words, copy);
+      block.appendChild(row);
+      root.appendChild(block);
+    }
+
+    for (const b of card.extra || []) if ((b.rows || []).length) root.appendChild(extraBlock(b));
 
     const acts = make('div', 'lex-person-block lex-person-acts');
     if (card.deleted) {
       root.appendChild(make('div', 'lex-person-note', 'Deleted from Lex. Restore brings the card and the chat back.'));
       acts.appendChild(action({ icon: 'undo', label: 'Restore contact', onClick: () => act('restore') }));
     } else {
-      if (card.edit && card.edit.can) acts.appendChild(action({ icon: 'pencil', label: 'Edit contact', onClick: () => act('edit') }));
       const sw = toggle(card.muted, (on, input) => act(on ? 'mute' : 'unmute', input));
-      const mute = action({ tag: 'label', icon: 'bellOff', label: 'Mute', end: sw.label });
-      acts.appendChild(mute);
+      acts.appendChild(action({ tag: 'label', icon: 'bellOff', label: 'Mute', end: sw.label }));
       acts.appendChild(action({ icon: 'trash', label: 'Delete contact', danger: true, onClick: () => act('delete') }));
     }
     root.appendChild(acts);
     return root;
   }
 
-  function editNode(card, onSave, onCancel) {
+  // Your notes: a field of many lines, the words under it from the server, Cancel and Save.
+  function notesNode(card, onSave, onCancel) {
     const form = make('form', 'lex-person-edit');
     form.noValidate = true;
-    const field = (label, value, type) => {
-      const wrap = make('label', 'lex-person-field');
-      const input = make('input');
-      input.type = type;
-      input.value = value || '';
-      input.autocomplete = 'off';
-      wrap.append(make('span', 'lex-person-label', label), input);
-      return { wrap, input };
-    };
-    const name = field('Name', card.edit && card.edit.name, 'text');
-    name.input.maxLength = 120;
-    const phone = field('Phone', card.edit && card.edit.phone, 'tel');
-    phone.input.maxLength = 40;
+    const field = make('textarea', 'lex-person-notes-field');
+    field.value = (card.notes && card.notes.text) || '';
+    field.maxLength = 4000;
+    field.setAttribute('aria-label', 'Your notes');
     const err = make('div', 'lex-person-error');
     err.setAttribute('role', 'alert');
     err.hidden = true;
@@ -180,22 +235,20 @@
     cancel.addEventListener('click', onCancel);
     const buttons = make('div', 'lex-person-buttons');
     buttons.append(cancel, save);
-    form.append(name.wrap, phone.wrap,
-      make('div', 'lex-person-note', 'Lex keeps the name and the phone in the card of this person. The chats in the messengers do not change.'),
-      err, buttons);
+    form.append(field, make('div', 'lex-person-note', (card.notes && card.notes.hint) || 'Only you see this.'), err, buttons);
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       save.disabled = true;
       err.hidden = true;
       try {
-        await onSave(name.input.value, phone.input.value);
+        await onSave(field.value);
       } catch (x) {
         err.textContent = (x && x.message) || 'Not saved. Try again.';
         err.hidden = false;
         save.disabled = false;
       }
     });
-    setTimeout(() => name.input.focus(), 0);
+    setTimeout(() => field.focus(), 0);
     return form;
   }
 
@@ -215,9 +268,9 @@
     };
     const fail = (e) => UI.toast((e && e.message) || 'The server of Lex did not answer.', { error: true });
 
-    async function mark(act, input) {
+    async function mark(what, input) {
       try {
-        const r = await o.call({ op: 'mark', chatKey: o.chatKey, act, opId: newOp() });
+        const r = await o.call({ op: 'mark', chatKey: o.chatKey, act: what, opId: newOp() });
         card = r.card;
         paint();
       } catch (e) {
@@ -227,20 +280,19 @@
     }
 
     async function act(what, input) {
-      if (what === 'edit') {
+      if (what === 'notes') {
         editing = true;
         const head = sheet.body.closest('.wc-sheet-card').querySelector('.wc-sheet-head h2');
-        if (head) head.textContent = 'Edit contact';
+        if (head) head.textContent = 'Your notes';
         const back = () => {
           editing = false;
           if (head) head.textContent = 'Contact';
           paint();
         };
-        sheet.body.replaceChildren(editNode(card, async (name, phone) => {
-          const r = await o.call({ op: 'edit', chatKey: o.chatKey, name, phone, opId: newOp() });
+        sheet.body.replaceChildren(notesNode(card, async (text) => {
+          const r = await o.call({ op: 'note', chatKey: o.chatKey, text, opId: newOp() });
           card = r.card;
           back();
-          if (o.onChanged) o.onChanged(card);
         }, back));
         return;
       }
@@ -262,5 +314,5 @@
     return sheet;
   }
 
-  global.LexPerson = { open, cardNode, editNode, firstWord };
+  global.LexPerson = { open, cardNode, notesNode, firstWord };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1309,7 +1309,6 @@
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the list of the section is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
-      onPersonChanged: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       onPersonGone: () => showSection('profi', { back: true }),
     });
     chat.data = data;

@@ -999,7 +999,7 @@
         // (lex-person.js, В7.41). null — the window gives no door of the card.
         const open = global.LexPerson && deps.person && data && data.chatKey
           ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
-            onChanged: deps.onPersonChanged, onGone: deps.onPersonGone, io: fileIo })
+            onGone: deps.onPersonGone, io: fileIo })
           : null;
         const link = make('button', 'wc-icon-btn lex-profi-clean', '');
         link.type = 'button';

@@ -207,6 +207,7 @@
 }
 .lex-send-more:hover, .lex-send-more:focus-visible { background: var(--bg-hover); outline: none; }
 .lex-send-more:active, .lex-send-more.is-open { background: var(--bg-active); }
+.lex-send-more:disabled { opacity: .5; cursor: default; background: transparent; }
 .lex-send-more svg { display: block; width: 20px; height: 20px; }
 /* Photos of a message (В7.19): over the text, as in Telegram; the radius of a card (В4). One photo —
    as wide as it is, up to the bubble; several — a row of squares, two in a line. */
@@ -701,6 +702,28 @@
 @media (prefers-reduced-motion: reduce) {
   .lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after { animation: none; }
 }
+
+/* ── A message that was not sent (В7.47, 2026-11-16) ──────────────────────────
+ * Under the person's bubble, at its right edge, 6 below it: a line 13 — the alert mark 14 and «Not
+ * sent» 600 in --danger, «· the reason» in --fg-muted, as wide as a bubble at most; 6 under it the
+ * buttons of their own width (0 16 inside), 6 apart. The person's row carries `lex-unsent` (the caller
+ * puts it): it wraps, so the note takes a line of its own under the bubble — in the flex row of a
+ * chat with the model and under the bubble of an order chat alike. The bubble keeps its look. */
+.lex-unsent { flex-wrap: wrap; }
+.lex-unsent > .lex-unsent-note { flex: 0 0 100%; }
+.lex-unsent-note {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
+  box-sizing: border-box; width: 100%; margin-top: 6px;
+}
+.lex-unsent-line {
+  max-width: 86%;
+  color: var(--fg-muted); font-size: 13px; font-weight: 400; line-height: 18px; text-align: right;
+  overflow-wrap: break-word;
+}
+.lex-unsent-line .lex-unsent-mark { display: inline-block; width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; color: var(--danger); }
+.lex-unsent-line .lex-unsent-word { color: var(--danger); font-weight: 600; }
+.lex-unsent-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.lex-unsent-acts > .lex-btn { flex: none; padding: 0 16px; }
 
 /* ── A question of the database (В7.24) ─────────────────────────────────────────
  * The bubble of the other side across the lane: radius 18 18 18 6, inside 10 12 8. The words 15,

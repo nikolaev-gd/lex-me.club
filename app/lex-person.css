@@ -1,7 +1,7 @@
 /* lex-person.css — the card of a person (ios/Lex/STANDARD.md В7.41, lex-person.js).
    The sheet in the middle (В7.15) on the page and in the program for the Mac. Colours — only the
-   tokens of the page (В1): the blocks — the bubble of the other side, the lines — `--line`, the
-   values of links — `--fg-soft`, Delete — `--danger`. The iPhone draws the same in PersonCard.swift. */
+   tokens of the page (В1): the blocks — the bubble of the other side, the lines — `--line`, the button
+   of the notes — `--fg-soft`, Delete — `--danger`. The iPhone draws the same in PersonCard.swift. */
 
 .lex-person {
   display: flex;
@@ -31,14 +31,89 @@
   color: var(--fg-muted);
 }
 
-/* A block of the server: a card of rows on the colour of the other side's bubble. */
+/* A block: a card on the colour of the other side's bubble — the page's `--bg-bubble` (В1): `--lex-bubble-in`
+   is set on the parts of messages only (lex-message.css), not here. */
 .lex-person-block {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-radius: 10px;
-  background: var(--lex-bubble-in);
+  background: var(--bg-bubble);
 }
+
+/* About and Your notes: a text about the person under a head of 13. */
+.lex-person-text { padding: 12px 14px; }
+.lex-person-text-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--fg-muted);
+}
+.lex-person-text-title { flex: 1 1 auto; min-width: 0; font-weight: 600; }
+.lex-person-from { font-size: 12px; }
+.lex-person-text-body {
+  margin-top: 4px;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.lex-person-text + .lex-person-notes { margin-top: -4px; }
+.lex-person-notes { padding: 0 4px 12px 14px; }
+.lex-person-notes .lex-person-text-head { min-height: 44px; }
+.lex-person-notes .lex-person-text-body { margin-top: 0; margin-right: 10px; }
+/* Edit / Add a note: a quiet button of 44 in the head of the notes. */
+.lex-person-edit-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--fg-soft);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-person-edit-btn:hover { background: var(--bg-hover); }
+.lex-person-edit-btn:active { background: var(--bg-active); }
+/* The page's :focus-visible (wc-app.css) gives a focused thing the radius 6: the card keeps its own. */
+.lex-person-edit-btn:focus-visible { outline: 2px solid var(--line-strong); outline-offset: -2px; border-radius: 22px; }
+
+/* Open the chat in: second buttons of 44 (В7.7) of equal width, 6 apart, the mark of the service 18. */
+.lex-person-open-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.lex-person-open-row > .lex-btn {
+  flex: 1 1 0;
+  flex-direction: row;
+  gap: 8px;
+  padding: 0 8px;
+}
+.lex-person-mark { flex: 0 0 auto; display: block; }
+
+/* The sizes of the board. The page gives every svg 20 (wc-app.css) and a mark of a service 14
+   (lex-message.css, `.lex-channel-icon`); the attributes of an svg lose to both, so the card says them here. */
+.lex-person-icon { flex: 0 0 auto; display: block; }
+.lex-person-edit-btn > .lex-person-icon { width: 16px; height: 16px; }
+.lex-person-act > .lex-person-icon,
+.lex-person-copy > .lex-person-icon { width: 18px; height: 18px; }
+.lex-person-open-row .lex-person-mark { width: 18px; height: 18px; }
+.lex-person-text-head .lex-person-mark { width: 14px; height: 14px; }
+
+/* A row of a block: the label 13 and the value. */
 .lex-person-row {
   display: flex;
   align-items: center;
@@ -59,8 +134,9 @@
 }
 .lex-person-row.is-link:hover { background: var(--bg-hover); }
 .lex-person-row.is-link:active { background: var(--bg-active); }
-.lex-person-row.is-link:focus-visible { outline: 2px solid var(--line-strong); outline-offset: -2px; }
-.lex-person-mark { flex: 0 0 auto; display: block; }
+.lex-person-row.is-link .lex-person-value { color: var(--fg-soft); }
+.lex-person-phone { padding: 8px 4px 8px 14px; }
+.lex-person-phone .lex-person-value { font-variant-numeric: tabular-nums; }
 .lex-person-words {
   flex: 1 1 auto;
   min-width: 0;
@@ -80,8 +156,6 @@
   line-height: 22px;
   color: var(--fg);
 }
-.lex-person-row.is-link .lex-person-value { color: var(--fg-soft); }
-.lex-person-row > .lex-person-icon { flex: 0 0 auto; color: var(--fg-muted); }
 
 /* The actions: rows of 44, an icon 18 and the words; Delete — `--danger`. */
 .lex-person-act {
@@ -105,7 +179,7 @@
 }
 .lex-person-act:hover { background: var(--bg-hover); }
 .lex-person-act:active { background: var(--bg-active); }
-.lex-person-act:focus-visible { outline: 2px solid var(--line-strong); outline-offset: -2px; }
+.lex-person-act:focus-visible { outline: 2px solid var(--line-strong); outline-offset: -2px; border-radius: 0; }
 .lex-person-act > .lex-person-icon { flex: 0 0 auto; color: var(--fg-muted); }
 .lex-person-act.is-danger,
 .lex-person-act.is-danger > .lex-person-icon { color: var(--danger); }
@@ -123,30 +197,27 @@
   color: var(--fg-muted);
 }
 
-/* Edit contact: the fields of a dialog (В4: 8), 44 high, the line `--line`. */
+/* Your notes: a field of many lines (the field of a dialog, В4: 8), the line `--line`. */
 .lex-person-edit {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   padding: 4px 0 8px;
 }
-.lex-person-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.lex-person-field input {
-  height: 44px;
+.lex-person-notes-field {
+  min-height: 220px;
   box-sizing: border-box;
-  padding: 0 12px;
+  padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--lex-bubble-in);
+  background: var(--bg-bubble);
   color: var(--fg);
   font: inherit;
   font-size: 16px;
+  line-height: 22px;
+  resize: vertical;
 }
-.lex-person-field input:focus { outline: none; border-color: var(--line-strong); }
+.lex-person-notes-field:focus { outline: none; border-color: var(--line-strong); border-radius: 8px; }
 .lex-person-error {
   font-size: 13px;
   line-height: 18px;
@@ -157,11 +228,6 @@
   gap: 6px;
 }
 .lex-person-buttons > .lex-btn { flex: 1 1 0; }
-
-@media (prefers-reduced-motion: reduce) {
-  .lex-person-row.is-link,
-  .lex-person-act { transition: none; }
-}
 
 /* The entry: the photo and the name in the bar of an order chat (lex-profi.js bar()) are one button
    of 44 that opens the card. */
@@ -180,4 +246,10 @@ button.lex-profi-person {
 }
 button.lex-profi-person:hover { background: var(--bg-hover); }
 button.lex-profi-person:active { background: var(--bg-active); }
-button.lex-profi-person:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+button.lex-profi-person:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; border-radius: 22px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lex-person-row.is-link,
+  .lex-person-act,
+  .lex-person-edit-btn { transition: none; }
+}
