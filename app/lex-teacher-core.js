@@ -2339,6 +2339,10 @@
           // the server tells the model and keeps it on the turn (profi_message_looks.sql).
           ...(chatOptions && typeof chatOptions.quoteUid === 'string' && chatOptions.quoteUid
             ? { quoteUid: chatOptions.quoteUid } : {}),
+          // How many attachments this message carries, when a file (not a picture) is among them
+          // (lex-file-attach.js): the server waits for their paths on the turn and tells the model.
+          ...(chatOptions && Number.isInteger(chatOptions.attachments) && chatOptions.attachments > 0
+            ? { attachments: Math.min(10, chatOptions.attachments) } : {}),
         },
       } : null;
       // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)

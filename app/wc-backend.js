@@ -582,6 +582,11 @@
     // Берём и то и другое: ключ — быстрая местная дорожка, путь — то, что
     // работает на другом устройстве и после повторного входа.
     const imgs = await turnImages();
+    // Files of a turn come with it from the server (attachments, kind 'file').
+    for (const t of turns.concat(apartTurns)) {
+      const fl = global.LexFileAttach ? global.LexFileAttach.filesOf(t.attachments) : [];
+      if (fl.length) t.files = fl;
+    }
     for (const t of turns.concat(apartTurns)) {
       const ref = (t.uid && imgs[t.uid]) || null;
       const srv = (t.attachments || []).find((a) => a && a.kind === 'image' && a.path) || null;
@@ -1176,6 +1181,30 @@
       uploading = WcAttach.upload(attachment.key, writeKey);
     }
 
+    // Files of this message (lex-file-attach.js): uploaded when picked, their paths known. The
+    // server is told HOW MANY attachments the message carries (meta.attachments) and waits for the
+    // paths on the question's row before it tells the model; so the whole list — the picture, once
+    // its upload is in, and the files — is reported right after the press, again and again until
+    // the server has written the row (attachEarly), not after the answer.
+    const files = (!isRegen && Array.isArray(m.files)) ? m.files.filter((f) => f && f.path).slice(0, 10) : [];
+    const attachCount = files.length ? Math.min(10, files.length + (attachment ? 1 : 0)) : 0;
+    let attachStop = false;
+    let attachingFiles = null;
+    const pictureRecord = async () => {
+      if (!uploading) return null;
+      const up = await uploading.catch(() => null);
+      return (up && up.ok && up.path)
+        ? { kind: 'image', path: up.path, mime: attachment.mime, width: attachment.width, height: attachment.height }
+        : null;
+    };
+    if (files.length) {
+      attachingFiles = (async () => {
+        const pic = await pictureRecord();
+        const list = (pic ? [pic] : []).concat(files);
+        return global.LexFileAttach.attachEarly(() => WcHistory.attach(writeKey, userUid, list), { stop: () => attachStop });
+      })();
+    }
+
     // Ответ копится по ходу потока ради ПАМЯТИ: на DONE он ляжет в буфер
     // контекста, и следующий вопрос понесёт его без похода за ним. Строку в
     // аккаунте наполняет сервер из того же потока. Подписка снимается
@@ -1222,6 +1251,8 @@
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
       serverOps.delete(m.requestId);
       unsubscribe();
+      // A turn refused before its first word has no row on the server: nothing to attach to.
+      if (msg.type === 'STREAM_ERROR' && !answer) attachStop = true;
       // Нажатие отдельного разговора без первого кадра: куда лёг ход, сервер
       // не сказал. В список урока не кладётся ни вопрос, ни ответ — учитель
       // их не должен увидеть; беседу заготовки перечитает следующее открытие.
@@ -1262,6 +1293,14 @@
       // браузере. Местная отметка о пути ставится только после того, как
       // сервер его принял, — по той же причине, что в backfillTurnImages:
       // поставленная раньше, она вывела бы реплику из добора.
+      // The files' list went right after the press (attachingFiles above), the picture in it.
+      if (attachingFiles) {
+        const landed = await attachingFiles.catch(() => false);
+        if (!landed) console.warn(TAG, 'files not attached: the server has no row for this turn');
+        const pic = await pictureRecord();
+        if (pic && landed) await rememberTurnImage(userUid, attachment, pic.path).catch(() => {});
+        return;
+      }
       if (!uploading) return;
       try {
         const up = await uploading;
@@ -1329,6 +1368,8 @@
         ...(Array.isArray(m.emReply) && m.emReply.length ? { emReply: m.emReply.slice(0, 30) } : {}),
         // Reply in an order chat: the message this word to Lex answers, by its turn (В7.26).
         ...(typeof m.quoteUid === 'string' && m.quoteUid ? { quoteUid: m.quoteUid } : {}),
+        // How many attachments the message carries, when a file is among them (lex-file-attach.js).
+        ...(attachCount ? { attachments: attachCount } : {}),
         // Номер операции и всё, что серверу нужно, чтобы вести эту переписку
         // самому. chatKey — ключ, под которым строки реально ложатся (в
         // meta.videoId рядом уезжает обрезанный ключ, беседу он не адресует).

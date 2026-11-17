@@ -1671,6 +1671,8 @@
     // A word to Lex in an order chat brings the discussion back: its answer must be seen.
     if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
     const images = WcAttach.take();
+    // Files of this message (lex-file-attach.js): uploaded already, their records go with the turn.
+    const files = WcAttach.takeFiles();
     // Слова, выбранные нажатием в ленте, забираются ЗДЕСЬ — в единственный
     // момент, когда набор перестаёт быть состоянием и становится репликой.
     // Наружу выходят две разные строки: `visible` — то, что человек увидит в
@@ -1682,7 +1684,7 @@
     const turn = global.WcWordPick
       ? WcWordPick.takeTurn(text)
       : { visible: String(text || '').trim(), sent: String(text || '').trim(), picks: null };
-    if (!turn.visible && !images.length) return;
+    if (!turn.visible && !images.length && !files.length) return;
     // 'native' or nothing. The mode rides with the turn rather than living as
     // page state: it is chosen per message (by which button was pressed), not
     // switched on and left on.
@@ -1702,7 +1704,7 @@
     // revoked and remade: it points at the same Blob, and revoking it here
     // would blank the picture the reader just sent.
     // Слот заготовки — на пузырь: «Edit» такого вопроса уйдёт той же заготовкой.
-    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null });
+    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null, files });
     // Заготовка в режиме «отдельный разговор» — подпись «учитель этого не
     // видит» сразу; кадр сервера её подтвердит или снимет (WcThread.settleApart).
     if (mode && opts && opts.presetMode === 'separate') WcThread.markLastUserApart(null);
@@ -1738,7 +1740,7 @@
     const pressedAt = Date.now();
     // Kept on this device from this moment, until the server has it (restoreUnsent). A message
     // with pictures is not kept: the pictures live only in this page.
-    const kept = images.length ? null : {
+    const kept = (images.length || files.length) ? null : {
       id: opId, chatKey: state.conversationId || null, text: turn.visible,
       at: new Date(pressedAt).toISOString(), state: 'sending',
       opts: { mode, slotId, modelId, presetMode: (mode && opts && opts.presetMode) || null },
@@ -1764,6 +1766,7 @@
         // возьмёт скрытый блок (Word/Context/Source).
         pickFrom: (!turn.picks && opts && opts.pickFrom) ? String(opts.pickFrom) : null,
         images,
+        files,
         mode,
         slotId,
         modelId,
@@ -1895,14 +1898,20 @@
   // заказов своя. Меню «+» открывается синхронно, поэтому обе подписи держатся наготове.
   let textModelLabel = '';
   let profiModelLabel = '';
+  // Whether those models read pictures: a picture picked as «File» goes the picture's way only
+  // then (WcAttach.accept). Not known yet — it does, as before.
+  let textModelSees = true;
+  let profiModelSees = true;
   async function refreshTextModelLabel() {
     const label = async (profi) => {
       try {
         const cur = await WcBus.call('WC_TEXT_MODEL', { profi });
-        return cur && cur.modelId ? global.LexAnswerRow.modelLabel(cur.modelId) : '';
-      } catch (_) { return ''; }
+        if (!cur || !cur.modelId) return ['', true];
+        const R = global.LexModelRegistry;
+        return [global.LexAnswerRow.modelLabel(cur.modelId), !R || R.visionSupported(cur.modelId)];
+      } catch (_) { return ['', true]; }
     };
-    [textModelLabel, profiModelLabel] = await Promise.all([label(false), label(true)]);
+    [[textModelLabel, textModelSees], [profiModelLabel, profiModelSees]] = await Promise.all([label(false), label(true)]);
   }
 
   // ── Переспрос и «изменить» ───────────────────────────────────────────────
@@ -3032,6 +3041,8 @@
       WcWordPick.setEnabled(changes[WcWordPick.STORAGE_KEY].newValue !== false);
     });
     WcAttach.init();
+    WcAttach.readsImages = () => (profiChat && !profiChat.folder ? profiModelSees : textModelSees);
+    WcAttach.chatKey = () => state.conversationId || null;
     WcSidebar.init({
       onOpen: openConversation,
       onNew: newConversation,
@@ -3047,6 +3058,7 @@
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
       onAttach: () => WcAttach.pick(),
+      onAttachFile: () => WcAttach.pickFile(),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,

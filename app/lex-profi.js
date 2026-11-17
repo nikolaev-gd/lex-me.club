@@ -155,48 +155,9 @@
     return s.replace(/\n{3,}/g, '\n\n').trim();
   }
 
-  // What the parts need to show the stored files (LexMessage.files): the page fetches a file with the
-  // person's pass, and asks the storage for an address of it that lives an hour — to open the file in
-  // a new tab (in the Mac app — in the system browser). The bytes and the addresses are kept for the
-  // life of the page.
-  const FILE_LINK_S = 3600;
-  const fileIo = (() => {
-    const blobs = new Map();
-    const auth = () => global.LexWebAuth;
-    const objectPath = (path) => String(path).split('/').map(encodeURIComponent).join('/');
-    function blob(path) {
-      if (!blobs.has(path)) {
-        blobs.set(path, (async () => {
-          const A = auth();
-          const token = A && (await A.validToken());
-          if (!token) return null;
-          const r = await fetch(`${A.supabaseUrl()}/storage/v1/object/authenticated/${objectPath(path)}`, {
-            headers: { apikey: A.anonKey(), Authorization: `Bearer ${token}` },
-          });
-          if (!r.ok) return null;
-          return URL.createObjectURL(await r.blob());
-        })().catch(() => null).then((url) => { if (!url) blobs.delete(path); return url; }));
-      }
-      return blobs.get(path);
-    }
-    async function link(path, o) {
-      const A = auth();
-      const token = A && (await A.validToken());
-      if (!token) return null;
-      const r = await fetch(`${A.supabaseUrl()}/storage/v1/object/sign/${objectPath(path)}`, {
-        method: 'POST',
-        headers: { apikey: A.anonKey(), Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn: FILE_LINK_S }),
-      }).catch(() => null);
-      if (!r || !r.ok) return null;
-      const j = await r.json().catch(() => null);
-      const signed = j && (j.signedURL || j.signedUrl);
-      if (typeof signed !== 'string' || !signed) return null;
-      const url = `${A.supabaseUrl()}/storage/v1${signed.startsWith('/') ? '' : '/'}${signed}`;
-      return o && o.download ? `${url}${url.includes('?') ? '&' : '?'}download=${encodeURIComponent(o.download)}` : url;
-    }
-    return { blob, link };
-  })();
+  // What the parts need to show the stored files (LexMessage.files): one for the order chats and the
+  // chats of Lex — LexFileAttach.webIo (lex-file-attach.js).
+  const fileIo = global.LexFileAttach.webIo;
 
   // ── the ticks under what went to the client ─────────────────────────────────
   // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the

@@ -50,6 +50,10 @@
 //                       card that opens it; a file that did not come — the card with the reason. The
 //                       parts know no server: io = { blob(path) → Promise<object URL | null>,
 //                       link(path, { download }) → Promise<address | null> } comes from the page. None — null
+//   files(list, io, { free: true })   the same files outside a bubble: the person's own message in a
+//                       chat of Lex (2026-11-17), over his bubble at the right edge
+//   fileChip({ name, mime, bytes }, { busy, onRemove })   a file over the composer before the
+//                       message goes (В7.49): the card of a document, «Uploading…» while busy, a cross 44
 //   bubble({ …, media })   `media` (photos, files) stands over the text, as in Telegram; a bubble of
 //                       photos without words has no line of text
 //   bubble({ …, copy })   `copy` → Promise<bool>: a Copy mark inside, top right, the text flows
@@ -1112,11 +1116,13 @@
     return root;
   }
 
-  function files(list, io) {
+  function files(list, io, opts) {
     const items = (Array.isArray(list) ? list : []).filter((f) => f && typeof f === 'object'
       && ((typeof f.path === 'string' && f.path) || (f.missing && MISSING[f.missing])));
     if (!items.length) return null;
-    const root = make('div', 'lex-files');
+    // `free` — the files stand outside a bubble (the person's own message in a chat of Lex, over
+    // his bubble at the right edge).
+    const root = make('div', `lex-files${opts && opts.free ? ' lex-files-free' : ''}`);
     const shots = items.filter((f) => f.kind === 'image' && f.path && !f.missing);
     if (shots.length) root.appendChild(storedPhotos(shots, io));
     for (const f of items) {
@@ -1125,6 +1131,41 @@
       else if (f.kind === 'voice' || f.kind === 'audio') root.appendChild(voice(f, io));
       else if (f.kind === 'video') root.appendChild(video(f, io));
       else root.appendChild(fileCard(f, io));
+    }
+    return root;
+  }
+
+  // ── A file over the composer (В7.49, 2026-11-17) ────────────────────────────
+  // The card of a document (В7.21) on the plate of the field, before the message goes: the mark with
+  // the extension, the name in one line, under it the type and size — or «Uploading…» while the file
+  // goes to the server (the card paler) — and a cross 44 that takes it off. The bytes are not read
+  // here: the card is drawn from { name, mime, bytes }.
+  function fileChip(f, opts) {
+    const o = opts || {};
+    const root = make('div', `lex-file-chip${o.busy ? ' is-busy' : ''}`);
+    const card = make('div', 'lex-file');
+    const icon = make('span', 'lex-file-icon');
+    const doc = svg('0 0 24 24', 22);
+    doc.appendChild(shape('path', { d: 'M6 2.5h8l4.5 4.5v14.5H6z', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }));
+    doc.appendChild(shape('path', { d: 'M14 2.5V7h4.5', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }));
+    icon.append(doc, make('span', 'lex-file-ext', typeText(f).slice(0, 4)));
+    const body = make('span', 'lex-file-body');
+    body.appendChild(make('span', 'lex-file-name', f.name || typeText(f)));
+    body.appendChild(make('span', 'lex-file-meta', o.busy
+      ? ['Uploading…', sizeText(f.bytes)].filter(Boolean).join(' · ')
+      : [typeText(f), sizeText(f.bytes)].filter(Boolean).join(' · ')));
+    card.append(icon, body);
+    root.appendChild(card);
+    if (typeof o.onRemove === 'function') {
+      const x = make('button', 'lex-file-chip-x');
+      x.type = 'button';
+      x.setAttribute('aria-label', `Remove ${f.name || 'the file'}`);
+      x.title = 'Remove';
+      const cross = svg('0 0 24 24', 18);
+      cross.appendChild(shape('path', { d: 'M6 6l12 12M18 6L6 18', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round' }));
+      x.appendChild(cross);
+      x.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); o.onRemove(); });
+      root.appendChild(x);
     }
     return root;
   }
@@ -2147,7 +2188,7 @@
 
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
-    CHANNELS, channel, channelName, stamp, bubble, photos, files, sizeText, durationText, notice, fold, eyeOff, sparkle,
+    CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
     sendHold, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon };
 })(typeof window !== 'undefined' ? window : globalThis);

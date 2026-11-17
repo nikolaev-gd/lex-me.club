@@ -55,6 +55,8 @@
     logout: 'M15 17l5-5-5-5M20 12H9M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6',
     plus: 'M12 5v14M5 12h14',
     image: 'M3 5h18v14H3zM3 15l5-5 4 4 3-3 6 6',
+    // «File» of «+» (2026-11-17): the sheet of a document, the same drawing as its card (В7.21).
+    file: 'M6 2.5h8l4.5 4.5v14.5H6zM14 2.5V7h4.5',
     wave: 'M4 10v4M8 6v12M12 3v18M16 6v12M20 10v4',
     mic: 'M9 4a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3',
     edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',

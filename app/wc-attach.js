@@ -1,4 +1,5 @@
-// webchat/wc-attach.js — pictures in the composer.
+// webchat/wc-attach.js — pictures and any files in the composer (files since 2026-11-17:
+// lex-file-attach.js, the cards over the field — LexMessage.fileChip, В7.49).
 //
 // Three ways in — the paperclip, a paste, a drag — and one path out. The rules
 // are the extension's, because the thing on the other end is the same server
@@ -317,12 +318,64 @@
 
   // ── The strip above the composer ─────────────────────────────────────────
   const pending = [];     // {key, mime, width, height, base64, previewUrl, node}
-  let elStrip, elForm, elInput, elFile;
+  let elStrip, elForm, elInput, elFile, elAnyFile;
+
+  // ── Any file (2026-11-17, lex-file-attach.js) ────────────────────────────
+  // {id, name, mime, bytes, busy, rec, node}: uploaded at once; `rec` — its record for the turn once
+  // the server has it. A picture keeps its own way above (one per message, sent to the model).
+  const files = [];
+  let fileSeq = 0;
+
+  function fileChipFor(f) {
+    return global.LexMessage.fileChip({ name: f.name, mime: f.mime, bytes: f.bytes }, {
+      busy: f.busy, onRemove: () => removeFile(f.id),
+    });
+  }
 
   function paint() {
-    elStrip.replaceChildren(...pending.map((a) => a.node));
-    elStrip.hidden = !pending.length;
+    const nodes = pending.map((a) => a.node);
+    if (files.length) {
+      nodes.push(el('.lex-file-chips', {}, files.map((f) => { f.node = fileChipFor(f); return f.node; })));
+    }
+    elStrip.replaceChildren(...nodes);
+    elStrip.hidden = !nodes.length;
     WcComposer.refresh();
+  }
+
+  function removeFile(id) {
+    const i = files.findIndex((f) => f.id === id);
+    if (i < 0) return;
+    const [f] = files.splice(i, 1);
+    f.gone = true;
+    // Uploaded already — out of the bucket too: a file that never went with a message is nobody's.
+    if (f.rec && global.LexFileAttach) LexFileAttach.webDrop(f.rec.path).catch(() => {});
+    paint();
+  }
+
+  async function acceptFile(file) {
+    const F = global.LexFileAttach;
+    const why = F.check(file, pending.length + files.length);
+    if (why) { toast(F.refusal(why), { error: true }); return; }
+    const f = { id: ++fileSeq, name: file.name || 'file', mime: file.type || '', bytes: file.size, busy: true, rec: null };
+    files.push(f);
+    paint();
+    const up = await F.webPost(file, (WcAttach.chatKey && WcAttach.chatKey()) || null);
+    if (f.gone) {
+      // Taken off while it uploaded: the object the server just wrote goes too.
+      if (up.ok) F.webDrop(up.path).catch(() => {});
+      return;
+    }
+    if (!up.ok) {
+      const i = files.indexOf(f);
+      if (i >= 0) files.splice(i, 1);
+      paint();
+      toast(F.refusal(up.reason), { error: true });
+      return;
+    }
+    f.rec = F.record(up, file);
+    f.mime = f.rec.mime;
+    f.busy = false;
+    paint();
   }
 
   function chipFor(att) {
@@ -343,16 +396,30 @@
     paint();
   }
 
+  // Where a file goes. A picture the image path takes, when the model reads pictures and the
+  // message has none yet — as a picture; anything else, and a second picture, — as a file.
+  function accept(file, opts) {
+    if (!file) return;
+    const asPicture = global.LexFileAttach && LexFileAttach.isPicture(file) && !pending.length
+      && !(opts && opts.asFile) && (typeof WcAttach.readsImages !== 'function' || WcAttach.readsImages());
+    if (asPicture || !global.LexFileAttach) { acceptImage(file); return; }
+    acceptFile(file);
+  }
+
   // One at a time, like the extension: the wire format carries one image per
   // message, and a strip that accepts five and sends one is a lie.
-  async function accept(file) {
+  async function acceptImage(file) {
     if (!file) return;
     if (pending.length) {
       toast('One image at a time for now — remove the previous one');
       return;
     }
+    if (global.LexFileAttach && files.length >= LexFileAttach.MAX_COUNT) {
+      toast(LexFileAttach.refusal('count'), { error: true });
+      return;
+    }
     const busy = el('.wc-chip.is-busy');
-    elStrip.replaceChildren(busy);
+    elStrip.prepend(busy);
     elStrip.hidden = false;
     try {
       const n = await normalize(file);
@@ -366,20 +433,20 @@
       pending.push(att);
       paint();
     } catch (err) {
-      elStrip.replaceChildren();
-      elStrip.hidden = true;
+      paint();
       toast(String((err && err.message) || err), { error: true });
     }
   }
 
-  function firstImageFrom(dt) {
-    if (!dt) return null;
-    const files = dt.files ? Array.from(dt.files) : [];
-    const hit = files.find((f) => /^image\//.test(f.type) || /\.hei[cf]$/i.test(f.name || ''));
-    if (hit) return hit;
-    const items = dt.items ? Array.from(dt.items) : [];
-    const it = items.find((i) => i.kind === 'file');
-    return it ? it.getAsFile() : null;
+  // Every file of a paste or a drop: a picture first (it takes the picture's place), then the rest.
+  function filesFrom(dt) {
+    if (!dt) return [];
+    let list = dt.files ? Array.from(dt.files) : [];
+    if (!list.length && dt.items) {
+      list = Array.from(dt.items).filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+    }
+    const pic = (f) => /^image\//.test(f.type) || /\.hei[cf]$/i.test(f.name || '');
+    return list.filter(pic).concat(list.filter((f) => !pic(f)));
   }
 
   const WcAttach = {
@@ -396,14 +463,23 @@
       elFile.addEventListener('change', () => {
         const f = elFile.files && elFile.files[0];
         elFile.value = '';       // same file twice in a row must fire again
-        accept(f);
+        acceptImage(f);
       });
+      // «File» of «+»: any type, several at once.
+      elAnyFile = document.getElementById('wc-anyfile');
+      if (elAnyFile) {
+        elAnyFile.addEventListener('change', () => {
+          const list = elAnyFile.files ? Array.from(elAnyFile.files) : [];
+          elAnyFile.value = '';
+          list.forEach((f) => accept(f));
+        });
+      }
 
       elInput.addEventListener('paste', (e) => {
-        const f = firstImageFrom(e.clipboardData);
-        if (!f) return;          // plain text paste is left alone
+        const list = filesFrom(e.clipboardData);
+        if (!list.length) return;          // plain text paste is left alone
         e.preventDefault();
-        accept(f);
+        list.forEach((f) => accept(f));
       });
 
       // A depth counter, not a boolean: dragging over a child fires
@@ -433,7 +509,7 @@
         e.preventDefault();
         depth = 0;
         elForm.classList.remove('is-dropping');
-        accept(firstImageFrom(e.dataTransfer));
+        filesFrom(e.dataTransfer).forEach((f) => accept(f));
       });
     },
 
@@ -443,21 +519,46 @@
       elFile.click();
     },
 
-    count() { return pending.length; },
+    // «File» of «+».
+    pickFile() {
+      if (elAnyFile) elAnyFile.click();
+    },
+
+    // Set by the page: does the model of this chat read pictures (a picture picked as a file goes
+    // the picture's way only then), and the key of the open chat (the folder of the file).
+    readsImages: null,
+    chatKey: null,
+
+    // Pictures and files together: what the composer counts as «something to send».
+    count() { return pending.length + files.length; },
+    // A file still uploading — the message waits.
+    busy() { return files.some((f) => f.busy); },
+
+    // The records of the files of this message, handed to the sender and taken off the field.
+    takeFiles() {
+      const out = files.filter((f) => f.rec).map((f) => f.rec);
+      files.length = 0;
+      paint();
+      return out;
+    },
 
     // Handed to the sender and cleared: the strip's job ends where the turn
     // begins. previewUrl survives — the bubble shows it.
     take() {
       const out = pending.slice();
       pending.length = 0;
-      elStrip.replaceChildren();
-      elStrip.hidden = true;
+      if (elStrip) paint();
       return out;
     },
 
+    // Everything off the field; the uploaded files out of the bucket too (they never went).
     clear() {
       pending.forEach((a) => URL.revokeObjectURL(a.previewUrl));
       pending.length = 0;
+      files.splice(0).forEach((f) => {
+        f.gone = true;
+        if (f.rec && global.LexFileAttach) LexFileAttach.webDrop(f.rec.path).catch(() => {});
+      });
       if (elStrip) { elStrip.replaceChildren(); elStrip.hidden = true; }
     },
 
@@ -528,6 +629,7 @@
     // Exposed for the scenario set, which feeds a file straight in rather than
     // driving a native file dialog.
     accept,
+    acceptFile,
     normalize,
     fetchFromBucket,
   };

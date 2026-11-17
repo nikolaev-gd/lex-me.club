@@ -219,7 +219,7 @@
 .lex-bubble .lex-photos.is-many .lex-photo img { width: 100%; height: 140px; max-width: none; max-height: none; }
 /* The stored files of a message (В7.21): photos as above; a voice message, a video and a document
    one under another, over the text. */
-.lex-bubble .lex-files { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.lex-bubble .lex-files, .lex-files.lex-files-free { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
 .lex-bubble .lex-files > .lex-photos { margin-bottom: 0; }
 .lex-bubble .lex-photo img:not([src]) { width: 220px; height: 160px; }
 /* One photo whose size is known (fitPhoto in lex-message.js): the frame has the width of the picture,
@@ -289,27 +289,46 @@
   background: var(--lex-plate); color: var(--lex-plain-fg);
 }
 /* A document: its mark with the extension, the name, the type and size; the whole card opens it. */
-.lex-bubble .lex-file {
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file {
   display: flex; align-items: center; gap: 10px; min-width: 220px; min-height: 44px;
   color: inherit; text-decoration: none; cursor: pointer;
 }
-.lex-bubble .lex-file.is-missing { cursor: default; }
-.lex-bubble .lex-file-icon {
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file.is-missing { cursor: default; }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-icon {
   position: relative; flex: none; display: grid; place-items: center; width: 44px; height: 44px;
   border-radius: 10px; background: var(--lex-plate); color: var(--lex-plain-fg);
 }
-.lex-bubble .lex-file-icon svg { stroke: none; }
-.lex-bubble .lex-file-ext {
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-icon svg { stroke: none; }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-ext {
   position: absolute; bottom: 7px; font-size: 8px; font-weight: 750; letter-spacing: .02em; line-height: 10px;
 }
-.lex-bubble .lex-file-body { display: flex; flex-direction: column; min-width: 0; }
-.lex-bubble .lex-file-name {
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-body { display: flex; flex-direction: column; min-width: 0; }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-name {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
   font-weight: 600; line-height: 20px;
 }
-.lex-bubble a.lex-file:hover .lex-file-name { text-decoration: underline; }
-.lex-bubble .lex-file-meta { font-size: 12px; line-height: 16px; color: var(--lex-plate-fg); }
-.lex-bubble .lex-file.is-missing .lex-file-name { opacity: .7; }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) a.lex-file:hover .lex-file-name { text-decoration: underline; }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file-meta { font-size: 12px; line-height: 16px; color: var(--lex-plate-fg); }
+:is(.lex-bubble, .lex-files-free, .lex-file-chip) .lex-file.is-missing .lex-file-name { opacity: .7; }
+/* Files outside a bubble (В7.21): the person's own message in the chat of Lex — the files stand over
+   his bubble at the right edge, the same cards. */
+.lex-files.lex-files-free { margin-bottom: 6px; align-items: flex-end; }
+/* A file over the composer (В7.49, 2026-11-17): the card of В7.21 on the plate of the field, with a
+   cross 44 at its right; while it uploads — «Uploading…» under the name and the card paler. */
+.lex-file-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 52px;
+  padding: 4px 0 4px 4px; border-radius: 14px; background: var(--lex-plate); color: var(--fg);
+}
+.lex-file-chip .lex-file { min-width: 0; cursor: default; }
+.lex-file-chip .lex-file-icon { background: var(--bg-active); }
+.lex-file-chip .lex-file-name { max-width: 200px; }
+.lex-file-chip.is-busy .lex-file { opacity: .6; }
+.lex-file-chip-x {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
+  border: 0; border-radius: 22px; background: transparent; color: var(--fg-muted); cursor: pointer;
+}
+.lex-file-chip-x:hover { color: var(--fg); background: var(--bg-active); }
+.lex-file-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .lex-bubble .lex-bubble-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;

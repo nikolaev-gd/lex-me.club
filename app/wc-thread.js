@@ -167,6 +167,12 @@
     if (from && to && from.classList.contains('wc-turn-apart')) markApart(to, from.dataset.threadKey || null);
   }
 
+  // The files a drawn turn carries (userTurn keeps them on its node).
+  function filesOfNode(node) {
+    const f = node && node.querySelector('.lex-files[data-files]');
+    try { return f ? JSON.parse(f.dataset.files) : null; } catch (_) { return null; }
+  }
+
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
@@ -190,7 +196,18 @@
     if (images && images.length) {
       parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
     }
-    parts.push(bubble);
+    // Files of the message (2026-11-17): the cards of В7.21 over the bubble, at the right edge; a
+    // press opens the file (an address of an hour from the storage, LexFileAttach.webIo).
+    const fileList = (opts && Array.isArray(opts.files)) ? opts.files : [];
+    const filesNode = fileList.length && global.LexMessage && global.LexFileAttach
+      ? global.LexMessage.files(fileList, global.LexFileAttach.webIo, { free: true }) : null;
+    if (filesNode) {
+      parts.push(filesNode);
+      // Kept on the node: a bubble drawn again (a preset's line, a pick) keeps its files.
+      try { parts[parts.length - 1].dataset.files = JSON.stringify(fileList); } catch (_) {}
+    }
+    // A picture or a file without words is a message without a bubble (as in Telegram).
+    if (String(text || '').trim() || !parts.length) parts.push(bubble);
     // Меню висит на ПУЗЫРЕ, а не на всей строке: строка тянется во всю ширину
     // ленты, и удержание в пустоте справа от короткого «hi» открывало бы меню
     // ниоткуда.
@@ -922,10 +939,11 @@
           // ImageAttachment на iOS), и её дропать нельзя вместе с пустым
           // текстом: без этой оговорки такой ход пропадал из ленты целиком —
           // ни пузыря, ни картинки.
-          const hasImage = Array.isArray(t.images) && t.images.length > 0;
+          const hasImage = (Array.isArray(t.images) && t.images.length > 0)
+            || (Array.isArray(t.files) && t.files.length > 0);
           if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
           const node = userTurn(visible, t.images, {
-            presetSlot: t.presetSlot || null, editText,
+            presetSlot: t.presetSlot || null, editText, files: t.files || null,
             ...(bub ? { pick: bub.pick, rest: bub.rest } : {}),
           });
           if (t.uid) node.dataset.uid = String(t.uid);
@@ -995,7 +1013,7 @@
       if (!pp || !pp.line) return;
       const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
       const node = userTurn(global.LexWordPick.presetBubbleText(pp), imgs,
-        { presetSlot: old.dataset.presetSlot, editText: pp.phrase });
+        { presetSlot: old.dataset.presetSlot, editText: pp.phrase, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
       old.replaceWith(node);
       carryApart(old, node);
@@ -1009,7 +1027,7 @@
       if (!old || !old.dataset.presetSlot || !pick) return;
       const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
       const node = userTurn(global.LexWordPick.pickBubbleText(pick, rest), imgs,
-        { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest });
+        { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
       old.replaceWith(node);
       carryApart(old, node);

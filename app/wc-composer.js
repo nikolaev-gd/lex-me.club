@@ -307,6 +307,12 @@
       return;
     }
     if (!canSend()) return;
+    // A file still on its way to the server: the message waits for it — it goes with the file's
+    // path (lex-file-attach.js), and a message without the file would be another message.
+    if (global.WcAttach && typeof WcAttach.busy === 'function' && WcAttach.busy()) {
+      toast(global.LexFileAttach.refusal('busy'));
+      return;
+    }
     // Обычная отправка при взведённой заготовке уходит через неё — как нажатие
     // её пилюли (там же проверка промпта и строки).
     if (!(opts && opts.mode) && armedPresetSlot) {
@@ -811,6 +817,9 @@
           });
         }
         items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
+        // Any file (2026-11-17): a PDF, a document, a video, an archive — to the message, so that it
+        // can go on to people. A picture picked here goes the way of a picture (WcAttach.accept).
+        if (hooks.onAttachFile) items.push({ label: 'File', icon: 'file', onSelect: () => hooks.onAttachFile() });
         // Модель по умолчанию для следующих вопросов — так же, как пункт «Text
         // model» в меню «+» расширения. Меню моделей встаёт у кнопки «+».
         let tm = null;
