@@ -2343,6 +2343,9 @@
           // (lex-file-attach.js): the server waits for their paths on the turn and tells the model.
           ...(chatOptions && Number.isInteger(chatOptions.attachments) && chatOptions.attachments > 0
             ? { attachments: Math.min(10, chatOptions.attachments) } : {}),
+          // And the records of those files: the server names them to the model before it speaks.
+          ...(chatOptions && Array.isArray(chatOptions.files) && chatOptions.files.length
+            ? { files: chatOptions.files.slice(0, 10) } : {}),
         },
       } : null;
       // Ведёт ли сервер этот ход. Заполняется заголовком ответа (см. proxyFetch)
