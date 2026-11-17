@@ -47,7 +47,8 @@
     // The chats this window holds: every line that comes on the screen is read ahead (folder_item, nothing
     // read or written by it), and a press shows the chat from it at once.
     const held = global.LexSection.keep({ load: (key) => deps.rpc('folder_item', { p_chat_key: key }) });
-    const stampOf = (c) => [c.at, c.last, c.unread, c.pinned].join('|');
+    // the photo too: a new photo of the person is read again for the bar over the chat
+    const stampOf = (c) => [c.at, c.last, c.unread, c.pinned, c.photo || ''].join('|');
     const keepOf = (key) => (item) => held.put(key, item);
     const openChat = (key) => frame.open(
       (wanted) => deps.openChat(key, wanted, held.get(key), keepOf(key)), 'The chat did not open.');
@@ -76,12 +77,14 @@
       if (frame.screen === 'home') paint();
     }
 
-    // A line of a chat (В7.34): the letter of the person or the group 48 (В7.12), the name, the time,
-    // the pin of a pinned one, the last message with the mark of the messenger it came by.
+    // A line of a chat (В7.34): the photo of the person (folder_photos.sql) or the letter of the person or
+    // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message with the mark of
+    // the messenger it came by. The photo comes with the person's own pass, as the files of a message.
     function chatLine(c) {
       const M = global.LexMessage;
+      const io = global.LexFileAttach && global.LexFileAttach.webIo;
       const line = global.LexSection.row({
-        lead: M.avatar(c.title || '?', { size: 48 }),
+        lead: M.avatar(c.title || '?', { size: 48, photo: c.photo, io }),
         title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey),
         end: c.channel && M.CHANNELS[c.channel] ? M.channel(c.channel) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,

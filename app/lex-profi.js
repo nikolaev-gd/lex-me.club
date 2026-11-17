@@ -998,15 +998,16 @@
       bar() {
         const M = global.LexMessage;
         const person = make('div', 'lex-profi-person', '');
-        // A chat of a folder: the person or the group, and the messenger he wrote by last (a group: its
-        // own); no clean view (there is no talk with the model), no card yet (it opens from an order chat).
+        // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
+        // wrote by last (a group: its own); no clean view (there is no talk with the model), no card yet (it
+        // opens from an order chat).
         if (folder) {
           const name = (data && (data.client || data.title)) || 'Chat';
           const where = data && data.replyTo && M.CHANNELS[data.replyTo] ? M.CHANNELS[data.replyTo].name : '';
           const line = data && data.kind === 'group' ? (where ? `Group · ${where}` : 'Group') : where;
           const words = make('div', 'lex-profi-person-words', '');
           words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
-          person.append(M.avatar(name, { io: fileIo }), words);
+          person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);
           return { person, link: null, open: null, who: name };
         }
         const who = (data && data.client) || 'Client';
