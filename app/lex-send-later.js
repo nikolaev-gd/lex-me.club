@@ -100,12 +100,15 @@
     close: ['M6 6l12 12', 'M18 6L6 18'],
     calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z', 'M16 3v4', 'M8 3v4', 'M3 10h18'],
     check: ['M5 12l5 5L20 7'],
-    // The menu of a chat in a list (В7.33): pin, unpin, read, unread, delete.
+    // The menu of a chat in a list (В7.33): pin, unpin, read, unread, delete, important.
     pin: ['M12 17v5', 'M8 3h8', 'M9 3v7l-3 4h12l-3-4V3'],
     pinOff: ['M12 17v5', 'M8 3h8', 'M9 3v7l-3 4h12l-3-4V3', 'M3 3l18 18'],
     read: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M8 12l3 3 5-6'],
     unread: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z'],
     trash: ['M4 7h16', 'M10 11v6', 'M14 11v6', 'M6 7l1 13h10l1-13', 'M9 7V4h6v3'],
+    // Mark as important and Unmark important (part 6): a bell, a bell struck through.
+    bell: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'],
+    bellOff: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0', 'M3 3l18 18'],
   };
   function icon(name, size, line) {
     const s = document.createElementNS(NS, 'svg');

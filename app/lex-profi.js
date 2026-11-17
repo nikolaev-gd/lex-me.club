@@ -1180,11 +1180,16 @@
 
     async function chatAct(c, act) {
       try {
+        // The mark is not a line of the list: the numbers of the unread carry it, and the signal «unread»
+        // brings them to every device (important_chats.sql).
+        if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act === 'important');
         await deps.rpc('chat_act', { p_op_id: newOpId(), p_chat_key: c.chatKey, p_act: act });
       } catch (e) {
+        if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act !== 'important');
         say((e && e.message) || 'It did not work.', true);
         return;
       }
+      if (act === 'important' || act === 'unimportant') return;
       await reloadHome();
       if (frame.screen === 'home') paintHome();
     }
@@ -1204,6 +1209,7 @@
         const act = (name) => chatAct(c, name);
         global.LexChatMenu.attach(line, () => ({
           title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
+          important: global.LexSection.isImportant(c.chatKey),
           remove: () => global.LexChatMenu.remove({ confirm: deps.confirm, text: DELETE_TEXT, act }),
         }));
       }

@@ -223,12 +223,23 @@
     paintCount(slot);
     return slot;
   }
+  // The chats marked important (2026-11-17, part 6, important_chats.sql) come with the numbers: a message a
+  // person wrote there rings an alarm on the iPhone. An answer of a server before part 6 has no list: the
+  // marks known stay.
+  let importantNow = new Set();
   function setUnread(u) {
     if (!u || typeof u !== 'object') return;
     unreadNow = { chats: u.chats || {}, orders: u.orders || {}, sections: u.sections || {} };
+    if (Array.isArray(u.important)) importantNow = new Set(u.important.map(String));
     if (typeof document !== 'undefined') document.querySelectorAll('.lex-section-count').forEach(paintCount);
   }
   const unread = () => unreadNow;
+  const isImportant = (chatKey) => chatKey != null && importantNow.has(String(chatKey));
+  // A press of «Mark as important» shows at once; the next answer of the numbers confirms or puts it back.
+  function markImportant(chatKey, on) {
+    if (chatKey == null) return;
+    if (on) importantNow.add(String(chatKey)); else importantNow.delete(String(chatKey));
+  }
 
   // The time of a line of a chat (В7.34), the device's day: today — the hour, yesterday — «Вчера»,
   // this year — the day and the month, before — the date.
@@ -523,5 +534,5 @@
   }
 
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
-    count, setUnread, unread };
+    count, setUnread, unread, isImportant, markImportant };
 })(typeof window !== 'undefined' ? window : globalThis);
