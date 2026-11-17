@@ -795,6 +795,9 @@
       else await openEmFeed(kind, wanted, ref);
       return;
     }
+    // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
+    // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key.
+    if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
     // A message of a folder (folder_message): its section, and the chat over its list, as a press there opens it.
     // A folder the page does not know (its button has not come yet) — the chat by itself.
     const folderId = lex.folder ? `folder:${lex.folder}` : '';
