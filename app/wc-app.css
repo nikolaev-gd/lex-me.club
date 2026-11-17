@@ -624,6 +624,20 @@ button { font: inherit; color: inherit; }
   font-size: 14px;
 }
 .wc-conv-title.is-untitled { color: var(--fg-muted); }
+/* The title and the draft of the chat under it (LexSection.draft): the draft is a second line 13 in grey,
+   «Draft:» red (lex-section.css), only while the chat has one. */
+.wc-conv-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.wc-conv-text > .wc-conv-title { flex: none; }
+.wc-conv-text > .lex-draft {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-conv-text > .lex-draft[hidden] { display: none; }
 /* A chat marked unread (В7.34): the dot 7 of «look here» on the margin, the title 600; a pinned
    chat: the pin 14 before the three dots. */
 .wc-conv.is-unread::before {

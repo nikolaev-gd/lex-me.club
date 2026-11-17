@@ -94,6 +94,8 @@
         end: c.channel && M.CHANNELS[c.channel] ? M.channel(c.channel) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
         unread: { chat: c.chatKey },
+        // The draft of the chat, while it has one: «Draft: …» in place of the last message.
+        draft: c.chatKey || null,
       });
       if (global.LexChatMenu) {
         const act = (name) => chatAct(c, name);

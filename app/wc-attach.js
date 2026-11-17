@@ -340,7 +340,13 @@
     elStrip.replaceChildren(...nodes);
     elStrip.hidden = !nodes.length;
     WcComposer.refresh();
+    // What the field holds changed: the draft of the chat keeps it (wc-app.js, lex-drafts.js).
+    if (typeof WcAttach.onChange === 'function') {
+      try { WcAttach.onChange(); } catch (e) { console.warn('[wc-attach] change:', e && e.message); }
+    }
   }
+  // Every detach() makes the pictures a restore() is still reading not this field's.
+  let restoreSeq = 0;
 
   function removeFile(id) {
     const i = files.findIndex((f) => f.id === id);
@@ -549,6 +555,58 @@
       pending.length = 0;
       if (elStrip) paint();
       return out;
+    },
+
+    // The window says when what the field holds changed (paint): the draft of the chat keeps it.
+    onChange: null,
+
+    // The draft of a chat (lex-drafts.js `attach`): what the field holds, as words a store can keep — a
+    // picture by its key in this page's store of pictures (the pixels stay there), a file by its record
+    // (it is in the bucket already). A file still uploading is not kept: it has no record yet.
+    snapshot() {
+      const images = pending.map((a) => ({ key: a.key, mime: a.mime, width: a.width, height: a.height }));
+      const kept = files.filter((f) => f.rec).map((f) => ({ name: f.name, mime: f.mime, bytes: f.bytes, rec: f.rec }));
+      return images.length || kept.length ? { images, files: kept } : null;
+    },
+
+    // Off the field, as the chat is left: the picture stays in the store and the file in the bucket —
+    // they are the draft of that chat now (snapshot), and come back with it (restore).
+    detach() {
+      restoreSeq += 1;
+      pending.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+      pending.length = 0;
+      files.length = 0;
+      if (elStrip) { elStrip.replaceChildren(); elStrip.hidden = true; }
+      if (global.WcComposer) WcComposer.refresh();
+    },
+
+    // The draft's pictures and files back on the field of its chat. A picture the store no longer has
+    // (cleared by the ceiling of the store, another device) is not there: the rest comes back.
+    async restore(snap) {
+      if (!snap || typeof snap !== 'object') return;
+      const mine = restoreSeq;
+      for (const f of Array.isArray(snap.files) ? snap.files : []) {
+        if (!f || !f.rec || !f.rec.path) continue;
+        files.push({ id: ++fileSeq, name: f.name || f.rec.name || 'file', mime: f.mime || f.rec.mime || '', bytes: f.bytes || 0, busy: false, rec: f.rec });
+      }
+      if (files.length) paint();
+      for (const im of Array.isArray(snap.images) ? snap.images.slice(0, 1) : []) {
+        if (!im || !im.key) continue;
+        let row = null;
+        try { row = await get(im.key); } catch (_) { row = null; }
+        if (mine !== restoreSeq || pending.length) return;
+        if (!row || !row.blob) continue;
+        let base64 = '';
+        try { base64 = await blobToBase64(row.blob); } catch (_) { continue; }
+        if (mine !== restoreSeq || pending.length) return;
+        const att = {
+          key: im.key, mime: row.mime || im.mime, width: row.width || im.width, height: row.height || im.height,
+          base64, previewUrl: URL.createObjectURL(row.blob),
+        };
+        att.node = chipFor(att);
+        pending.push(att);
+        paint();
+      }
     },
 
     // Everything off the field; the uploaded files out of the bucket too (they never went).

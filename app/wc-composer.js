@@ -31,6 +31,17 @@
 
   let elForm, elInput, elSend, elVoice, elMic, elPlus, elModeSplit, elNote;
   let hooks = {};
+  // The field takes no text (a group, a chat that takes no messages now): setHint(…, true).
+  let locked = false;
+
+  // The words of the field changed — by a key, a dictation, a send, the window: the draft of the chat
+  // the field belongs to is the window's (wc-app.js, lex-drafts.js). setText(…, { quiet: true }) — the
+  // window filled the field itself (a chat opened with its draft) and is not told.
+  function changed() {
+    if (typeof hooks.onFieldChange === 'function') {
+      try { hooks.onFieldChange(elInput.value); } catch (e) { console.warn('[wc-composer] field:', e && e.message); }
+    }
+  }
   let streaming = false;
   let currentRequestId = null;
   let voiceActive = false;
@@ -247,6 +258,7 @@
   }
 
   function canSend() {
+    if (locked) return false;
     return elInput.value.trim().length > 0
       || (global.WcAttach && WcAttach.count() > 0)
       // Слова, выбранные нажатием в ленте, — это уже вопрос: они называют
@@ -266,7 +278,11 @@
     // скринридера. `disabled` — то, что убирает его оттуда, не трогая
     // анимацию: pointer-events закрывает только палец и мышь.
     elSend.disabled = !sending;
-    elVoice.disabled = sending;
+    elVoice.disabled = sending || locked;
+    // A field that takes no text: nothing in the box works — no dictation, no files, no voice.
+    elForm.classList.toggle('is-locked', locked);
+    if (elMic) elMic.disabled = locked;
+    if (elPlus) elPlus.disabled = locked;
 
     elSend.classList.toggle('is-stop', streaming);
     elSend.title = streaming ? 'Stop' : 'Send';
@@ -341,6 +357,7 @@
     elInput.value = '';
     autoGrow();
     syncButton();
+    changed();
     WcHaptics.tap();
     const pickFrom = editSourceUid;
     editSourceUid = null;
@@ -624,6 +641,7 @@
       elInput.value = v;
       autoGrow();
       syncButton();
+      changed();
       if (focus) elInput.focus();
       // Каретка в конец, иначе следующая буква встанет посреди фразы.
       try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
@@ -758,6 +776,7 @@
                 elInput.value = '';
                 autoGrow();
                 syncButton();
+                changed();
               }
             },
           })),
@@ -768,7 +787,7 @@
       });
 
       elInput.addEventListener('input', () => {
-        autoGrow(); syncButton();
+        autoGrow(); syncButton(); changed();
         // Поле стёрли — взведённая правкой заготовка больше ни к чему.
         if (!elInput.value.trim()) { armPreset(null); editSourceUid = null; }
       });
@@ -930,11 +949,13 @@
     // against (its own button, typically).
     openVoiceModeMenu(anchor) { voiceModeMenu(anchor); },
 
-    // Exposed for the voice module: a spoken turn lands in the same box.
-    setText(text) {
+    // Exposed for the voice module: a spoken turn lands in the same box. opts.quiet — the window
+    // fills the field of a chat it opens with the chat's draft: the draft is not told (changed()).
+    setText(text, opts) {
       elInput.value = text || '';
       autoGrow();
       syncButton();
+      if (!(opts && opts.quiet)) changed();
       // Поле очистили снаружи (новая беседа, другая беседа) — взведённая
       // правкой заготовка к нему больше не относится.
       if (!elInput.value.trim()) { armPreset(null); editSourceUid = null; }
@@ -947,6 +968,23 @@
     armEditSource(uid) { editSourceUid = uid ? String(uid) : null; },
 
     text() { return elInput.value; },
+
+    // Who gets the text (LexComposerBox.hint): the words of the empty field. lock — the field takes
+    // no text at all (a group: Lex does not write there): it says so at once, takes no typing, and no
+    // button of the box works.
+    setHint(words, lock) {
+      if (!elInput) return;
+      const next = words || (global.LexComposerBox ? global.LexComposerBox.placeholder('en') : '');
+      if (elInput.placeholder !== next) elInput.placeholder = next;
+      elInput.setAttribute('aria-label', next);
+      const was = locked;
+      locked = !!lock;
+      elInput.disabled = locked;
+      if (locked !== was) {
+        if (locked) { armPreset(null); editSourceUid = null; LexComposerInput.blur(elInput); }
+        syncButton();
+      }
+    },
   };
 
   global.WcComposer = WcComposer;

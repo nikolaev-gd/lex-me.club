@@ -191,6 +191,10 @@
   font-variant-numeric: tabular-nums;
 }
 .lex-section .lex-section-row-bot { color: var(--lex-section-soft, var(--lex-section-fg, #1d1d1f)); }
+/* The draft of a chat (lex-drafts.js), in every list of chats of the page — the sections and Chats: «Draft:»
+   in the red of errors, as in Telegram; the words keep the grey of the sub line. Not under .lex-section: the
+   list Chats of the side panel has the same slot (LexSection.draft). */
+.lex-draft-word { color: var(--lex-section-danger, var(--danger, #d93a3a)); }
 /* A line of a chat with the photo or the letter of the person 48 at the left (В7.12, В7.34): 10 above
    and below, the words 12 right of the photo; the dot of the unread stands left of the photo, at its
    middle — the line starts 12 in for it. */

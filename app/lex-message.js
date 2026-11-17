@@ -1567,8 +1567,11 @@
   // While a retry is on its way the line says «Sending…» in grey, a ring turns on Retry, every button
   // is off (0.5). The caller puts the class `lex-unsent` on the person's row: the note goes under the
   // bubble, not beside it; the bubble keeps its look — the person's words stay as they were written.
-  //   unsent({ note, money, gateRaw, sending, onRetry, onTopUp, onEdit, onDelete }) → the element;
-  //   el.update(o) redraws it in place (the options not given stay as they were).
+  //   unsent({ note, money, gateRaw, sending, retryHold, onRetry, onTopUp, onEdit, onDelete }) → the element;
+  //   el.update(o) redraws it in place (the options not given stay as they were). One part for every
+  //   chat (17.11.2026): a word to Lex in the main chat, a text to a person in a chat of a folder (Retry)
+  //   and in an order chat (retryHold: «Hold to retry»). No onEdit — no «Edit» in «⋯»; no onRetry — no
+  //   Retry.
   const ALERT_D = ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', 'M12 7.5v5', 'M12 16.5v.01'];
   function unsentWhy(o) {
     const gate = global.LexBillingGate;
@@ -1614,18 +1617,27 @@
         top.addEventListener('click', run('onTopUp'));
         acts.appendChild(top);
       }
-      const retry = button({ label: 'Retry', main: !o.money });
+      // retryHold — a text to a person in an order chat: there a tap sends nothing to the client (В7.23),
+      // so «Hold to retry» goes by a hold only, as «Hold to send» does.
+      const retry = button({ label: o.retryHold ? 'Hold to retry' : 'Retry', main: !o.money });
       retry.disabled = !!o.sending;
       if (o.sending) retry.classList.add('is-busy');
-      retry.addEventListener('click', () => {
+      const fire = () => {
         if (o.sending || typeof o.onRetry !== 'function') return;
         // A retry is a sending, as by the arrow of the field.
-        if (global.WcHaptics) global.WcHaptics.tap();
+        if (global.WcHaptics) global.WcHaptics[o.retryHold ? 'press' : 'tap']();
         o.onRetry();
-      });
-      acts.appendChild(retry);
+      };
+      if (o.retryHold && global.LexLongPress) {
+        global.LexLongPress.attach(retry, fire, { when: () => !retry.disabled });
+        retry.addEventListener('click', (e) => { e.preventDefault(); });
+      } else {
+        retry.addEventListener('click', fire);
+      }
+      // No onRetry — no Retry: the place it went to did not say a second sending is safe.
+      if (typeof o.onRetry === 'function') acts.appendChild(retry);
       const more = moreMenu(() => (o.sending ? [] : [
-        { label: 'Edit', icon: 'pencil', run: run('onEdit') },
+        ...(typeof o.onEdit === 'function' ? [{ label: 'Edit', icon: 'pencil', run: run('onEdit') }] : []),
         { label: 'Delete', icon: 'trash', danger: true, run: ask },
       ]));
       more.more.disabled = !!o.sending;

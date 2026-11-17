@@ -336,6 +336,8 @@
     let stood = false;
     const stand = (r, again) => {
       if (!stood) {
+        // The field is this chat's from now: the last chat's words go to its draft, this one's come.
+        takeField(id);
         leaveSection();
         state.conversationId = id;
         if (opts && opts.back) sectionBack.cameFrom(opts.back);
@@ -351,6 +353,7 @@
       }
       syncTitle();
       syncAttachment();
+      paintAddressee();
       stood = true;
     };
     let answer;
@@ -565,6 +568,8 @@
     const section = SECTIONS[id];
     await endVoiceOnLeave('news');
     if (section.dropsStream && WcThread.isStreaming()) leaveStream();
+    // A section has no field: the words of the chat left go to its draft.
+    takeField(null);
     leaveSection();
     ensureSection(id);
     for (const el of host.children) el.hidden = el !== section.live.el;
@@ -1194,7 +1199,6 @@
       onAnswer: (uid, choice) => newsPost('em-answer', { chatKey: key, choice, turnUid: uid }),
       onReply: (r) => setReply(r),
     } : null);
-    if (!questions) setReply(null);
     // The feed of requests: its records stand as tasks, one message a task (LexMessage.task, В7.30).
     const requests = key === EM_REQUESTS_KEY;
     WcThread.setRequestsFeed(requests);
@@ -1236,7 +1240,7 @@
     endVisit();
     WcThread.setQuestionsFeed(null);
     WcThread.setRequestsFeed(false);
-    setReply(null);
+    // The line of a Reply stays the draft of the feed (takeField puts it away with the field).
     paintChatTitle(null);
     if (emFollower) emFollower.stop();
     emFollower = null;
@@ -1304,19 +1308,114 @@
   // turns (emReply) and the model is told which questions it is about. Reply on a message of an order
   // chat (В7.26, 2026-11-16): the same line, «Reply to Dmitry»; the next word to Lex carries the message
   // (quoteUid), and so does one's own text to the client (profi_send_text). null — no line.
+  // The line is the draft of the chat too (lex-drafts.js): it comes back with the chat. opts.quiet — the
+  // window fills the field of a chat it opens: the draft is not told, the field gets no focus.
   let reply = null;
-  function setReply(r) {
+  function setReply(r, opts) {
+    const quiet = !!(opts && opts.quiet);
     const uids = r && Array.isArray(r.uids) ? r.uids.slice(0, 30) : [];
     const quoteUid = r && typeof r.quoteUid === 'string' && r.quoteUid ? r.quoteUid : null;
     reply = uids.length || quoteUid
       ? { uids, quoteUid, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
     const slot = document.getElementById('wc-reply');
-    if (!slot) return;
-    slot.hidden = !reply;
-    slot.replaceChildren(...(reply ? [global.LexMessage.replyBar({
-      head: reply.head, text: reply.text, onClose: () => setReply(null),
-    })] : []));
-    if (reply) WcComposer.focus();
+    if (slot) {
+      slot.hidden = !reply;
+      slot.replaceChildren(...(reply ? [global.LexMessage.replyBar({
+        head: reply.head, text: reply.text, onClose: () => setReply(null),
+      })] : []));
+      if (reply && !quiet) WcComposer.focus();
+    }
+    if (!quiet) saveField();
+    // A Reply in a chat of a folder goes to the messenger of the message it answers: the hint says it.
+    paintAddressee();
+  }
+
+  // ── The draft of every chat (lex-drafts.js, 2026-11-17) ────────────────
+  // The field belongs to one chat at a time — fieldKey: the key of the chat on the screen,
+  // LexDrafts.NEW_CHAT for a new one, null over a section (it has no field). Every change of the
+  // field — a key, a dictation, a picture or a file, a Reply — is that chat's draft at once
+  // (saveField); a chat opened puts the field of the last one away and fills it with its own draft
+  // (takeField). Before, the field was one for every chat: words typed for Dmitry stood in Eduard's
+  // chat, one tap from Eduard (Gennady's task 17.11.2026).
+  const DRAFTS_KEY = 'lex_chat_drafts';
+  let fieldKey = null;
+  let restoring = 0;
+  const newChatKey = () => (global.LexDrafts && global.LexDrafts.NEW_CHAT) || '__lex_new_chat__';
+  function replyOfField() {
+    return reply ? { uids: reply.uids, quoteUid: reply.quoteUid, text: reply.text, head: reply.head } : null;
+  }
+  function saveField() {
+    const D = global.LexDrafts;
+    if (restoring || !fieldKey || !D) return;
+    D.put(fieldKey, { text: WcComposer.text(), reply: replyOfField(), attach: WcAttach.snapshot() });
+  }
+  function fillField(d) {
+    restoring += 1;
+    try {
+      WcComposer.setText((d && d.text) || '', { quiet: true });
+      setReply((d && d.reply) || null, { quiet: true });
+    } finally { restoring -= 1; }
+  }
+  function takeField(next) {
+    const D = global.LexDrafts;
+    const key = next || null;
+    if (key === fieldKey) return;
+    // The chat left: its draft goes to the server now, not in a moment.
+    if (fieldKey && D) D.flush();
+    restoring += 1;
+    try {
+      WcAttach.detach();
+      fieldKey = key;
+      const d = key && D ? D.get(key) : null;
+      fillField(d);
+      if (d && d.attach) WcAttach.restore(d.attach);
+    } finally { restoring -= 1; }
+    paintAddressee();
+  }
+  // A new chat got its key from the server (its first message, the voice, the dictation): the draft
+  // typed meanwhile is that chat's.
+  function adoptFieldKey(id) {
+    const D = global.LexDrafts;
+    if (!id || fieldKey !== newChatKey()) return;
+    if (D) D.rename(newChatKey(), id);
+    fieldKey = id;
+  }
+  // A draft changed — here or on another device (the signal «drafts»): the lines of the lists say so
+  // in place, and the field of the open chat takes the other device's words (words typed here and not
+  // on the server yet are never overwritten: lex-drafts.js keeps them).
+  function draftsChanged(keys, from) {
+    if (global.LexSection && global.LexSection.paintDrafts) global.LexSection.paintDrafts(keys);
+    if (from !== 'server' || !fieldKey || keys.indexOf(fieldKey) < 0) return;
+    const d = global.LexDrafts.get(fieldKey);
+    const same = ((d && d.text) || '') === WcComposer.text()
+      && JSON.stringify((d && d.reply) || null) === JSON.stringify(replyOfField());
+    if (!same) fillField(d);
+  }
+  // Who gets the text of the field — the words of the empty field (LexComposerBox.hint): «To Lex»,
+  // «To Эдуард · WhatsApp» in a chat of a folder, «To Lex · hold ↑ to Дмитрий · Profi.ru» in an order
+  // chat; a group takes no text (the field says so and takes no typing).
+  function paintAddressee() {
+    const B = global.LexComposerBox;
+    if (!B || typeof WcComposer.setHint !== 'function') return;
+    let to = { to: 'lex' };
+    if (profiChat && typeof profiChat.addressee === 'function') {
+      try { to = profiChat.addressee() || to; } catch (e) { console.warn('[wc] addressee:', e && e.message); }
+    }
+    WcComposer.setHint(B.hint(to, 'en'), B.locked(to));
+  }
+  // The words of a turn that did not go go back where they were typed: into the field, when it is still
+  // that chat's; into the draft of their chat when another one is on the screen now.
+  function giveBack(key, text, rep) {
+    if (!text) return;
+    if (key === fieldKey) {
+      if (!WcComposer.text().trim()) WcComposer.setText(text);
+      return;
+    }
+    const D = global.LexDrafts;
+    if (!D || !key) return;
+    const d = D.get(key);
+    if (d && d.text && d.text.trim()) return;
+    D.put(key, { text, reply: (d && d.reply) || rep || null });
   }
 
   // «Earlier entries» on the top of a feed that has more on the server.
@@ -1363,8 +1462,8 @@
     link.replaceChildren();
     main.classList.remove('is-profi-chat', 'is-profi-clean');
     paintProfiOutbox(null);
-    // The line of a reply on a message of this chat does not go to another chat.
-    if (reply && reply.quoteUid) setReply(null);
+    // The line of a reply on a message of this chat does not go to another chat: it is this chat's
+    // draft, and the next chat fills the field with its own (takeField).
     if (profiChat) {
       profiChat = null;
       endVisit();
@@ -1433,6 +1532,8 @@
     person.setAttribute('aria-label', (bar.who || 'Client') + '. Open the card of the person');
     person.hidden = false;
     link.replaceChildren(...(bar.link ? [bar.link] : []));
+    // The chat's data came: who gets the text (the name, where he wrote last).
+    paintAddressee();
   }
   // The person's own texts on their way to the client stand under the last message
   // (lex-profi.js paintOutbox): drawn with every reading of the chat, gone with the chat.
@@ -1444,11 +1545,13 @@
   }
   // A text taken back from its way to the client, or a box of the model to edit by hand («Edit
   // in the field»), goes into the field, unless the person has typed something else there.
+  // true — the text is in the field.
   function putBackIntoField(text) {
     const cur = (document.getElementById('wc-input') || {}).value || '';
-    if (cur.trim()) { toast('The field is not empty: the text was not put there.'); return; }
+    if (cur.trim()) { toast('The field is not empty: the text was not put there.'); return false; }
     WcComposer.setText(text);
     WcComposer.focus();
+    return true;
   }
   // What the screen of an order chat drew of the turns that come without the person — a message
   // of the client, what went to him, a notice of Profi: their words by uid. A fresh answer that
@@ -1716,6 +1819,7 @@
     // сюда же ведёт удаление открытой беседы из панели (deleteConversation).
     await endVoiceOnLeave('new-chat');
     stopSectionOpening();
+    takeField(newChatKey());
     leaveSection();
     endVisit();
     state.conversationId = null;
@@ -1725,6 +1829,7 @@
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
     syncAttachment();
+    paintAddressee();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
   }
 
@@ -1755,18 +1860,31 @@
   }
 
   async function send(text, opts) {
+    // Whose words these are is fixed at the press: the chat on the screen then. A turn that waits for
+    // the start's settings and finds another chat on the screen does not go anywhere — its words go
+    // back into the draft of their own chat (giveBack). Before, the chat was read after the wait, and
+    // words typed for one person could go to the person whose chat was opened meanwhile.
+    const key0 = fieldKey;
+    const chat0 = profiChat;
+    const conv0 = state.conversationId;
+    const reply0 = replyOfField();
     await settingsReady;
+    if (fieldKey !== key0 || profiChat !== chat0 || state.conversationId !== conv0) {
+      giveBack(key0, text || '', reply0);
+      toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
+      return;
+    }
     // A chat of a folder has no model: the text is for the person. A preset talks to the model, a
     // picture is not sent to people (only text): both stay as they were.
     if (profiChat && profiChat.folder) {
       const chat = profiChat;
       if ((opts && opts.mode) || WcAttach.count() > 0) {
-        if (!(opts && opts.mode)) WcComposer.setText(text || '');
+        if (!(opts && opts.mode)) giveBack(key0, text || '', reply0);
         toast('Only text goes to a person from Lex.', { error: true });
         return;
       }
       const ok = await sendToFolder(chat, text, (reply && reply.quoteUid) || null);
-      if (!ok && profiChat === chat) WcComposer.setText(text || '');
+      if (!ok) giveBack(key0, text || '', reply0);
       return;
     }
     // The chat on the screen came from this device's copy: the turn goes once the server's answer
@@ -1780,7 +1898,7 @@
         if (again && again.ok && state.conversationId === w.id) { paintConversation(again, { keepPlace: true }); fresh = true; }
       } catch (err) { console.warn('[wc] chat again before the turn:', err && err.message); }
       if (!fresh) {
-        WcComposer.setText(text || '');
+        giveBack(key0, text || '', reply0);
         toast('No connection to the server: the message was not sent.', { error: true });
         return;
       }
@@ -1901,6 +2019,7 @@
       if (r && r.conversationId && !state.conversationId) {
         state.conversationId = r.conversationId;
         WcSidebar.setActive(r.conversationId);
+        adoptFieldKey(r.conversationId);
       }
       if (kept && !kept.chatKey && r && r.conversationId) {
         kept.chatKey = r.conversationId;
@@ -2340,6 +2459,7 @@
         if (convId) {
           state.conversationId = convId;
           WcSidebar.setActive(convId);
+          adoptFieldKey(convId);
         }
       } catch (err) {
         // Экран уже принадлежит следующему нажатию — его не трогаем.
@@ -3079,6 +3199,29 @@
     // осталась бы на экране до перезагрузки страницы.
     if (wiped) { try { await WcSettings.applyStored(); } catch (_) { /* noop */ } }
 
+    // The draft of every chat (lex-drafts.js): this device's copy at once, the server's after it, and
+    // again at the signal «drafts» — a draft typed on the iPhone stands here in the same chat. The
+    // lists of chats show «Draft: …» from it (LexSection.draft).
+    if (global.LexDrafts) {
+      let who = '';
+      try { const s = WcAuth.session(); who = (s && s.user && s.user.id) || ''; } catch (_) { who = ''; }
+      await global.LexDrafts.init({
+        load: () => WcStore.one(DRAFTS_KEY, null),
+        save: (copy) => WcStore.set({ [DRAFTS_KEY]: copy }),
+        rpc: newsRpc,
+        account: () => who,
+      });
+      global.LexSection.setDrafts((key) => global.LexDrafts.line(key));
+      global.LexDrafts.onChange(draftsChanged);
+      signals.follow(['drafts'], () => { global.LexDrafts.pull(); });
+      global.LexDrafts.pull();
+      // Hidden or closed: what was typed goes to the server now.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') global.LexDrafts.flush();
+      });
+      global.addEventListener('pagehide', () => { global.LexDrafts.flush(); });
+    }
+
     // The curated defaults the owner publishes from the extension — models, prompts, knobs —
     // and the default model, side by side. Nothing on the screen waits for them: what they say
     // lies in this page's storage from the last time. The first question waits for them (send,
@@ -3173,6 +3316,8 @@
       WcWordPick.setEnabled(changes[WcWordPick.STORAGE_KEY].newValue !== false);
     });
     WcAttach.init();
+    // A picture or a file put on the field or taken off it: the draft of the chat keeps it.
+    WcAttach.onChange = () => saveField();
     WcAttach.readsImages = () => (profiChat && !profiChat.folder ? profiModelSees : textModelSees);
     WcAttach.chatKey = () => state.conversationId || null;
     WcSidebar.init({
@@ -3187,6 +3332,8 @@
     });
     await WcComposer.init({
       onSend: send,
+      // Every change of the field is the draft of its chat (lex-drafts.js).
+      onFieldChange: () => saveField(),
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
       onAttach: () => WcAttach.pick(),
@@ -3201,6 +3348,14 @@
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),
     });
+    // The field of the chat the page starts on: a new chat, or the one already opened. Words typed
+    // before the drafts were read stay in the field, as that chat's.
+    if (fieldKey === null && !sectionOn) {
+      const typed = WcComposer.text();
+      takeField(state.conversationId || newChatKey());
+      if (typed.trim() && !WcComposer.text().trim()) WcComposer.setText(typed);
+    }
+    paintAddressee();
     // Один вход в аккаунт на весь интерфейс — строка внизу шторки. Пополнение
     // и выход живут внутри листа настроек, а не рядом с ним: это и были дубли.
     //
@@ -3236,6 +3391,7 @@
         if (!state.conversationId && msg.id) {
           state.conversationId = msg.id;
           WcSidebar.setActive(msg.id);
+          adoptFieldKey(msg.id);
         }
       }
       if (msg.type === 'STREAM_DONE' || msg.type === 'STREAM_ERROR') {

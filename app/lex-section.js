@@ -135,6 +135,8 @@
   // the unread then stands left of the photo. Its menu is the menu of a chat (lex-chat-menu.js).
   // unread — what the number of the unread of the line counts (В7.48): { chat: key }, { order: number }
   // or { section: id }; it stands at the right end of the sub line, and with a number the dot does not.
+  // draft — the key of the chat of the line: while the chat has a draft (lex-drafts.js) the sub line says
+  // «Draft:» in red and its first words, as in Telegram, in place of the last message (draftSub below).
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
@@ -169,19 +171,21 @@
     words.appendChild(top);
     const sub = () => {
       const n = make('span', 'lex-section-row-sub');
-      if (o.bot) n.append(make('span', 'lex-section-row-bot', 'Bot:'), ' ');
-      n.append(o.sub || '');
+      const own = () => [...(o.bot ? [make('span', 'lex-section-row-bot', 'Bot:'), ' '] : []), o.sub || ''];
+      if (o.draft) draftSub(n, o.draft, own);
+      else n.append(...own());
       return n;
     };
     const num = o.unread ? count(o.unread) : null;
-    if (o.end || (num && o.sub)) {
+    const hasSub = !!(o.sub || o.draft);
+    if (o.end || (num && hasSub)) {
       const line = make('span', 'lex-section-row-subline');
       line.appendChild(sub());
       if (o.end) line.appendChild(o.end);
       if (num) line.appendChild(num);
       words.appendChild(line);
     } else {
-      if (o.sub) words.appendChild(sub());
+      if (hasSub) words.appendChild(sub());
       if (num) top.appendChild(num);
     }
     el.appendChild(main);
@@ -239,6 +243,45 @@
   function markImportant(chatKey, on) {
     if (chatKey == null) return;
     if (on) importantNow.add(String(chatKey)); else importantNow.delete(String(chatKey));
+  }
+
+  // ── the draft of a chat in a list (2026-11-17) ──────────────────────────────
+  // A chat with words typed and not sent shows «Draft: <the first words>» under its title, as in
+  // Telegram: «Draft:» in the red of errors, the words in the grey of the sub line. Every list of chats
+  // of the page — Chats and the lists of the sections — has the same slot; the window says what the drafts are
+  // (setDrafts(line): line(key) → the words or null, LexDrafts.line) and repaints the slots in place
+  // when one changes (paintDrafts): no list is drawn again for it.
+  //   draftSub(slot, key, own)  the slot of a sub line: the draft while there is one, own() when not
+  //   draft(key)                a slot of its own (the list Chats has no sub line): hidden with no draft
+  let draftOf = () => null;
+  function paintDraft(slot) {
+    const words = slot.dataset.draftChat ? draftOf(slot.dataset.draftChat) : null;
+    slot.classList.toggle('is-draft', !!words);
+    if (words) slot.replaceChildren(make('span', 'lex-draft-word', 'Draft:'), ' ', make('span', 'lex-draft-words', words));
+    else slot.replaceChildren(...(slot._own ? slot._own() : []));
+    if (slot._bare) slot.hidden = !words;
+  }
+  function draftSub(slot, key, own) {
+    slot.dataset.draftChat = String(key);
+    slot._own = own;
+    paintDraft(slot);
+    return slot;
+  }
+  function draft(key) {
+    const slot = make('span', 'lex-draft');
+    slot._bare = true;
+    return draftSub(slot, key, null);
+  }
+  function setDrafts(line) {
+    draftOf = typeof line === 'function' ? (key) => { try { return line(key); } catch (_) { return null; } } : () => null;
+    paintDrafts();
+  }
+  function paintDrafts(keys) {
+    if (typeof document === 'undefined') return;
+    const only = Array.isArray(keys) ? new Set(keys.map(String)) : null;
+    document.querySelectorAll('[data-draft-chat]').forEach((slot) => {
+      if (!only || only.has(slot.dataset.draftChat)) paintDraft(slot);
+    });
   }
 
   // The time of a line of a chat (В7.34), the device's day: today — the hour, yesterday — «Вчера»,
@@ -534,5 +577,5 @@
   }
 
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
-    count, setUnread, unread, isImportant, markImportant };
+    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts };
 })(typeof window !== 'undefined' ? window : globalThis);

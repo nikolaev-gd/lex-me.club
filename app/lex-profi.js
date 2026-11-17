@@ -339,6 +339,43 @@
     const bubble = M.bubble({ side: 'out', body, stamp });
     if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
     root.appendChild(bubble);
+    // Not sent (17.11.2026): the common part of a message that did not go (LexMessage.unsent, the same as
+    // under a word to Lex in the main chat) — «Not sent» and why, «Hold to retry» (a tap sends nothing to
+    // the client, В7.23) when the monitor said a second sending is safe, «⋯» with Edit and Delete. It
+    // stands until the person sends it again or deletes it (the server keeps it in `outbox`).
+    if (win.state === 'failed' && M.unsent) {
+      root.classList.add('lex-unsent');
+      const cancel = async () => {
+        try { await deps.rpc('profi_send_cancel', { p_window: win.id }); } catch (e) {
+          if (deps.notify) deps.notify('Not done. ' + ((e && e.message) || ''));
+          return false;
+        }
+        deps.refresh();
+        return true;
+      };
+      let part = null;
+      part = M.unsent({
+        note: [win.channel ? `to ${placeName(win.channel)}` : '', win.error || ''].filter(Boolean).join(' · '),
+        retryHold: true,
+        onRetry: win.retry ? async () => {
+          part.update({ sending: true });
+          try {
+            await deps.rpc('profi_send', { p_op_id: newOpId(), p_window: win.id });
+          } catch (e) {
+            part.update({ sending: false, note: 'Not sent again. ' + ((e && e.message) || '') });
+            return;
+          }
+          deps.refresh();
+        } : null,
+        onEdit: deps.putBack ? async () => {
+          if (!deps.putBack(win.text)) return;
+          await cancel();
+        } : null,
+        onDelete: () => { cancel(); },
+      });
+      root.appendChild(part);
+      return root;
+    }
     const { foot, note } = boxControls(win, deps);
     root.append(note, foot);
     return root;
@@ -446,7 +483,7 @@
     // opened by Reply yourself opens with it off: the person came for the bot's draft in its box
     // and the talk with the model about it, and the clean view hides both.
     let clean = deps.clean !== false;
-    const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload,
+    const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, notify: deps.notify,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
       openQuote: (q) => self.openQuote(q) });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
@@ -870,16 +907,48 @@
       paintOutbox(host) {
         if (!host) return;
         // A chat of a folder: what Gennady sent and the database has not sent yet, and what it could not
-        // send (the last ten minutes). A sent one stands in the chat as his message once the database has it.
+        // send (until he sends it again or deletes it). A sent one stands in the chat as his message once the
+        // database has it.
         if (folder) {
           const M = global.LexMessage;
           // A stand account (not an account of the database) sends to nobody: its text says so.
-          const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent');
+          const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent' && s.state !== 'dropped');
           host.replaceChildren(...sends.map((s) => {
             const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
             const body = make('div', '', '');
             body.textContent = s.text || '';
             root.appendChild(M.bubble({ side: 'out', body }));
+            // Not sent (17.11.2026): the common part, the same as under a word to Lex in the main chat. It
+            // stands until the person sends it again (Retry — the same words anew, then the failed one goes
+            // from the chat) or deletes it (folder_send_drop); before, it went ten minutes after the failure.
+            if (s.state === 'failed' && M.unsent) {
+              root.classList.add('lex-unsent');
+              const drop = async () => {
+                try { await deps.rpc('folder_send_drop', { p_id: s.id }); } catch (e) {
+                  if (deps.notify) deps.notify('Not done. ' + ((e && e.message) || ''));
+                  return false;
+                }
+                deps.reload();
+                return true;
+              };
+              let part = null;
+              part = M.unsent({
+                note: [s.channel ? `to ${placeName(s.channel)}` : '', s.error || ''].filter(Boolean).join(' · '),
+                onRetry: typeof deps.sendText === 'function' ? async () => {
+                  part.update({ sending: true });
+                  const ok = await deps.sendText(s.text || '', s.quoteUid || null, { again: true });
+                  if (!ok) { part.update({ sending: false }); return; }
+                  await drop();
+                } : null,
+                onEdit: deps.putBack ? async () => {
+                  if (!deps.putBack(s.text || '')) return;
+                  await drop();
+                } : null,
+                onDelete: () => { drop(); },
+              });
+              root.appendChild(part);
+              return root;
+            }
             const note = make('div', 'lex-profi-box-note');
             note.setAttribute('role', 'status');
             note.textContent = s.state === 'failed'
@@ -895,6 +964,23 @@
         const wins = ((data && data.windows) || []).filter((w) => w.outbox);
         host.replaceChildren(...wins.map((w) => outboxNode(w, boxDeps())));
         host.hidden = !wins.length;
+      },
+
+      // Who gets the text of the field — the words of the empty field (LexComposerBox.hint). A chat of a
+      // folder: the person, by the channel of the message a Reply answers, or where he wrote last; a group
+      // and a chat in no folder: nobody (the field takes no text). An order chat: Lex by a tap, the client
+      // by a hold, where the client's text would go (the rule of sendMenu below).
+      addressee() {
+        const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
+        if (folder) {
+          if (!data) return { to: 'person', who: '' };
+          if (!data.send) return { to: data.kind === 'group' ? 'group' : 'closed' };
+          const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
+          return { to: 'person', who: data.client || data.title || '', where: where ? placeName(where) : '' };
+        }
+        if (!data) return { to: 'order', who: '' };
+        const place = quoteUid ? ((data.channels && data.channels[quoteUid]) || 'profi') : (data.replyTo || 'profi');
+        return { to: 'order', who: data.client || '', where: placeName(place) };
       },
 
       // Holding the arrow of the field (wc-composer.js): the text to the client at once, without
@@ -1204,6 +1290,8 @@
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
         unread: { order: c.order },
+        // The draft of the order chat, while it has one: «Draft: …» in place of the last message.
+        draft: c.chatKey && !c.feed ? c.chatKey : null,
       });
       if (c.chatKey && global.LexChatMenu) {
         const act = (name) => chatAct(c, name);

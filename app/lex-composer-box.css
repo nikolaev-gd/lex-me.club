@@ -109,6 +109,17 @@
   font-size: var(--lex-composer-font);
   line-height: var(--lex-composer-line);
 }
+/* Подсказка «кому уйдёт текст» (LexComposerBox.hint) — одной строкой: длинная
+   («To Lex · hold ↑ to …») обрезается многоточием, а не переносится во вторую
+   строку окошка. */
+:is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-textarea::placeholder,
+.wc-composer #wc-input::placeholder {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Чат, куда Lex не пишет (группа): поле не принимает набор, подсказка говорит почему. */
+.wc-composer #wc-input:disabled { cursor: not-allowed; }
 /* Заготовки в одну строку не показываются: место им — ряд кнопок под текстом,
    а пустое поле их всё равно выключает. Не display:none — его ставит окно,
    где заготовок нет вовсе (чат заказа Профи, ленты Extended Mind), и по нему

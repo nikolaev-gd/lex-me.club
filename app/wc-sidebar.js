@@ -123,7 +123,12 @@
         else if (e.key === 'F2') { e.preventDefault(); doRename(it.id); }
       },
     }, [
-      el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
+      // The title, and under it the draft of the chat while it has one (LexSection.draft, lex-drafts.js):
+      // «Draft: <the first words>», as in Telegram; repainted in place by the page.
+      el('.wc-conv-text', {}, [
+        el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
+        ...(global.LexSection && global.LexSection.draft ? [global.LexSection.draft(it.id)] : []),
+      ]),
       ...(it.pinned ? [el('span.wc-conv-pin', { title: 'Pinned' }, [icon('pin')])] : []),
       // How many of its messages are unread (В7.48): the shared number, repainted in place by the page.
       ...(global.LexSection && global.LexSection.count ? [global.LexSection.count({ chat: it.id })] : []),
