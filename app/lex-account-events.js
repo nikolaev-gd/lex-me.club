@@ -8,8 +8,15 @@
 // server on a timer whether there is something new (Gennady, 2026-11-13).
 //
 // A signal is a hint, never data: it names what changed, and the follower reads it under its
-// own pass, the same reading as before. While the channel is down nothing is read on a timer;
-// when it is open again every follower reads once, to catch up with what came meanwhile.
+// own pass, the same reading as before. While the channel is down nothing is read on a timer.
+//
+// Every signal carries `n`, its number in the account's journal of changes
+// (supabase/migrations/account_changes.sql); the channel keeps the greatest it saw. When the
+// channel is open again, and when the window comes back to the screen, it asks the server what
+// changed after that number (lex_changes_since) and hands every change to the followers as if it
+// had come live: they read only what changed. With no number yet (the first opening), or when the
+// server cannot say (the journal is older, too much changed, no answer), every follower reads
+// once, to catch up — as before the journal.
 //
 // The iPhone has the same in AccountEvents.swift, value for value: the topic, the way in, the
 // heartbeat, the pauses after a break. The way in is the one of the voice's events
@@ -21,10 +28,13 @@
 //                                                               public key, token() — a pass
 //   ch.start() / ch.stop()
 //   ch.on(event, fn(payload))          → off()
-//   ch.onLive(fn(isLive))              → off()
+//   ch.onAny(fn(event, payload))       every signal, live or from the journal   → off()
+//   ch.onLive(fn(isLive, { caughtUp }))  caughtUp — the missed signals were handed over from the
+//                                        journal, nobody has to read everything   → off()
 //   ch.follow([events], run(signal), { onLost(isLost) })
 //        run(signal) — read what the signal names ({ event, payload }); signal null — read to
-//        catch up (the channel is open again). Never two runs at once: what comes during a run
+//        catch up (the channel is open again and the journal could not say what was missed).
+//        Never two runs at once: what comes during a run
 //        makes one more run after it, with the latest signal. onLost — the channel has been
 //        down LOST_AFTER_MS.                                        → { stop(), now() }
 //   ch.wake()                          the window is back on the screen: is the socket alive?
@@ -45,6 +55,8 @@
   const LOST_AFTER_MS = 8000;
   // A fresh pass is handed to the channel this long before the old one ends.
   const PASS_AHEAD_MS = 30000;
+  // The question «what changed after my number» waits this long, then everybody reads instead.
+  const SINCE_MS = 6000;
 
   function claimsOf(token) {
     try {
@@ -59,8 +71,10 @@
   const accountOf = (token) => { const c = claimsOf(token); return (c && typeof c.sub === 'string' && c.sub) || null; };
 
   function create(o) {
-    const url = String(o.url || '').replace(/\/+$/, '').replace(/^http/, 'ws')
+    const base = String(o.url || '').replace(/\/+$/, '');
+    const url = base.replace(/^http/, 'ws')
       + '/realtime/v1/websocket?apikey=' + encodeURIComponent(o.key || '') + '&vsn=1.0.0';
+    const doFetch = o.fetch || ((...a) => global.fetch(...a));
     const WS = o.WebSocket || global.WebSocket;
     const log = o.log || ((...a) => { try { console.log('[signals]', ...a); } catch (_) {} });
     const now = o.now || (() => Date.now());
@@ -68,7 +82,10 @@
     const cancel = o.clearTimeout || ((id) => clearTimeout(id));
 
     const handlers = new Map();   // event → Set(fn)
+    const anyFns = new Set();
     const liveFns = new Set();
+    let cursor = null;            // the greatest number of the journal this channel saw
+    let catching = 0;             // the number of the current question to the journal
     let ws = null;
     let topic = null;
     let account = null;
@@ -85,10 +102,74 @@
     let passTimer = null;
     let wakeOn = false;
 
-    function setLive(v) {
+    function setLive(v, info) {
       if (live === v) return;
       live = v;
-      for (const fn of [...liveFns]) { try { fn(v); } catch (e) { log('live handler:', e && e.message); } }
+      const i = { caughtUp: !!(v && info && info.caughtUp) };
+      for (const fn of [...liveFns]) { try { fn(v, i); } catch (e) { log('live handler:', e && e.message); } }
+    }
+
+    // A signal to everyone who follows it: live from the socket, or from the journal.
+    function deliver(name, data) {
+      const n = Number(data && data.n);
+      if (Number.isFinite(n) && (cursor === null || n > cursor)) cursor = n;
+      for (const fn of [...(handlers.get(name) || [])]) {
+        try { fn(data); } catch (err) { log(`${name} handler:`, err && err.message); }
+      }
+      for (const fn of [...anyFns]) {
+        try { fn(name, data); } catch (err) { log('any handler:', err && err.message); }
+      }
+    }
+
+    // What changed after `after` (null — only the number to remember). Answers the server's
+    // { head, changes, reset } or null: no pass, no answer in SINCE_MS, a refusal.
+    async function askSince(after) {
+      let token = null;
+      try { token = await o.token(); } catch (_) { token = null; }
+      if (!token) return null;
+      let timer = null;
+      try {
+        const answer = doFetch(base + '/rest/v1/rpc/lex_changes_since', {
+          method: 'POST',
+          headers: { apikey: o.key || '', Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_after: after }),
+        }).then(async (r) => (r && r.ok ? r.json() : null));
+        const late = new Promise((resolve) => { timer = later(() => resolve(null), SINCE_MS); });
+        const r = await Promise.race([answer, late]);
+        return r && typeof r === 'object' && Number.isFinite(Number(r.head)) ? r : null;
+      } catch (e) {
+        log('the journal:', e && e.message);
+        return null;
+      } finally {
+        if (timer) cancel(timer);
+      }
+    }
+
+    // Hand over what the journal says was missed. True — handed over, nobody has to read all.
+    async function catchUp() {
+      const mine = ++catching;
+      const from = cursor;
+      const r = await askSince(from);
+      if (mine !== catching || stopped) return false;
+      if (!r) return false;
+      if (from === null || r.reset) {
+        if (cursor === null || Number(r.head) > cursor) cursor = Number(r.head);
+        return false;
+      }
+      for (const c of (Array.isArray(r.changes) ? r.changes : [])) {
+        if (c && c.event) deliver(String(c.event), c.payload || {});
+      }
+      if (Number(r.head) > cursor) cursor = Number(r.head);
+      return true;
+    }
+
+    // The topic is joined: before the followers hear «live», the journal hands over what came
+    // while the channel was down; or, if it cannot, they read everything once.
+    async function joined(sock) {
+      let caughtUp = false;
+      try { caughtUp = await catchUp(); } catch (_) { caughtUp = false; }
+      if (ws !== sock) return;
+      setLive(true, { caughtUp });
     }
 
     function send(frame) {
@@ -199,7 +280,7 @@
             }
             tries = 0;
             planPass(token);
-            setLive(true);
+            joined(sock);
           }
           return;
         }
@@ -207,11 +288,7 @@
         if (m.event === 'phx_error' || m.event === 'phx_close') { broken(m.event); return; }
         if (m.event === 'system' && m.payload && m.payload.status === 'error') { broken('system: ' + (m.payload.message || '')); return; }
         if (m.event !== 'broadcast' || !m.payload) return;
-        const name = m.payload.event;
-        const data = m.payload.payload || {};
-        for (const fn of [...(handlers.get(name) || [])]) {
-          try { fn(data); } catch (err) { log(`${name} handler:`, err && err.message); }
-        }
+        deliver(m.payload.event, m.payload.payload || {});
       };
       sock.onclose = () => { if (ws === sock) broken('closed'); };
       sock.onerror = () => { /* onclose follows */ };
@@ -228,15 +305,25 @@
       return () => liveFns.delete(fn);
     }
 
+    function onAny(fn) {
+      anyFns.add(fn);
+      return () => anyFns.delete(fn);
+    }
+
     function follow(events, run, opts) {
       return followOver({ on, onLive, isLive: () => live }, events, run, opts, { later, cancel, log });
     }
 
     // A window back on the screen (a laptop woken up) may hold a socket that died meanwhile:
-    // a dead one is opened again at once, not after the pause.
+    // a dead one is opened again at once, not after the pause. A live one is asked too what it
+    // may have missed: the journal hands it over (a dead one does it when it is open again).
     function wake() {
       if (stopped) return;
-      if (ws) { probe(WAKE_ANSWER_MS); return; }
+      if (ws) {
+        probe(WAKE_ANSWER_MS);
+        if (live && cursor !== null) catchUp().catch(() => {});
+        return;
+      }
       if (opening) return;
       if (retryTimer) { cancel(retryTimer); retryTimer = null; }
       tries = 0;
@@ -262,11 +349,13 @@
         broken('stopped');
       },
       on,
+      onAny,
       onLive,
       follow,
       wake,
       isLive: () => live,
       account: () => account,
+      cursor: () => cursor,
     };
   }
 
@@ -290,17 +379,18 @@
     let tries = 0;
     let retryTimer = null;
 
-    function setLive(v) {
+    function setLive(v, info) {
       if (live === v) return;
       live = v;
-      for (const fn of [...liveFns]) { try { fn(v); } catch (e) { log('live handler:', e && e.message); } }
+      const i = { caughtUp: !!(v && info && info.caughtUp) };
+      for (const fn of [...liveFns]) { try { fn(v, i); } catch (e) { log('live handler:', e && e.message); } }
     }
     function open() {
       if (stopped || line) return;
       try {
         line = o.connect((m) => {
           if (!m) return;
-          if (m.type === 'live') { tries = 0; setLive(!!m.live); return; }
+          if (m.type === 'live') { tries = 0; setLive(!!m.live, { caughtUp: !!m.caughtUp }); return; }
           if (m.type !== 'signal') return;
           for (const fn of [...(handlers.get(m.event) || [])]) {
             try { fn(m.payload || {}); } catch (e) { log(`${m.event} handler:`, e && e.message); }
@@ -376,7 +466,8 @@
       if (src.isLive()) { setLost(false); return; }
       lostTimer = t.later(() => { lostTimer = null; if (!src.isLive() && !over) setLost(true); }, LOST_AFTER_MS);
     };
-    const offLive = src.onLive((v) => { watchLost(); if (v) go(null); });
+    // Live again: read everything once, unless the journal already handed over what was missed.
+    const offLive = src.onLive((v, info) => { watchLost(); if (v && !(info && info.caughtUp)) go(null); });
     watchLost();
     return {
       stop() {

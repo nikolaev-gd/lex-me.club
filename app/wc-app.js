@@ -86,7 +86,9 @@
     // Один запрос за раз. Без этого быстрая прокрутка посылает пять
     // перекрывающихся запросов с одним и тем же курсором — и в списке
     // появляются повторы.
-    if (state.convsLoading) return;
+    // A reading from the start asked while another is on its way (a signal «chats» during the
+    // reading of the start) comes after it: the reading on its way may predate the change.
+    if (state.convsLoading) { if (reset) state.convsAgain = true; return; }
     if (!reset && (state.convsDone || !state.convsCursor)) return;
     state.convsLoading = true;
     const adopt = (r) => {
@@ -151,6 +153,7 @@
     // список ради подписей к нему.
     WcBus.call('WC_FILL_TITLES', { items: state.conversations })
       .catch((err) => console.warn('[wc] titles:', err && err.message));
+    if (state.convsAgain) { state.convsAgain = false; await loadConversations(true); }
   }
 
   const refreshConversations = (onFirst) => loadConversations(true, typeof onFirst === 'function' ? onFirst : null);
@@ -258,6 +261,26 @@
     brainLook();
     // Messages Lex did not take stand at the end of the chat again.
     restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
+  }
+
+  // The open chat got a message on another device (the signal «chats»): it is read, and painted
+  // again only if the screen lacks a message the server has (LexVoiceFeedCheck.missingTurns) —
+  // the page's own answer, already on the screen, paints nothing. Not while an answer or a voice
+  // conversation is drawn: its own end reads the chat.
+  let catchUpTimer = null;
+  function catchUpOpenChat(id) {
+    if (!id || !global.LexVoiceFeedCheck || !global.LexVoiceFeedCheck.missingTurns) return;
+    clearTimeout(catchUpTimer);
+    catchUpTimer = setTimeout(async () => {
+      const moved = () => state.conversationId !== id || WcThread.isStreaming()
+        || !!(global.WcVoice && (WcVoice.active || WcVoice.connecting));
+      if (moved()) return;
+      const r = await WcBus.call('WC_LOAD_CONVERSATION', { id }).catch(() => null);
+      if (!r || !r.ok || moved()) return;
+      const missing = global.LexVoiceFeedCheck.missingTurns(r.turns, (uid) => WcThread.shownTextOf(uid));
+      if (!missing.length) return;
+      paintConversation(r, { keepPlace: true });
+    }, 300);
   }
 
   // Разговор голосом кончился — лента сверяется с беседой на сервере
@@ -2907,11 +2930,24 @@
       balanceFirst = false;
       WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
     });
-    // The state of a chat in a list changed on any device (chat_states.sql): pinned, read, unread,
-    // deleted. The list Chats is read anew; the list of Profi.ru follows its own signal «profi».
-    signals.follow(['chats'], (signal) => {
-      if (signal && signal.payload && String(signal.payload.chat || '').startsWith('__lex_profi__')) return;
-      if (signal) refreshConversations();
+    // The list of chats changed on any device: a new chat, a new message, a title, a rename,
+    // hiding (account_changes.sql), pinned, read, unread, deleted (chat_states.sql). The list Chats
+    // is read anew, and the open chat if the screen lacks a message the server has; the list of
+    // Profi.ru follows its own signal «profi». After a break the journal of changes hands over
+    // what was missed; only when it cannot (signal null) the list is read on its own below.
+    let chatsFirst = true;
+    signals.follow(['chats'], async (signal) => {
+      if (!signal) {
+        if (chatsFirst) { chatsFirst = false; return; }
+        await refreshConversations();
+        catchUpOpenChat(state.conversationId);
+        return;
+      }
+      chatsFirst = false;
+      const key = String((signal.payload && signal.payload.chat) || '');
+      if (key.startsWith('__lex_profi__')) return;
+      await refreshConversations();
+      if (key && key === state.conversationId) catchUpOpenChat(key);
     });
     // The unread of the account changed on any device (unread_counts.sql): the numbers of the
     // lines, the section buttons are read anew; after a break of the channel — once more.

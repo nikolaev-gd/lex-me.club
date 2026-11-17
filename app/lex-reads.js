@@ -79,6 +79,8 @@
     'lex_chat_seen',
     // stamps and changes: is there something new, what changed since
     'profi_rev', 'lex_em_feed_rev', 'lex_em_feed_changes', 'folder_rev',
+    // the journal of the account's changes: asked after a reconnect and when the window comes back
+    'lex_changes_since',
     // the opening of an item on the server, the session of a feed or of a chat
     'profi_open', 'lex_em_feed_open', 'lex_em_question_open', 'folder_open', 'chats',
     // «Разбор»: the numbers of its tabs (the window keeps the last ones itself, with their day) and

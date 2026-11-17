@@ -51,9 +51,28 @@
     return out;
   }
 
+  // Every message, not only the voice's (2026-11-17): a chat open on one device, written in on
+  // another, learns it from the signal «chats» and asks here what the screen lacks — and only
+  // then paints the chat again. Missing: a message of the chat with text that has no bubble.
+  // The text of a bubble is not compared: a bubble draws a message in its own form (a link as
+  // its words), and a comparison would paint such a chat again after every signal. The server
+  // counts an answer in the list only once it has words, so the signal of a finished answer
+  // finds it missing whole.
+  function missingTurns(turns, shownTextOf) {
+    const out = [];
+    for (const t of (Array.isArray(turns) ? turns : [])) {
+      if (!t || !t.uid) continue;
+      if (!core(t.content != null ? t.content : t.text)) continue;
+      let shown = null;
+      try { shown = shownTextOf(String(t.uid)); } catch (_) { shown = null; }
+      if (shown == null) out.push(String(t.uid));
+    }
+    return out;
+  }
+
   // Когда сверять: последний ответ слушатель дописывает в беседу уже после
   // отбоя, поэтому дважды.
   const DELAYS_MS = [3000, 12000];
 
-  global.LexVoiceFeedCheck = { missingVoiceTurns, DELAYS_MS };
+  global.LexVoiceFeedCheck = { missingVoiceTurns, missingTurns, DELAYS_MS };
 })(typeof self !== 'undefined' ? self : globalThis);
