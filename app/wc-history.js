@@ -50,8 +50,8 @@
   // следующее сообщение уедет в новый и лента разорвётся надвое.
   function sessionIdOfKey(id) {
     if (typeof id !== 'string') return null;
-    // An order chat of the Profi.ru section keeps its session the same way.
-    const profi = id.match(/^__lex_profi__(\d+)$/);
+    // An order chat of the Profi.ru section and a chat of a folder keep their session the same way.
+    const profi = id.match(/^__lex_profi__(\d+)$/) || id.match(/^__lex_folder__(\d+)$/);
     if (profi) return Number(profi[1]);
     if (id.indexOf(STANDALONE_PREFIX) !== 0) return null;
     const tail = id.slice(STANDALONE_PREFIX.length);

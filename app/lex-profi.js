@@ -223,11 +223,12 @@
   }
 
   // What a box says under it about where it stands: the server's state of the box in words.
-  function stateLine(win) {
+  // who — whom the text went to: the client of an order, the person of a folder chat.
+  function stateLine(win, who = 'the client') {
     switch (win.state) {
       case 'scheduled': return global.LexSendLater.scheduledLine(win.sendAt);
       case 'queued': return sendingLine(win.channel);
-      case 'sent': return win.channel ? `Sent to the client in ${placeName(win.channel)}.` : 'Sent to the client.';
+      case 'sent': return win.channel ? `Sent to ${who} in ${placeName(win.channel)}.` : `Sent to ${who}.`;
       case 'failed': return `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`.trim();
       case 'unknown':
         return win.channel
@@ -276,9 +277,12 @@
       const name = firstName(deps.client);
       const again = open && win.state === 'failed';
       const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : name ? `Hold to send to ${name}` : 'Hold to send';
-      const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${name || 'the client'} on ${placeName(to)}. Hold to send`;
-      // «⋯» of a box of the model: the same box at a time, or its text into the field.
-      const items = open && !win.direct ? () => {
+      const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${name || (deps.folder ? 'the person' : 'the client')} on ${placeName(to)}. Hold to send`;
+      // «⋯» of a box of the model: the same box at a time, or its text into the field. A box of a folder chat
+      // goes at once (the queue of the database sends at once): its text into the field only.
+      const items = open && !win.direct && deps.folder ? (deps.putBack ? () => [
+        { label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) },
+      ] : null) : open && !win.direct ? () => {
         const list = [{
           label: 'Schedule…',
           icon: 'clock',
@@ -291,10 +295,19 @@
         if (deps.putBack) list.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
         return list;
       } : null;
+      // A box of a folder chat: its text goes by the Send of the chat (folder-send), tied to the box.
+      const sendFolderBox = async (send) => {
+        note.textContent = 'Sending…';
+        const r = typeof deps.sendBox === 'function' ? await deps.sendBox(win) : null;
+        if (!r) { send.disabled = false; note.textContent = stateLine(win, 'the person'); return; }
+        deps.refresh();
+        note.textContent = r.state === 'queued' || r.state === 'sending' ? sendingLine(r.channel) : '';
+      };
       const { send, more } = global.LexMessage.sendHold({
         channel: to || 'profi', words, label, fit: !!win.direct, items,
         onSend: async () => {
           send.disabled = true;
+          if (deps.folder) return sendFolderBox(send);
           const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
           if (!r) { send.disabled = false; return; }
           note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
@@ -307,7 +320,7 @@
     }
     if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
     if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
-    note.textContent = stateLine(win);
+    note.textContent = stateLine(win, deps.folder ? 'the person' : 'the client');
     if (!foot.childElementCount) foot.hidden = true;
     return { foot, note };
   }
@@ -472,8 +485,10 @@
   // text }) — the line of a reply over the field (В7.26); replyQuote() — the uid of the message the line
   // of a reply answers now, or null; replyDone() — the text left with it, the line goes.
   // folder — the chat of a person or a group of a folder of chats (Kolya, Other; folder_chats.sql): the same
-  // messages, with no order over them, no model, no clean view; sendText(text, quoteUid) → true once the
-  // server took the text for the person (the edge function folder-send). A group has no Send.
+  // messages, with no order over them. The person's chat has the model, the assistant in correspondence
+  // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by sendBox(win) → { state,
+  // channel } | null; holding the arrow, sendText(text, quoteUid) → true once the server took the text for the
+  // person (the edge function folder-send). A group has no model and no Send.
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
@@ -485,7 +500,7 @@
     let clean = deps.clean !== false;
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, notify: deps.notify,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
-      openQuote: (q) => self.openQuote(q) });
+      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
     const revealed = new Set();
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
@@ -965,17 +980,19 @@
         host.hidden = !wins.length;
       },
 
-      // Who gets the text of the field — the words of the empty field (LexComposerBox.hint). A chat of a
-      // folder: the person, by the channel of the message a Reply answers, or where he wrote last; a group
-      // and a chat in no folder: nobody (the field takes no text). An order chat: Lex by a tap, the client
-      // by a hold, where the client's text would go (the rule of sendMenu below).
+      // Who gets the text of the field — the words of the empty field (LexComposerBox.hint). An order chat and
+      // the chat of a person in a folder: Lex by a tap, the client or the person by a hold, where his text would
+      // go (the rule of sendMenu below: the channel of the message a Reply answers, or where he wrote last); a
+      // group and a chat in no folder: nobody (the field takes no text).
       addressee() {
         const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
+        // A chat of a person in a folder: Lex by a tap, the person by a hold, as in an order chat (Gennady,
+        // 2026-11-18: the assistant in correspondence).
         if (folder) {
-          if (!data) return { to: 'person', who: '' };
+          if (!data) return { to: 'order', who: '' };
           if (!data.send) return { to: data.kind === 'group' ? 'group' : 'closed' };
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
-          return { to: 'person', who: data.client || data.title || '', where: where ? placeName(where) : '' };
+          return { to: 'order', who: data.client || data.title || '', where: where ? placeName(where) : '' };
         }
         if (!data) return { to: 'order', who: '' };
         const place = quoteUid ? ((data.channels && data.channels[quoteUid]) || 'profi') : (data.replyTo || 'profi');
@@ -992,14 +1009,15 @@
         // The line of a reply over the field (В7.26): the text goes as the answer to that message, and
         // the line leaves with it. Without a line the call is as it was.
         const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
-        // A chat of a folder: the text goes to the person now, where he wrote last, or to the messenger of
-        // the message it answers; no time to pick (the queue of the database sends at once). A group — none.
+        // A chat of a folder: the text goes to the person now, without the assistant, where he wrote last, or to
+        // the messenger of the message it answers; no time to pick (the queue of the database sends at once). A
+        // group — none.
         if (folder) {
           if (!data.send || typeof deps.sendText !== 'function') return null;
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
           const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
           return {
-            head: `To ${data.client || data.title || 'the person'}`,
+            head: `To ${data.client || data.title || 'the person'}, without Lex`,
             items: [{ label: `Send to ${where ? placeName(where) : 'the person'} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
           };
         }
@@ -1083,9 +1101,28 @@
       bar() {
         const M = global.LexMessage;
         const person = make('div', 'lex-profi-person', '');
+        // The button of the clean view: pressed, the discussion with Lex up to the last message that went is
+        // off the screen (the server says which, hiddenDiscussion).
+        const cleanButton = () => {
+          const link = make('button', 'wc-icon-btn lex-profi-clean', '');
+          link.type = 'button';
+          const paint = () => {
+            link.classList.toggle('is-on', clean);
+            link.setAttribute('aria-pressed', clean ? 'true' : 'false');
+            link.title = clean ? 'Show the discussion with Lex' : 'Hide the discussion with Lex';
+            link.setAttribute('aria-label', link.title);
+            const paths = [['path', { d: 'M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z' }],
+              ['path', { d: 'M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z' }]];
+            if (clean) paths.push(['path', { d: 'M3 3l18 18' }]);
+            link.replaceChildren(strokeIcon(paths, 20));
+          };
+          paint();
+          link.addEventListener('click', () => { self.setClean(!clean); paint(); });
+          return link;
+        };
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
-        // wrote by last (a group: its own); no clean view (there is no talk with the model), no card yet (it
-        // opens from an order chat).
+        // wrote by last (a group: its own); the clean view for a person (the talk with the assistant), none
+        // for a group (no model there); no card yet (it opens from an order chat).
         if (folder) {
           const name = (data && (data.client || data.title)) || 'Chat';
           const where = data && data.replyTo && M.CHANNELS[data.replyTo] ? M.CHANNELS[data.replyTo].name : '';
@@ -1093,7 +1130,7 @@
           const words = make('div', 'lex-profi-person-words', '');
           words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
           person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);
-          return { person, link: null, open: null, who: name };
+          return { person, link: data && data.kind === 'person' ? cleanButton() : null, open: null, who: name };
         }
         const who = (data && data.client) || 'Client';
         const words = make('div', 'lex-profi-person-words', '');
@@ -1105,21 +1142,7 @@
           ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
             onGone: deps.onPersonGone, io: fileIo })
           : null;
-        const link = make('button', 'wc-icon-btn lex-profi-clean', '');
-        link.type = 'button';
-        const paint = () => {
-          link.classList.toggle('is-on', clean);
-          link.setAttribute('aria-pressed', clean ? 'true' : 'false');
-          link.title = clean ? 'Show the discussion with Lex' : 'Hide the discussion with Lex';
-          link.setAttribute('aria-label', link.title);
-          const paths = [['path', { d: 'M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z' }],
-            ['path', { d: 'M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z' }]];
-          if (clean) paths.push(['path', { d: 'M3 3l18 18' }]);
-          link.replaceChildren(strokeIcon(paths, 20));
-        };
-        paint();
-        link.addEventListener('click', () => { self.setClean(!clean); paint(); });
-        return { person, link, open, who };
+        return { person, link: cleanButton(), open, who };
       },
 
       // The clean view: only the screen, the model reads the whole chat and the server is not

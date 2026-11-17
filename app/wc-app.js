@@ -1713,7 +1713,9 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      clean: false,
+      // The chat of a person talks with the assistant in correspondence: it opens clean, as an order chat.
+      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      clean: data && data.kind === 'person',
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
       showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
@@ -1721,6 +1723,7 @@
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
       reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
+      sendBox: (win) => sendFolderBox(chat, win),
     });
     chat.folder = true;
     chat.sectionId = sectionId;
@@ -1742,6 +1745,7 @@
     }
     if (held && held.chatKey && held.chat) {
       const chat = makeFolderChat(sectionId, held, keepIt);
+      await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId || null });
       await openConversation(held.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: held.chat });
       if (profiChat === chat) await refreshFolderChat({ take: true }).catch((e) => console.warn('[wc] folder chat:', e && e.message));
       return;
@@ -1751,6 +1755,7 @@
     if (!data || !data.chatKey || !data.chat) { toast('The chat did not open', { error: true }); return; }
     if (keepIt) keepIt(data);
     const chat = makeFolderChat(sectionId, data, keepIt);
+    await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId || null });
     await openConversation(data.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: data.chat });
   }
   // The database changed something: a message came, one changed (a reaction, an edit, its file), a
@@ -1768,6 +1773,10 @@
     });
     if (!data || !data.chatKey || profiChat !== chat) return;
     if (chat.keep) chat.keep(data);
+    if ((data.modelId || null) !== (chat.data.modelId || null)) {
+      await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId || null });
+      refreshTextModelLabel();
+    }
     let moved = false;
     if (take && data.chat && visit && visit.key === data.chatKey && (data.chat.since || null) !== (visit.since || null)) {
       visit.since = data.chat.since || null;
@@ -1776,9 +1785,12 @@
     chat.data = data;
     paintProfiBar();
     paintProfiOutbox(chat);
+    // An answer of the assistant being written: its bubble is not on the server yet, a redraw would take it off —
+    // the boxes only; the chat is read again when the answer ends.
+    if (WcThread.isStreaming()) { WcThread.paintProfiBoxes(); return; }
     if (!data.chat || state.conversationId !== data.chatKey) return;
     const r = await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks });
-    if (!r || !r.ok || profiChat !== chat || state.conversationId !== data.chatKey) return;
+    if (!r || !r.ok || profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
     const shown = new Set(WcThread.shownUids());
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
@@ -1813,6 +1825,29 @@
     if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
     return true;
+  }
+
+  // Send of a box of the assistant in a chat of a folder: its text goes by the Send of the chat (folder-send) with the
+  // number of the press «win:<box>» (a second try «win:<box>:<n>»), which ties the send to its box: the box shows the
+  // state of its send (lex_folder_windows_json). Word for word what the box holds. → { state, channel } | null.
+  async function sendFolderBox(chat, win) {
+    if (!chat || !chat.data || !win || !win.id || !String(win.text || '').trim()) return null;
+    const tries = win.press ? (Number(String(win.press).split(':')[2]) || 1) + 1 : 1;
+    let out;
+    try {
+      out = await WcBus.call('WC_FOLDER_SEND', {
+        body: {
+          chatKey: chat.data.chatKey, text: win.text, opId: tries > 1 ? `win:${win.id}:${tries}` : `win:${win.id}`,
+          ...(win.quote && win.quote.uid ? { quoteUid: win.quote.uid } : {}),
+        },
+      });
+    } catch (err) {
+      toast('Not sent. ' + ((err && err.message) || ''), { error: true });
+      return null;
+    }
+    if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
+    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    return out && out.send ? out.send : { state: 'queued' };
   }
 
   // A chat left open behind other windows gets read when the person comes back to it.
@@ -1883,17 +1918,16 @@
       toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
       return;
     }
-    // A chat of a folder has no model: the text is for the person. A preset talks to the model, a
-    // picture is not sent to people (only text): both stay as they were.
-    if (profiChat && profiChat.folder) {
-      const chat = profiChat;
-      if ((opts && opts.mode) || WcAttach.count() > 0) {
-        if (!(opts && opts.mode)) giveBack(key0, text || '', reply0);
-        toast('Only text goes to a person from Lex.', { error: true });
-        return;
-      }
-      const ok = await sendToFolder(chat, text, (reply && reply.quoteUid) || null);
-      if (!ok) giveBack(key0, text || '', reply0);
+    // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the
+    // text to the person goes by a hold of the arrow, sendMenu, or from a box). A group and a chat in no folder
+    // take no text (the field is locked); a preset has no place here.
+    if (profiChat && profiChat.folder && (opts && opts.mode)) {
+      toast('Presets are not in the chats of folders.', { error: true });
+      return;
+    }
+    if (profiChat && profiChat.folder && (!profiChat.data || !profiChat.data.send)) {
+      giveBack(key0, text || '', reply0);
+      toast(profiChat.data && profiChat.data.kind === 'group' ? 'Lex does not write to groups: answer in the messenger.' : 'This chat takes no messages now.', { error: true });
       return;
     }
     // The chat on the screen came from this device's copy: the turn goes once the server's answer
@@ -2126,7 +2160,7 @@
   // умолчанию модель монитора), в остальных — модель чатов Lex. Какая из двух, решает
   // открытый чат; хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
-    const profi = !!profiChat && !profiChat.folder;
+    const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
     openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
@@ -3185,7 +3219,7 @@
     let ccRowTimer = null;
     signals.follow(['chat'], (signal) => {
       const key = signal && signal.payload && String(signal.payload.chat || '');
-      if (!key || key !== state.conversationId || key.startsWith('__lex_profi__')) return;
+      if (!key || key !== state.conversationId || key.startsWith('__lex_profi__') || WcHistory.isFolderKey(key)) return;
       clearTimeout(ccRowTimer);
       ccRowTimer = setTimeout(() => {
         WcThread.whenFree('cc-row', () => {
@@ -3329,7 +3363,7 @@
     WcAttach.init();
     // A picture or a file put on the field or taken off it: the draft of the chat keeps it.
     WcAttach.onChange = () => saveField();
-    WcAttach.readsImages = () => (profiChat && !profiChat.folder ? profiModelSees : textModelSees);
+    WcAttach.readsImages = () => (profiChat ? profiModelSees : textModelSees);
     WcAttach.chatKey = () => state.conversationId || null;
     WcSidebar.init({
       onOpen: openConversation,
@@ -3354,7 +3388,7 @@
       attachedPage: () => attachedPage,
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
       // открывает меню моделей. Видят все, в каждом чате.
-      textModel: () => ({ label: profiChat && !profiChat.folder ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
+      textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
       // Holding the arrow: in an order chat the text goes to the client at once, without the
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),
