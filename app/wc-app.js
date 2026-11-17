@@ -637,15 +637,21 @@
     presenceAt = Date.now();
     // The answer brings the numbers of the unread after the chat on the screen took its own (В7.48).
     newsRpc('lex_chat_presence', { p_device: presenceDevice, p_chat_key: key, p_surface: 'web' })
-      .then((r) => { if (r && r.unread && global.LexSection) global.LexSection.setUnread(r.unread); })
+      .then((r) => { if (r && r.unread) takeUnread(r.unread); })
       .catch(() => {});
+  }
+  // The numbers of the unread from the server: the rows and the section buttons, and the number on the icon of the
+  // Mac app in the Dock — the sum of them (`badge`), the same as on the iPhone's icon.
+  function takeUnread(u) {
+    if (global.LexSection) global.LexSection.setUnread(u);
+    if (u && u.badge != null) shellBadge(Number(u.badge) || 0);
   }
   // The numbers of the unread (supabase/migrations/unread_counts.sql): at the start, at every signal
   // «unread» of the account (a message came or was seen on any device) and after the channel opens again.
   async function readUnread() {
     try {
       const r = await newsRpc('lex_missed_summary', {});
-      if (r && r.unread && global.LexSection) global.LexSection.setUnread(r.unread);
+      if (r && r.unread) takeUnread(r.unread);
     } catch (err) {
       console.warn('[wc] unread:', err && err.message);
     }
@@ -669,6 +675,14 @@
     } catch (_) { /* no Mac app */ }
     return false;
   }
+  // A Mac app of 2026-11-17 on (part 5 of «Уведомления и непрочитанное») shows the number of the unread on its icon in
+  // the Dock and does the buttons of its notifications through this page (__lexShellAction): its mark says `badge`.
+  const shellShowsBadge = () => !!(global.__lexShell && global.__lexShell.badge);
+  let shellBadgeSaid = null;
+  function shellBadge(n) {
+    if (!shellShowsBadge() || n === shellBadgeSaid) return;
+    if (tellShell({ word: 'badge', n })) shellBadgeSaid = n;
+  }
   function shellPush(p) {
     if (!p || !p.token || !p.env) return;
     const said = `${p.token}|${p.env}|${p.bundle || ''}`;
@@ -676,7 +690,73 @@
     newsRpc('lex_push_register', { p_token: p.token, p_env: p.env, p_bundle: p.bundle || '' }).then(() => {
       shellPushToken = p.token;
       shellPushSaid = said;
-    }, (e) => console.warn('[wc] push address:', e && e.message));
+      // This build shows the number: the notifications to its address carry it from now on, and a chat read on any
+      // screen sends it the number alone (lex_push_badge_on, as the iPhone). The answer is the number now.
+      if (!p.badge) return null;
+      return newsRpc('lex_push_badge_on', { p_token: p.token }).then((r) => {
+        if (r && r.badge != null) shellBadge(Number(r.badge) || 0);
+      });
+    }).catch((e) => console.warn('[wc] push address:', e && e.message));
+  }
+  // The words of a refusal for a notification of the Mac: the server's own message, not its code.
+  function refusalWords(err) {
+    const raw = String((err && err.message) || '');
+    const m = raw.match(/\{[\s\S]*\}\s*$/);
+    if (m) {
+      try {
+        const o = JSON.parse(m[0]);
+        const words = o && (o.message || o.error);
+        if (words) return String(words).slice(0, 200);
+      } catch (_) { /* below */ }
+    }
+    return /^HTTP \d/.test(raw) ? 'The server of Lex did not take it.' : raw.slice(0, 200);
+  }
+  // A button on a notification of the Mac app (PushNotifications.swift): the same calls as the same buttons of this
+  // page, with its sign-in — Cancel and Send of a new order (profi_command, as New orders), «Send to <name>» of a
+  // draft after a call (profi_send, as holding the button under the draft), and the words typed into the field of a
+  // message a person wrote (profi_send_text in an order chat, folder-send in a chat of a folder, as Send of the chat).
+  // Pressing Send there is Gennady's «yes» to that text, as in the chat; the text goes through the queue of actions of
+  // the server. The answer is { ok, why }: a press that did not reach the server comes back to the person as a
+  // notification of its own.
+  async function shellAction(a) {
+    const what = String((a && a.do) || '');
+    try {
+      if (what === 'cancel' || what === 'send_draft') {
+        if (!a.order) return { ok: false };
+        await newsRpc('profi_command', {
+          p_op_id: global.LexProfi.newOpId(), p_kind: what, p_order: String(a.order),
+          p_args: what === 'cancel' ? { pressed_at: Date.now() / 1000 } : {},
+        });
+        return { ok: true };
+      }
+      if (what === 'call_send') {
+        if (!a.window) return { ok: false };
+        await newsRpc('profi_send', { p_op_id: global.LexProfi.newOpId(), p_window: String(a.window) });
+        return { ok: true };
+      }
+      if (what === 'reply') {
+        const text = String(a.text || '').trim();
+        const key = String(a.chatKey || '');
+        if (!text) return { ok: false };
+        if (key.startsWith('__lex_profi__') && a.order) {
+          await newsRpc('profi_send_text', { p_op_id: global.LexProfi.newOpId(), p_order: String(a.order), p_text: text, p_at: null });
+        } else if (WcHistory.isFolderKey(key)) {
+          await WcBus.call('WC_FOLDER_SEND', { body: { chatKey: key, text, opId: global.LexFolders.newOpId() } });
+        } else {
+          return { ok: false, why: 'This chat takes no reply from a notification.' };
+        }
+        // The chat on the screen shows its new message at once.
+        if (key === state.conversationId) {
+          if (key.startsWith('__lex_profi__')) refreshProfiChat().catch(() => {});
+          else refreshFolderChat().catch(() => {});
+        }
+        return { ok: true };
+      }
+      return { ok: false, why: 'Lex does not know this button.' };
+    } catch (err) {
+      console.warn('[wc] notification button:', what, err && err.message);
+      return { ok: false, why: refusalWords(err) };
+    }
   }
   // What a notification is about (the `lex` part push-send puts in it) → the screen.
   async function openFromNotification(lex) {
@@ -722,10 +802,13 @@
     if (key) await openConversation(key, { wanted });
   }
   global.__lexShellPush = shellPush;
+  global.__lexShellAction = shellAction;
   global.__lexShellOpen = (lex) => { openFromNotification(lex).catch((e) => console.warn('[wc] notification:', e && e.message)); };
   // Signed in: ask the Mac app for its address and for a click that came before the page.
   function askShellForPush() { tellShell('push'); }
   async function forgetShellPush() {
+    // Signed out: nothing of the account stays on the icon in the Dock.
+    if (shellShowsBadge()) { tellShell({ word: 'signedOut' }); shellBadgeSaid = null; }
     if (!shellPushToken) return;
     try { await newsRpc('lex_push_unregister', { p_token: shellPushToken }); } catch (_) { /* the server forgets dead ones itself */ }
     shellPushToken = null;
@@ -1295,6 +1378,9 @@
       back: sectionBack,
       signals,
       rpc: newsRpc,
+      // The clients of the order chats the list shows: the Mac app names «Send to <first name>» on the notification of
+      // a draft after a call by them (PushNotifications.swift, as the iPhone's PushCenter.noteClients).
+      clients: (names) => { if (shellShowsBadge() && names.length) tellShell({ word: 'clients', names }); },
       read,
       copy: copyText,
       openOrder: openProfiOrder,

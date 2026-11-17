@@ -1613,6 +1613,14 @@
         if (!h) return;
         home = h;
         homeFresh = fresh;
+        // The clients of the order chats (the line's title is «client | order»), for whoever names buttons by them.
+        if (fresh && typeof deps.clients === 'function') {
+          const names = (Array.isArray(h.chats) ? h.chats : []).map((c) => {
+            const parts = String((c && c.title) || '').split(' | ');
+            return parts.length > 1 ? parts[0] : '';
+          }).filter(Boolean);
+          try { deps.clients(names); } catch (_) { /* a hook must not stop the list */ }
+        }
         if (fresh) rev = h.rev;
         else if (onCopy) onCopy();
       }, () => !home);
