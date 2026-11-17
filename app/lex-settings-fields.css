@@ -118,3 +118,14 @@
   font-size: 12.5px;
 }
 .lex-field-note[hidden] { display: none; }
+
+/* Заголовок группы строк (разделы экрана уведомлений): серая строка над её строками, как на айфоне —
+   13/600, сверху 18, снизу 6, линия под ним. Под последней строкой группы линии нет, как на айфоне. */
+.lex-field-group {
+  padding: 18px 0 6px;
+  border-bottom: 1px solid var(--lex-field-line);
+  color: var(--lex-field-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.lex-field:has(+ .lex-field-group) { border-bottom: 0; }

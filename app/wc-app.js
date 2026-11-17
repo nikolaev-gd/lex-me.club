@@ -710,6 +710,15 @@
       else await openEmFeed(kind, wanted, ref);
       return;
     }
+    // A message of a folder (folder_message): its section, and the chat over its list, as a press there opens it.
+    // A folder the page does not know (its button has not come yet) — the chat by itself.
+    const folderId = lex.folder ? `folder:${lex.folder}` : '';
+    if (WcHistory.isFolderKey(key) && SECTIONS[folderId]) {
+      await showSection(folderId);
+      if (!wanted()) return;
+      await openFolderChat(folderId, key, wanted);
+      return;
+    }
     if (key) await openConversation(key, { wanted });
   }
   global.__lexShellPush = shellPush;
@@ -2420,6 +2429,7 @@
     return WcSettings.open({
       account: state.account,
       onSignOut: signOut,
+      rpc: newsRpc,
     });
   }
 

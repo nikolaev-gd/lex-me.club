@@ -74,7 +74,7 @@
     'profi_send_cancel', 'open_news_item', 'save_news_position',
     'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',
-    'lex_live_register', 'lex_notification_set', 'lex_patch_user_settings',
+    'lex_live_register', 'lex_notification_set', 'lex_notification_mode_set', 'lex_patch_user_settings',
     // the moment a chat was last open: taken and written, never shown from a copy
     'lex_chat_seen',
     // stamps and changes: is there something new, what changed since
@@ -92,7 +92,7 @@
     'profi_call_transcript',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
-    'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',
+    'lex_notification_settings', 'lex_notification_modes', 'lex_missed', 'lex_missed_summary', 'sessions',
     'models',   // the catalog of dictation, held by lex-dictation-catalog.js for the microphone
     // the extension: its lessons on a video and on a page, kept in its store of threads and its
     // cache of subtitles; its settings, kept in its own storage; what it writes

@@ -25,6 +25,16 @@
     ['dark', 'Dark'],
   ];
 
+  // The three positions of a kind of notification (notification_modes.sql, 17.11.2026), in the words of the
+  // iPhone (`NotificationSettingsView.modes`).
+  const NOTIFY_MODES = [
+    ['banner', 'Banner and count'],
+    ['count', 'Count only'],
+    ['none', 'Nothing'],
+  ];
+  const NOTIFY_INTRO = 'Banner and count — a notification, and the message counts as unread. Count only — no '
+    + 'notification: the number in Lex and on its icon. Nothing — neither.';
+
   function applyTheme(value) {
     const root = document.documentElement;
     if (value === 'light' || value === 'dark') {
@@ -181,6 +191,16 @@
         (await WcVoice.settingsFields()).forEach((f) => body.push(f));
       }
 
+      // The notifications of the account, for every device: the Mac app and the iPhone show them, the page
+      // shows the numbers. Their own screen in the place of this one.
+      if (ctx && ctx.rpc) {
+        body.push(field('Notifications', 'For each kind: a banner, the count only, or nothing',
+          el('button.lex-field-btn', {
+            type: 'button', text: 'Open',
+            onclick: () => { handle.close(); WcSettings.openNotifications(ctx); },
+          })));
+      }
+
       const signOutBtn = el('button.lex-field-btn.lex-field-btn--danger', {
         type: 'button', text: 'Sign out',
         onclick: () => { handle.close(); ctx.onSignOut(); },
@@ -201,6 +221,44 @@
       body.push(buildField);
 
       const handle = sheet('wc-settings', 'Settings', body);
+      return handle;
+    },
+
+    // The screen of notifications: the kinds of messages by the sections of Lex (Profi.ru, each folder,
+    // Questions, Extended Mind, Chats, Calendar), each in one of three positions. The sections and kinds come
+    // from the server (`lex_notification_modes`), the same screen as the iPhone's.
+    async openNotifications(ctx) {
+      const note = el('.lex-field-note', { text: 'Reading…' });
+      const list = el('div');
+      const handle = sheet('wc-settings', 'Notifications', [el('.lex-field-note', { text: NOTIFY_INTRO }), note, list]);
+      const say = (text) => { note.textContent = text || ''; note.hidden = !text; };
+      const paint = (groups) => {
+        const rows = [];
+        (Array.isArray(groups) ? groups : []).forEach((g) => {
+          const kinds = Array.isArray(g.kinds) ? g.kinds : [];
+          if (!kinds.length) return;
+          rows.push(LexSettingsFields.groupNode(g.title));
+          kinds.forEach((k) => {
+            const s = select(NOTIFY_MODES, k.mode || 'banner', (v) => {
+              const before = k.mode || 'banner';
+              if (v === before) return;
+              k.mode = v;
+              ctx.rpc('lex_notification_mode_set', { p_kind: k.kind, p_mode: v, p_scope: k.scope || '' })
+                .then((fresh) => { say(''); if (Array.isArray(fresh) && fresh.length) paint(fresh); })
+                .catch(() => { k.mode = before; s.value = before; say('The choice did not reach the server. Try again.'); });
+            });
+            s.setAttribute('aria-label', k.title);
+            rows.push(field(k.title, k.hint || '', s));
+          });
+        });
+        list.replaceChildren(...rows);
+      };
+      try {
+        paint(await ctx.rpc('lex_notification_modes', {}));
+        say('');
+      } catch (_) {
+        say('Could not read the settings. Close this screen and open it again.');
+      }
       return handle;
     },
   };

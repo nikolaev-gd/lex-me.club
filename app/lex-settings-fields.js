@@ -128,7 +128,18 @@
     return b.outerHTML;
   }
 
+  // The heading of a group of rows (the sections of the screen of notifications): a muted line over its rows,
+  // the same as the heading of a group on the iPhone (`NotificationSettingsView`, 13/600 `fgMuted`).
+  function groupNode(title) {
+    const h = document.createElement('div');
+    h.className = 'lex-field-group';
+    h.setAttribute('role', 'heading');
+    h.setAttribute('aria-level', '3');
+    h.textContent = title;
+    return h;
+  }
+
   global.LexSettingsFields = {
-    fieldNode, fieldHtml, identityNode, identityHtml, buttonHtml,
+    fieldNode, fieldHtml, identityNode, identityHtml, buttonHtml, groupNode,
   };
 })(typeof self !== 'undefined' ? self : globalThis);
