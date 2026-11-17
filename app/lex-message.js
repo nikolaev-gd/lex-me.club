@@ -148,6 +148,29 @@
     return n;
   }
 
+  // A face that opens or folds on a press and whose words still select (block 2, 2026-11-18): a <button> lets no
+  // selection begin in it, so a card of News, a record of a feed, a folded question are this instead — the role of a
+  // button, Tab, Enter and Space; a click that ends a selection in it is the selection, not a press.
+  function pressFace(tag, cls) {
+    const n = make(tag || 'div', cls);
+    n.setAttribute('role', 'button');
+    n.tabIndex = 0;
+    n.classList.add('lex-press');
+    n.addEventListener('click', (e) => {
+      const sel = global.getSelection && global.getSelection();
+      if (sel && !sel.isCollapsed && sel.rangeCount && sel.getRangeAt(0).intersectsNode(n) && String(sel).trim()) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, true);
+    n.addEventListener('keydown', (e) => {
+      if (e.target !== n || (e.key !== 'Enter' && e.key !== ' ')) return;
+      e.preventDefault();
+      n.click();
+    });
+    return n;
+  }
+
   function toDate(at) {
     if (at == null || at === '') return null;
     const d = at instanceof Date ? at : new Date(at);
@@ -328,8 +351,7 @@
   }
 
   function intakeThin(v, o) {
-    const b = make('button', 'lex-intake-thin');
-    b.type = 'button';
+    const b = pressFace('div', 'lex-intake-thin');
     const words = v.line || (v.summary ? `${v.title}: ${v.summary}` : (v.title || ''));
     b.setAttribute('aria-label', `${words}. Show the details`);
     b.setAttribute('aria-expanded', 'false');
@@ -420,8 +442,7 @@
     o = o || {};
     const open = !!o.open;
     const root = make('article', `lex-task${open ? ' is-open' : ''}`);
-    const face = make('button', 'lex-task-face');
-    face.type = 'button';
+    const face = pressFace('div', 'lex-task-face');
     face.setAttribute('aria-expanded', String(open));
     const head = make('span', 'lex-task-head');
     const mark = taskMark(v.icon);
@@ -1723,9 +1744,8 @@
 
   function doneQuestion(v, o) {
     const open = !!o.open;
-    const root = make(open ? 'div' : 'button', `lex-q is-done${open ? ' is-unfolded' : ''}`);
+    const root = open ? make('div', `lex-q is-done is-unfolded`) : pressFace('div', 'lex-q is-done');
     if (!open) {
-      root.type = 'button';
       root.setAttribute('aria-expanded', 'false');
       root.setAttribute('aria-label', `${v.state === 'withdrawn' ? 'Withdrawn' : 'Answered'} question. Show it`);
     }
@@ -2151,8 +2171,7 @@
   // 14 in the soft colour, two lines; 6 under it the line 12 in grey for a long read.
   //   o = { kind, source, author, at | timeText, title, sub, foot, unread, onOpen }
   function newsCard(o) {
-    const b = make('button', `lex-ncard${o.unread ? ' is-unread' : ''}`);
-    b.type = 'button';
+    const b = pressFace('div', `lex-ncard${o.unread ? ' is-unread' : ''}`);
     const top = make('span', 'lex-ncard-top');
     if (o.unread) top.appendChild(make('span', 'lex-ncard-dot'));
     top.append(newsKind(o.kind, 14), make('span', 'lex-ncard-source', o.source || ''));
@@ -2198,9 +2217,407 @@
     return n;
   }
 
+  // ── The one menu of a message, copy and selection (block 2, 2026-11-18) ─────────────────────
+  // Gennady, 2026-11-17: «из чата нельзя скопировать вообще ничего» — every text of every chat is selected and
+  // copied as in a messenger, and every message has one menu, the same on the page, in the Mac app and in the
+  // extension (the iPhone has its own in MessageParts.swift, item for item). docs/spec/20-chat.md, «Сообщения».
+  //
+  //   attachMenu(el, o)   the menu of the message `el` (a bubble, an answer, a record, a card). It opens by the
+  //                       right button of a mouse (over a link, a picture or a video — the browser's own menu),
+  //                       by a finger held 480 ms (lex-long-press.js), by the key of the menu or Shift+F10, and by
+  //                       «⋯», which a mouse sees when it is over the message. A mouse held on the text selects.
+  //     o = { text() — the plain text of the whole message; html() — its formatted text (a model's answer:
+  //           Copy puts both kinds on the clipboard); body — the node of its text (default el); who(), at() —
+  //           the name and the moment for a copy of several («Name, [17.11.2026 10:12]»); host — the list it
+  //           stands in (Select); reply(part) — Reply, part: the words selected in it or null; edit() — Edit;
+  //           earlier: { open, toggle() } — Show / Hide the earlier text; link() — Copy link; items() — the
+  //           kind's own items after these (Process again); and the places the next block fills, in this
+  //           order: react, editSent, deleteSent, forward (each a function; none — no item) }
+  //   copyText(plain, html)   onto the clipboard: both kinds when html is given → Promise<bool>
+  //   plainOf(node)       the words of a formatted text without its marks: lists with «• » and «1. »
+  //   selectMode(host, first)   choose several messages of a list: a ring on each, the bar «N selected · Copy ·
+  //                       Cancel»; Copy — «Name, [date time]» and the text, an empty line between
+  //   isBusy(host)        a selection, a held mouse, an open menu or Select in the list: it is not drawn again
+  //                       now (wc-thread.js waits for the end — a redraw would take the selection away)
+  //   setSelfName(name)   the person's own name in a copy of several
+  const MENU = new WeakMap();
+  // What is not the words of a message: the line of the channel and the time, Copy, reactions, the head of a
+  // record, the quote of another message, «Forwarded from», «⋯» and the rings of Select, the row under an answer.
+  const SKIP = '.lex-stamp, .lex-bubble-copy, .lex-reactions, .lex-bubble-foot, .lex-msg-head, .lex-msg-more, '
+    + '.lex-quote, .lex-forwarded, .lex-bubble-label, .lex-answer-row, .wc-turn-foot, .lex-intake-head, .lex-intake-time, '
+    + '.lex-intake-act, .lex-profi-lex-head, .lex-talk-line, button, [data-lex-skip]';
+  const SELECT_D = ['M9 12l2 2 4-4', 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z'];
+  const LINK_D = ['M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5', 'M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5'];
+  const EDIT_D = ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z'];
+  const TEXT_D = ['M4 7V5h16v2', 'M12 5v14', 'M9 19h6'];
+  Object.assign(MESSAGE_ICONS, { select: SELECT_D, link: LINK_D, edit: EDIT_D, text: TEXT_D, tick: TICK_D });
+  let selfName = '';
+  const setSelfName = (name) => { selfName = String(name || '').trim(); };
+  const coarse = () => !!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches);
+
+  // The words of a node as they read, without what is not the message: a copy stands off the screen for its
+  // line breaks (innerText needs a layout), list items get their marks back, the copy goes.
+  function wordsOfFragment(frag) {
+    const box = make('div', 'lex-copy-box');
+    box.setAttribute('aria-hidden', 'true');
+    box.appendChild(frag);
+    for (const n of box.querySelectorAll(SKIP)) n.remove();
+    for (const list of box.querySelectorAll('ol, ul')) {
+      let i = Number(list.getAttribute('start')) || 1;
+      for (const li of list.children) {
+        if (li.tagName !== 'LI') continue;
+        li.prepend(document.createTextNode(list.tagName === 'OL' ? `${i++}. ` : '• '));
+      }
+    }
+    document.body.appendChild(box);
+    const words = String(box.innerText || box.textContent || '').replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    box.remove();
+    return words;
+  }
+  function plainOf(node) {
+    if (!node) return '';
+    const r = document.createRange();
+    r.selectNodeContents(node);
+    return wordsOfFragment(r.cloneContents());
+  }
+  // The formatted text of a node, without what is not the message: for the kind text/html of the clipboard.
+  function htmlOf(node) {
+    if (!node) return '';
+    const box = make('div');
+    const r = document.createRange();
+    r.selectNodeContents(node);
+    box.appendChild(r.cloneContents());
+    for (const n of box.querySelectorAll(SKIP)) n.remove();
+    // The spans of the words for the teacher are a tool of the screen, not the text.
+    for (const n of box.querySelectorAll('.vocab-word, lex-w, lex-ln')) n.replaceWith(...n.childNodes);
+    for (const n of box.querySelectorAll('[class]')) n.removeAttribute('class');
+    for (const n of box.querySelectorAll('[data-lex-msg-id], [data-lex-src], [data-lex-kind]')) {
+      n.removeAttribute('data-lex-msg-id'); n.removeAttribute('data-lex-src'); n.removeAttribute('data-lex-kind');
+    }
+    return box.innerHTML;
+  }
+  // The part of the range that falls in the message el, as words.
+  function partIn(range, el) {
+    const body = (MENU.get(el) && MENU.get(el).body) || el;
+    const r = document.createRange();
+    r.selectNodeContents(body);
+    if (!range.intersectsNode(body)) return '';
+    if (range.compareBoundaryPoints(Range.START_TO_START, r) > 0) r.setStart(range.startContainer, range.startOffset);
+    if (range.compareBoundaryPoints(Range.END_TO_END, r) < 0) r.setEnd(range.endContainer, range.endOffset);
+    return wordsOfFragment(r.cloneContents());
+  }
+  // The words selected in the message, or ''.
+  function selectedIn(el) {
+    const sel = global.getSelection && global.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+    return partIn(sel.getRangeAt(0), el);
+  }
+
+  // Onto the clipboard. Both kinds (the formatted text pastes as it looks, the plain one without the marks of
+  // Markdown) in one item; a browser without ClipboardItem, or a refusal — the command copy with its own
+  // handler, which needs no permission inside a press.
+  function copyByCommand(plain, html) {
+    let ok = false;
+    const on = (e) => {
+      e.clipboardData.setData('text/plain', plain);
+      if (html) e.clipboardData.setData('text/html', html);
+      e.preventDefault();
+      ok = true;
+    };
+    document.addEventListener('copy', on, true);
+    try { document.execCommand('copy'); } catch (_) { ok = false; }
+    document.removeEventListener('copy', on, true);
+    return ok;
+  }
+  // WebKit (Safari, the app for the Mac) writes formatted text with the computed styles of a page of its own, in
+  // the theme of the system: in the dark that is white letters, white on white in a light document it is pasted
+  // into. A box of the light scheme with black letters keeps it readable there; Chrome writes the words as they
+  // are, so they are left alone.
+  const UA = (global.navigator && global.navigator.userAgent) || '';
+  const WEBKIT_STYLES = /AppleWebKit/.test(UA) && !/(Chrome|Chromium|CriOS|Edg)\//.test(UA);
+  async function copyText(plain, html) {
+    const words = String(plain == null ? '' : plain);
+    if (html && WEBKIT_STYLES) html = `<div style="color-scheme: light; color: #000">${html}</div>`;
+    try {
+      const C = global.navigator && global.navigator.clipboard;
+      if (html && C && C.write && global.ClipboardItem) {
+        await C.write([new global.ClipboardItem({
+          'text/plain': new Blob([words], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        })]);
+        return true;
+      }
+      if (!html && C && C.writeText) { await C.writeText(words); return true; }
+    } catch (_) { /* the command below */ }
+    return copyByCommand(words, html || '');
+  }
+
+  // «Name, [17.11.2026 10:12]» over a message in a copy of several, as Telegram puts it.
+  function copyHead(o) {
+    const who = String((o.who && o.who()) || '').trim() || selfName || 'Me';
+    const d = toDate(o.at && o.at());
+    return d ? `${who}, [${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${timeOf(d)}]` : who;
+  }
+  const wholeText = (o, el) => String((o.text ? o.text() : plainOf(o.body || el)) || '').trim();
+
+  // The items of the menu, in the one order of every chat (docs/spec/20-chat.md, «Меню сообщения»).
+  function menuItems(el, o, part) {
+    const items = [];
+    if (o.react) items.push({ label: 'React', icon: messageIcon('select', 16), run: () => o.react() });
+    if (o.reply) items.push({ label: 'Reply', icon: messageIcon('reply', 16), run: () => o.reply(part || null) });
+    items.push({
+      label: 'Copy', icon: messageIcon('copy', 16), confirm: 'Copied',
+      run: () => (part ? copyText(part) : copyText(wholeText(o, el), o.html ? o.html() : '')),
+    });
+    if (coarse()) items.push({ label: 'Select text', icon: messageIcon('text', 16), run: () => selectTextOf(el) });
+    const host = typeof o.host === 'function' ? o.host() : o.host;
+    if (host) items.push({ label: 'Select', icon: messageIcon('select', 16), run: () => selectMode(host, el) });
+    if (o.link) {
+      const url = o.link();
+      if (url) items.push({ label: 'Copy link', icon: messageIcon('link', 16), confirm: 'Copied', run: () => copyText(url) });
+    }
+    if (o.edit) items.push({ label: 'Edit', icon: messageIcon('edit', 16), run: () => o.edit() });
+    const earlier = typeof o.earlier === 'function' ? o.earlier() : o.earlier;
+    if (earlier) {
+      items.push({ label: earlier.open ? 'Hide the earlier text' : 'Show the earlier text', icon: messageIcon('earlier', 16), run: () => earlier.toggle() });
+    }
+    if (o.editSent) items.push({ label: 'Edit', icon: messageIcon('edit', 16), run: () => o.editSent() });
+    if (o.forward) items.push({ label: 'Forward', icon: strokes(FORWARD_D, 16), run: () => o.forward() });
+    for (const it of (o.items ? o.items() : []) || []) items.push(it);
+    if (o.deleteSent) items.push({ label: 'Delete', icon: strokes(TRASH_D, 16), danger: true, run: () => o.deleteSent() });
+    return items;
+  }
+
+  // The menu of the message, now. how: { at: {x, y} } — at the pointer; { anchor } — by a button or the message.
+  // A finger: the chat dims, the message stays lit, the menu stands over or under it and does not cover its
+  // words. A mouse: at the pointer, the message lit — in a narrow window too (the side panel of Chrome).
+  function openMenu(el, how) {
+    const o = MENU.get(el);
+    if (!o || !global.LexSendLater || !el.isConnected) return;
+    const part = selectedIn(el);
+    const items = menuItems(el, o, part);
+    const more = el.querySelector(':scope > .lex-msg-more');
+    if (more) more.classList.add('is-open');
+    if (el.tabIndex < 0 && !el.hasAttribute('tabindex') && how && how.anchor === el) el.setAttribute('tabindex', '-1');
+    el.classList.add('is-menu');
+    const onClose = () => {
+      if (more) more.classList.remove('is-open');
+      el.classList.remove('is-menu');
+      document.dispatchEvent(new CustomEvent('lexmessagefree'));
+      const f = document.activeElement;
+      if (how && how.anchor && (!f || f === document.body) && how.anchor.isConnected && how.anchor.focus) how.anchor.focus({ preventScroll: true });
+    };
+    const lit = o.lit || el;
+    // o.layer: the class of a surface that stands over the page (the windows of the extension).
+    const layer = o.layer || null;
+    if (coarse() || (how && how.finger)) {
+      global.LexSendLater.menu({ anchor: lit, lit, around: true, items, onClose, layer });
+    } else if (how && how.at) {
+      global.LexSendLater.menu({ plain: true, lit, at: how.at, items, onClose, layer });
+    } else {
+      global.LexSendLater.menu({ plain: true, lit, anchor: (how && how.anchor) || el, align: 'right', below: true, items, onClose, layer });
+    }
+  }
+
+  // Select text (a finger): the words of the message become selectable and all of them are selected; the
+  // handles of the system narrow it to a word. A finger elsewhere ends it.
+  function selectTextOf(el) {
+    const o = MENU.get(el) || {};
+    const body = o.body || el;
+    el.classList.add('is-text-select');
+    const sel = global.getSelection && global.getSelection();
+    if (sel) { sel.removeAllRanges(); const r = document.createRange(); r.selectNodeContents(body); sel.addRange(r); }
+    const end = () => {
+      const s = global.getSelection && global.getSelection();
+      if (s && !s.isCollapsed && s.rangeCount && s.getRangeAt(0).intersectsNode(body)) return;
+      el.classList.remove('is-text-select');
+      document.removeEventListener('selectionchange', end);
+    };
+    setTimeout(() => document.addEventListener('selectionchange', end), 300);
+  }
+
+  function attachMenu(el, o) {
+    if (!el || !o) return null;
+    MENU.set(el, o);
+    el.setAttribute('data-lex-menu', '');
+    if (o.side) el.setAttribute('data-lex-side', o.side);
+    let finger = false;
+    // «⋯» over the message for a mouse (hidden for a finger: its menu is the hold), in the order of Tab.
+    const more = make('button', 'lex-msg-more');
+    more.type = 'button';
+    more.title = 'More';
+    more.setAttribute('aria-label', 'Message actions');
+    more.setAttribute('aria-haspopup', 'menu');
+    more.setAttribute('data-lex-skip', '');
+    const dots = svg('0 0 24 24', 18);
+    for (const cx of DOTS) dots.appendChild(shape('circle', { cx, cy: 12, r: 1.8, fill: 'currentColor' }));
+    more.appendChild(dots);
+    more.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openMenu(el, { anchor: more }); });
+    more.addEventListener('pointerdown', (e) => e.stopPropagation());
+    el.appendChild(more);
+    // A message drawn again in place (a frame of an answer, the slicing into words) loses «⋯»: it comes back
+    // when the mouse or the focus comes.
+    const keepMore = () => { if (more.parentNode !== el) el.appendChild(more); };
+    el.addEventListener('pointerenter', keepMore);
+    el.addEventListener('focusin', keepMore);
+    el.addEventListener('pointerdown', (e) => { finger = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
+    el.addEventListener('contextmenu', (e) => {
+      if (e.defaultPrevented) return;
+      const host = el.closest('.lex-selecting');
+      if (host) { e.preventDefault(); return; }
+      const t = e.target;
+      // A link, a picture, a video: the browser's own menu — Copy image, Copy link address, Save as.
+      if (t && t.closest && t.closest('a[href], img, video, audio, input, textarea, [contenteditable="true"], [data-native-menu]')) return;
+      e.preventDefault();
+      // A long touch of a finger is the hold below, not this.
+      if (finger || e.pointerType === 'touch' || e.pointerType === 'pen') return;
+      e.stopPropagation();
+      // The key of the menu (no pointer under it): by the message itself.
+      if (!e.clientX && !e.clientY) openMenu(el, { anchor: more });
+      else openMenu(el, { at: { x: e.clientX, y: e.clientY } });
+    });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(el, { anchor: more });
+      }
+    });
+    let hold = null;
+    if (global.LexLongPress) {
+      hold = global.LexLongPress.attach(el, (e) => {
+        if (el.closest('.lex-selecting') || el.classList.contains('is-text-select')) return;
+        if (global.navigator && global.navigator.vibrate) { try { global.navigator.vibrate(8); } catch (_) {} }
+        openMenu(el, { anchor: el, finger: true, at: { x: e.clientX, y: e.clientY } });
+      }, { when: () => finger && !el.classList.contains('is-text-select') });
+    }
+    return { open: (how) => openMenu(el, how || { anchor: more }), more, detach: () => { if (hold) hold.detach(); MENU.delete(el); more.remove(); } };
+  }
+
+  // ── Select: several messages at once ──────────────────────────────────────────────────────
+  let selecting = null;
+  function selectMode(host, first) {
+    if (!host) return;
+    if (selecting) selecting.end();
+    const chosen = new Set();
+    const all = () => [...host.querySelectorAll('[data-lex-menu]')].filter((n) => MENU.has(n) && !n.closest('[hidden]'));
+    host.classList.add('lex-selecting');
+    const bar = make('div', 'lex-select-bar');
+    const layer = first && MENU.get(first) && MENU.get(first).layer;
+    if (layer) bar.classList.add(layer);
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selected messages');
+    const count = make('span', 'lex-select-count', '');
+    const copy = make('button', 'lex-select-btn is-main');
+    copy.type = 'button';
+    const copyIcon = make('span', 'lex-select-icon');
+    copyIcon.appendChild(messageIcon('copy', 16));
+    const copyWords = make('span', '', 'Copy');
+    copy.append(copyIcon, copyWords);
+    const cancel = make('button', 'lex-select-btn', 'Cancel');
+    cancel.type = 'button';
+    bar.append(count, copy, cancel);
+    document.body.appendChild(bar);
+    const paint = () => {
+      for (const n of all()) n.classList.toggle('is-picked', chosen.has(n));
+      count.textContent = `${chosen.size} selected`;
+      copy.disabled = !chosen.size;
+    };
+    const toggle = (n) => { if (chosen.has(n)) chosen.delete(n); else chosen.add(n); paint(); };
+    const onClick = (e) => {
+      const n = e.target && e.target.closest ? e.target.closest('[data-lex-menu]') : null;
+      if (!n || !host.contains(n) || !MENU.has(n)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggle(n);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); end(); } };
+    host.addEventListener('click', onClick, true);
+    document.addEventListener('keydown', onKey, true);
+    let timer = null;
+    copy.addEventListener('click', async () => {
+      const list = all().filter((n) => chosen.has(n));
+      const words = list.map((n) => {
+        const o = MENU.get(n);
+        const w = wholeText(o, n);
+        return w ? `${copyHead(o)}\n${w}` : '';
+      }).filter(Boolean).join('\n\n');
+      if (!(await copyText(words))) return;
+      copyIcon.replaceChildren(messageIcon('tick', 16));
+      copyWords.textContent = 'Copied';
+      clearTimeout(timer);
+      timer = setTimeout(end, 900);
+    });
+    cancel.addEventListener('click', () => end());
+    function end() {
+      if (selecting !== api) return;
+      selecting = null;
+      clearTimeout(timer);
+      host.removeEventListener('click', onClick, true);
+      document.removeEventListener('keydown', onKey, true);
+      host.classList.remove('lex-selecting');
+      for (const n of host.querySelectorAll('[data-lex-menu].is-picked')) n.classList.remove('is-picked');
+      bar.remove();
+      document.dispatchEvent(new CustomEvent('lexmessagefree'));
+    }
+    const api = { end };
+    selecting = api;
+    if (first && MENU.has(first)) chosen.add(first);
+    paint();
+  }
+
+  // A selection dragged across several messages copies as a copy of several (and one message without its
+  // line of the channel and the time): what is not the words never reaches the clipboard.
+  function onCopy(e) {
+    if (e.defaultPrevented || !e.clipboardData) return;
+    const sel = global.getSelection && global.getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const t = range.commonAncestorContainer;
+    const top = t.nodeType === 1 ? t : t.parentElement;
+    if (top && top.closest && (top.closest('input, textarea, [contenteditable="true"]'))) return;
+    const hit = [...document.querySelectorAll('[data-lex-menu]')]
+      .filter((n) => MENU.has(n) && range.intersectsNode(n))
+      .filter((n, i, a) => !a.some((m) => m !== n && m.contains(n)));
+    if (!hit.length) return;
+    if (hit.length === 1 && hit[0].contains(top)) {
+      const part = partIn(range, hit[0]);
+      const raw = String(sel.toString() || '').replace(/\s+/g, ' ').trim();
+      if (!part || part.replace(/\s+/g, ' ').trim() === raw) return;
+      e.clipboardData.setData('text/plain', part);
+      e.preventDefault();
+      return;
+    }
+    const words = hit.map((n) => {
+      const w = partIn(range, n);
+      return w ? `${copyHead(MENU.get(n))}\n${w}` : '';
+    }).filter(Boolean).join('\n\n');
+    if (!words) return;
+    e.clipboardData.setData('text/plain', words);
+    e.preventDefault();
+  }
+  document.addEventListener('copy', onCopy);
+
+  // A held mouse in a list: a selection is being made.
+  let mouseDown = false;
+  document.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse' && e.button === 0) mouseDown = true; }, true);
+  document.addEventListener('pointerup', () => {
+    if (!mouseDown) return;
+    mouseDown = false;
+    setTimeout(() => document.dispatchEvent(new CustomEvent('lexmessagefree')), 0);
+  }, true);
+  function isBusy(host) {
+    if (!host) return false;
+    if (host.classList.contains('lex-selecting') || host.querySelector('.is-menu, .is-text-select')) return true;
+    const sel = global.getSelection && global.getSelection();
+    if (sel && !sel.isCollapsed && sel.rangeCount && sel.getRangeAt(0).intersectsNode(host)) return true;
+    return mouseDown && host.matches(':hover');
+  }
+
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
     sendHold, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
-    quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon };
+    quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
+    attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -279,7 +279,7 @@
       if (!r || !r.ok || moved()) return;
       const missing = global.LexVoiceFeedCheck.missingTurns(r.turns, (uid) => WcThread.shownTextOf(uid));
       if (!missing.length) return;
-      paintConversation(r, { keepPlace: true });
+      WcThread.whenFree('catch-up', () => { if (!moved()) paintConversation(r, { keepPlace: true }); });
     }, 300);
   }
 
@@ -1580,7 +1580,7 @@
       // The look of a message (В7.35–В7.40): the sheet of a quoted message (the common sheet В7.15), the
       // way to it in the chat, and the line of a reply over the field (В7.26).
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
-      showInChat: (uid) => WcThread.showTurn(uid),
+      showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
       replyQuote: () => (reply && reply.quoteUid) || null,
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
@@ -1664,7 +1664,7 @@
     // An answer being written or a voice conversation going on (its bubbles are not on the
     // server yet, a redraw would take them off): the boxes only; the chat is read again when
     // the conversation ends (toggleVoice, onDisconnected).
-    if (WcThread.isStreaming() || (global.WcVoice && (WcVoice.active || WcVoice.connecting))) { WcThread.paintProfiBoxes(); return; }
+    if (WcThread.isStreaming() || (global.WcVoice && (WcVoice.active || WcVoice.connecting))) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
     if (state.conversationId !== data.chatKey) return;
     const r = data.chat
       ? await WcBus.call('WC_ADOPT_CONVERSATION', { id: data.chatKey, conversation: data.chat.conversation, money: data.chat.money, marks: data.chat.marks })
@@ -1674,11 +1674,14 @@
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
     const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
-    if (!moved && same) { WcThread.paintProfiBoxes(); return; }
-    chat.words = words;
-    WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
-    if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
-    restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
+    if (!moved && same) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
+    WcThread.whenFree('profi-chat', () => {
+      if (profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
+      chat.words = words;
+      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
+      if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
+      restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
+    });
   }
 
   // ── Folders of chats: Kolya, Other ────────────────────────────────────────
@@ -1712,7 +1715,7 @@
       putBack: putBackIntoField,
       clean: false,
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
-      showInChat: (uid) => WcThread.showTurn(uid),
+      showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
       replyQuote: () => (reply && reply.quoteUid) || null,
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
@@ -1780,9 +1783,12 @@
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
     const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
-    if (!moved && same) { WcThread.paintProfiBoxes(); return; }
-    chat.words = words;
-    WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r) });
+    if (!moved && same) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
+    WcThread.whenFree('profi-chat', () => {
+      if (profiChat !== chat || state.conversationId !== data.chatKey) return;
+      chat.words = words;
+      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r) });
+    });
   }
   // Send in a chat of a folder: the text goes to the database for the person (folder-send), which
   // sends it where he wrote last, or to the messenger of the message it answers; it stands under the
@@ -3182,7 +3188,9 @@
       if (!key || key !== state.conversationId || key.startsWith('__lex_profi__')) return;
       clearTimeout(ccRowTimer);
       ccRowTimer = setTimeout(() => {
-        if (state.conversationId === key && !WcThread.isStreaming()) openConversation(key).catch(() => {});
+        WcThread.whenFree('cc-row', () => {
+          if (state.conversationId === key && !WcThread.isStreaming()) openConversation(key).catch(() => {});
+        });
       }, 300);
     });
     loadSections();

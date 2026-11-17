@@ -257,9 +257,9 @@
  *
  * 3. SELECTION. A long press that starts a text selection is the same
  *    gesture as a long press that opens a menu, so selection has to be off
- *    wherever we own the gesture — controls, and the reader's own messages.
- *    It stays ON inside the teacher's answers, which is the whole point of an
- *    answer: hold, drag, copy, exactly as anywhere else. Stated positively
+ *    wherever we own the gesture — controls; a finger's hold on a message is
+ *    its menu, whose «Select text» selects. For a mouse every message
+ *    selects: hold, drag, copy, exactly as anywhere else. Stated positively
  *    there rather than merely left alone, because -webkit-user-select
  *    INHERITS: a `none` on an ancestor silently kills selection in every
  *    descendant, and this file has ancestors that need `none`.
@@ -285,25 +285,25 @@ button,
   user-select: none;
 }
 
-/* The reader's own message: long-press belongs to our copy/edit menu. */
-.wc-turn-user .wc-bubble {
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  user-select: none;
-}
+/* The reader's own message selects as any text for a mouse (block 2, 2026-11-18: Gennady could copy nothing
+   from a chat). For a finger the hold is the common menu of a message and «Select text» selects
+   (lex-message.css, [data-lex-menu]). */
 
 /* Вопрос «translate» из выбранного материала (2026-09-25): сам материал —
    тем же красным, что текущее слово субтитров в расширении (styles.css
    .lex-bubble-pick). Класс ставит LexWordPick.paintPickBubble. */
 .wc-bubble .lex-bubble-pick { color: #ff6b6b; }
 
-/* The teacher's answer: ordinary selectable text, said out loud so no
+/* The teacher's answer and one's own message: ordinary selectable text for a mouse, said out loud so no
    inherited `none` can take it away. Owner's direct requirement. */
-.wc-turn-assistant .wc-bubble,
-.wc-turn-assistant .wc-bubble * {
-  -webkit-touch-callout: default;
-  -webkit-user-select: text;
-  user-select: text;
+@media (pointer: fine) {
+  .wc-turn-assistant .wc-bubble,
+  .wc-turn-assistant .wc-bubble *,
+  .wc-turn-user .wc-bubble,
+  .wc-turn-user .wc-bubble * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
 
 html, body {
@@ -1961,15 +1961,18 @@ button { font: inherit; color: inherit; }
  * сообщению, и высота строк, переносы и ширина пузыря обязаны остаться теми
  * же: единственное, что рисуется, — фон, скругление и цвет курсора. */
 .wc-wordpick-on .wc-turns .vocab-word {
-  cursor: pointer;
   border-radius: 3px;
   transition: background-color 100ms cubic-bezier(.4, 0, 1, 1);
 }
+/* A mouse picks a word with ⌥ held (block 2, 2026-11-18): only then the word shows it can be pressed; without ⌥ the
+   words are text, the cursor of text, a drag selects. A finger taps a word. */
+.lex-pick-key .wc-wordpick-on .wc-turns .vocab-word { cursor: pointer; }
+@media (pointer: coarse) { .wc-wordpick-on .wc-turns .vocab-word { cursor: pointer; } }
 /* :not(--selected) обязателен, а не украшение. Правило наведения длиннее
    правила выбора на один класс, то есть в каскаде сильнее, — и выбранное
    слово под курсором теряло синий, возвращая его при уводе мыши. Проверено
    на живой странице: снимок показывал серую подсветку вместо синей. */
-.wc-wordpick-on .wc-turns .vocab-word:not(.vocab-word--selected):hover {
+.lex-pick-key .wc-wordpick-on .wc-turns .vocab-word:not(.vocab-word--selected):hover {
   background-color: var(--bg-active);
 }
 /* Выбранное слово — тот же синий, что в расширении. Он здесь единственное

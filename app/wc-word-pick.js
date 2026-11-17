@@ -372,8 +372,13 @@
           // нём два условия сразу (курсор сместился И есть выделение), иначе
           // дрожание руки на нажатии ловилось бы как протяжка.
           if (WP.isDragRelease(e)) return;
+          // ⌥ and a click with a mouse, a tap with a finger (LexWordPick.isChatPick, block 2 of 2026-11-18), and
+          // only in a chat of the teacher: a feed of Extended Mind has no chips (an order chat and a folder do not
+          // slice at all).
+          if (!WP.isChatPick(e) || thread.closest('.is-em-feed')) return;
           const span = (e.target && e.target.closest) ? e.target.closest('.' + WP.WORD_CLASS) : null;
           if (!span || !thread.contains(span)) return;
+          e.preventDefault();
           const pick = describePick(span);
           if (!pick) return;
           if (!WP.toggle(pick)) return;

@@ -94,7 +94,7 @@
   /**
    * Собрать строку под одним ответом. Кнопки модели в ней ещё нет — её ставит
    * sync (или setModel), когда известно, последний ли это ответ.
-   * @param {{getText: () => string, copyLabel?: string, onCopied?: (ok: boolean) => void}} opts
+   * @param {{getText: () => string, copy?: () => Promise<boolean>, copyLabel?: string, onCopied?: (ok: boolean) => void}} opts
    * @returns {HTMLElement}
    */
   function create(opts) {
@@ -107,7 +107,11 @@
     copy.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const ok = await copyText(typeof o.getText === 'function' ? o.getText() : '');
+      // o.copy — the answer's own copy (block 2, 2026-11-18): the formatted text and the plain one without the
+      // marks of Markdown, both kinds on the clipboard (LexMessage.copyText); without it — getText as it is.
+      let ok = false;
+      if (typeof o.copy === 'function') { try { ok = !!(await o.copy()); } catch (_) { ok = false; } }
+      else ok = await copyText(typeof o.getText === 'function' ? o.getText() : '');
       if (ok) {
         // Отметка «скопировано» — галочкой на месте значка, а не всплывашкой:
         // так она видна ровно там, куда человек только что нажал.

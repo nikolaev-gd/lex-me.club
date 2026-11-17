@@ -1177,3 +1177,82 @@ a.lex-order-title:hover { text-decoration: underline; }
   height: 1px;
   background: var(--line, var(--lex-section-line));
 }
+
+/* ── The one menu of a message, copy and selection (block 2, 2026-11-18; docs/spec/20-chat.md, «Меню сообщения»)
+   Every word of a message selects and copies, as in a messenger; what is not the words (the line of the channel
+   and the time, Copy, reactions, «⋯») is never part of a selection. */
+.lex-stamp, .lex-bubble-foot, .lex-reactions, .lex-bubble-copy, .lex-msg-head .lex-msg-time, .lex-msg-more,
+.lex-intake-time, .lex-profi-lex-head { -webkit-user-select: none; user-select: none; }
+[data-lex-menu] { position: relative; }
+/* «⋯» — for a mouse only, over the message it belongs to: a zone 44 (the standard's button), in it a round plate 28
+   and three dots 18 in the muted colour. The zone stands 8 out of the plate on every side. */
+.lex-msg-more { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  [data-lex-menu] > .lex-msg-more {
+    -webkit-appearance: none; appearance: none;
+    display: grid; place-items: center; position: absolute; z-index: 2; top: -8px;
+    width: 44px; height: 44px; padding: 0; border: 0; border-radius: 22px; background: transparent;
+    color: var(--fg-muted, var(--lex-section-muted));
+    cursor: pointer; opacity: 0; pointer-events: none; transition: opacity 120ms ease;
+  }
+  [data-lex-menu] > .lex-msg-more::before {
+    content: ''; position: absolute; z-index: -1; inset: 8px; box-sizing: border-box; border-radius: 50%;
+    background: var(--bg-raised, var(--lex-plate)); border: 1px solid var(--line, transparent);
+  }
+  /* A bubble on the left: «⋯» right of it; on the right: left of it; a message across the lane: in its corner. */
+  [data-lex-menu][data-lex-side="in"] > .lex-msg-more { left: calc(100% - 2px); }
+  [data-lex-menu][data-lex-side="out"] > .lex-msg-more { right: calc(100% - 2px); }
+  /* Over the top edge of a message across the lane, at its right: it covers no more than the top of a letter. The
+     zone stays inside the lane (a lane scrolls sideways when something stands out of it). */
+  [data-lex-menu]:not([data-lex-side]) > .lex-msg-more { right: 0; top: -28px; }
+  [data-lex-menu]:hover > .lex-msg-more, [data-lex-menu] > .lex-msg-more:focus-visible, [data-lex-menu] > .lex-msg-more.is-open {
+    opacity: 1; pointer-events: auto;
+  }
+  [data-lex-menu] > .lex-msg-more:hover, [data-lex-menu] > .lex-msg-more.is-open { color: var(--fg, var(--lex-plain-fg)); }
+  [data-lex-menu] > .lex-msg-more:hover::before, [data-lex-menu] > .lex-msg-more.is-open::before { background: var(--bg-active, var(--lex-plate)); }
+  [data-lex-menu] > .lex-msg-more:focus-visible { outline: none; }
+  [data-lex-menu] > .lex-msg-more:focus-visible::before { outline: 2px solid var(--line-focus, var(--line-strong)); outline-offset: 1px; }
+  .lex-selecting [data-lex-menu] > .lex-msg-more { display: none; }
+}
+/* A finger: the hold is the menu, so the words select only after «Select text». */
+@media (pointer: coarse) {
+  [data-lex-menu]:not(.is-text-select), [data-lex-menu]:not(.is-text-select) * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  [data-lex-menu].is-text-select, [data-lex-menu].is-text-select * { -webkit-touch-callout: default; -webkit-user-select: text; user-select: text; }
+}
+/* The copy that measures the words of a selection: off the screen. */
+.lex-copy-box { position: fixed; left: -100000px; top: 0; width: 600px; white-space: normal; pointer-events: none; opacity: 0; }
+
+/* Select: a ring left of every message, filled with a tick on the chosen ones; the bar at the bottom. A message that
+   starts at the left edge of the lane moves right by the ring's column, so the ring never covers a word. */
+.lex-selecting [data-lex-menu] { cursor: pointer; -webkit-user-select: none; user-select: none; }
+.lex-selecting [data-lex-menu]:not([data-lex-side="out"]) { margin-left: 30px; }
+.lex-selecting [data-lex-menu]:not([data-lex-side]) { box-sizing: border-box; max-width: calc(100% - 30px); }
+.lex-selecting [data-lex-menu]::before {
+  content: ''; position: absolute; z-index: 3; top: 2px; left: -30px; width: 20px; height: 20px; box-sizing: border-box;
+  border-radius: 50%; border: 2px solid var(--fg-muted, var(--lex-section-muted)); background: var(--bg, var(--lex-plain-bg, #fff));
+}
+.lex-selecting [data-lex-menu].is-picked::before { border-color: var(--accent, var(--fg)); background: var(--accent, var(--fg)); }
+.lex-selecting [data-lex-menu].is-picked::after {
+  content: ''; position: absolute; z-index: 4; left: -23px; top: 6px; width: 5px; height: 9px; box-sizing: border-box;
+  border: solid var(--accent-fg, #fff); border-width: 0 2px 2px 0; transform: rotate(45deg); animation: none;
+}
+.lex-selecting [data-lex-menu].is-picked { outline: 2px solid var(--line-strong, var(--lex-plate)); outline-offset: 4px; border-radius: 12px; }
+.lex-select-bar {
+  position: fixed; z-index: 95; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; box-sizing: border-box; max-width: calc(100vw - 32px);
+  padding: 4px 4px 4px 16px; border-radius: 26px; border: 1px solid var(--line, transparent);
+  background: var(--bg-raised, var(--lex-plate)); color: var(--fg, var(--lex-plain-fg)); box-shadow: var(--shadow-lg, 0 6px 24px rgba(0,0,0,.25));
+  font: 14px/20px var(--font, -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif);
+}
+.lex-select-count { margin-right: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lex-select-btn {
+  -webkit-appearance: none; appearance: none; display: inline-flex; align-items: center; gap: 6px;
+  height: 44px; padding: 0 16px; border: 0; border-radius: 22px; background: var(--bg-hover, transparent);
+  color: inherit; font: inherit; font-weight: 650; cursor: pointer;
+}
+.lex-select-btn:hover, .lex-select-btn:focus-visible { background: var(--bg-active, var(--bg-hover)); outline: none; }
+.lex-select-btn:disabled { opacity: .5; cursor: default; }
+.lex-select-icon { display: inline-grid; place-items: center; width: 16px; height: 16px; }
+/* A face that opens on a press (pressFace): its words select with a mouse, like a <button> it presses. */
+.lex-press { -webkit-user-select: text; user-select: text; }
+@media (pointer: fine) { .lex-press { cursor: pointer; } }

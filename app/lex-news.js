@@ -263,15 +263,23 @@
         unread: !card.read,
       });
       node.dataset.id = card.id;
-      const hold = global.LexLongPress ? global.LexLongPress.attach(node, () => holdMenu(node, block)) : null;
-      node.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        holdMenu(node, block);
-      });
-      node.addEventListener('click', () => {
-        if (hold && hold.didFire()) return;
-        openCard(card, block, node);
-      });
+      // The common menu of a message (block 2, 2026-11-18): Copy (the title and the line under it), Select, Copy
+      // link (the source of the news), Process again. A hold, the right button of a mouse, «⋯» for a mouse.
+      if (M().attachMenu) {
+        M().attachMenu(node, {
+          text: () => [card.title, card.description].map((x) => String(x || '').trim()).filter(Boolean).join('\n'),
+          who: () => block.title || 'News',
+          at: () => block.at || null,
+          host: () => frame.el,
+          link: card.sourceUrl ? () => card.sourceUrl : null,
+          items: () => (busy ? [] : [{ label: 'Process again', icon: againIcon(), run: () => processAgain(block) }]),
+        });
+      } else {
+        const hold = global.LexLongPress ? global.LexLongPress.attach(node, () => holdMenu(node, block)) : null;
+        node.addEventListener('contextmenu', (e) => { e.preventDefault(); holdMenu(node, block); });
+        node.addEventListener('click', (e) => { if (hold && hold.didFire()) e.stopImmediatePropagation(); }, true);
+      }
+      node.addEventListener('click', () => openCard(card, block, node));
       return node;
     }
 

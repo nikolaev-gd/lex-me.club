@@ -13,6 +13,28 @@
   const { el, toast } = WcUI;
 
   let elThread, elTurns, elEmpty, elJump;
+  // Where the reader was before a press on a quote took him to the message (showTurn with back), or null.
+  let backTop = null;
+
+  // ── A redraw waits while the reader selects (block 2, 2026-11-18) ─────────────────────────
+  // The signals of Gennady's account come in bursts — «profi» every 1–3 s while the bot works — and every one
+  // drew the answers of an open order chat again, which took a selection away before ⌘C: «из чата нельзя
+  // скопировать вообще ничего». While the list holds a selection, a held mouse, an open menu of a message or
+  // Select (LexMessage.isBusy), a redraw from a signal waits; the last one of each kind runs when that ends.
+  const waiting = new Map();
+  let freeTimer = null;
+  function busy() { return !!(elThread && global.LexMessage && global.LexMessage.isBusy && global.LexMessage.isBusy(elThread)); }
+  function flushWaiting() {
+    clearTimeout(freeTimer);
+    freeTimer = setTimeout(() => {
+      if (!waiting.size || busy()) return;
+      const list = [...waiting.values()];
+      waiting.clear();
+      for (const fn of list) { try { fn(); } catch (e) { console.warn('[wc] redraw:', e && e.message); } }
+    }, 150);
+  }
+  document.addEventListener('selectionchange', () => { if (waiting.size) flushWaiting(); });
+  document.addEventListener('lexmessagefree', () => { if (waiting.size) flushWaiting(); });
   let hooks = {};
   let stickToBottom = true;
   // The order chat of the Profi.ru section that is open, or null (lex-profi.js).
@@ -63,20 +85,10 @@
     if (global.WcHeader && WcHeader.setHasContent) WcHeader.setHasContent(!isEmpty);
   }
 
-  // ── Долгое нажатие ───────────────────────────────────────────────────────
-  // Тот же жест, что у композера, и он ещё должен ужиться с системным
-  // выделением текста: на СВОИХ сообщениях выделение подавлено (wc-app.css),
-  // поэтому удержание свободно и достаётся нам. Внутри ответа учителя
-  // удержание принадлежит системе — там мы не слушаем вовсе.
-  //
-  // Сам жест — в общем с расширением модуле (lex-long-press.js), своей копии
-  // таймера здесь больше нет. Сверх него тут два своих повода: отклик под
-  // пальцем (в расширении родной оболочки нет) и правая кнопка мыши — тот же
-  // жест для того, у кого нет пальца.
-  function onHold(el_, fire) {
-    LexLongPress.attach(el_, (e) => { WcHaptics.press(); fire(e); });
-    el_.addEventListener('contextmenu', (e) => { e.preventDefault(); fire(e); });
-  }
+  // ── The menu of a message ────────────────────────────────────────────────
+  // One for every chat and every surface (lex-message.js, attachMenu, block 2 of 2026-11-18): the right
+  // button of a mouse, a finger held 480 ms, the key of the menu, «⋯» over the message for a mouse. A mouse
+  // held on the words selects them — in one's own message too.
 
   // Текст ЭТОГО хода как его написал человек. Нарезка на слова кладёт на
   // пузырь исходник (`lexSrc`) и дальше спрашивать надо его, а не то, что
@@ -95,31 +107,25 @@
   // отправка уходит через неё (wc-app.js editTurn). Слот заготовки — на узле.
   // Под ОТВЕТОМ заготовки строка та же, что под любым ответом: переспрос
   // сервер отправит той же заготовкой сам.
-  function userMessageMenu(anchor, bubble, opts) {
-    WcUI.menu(anchor, [
-      {
-        label: 'Copy',
-        icon: 'copy',
-        onSelect: async () => {
-          try { await navigator.clipboard.writeText(userText(bubble)); toast('Copied'); }
-          catch (_) { toast('The browser refused clipboard access', { error: true }); }
-        },
+  // The menu of one's own message (block 2, 2026-11-18): the common menu of a message (LexMessage.attachMenu) —
+  // Copy, Select, and Edit where it was before (an order chat has no second version of a message).
+  function userMessageMenu(bubble, opts) {
+    const turnOf = () => bubble.closest('.wc-turn-user');
+    global.LexMessage.attachMenu(bubble, {
+      side: 'out',
+      text: () => userText(bubble),
+      at: () => { const t = turnOf(); return (t && t.dataset.at) || null; },
+      host: elTurns,
+      // У хода заготовки правится только фраза: строку заготовки править
+      // нельзя, она встаёт сама при отправке через ту же пилюлю.
+      edit: profiChat ? null : () => {
+        const turn = turnOf();
+        return hooks.onEdit && hooks.onEdit(
+          (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
+          (opts && opts.presetSlot) || null,
+          (turn && turn.dataset.uid) || null);
       },
-      // An order chat has no second version of a message.
-      ...(profiChat ? [] : [{
-        label: 'Edit',
-        icon: 'edit',
-        // У хода заготовки правится только фраза: строку заготовки править
-        // нельзя, она встаёт сама при отправке через ту же пилюлю.
-        onSelect: () => {
-          const turn = bubble.closest('.wc-turn-user');
-          return hooks.onEdit && hooks.onEdit(
-            (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
-            (opts && opts.presetSlot) || null,
-            (turn && turn.dataset.uid) || null);
-        },
-      }]),
-    ]);
+    });
   }
 
   // Пузырь хода заготовки: строка, пустая строка, фраза — так, как вопрос видит
@@ -211,7 +217,7 @@
     // Меню висит на ПУЗЫРЕ, а не на всей строке: строка тянется во всю ширину
     // ленты, и удержание в пустоте справа от короткого «hi» открывало бы меню
     // ниоткуда.
-    onHold(bubble, (e) => userMessageMenu(e.currentTarget || bubble, bubble, opts));
+    userMessageMenu(bubble, opts);
     const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
     if (opts && opts.presetSlot) turn.dataset.presetSlot = String(opts.presetSlot);
     return turn;
@@ -221,17 +227,31 @@
   // копирование под каждым ответом, правее переключатель версий, последней —
   // кнопка модели (под последним ответом). Какой ответ
   // последний, решает он же (syncFeet ниже).
-  function answerRow(getText) {
+  function answerRow(getText, bubbleOf) {
     return global.LexAnswerRow.create({
       getText,
+      // The formatted answer and the plain one without the marks of Markdown (block 2, 2026-11-18).
+      copy: bubbleOf ? () => copyAnswer(bubbleOf()) : null,
       copyLabel: 'Copy',
       onCopied: (ok) => {
-        // Clipboard is permissioned and can simply refuse (an insecure origin,
-        // a shell that has not granted it). Say so instead of failing mutely.
-        if (ok) toast('Copied');
-        else toast('The browser refused clipboard access', { error: true });
+        // The tick stands on the button itself. Clipboard is permissioned and can simply refuse (an insecure
+        // origin, a shell that has not granted it): say so instead of failing mutely.
+        if (!ok) toast('The browser refused clipboard access', { error: true });
       },
     });
+  }
+  const copyAnswer = (bubble) => global.LexMessage.copyText(global.LexMessage.plainOf(bubble), global.LexMessage.htmlOf(bubble));
+  // The menu of a model's answer, of a news and of a record (block 2): on the turn, the words are its bubble — a
+  // bubble is drawn again on every frame of an answer, the turn stays.
+  function answerMenu(turn, bubble, o) {
+    global.LexMessage.attachMenu(turn, Object.assign({
+      body: bubble,
+      text: () => global.LexMessage.plainOf(bubble),
+      html: () => global.LexMessage.htmlOf(bubble),
+      who: () => 'Lex',
+      at: () => turn.dataset.at || null,
+      host: elTurns,
+    }, o || {}));
   }
 
   // The first message of a news chat: words of the letter, not a teacher's
@@ -244,6 +264,9 @@
     const talk = global.LexNews.talkLine ? global.LexNews.talkLine() : null;
     const turn = el('.wc-turn.wc-turn-assistant.wc-turn-news', {}, [head, bubble, talk]);
     turn.dataset.raw = text || '';
+    // A news: its words without the line of its source; Copy link — the address of the source.
+    const source = /\[Source\]\((https?:[^)\s]+)\)/.exec(text || '');
+    answerMenu(turn, bubble, { html: null, who: () => 'News', link: source ? () => source[1] : null });
     if (text && global.WcWordPick) WcWordPick.ready(bubble, text, 'news');
     return { turn, bubble };
   }
@@ -251,9 +274,10 @@
   function assistantTurn(text) {
     const bubble = el('.wc-bubble');
     if (text) WcMarkdown.into(bubble, text);
-    const foot = el('.wc-turn-foot', {}, [answerRow(() => turn.dataset.raw || '')]);
+    const foot = el('.wc-turn-foot', {}, [answerRow(() => turn.dataset.raw || '', () => turn.querySelector('.wc-bubble'))]);
     const turn = el('.wc-turn.wc-turn-assistant', {}, [bubble, foot]);
     turn.dataset.raw = text || '';
+    answerMenu(turn, bubble);
     // Готовый ответ (история, реплей) режется сразу; пустой — это открытый
     // поток, его режет done() по концу. Резать во время потока бессмысленно по
     // построению: WcMarkdown.into на каждом кадре делает replaceChildren, то
@@ -312,6 +336,12 @@
     if (t.uid) turn.dataset.uid = String(t.uid);
     if (t.authoredAt) turn.dataset.at = t.authoredAt;
     turn.dataset.in = '1';
+    global.LexMessage.attachMenu(msg, {
+      text: () => global.LexMessage.plainOf(msg),
+      who: () => (look && look.title) || 'Extended Mind',
+      at: () => t.authoredAt || null,
+      host: elTurns,
+    });
     if (look) {
       turn.dataset.lane = look.lane;
       turn.hidden = !laneShows(look.lane);
@@ -344,13 +374,13 @@
   const qOrder = (a, b) => (qTime(a) - qTime(b)) || String(a.uid).localeCompare(String(b.uid));
 
   // A hold on a question or a pack: the menu of a hold (В7.9) with Reply.
-  function holdToReply(lit, uids, text) {
-    if (!qFeed || !qFeed.onReply) return;
-    onHold(lit, () => {
-      global.LexSendLater.menu({
-        anchor: lit.firstElementChild || lit, lit, align: 'left',
-        items: [{ label: 'Reply', icon: global.LexMessage.replyIcon(16), run: () => qFeed && qFeed.onReply({ uids, text }) }],
-      });
+  function holdToReply(lit, uids, text, at) {
+    global.LexMessage.attachMenu(lit, {
+      text: () => global.LexMessage.plainOf(lit),
+      who: () => 'Extended Mind',
+      at: () => at || null,
+      host: elTurns,
+      reply: qFeed && qFeed.onReply ? () => qFeed && qFeed.onReply({ uids, text }) : null,
     });
   }
 
@@ -368,7 +398,7 @@
       },
     });
     msg.dataset.uid = uid;
-    holdToReply(msg, [uid], v.text || t.text || '');
+    holdToReply(msg, [uid], v.text || t.text || '', t.authoredAt);
     return msg;
   }
 
@@ -409,7 +439,7 @@
       onChoice: (uid, i) => answerOne(uid, i),
     });
     msg.dataset.uids = node.dataset.uids;
-    holdToReply(msg, members.map((m) => m.uid), global.LexMessage.packTitle(members));
+    holdToReply(msg, members.map((m) => m.uid), global.LexMessage.packTitle(members), list[list.length - 1].authoredAt);
     node.appendChild(msg);
     return node;
   }
@@ -706,10 +736,20 @@
 
       elThread.addEventListener('scroll', () => {
         stickToBottom = nearBottom();
-        elJump.hidden = stickToBottom;
+        elJump.hidden = stickToBottom && backTop === null;
       }, { passive: true });
 
+      // After a press on a quote the button «down» first brings the reader back to where he pressed it (as in
+      // Telegram), the next press — to the end.
       elJump.addEventListener('click', () => {
+        if (backTop !== null) {
+          const top = backTop;
+          backTop = null;
+          stickToBottom = false;
+          elThread.scrollTo({ top, behavior: 'smooth' });
+          elJump.hidden = nearBottom();
+          return;
+        }
         stickToBottom = true;
         elJump.hidden = true;
         scrollToBottom(true);
@@ -734,6 +774,7 @@
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
       incoming = null;
+      backTop = null;
       elTurns.replaceChildren();
       stickToBottom = true;
       elJump.hidden = true;
@@ -800,12 +841,17 @@
     // «Show in chat» of the sheet of a message (В7.37): the chat goes to the message — it stands in the
     // middle of the screen — and its bubble is lit for 1,5 s (a frame 2 --line-strong). The whole chat is
     // on the screen already (an order chat reads all its turns); a message it does not have — false.
-    showTurn(uid) {
+    // opts.back — a press on a quote (block 2): the place the reader was is kept for the button «down».
+    showTurn(uid, opts) {
       const node = [...elTurns.querySelectorAll('.wc-turn[data-uid]')].find((n) => n.dataset.uid === String(uid));
       if (!node) return false;
-      stickToBottom = false;
+      const was = elThread.scrollTop;
       elThread.scrollTop = Math.max(0, node.offsetTop - (elThread.clientHeight - node.offsetHeight) / 2);
-      elJump.hidden = nearBottom();
+      // The chat did not move (the message was on the screen): there is no place to come back to.
+      const moved = Math.abs(elThread.scrollTop - was) > 8;
+      if (opts && opts.back && moved) backTop = was;
+      stickToBottom = nearBottom();
+      elJump.hidden = stickToBottom && backTop === null;
       const lit = node.querySelector('.lex-bubble, .lex-sticker-pic') || node;
       lit.classList.add('is-focus');
       setTimeout(() => lit.classList.remove('is-focus'), 1500);
@@ -815,7 +861,18 @@
     // A new or extended entry of the open feed: an extended one takes the place of the old,
     // a new one comes at the end. Nothing else of the chat is touched — an answer of the
     // model stays as the stream left it (its text reaches the server a moment later).
+    // fn now, or when the reader stops selecting; key — one waiting redraw of a kind, the last one wins.
+    whenFree(key, fn) {
+      if (!busy()) { fn(); return; }
+      waiting.set(key, fn);
+    },
+    isBusy: () => busy(),
+
     upsertEmEntry(t) {
+      if (busy()) {
+        waiting.set(`em:${t && t.uid}`, () => WcThread.upsertEmEntry(t));
+        return;
+      }
       if (!t || !t.uid) return;
       // The feed of questions: the question changes in its place, a pack gathers again.
       if (qFeed && (t.origin === 'em_question' || t.origin === 'em_status')) {
@@ -873,6 +930,7 @@
       // Read before the old turns go: the frame that brings a chat just opened to its end may
       // not have run yet, and the place of that moment is not where the person reads.
       const keptTop = opts && opts.keepPlace && !stickToBottom && !nearBottom() ? elThread.scrollTop : null;
+      if (!(opts && opts.keepPlace)) backTop = null;
       incoming = (opts && opts.incoming) || null;
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
       // и обязан уйти вместе с ними.

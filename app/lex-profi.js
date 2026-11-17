@@ -497,6 +497,8 @@
     const counted = new Set();
     const earlierOpen = new Set();
     let sentQuote = null;
+    // What each answer with drafts was drawn from (paintAnswer): the same is not drawn again.
+    const painted = new WeakMap();
     let lane = null;
     const lookOf = (uid) => {
       const l = data && data.looks && uid ? data.looks[uid] : null;
@@ -667,66 +669,54 @@
         return root;
       },
 
-      // The menu of a message (В7.36): Reply, Copy, and Show the earlier text of an edited one — the
-      // common menu of a held button without the dim (LexSendLater.menu, plain), at the pointer. The right
-      // button of a mouse opens it; a finger opens it by the hold of Lex (480 ms, lex-long-press.js). Copy
-      // takes what is selected in the message, or the whole of it.
+      // The menu of a message (В7.36): the common menu of a message (LexMessage.attachMenu, block 2 of 2026-11-18)
+      // — Reply (with the words selected in it, if any), Copy, Select, Show the earlier text of an edited one. The
+      // right button of a mouse, a finger held 480 ms, the key of the menu, «⋯» over the bubble for a mouse; over
+      // a photo, a link or a file the right button gives the browser's own menu.
       attachMenu(root, face, t) {
-        if (!global.LexSendLater) return;
         const M = global.LexMessage;
+        if (!M || !M.attachMenu) return;
         const uid = String(t.uid || '');
-        let finger = false;
-        const open = (x, y) => {
-          const look = lookOf(uid);
-          const items = [
-            { label: 'Reply', icon: M.messageIcon('reply', 16), run: () => self.replyTo(uid) },
-            {
-              label: 'Copy',
-              icon: M.messageIcon('copy', 16),
-              run: () => {
-                const sel = global.getSelection ? String(global.getSelection() || '') : '';
-                const inside = sel && global.getSelection().anchorNode && face.contains(global.getSelection().anchorNode);
-                deps.copy(inside ? sel : (look.sticker ? (look.sticker.emoji || 'Sticker') : wordsOf(t)));
-              },
-            },
-          ];
-          if (Array.isArray(look.edits) && look.edits.length) {
-            items.push({
-              label: earlierOpen.has(uid) ? 'Hide the earlier text' : 'Show the earlier text',
-              icon: M.messageIcon('earlier', 16),
-              run: () => {
+        const out = t.origin === 'profi_sent' || t.origin === 'folder_out';
+        M.attachMenu(face, {
+          side: out ? 'out' : 'in',
+          text: () => {
+            const look = lookOf(uid);
+            return look.sticker ? (look.sticker.emoji || 'Sticker') : wordsOf(t);
+          },
+          body: face.querySelector('.lex-bubble-text') || face,
+          who: () => {
+            if (out) return '';
+            const look = lookOf(uid);
+            return (folder && typeof look.author === 'string' && look.author.trim()) || (data && data.client) || 'Client';
+          },
+          at: () => t.authoredAt || null,
+          host: () => root.parentElement,
+          reply: (part) => self.replyTo(uid, part),
+          earlier: () => {
+            const look = lookOf(uid);
+            if (!Array.isArray(look.edits) || !look.edits.length) return null;
+            return {
+              open: earlierOpen.has(uid),
+              toggle: () => {
                 if (earlierOpen.has(uid)) earlierOpen.delete(uid); else earlierOpen.add(uid);
-                const live = root.isConnected ? root : null;
-                if (live) live.replaceWith(self.messageNode(t));
+                if (root.isConnected) root.replaceWith(self.messageNode(t));
               },
-            });
-          }
-          global.LexSendLater.menu({ plain: true, at: { x, y }, items });
-        };
-        face.classList.add('has-hold');
-        face.addEventListener('pointerdown', (e) => { finger = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
-        face.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          // A long touch of a finger is the hold below, not this.
-          if (finger || e.pointerType === 'touch' || e.pointerType === 'pen') return;
-          open(e.clientX, e.clientY);
+            };
+          },
         });
-        if (global.LexLongPress) {
-          global.LexLongPress.attach(face, (e) => {
-            const sel = global.getSelection && global.getSelection();
-            if (sel && sel.removeAllRanges) sel.removeAllRanges();
-            open(e.clientX, e.clientY);
-          }, { when: () => finger });
-        }
       },
 
       // Reply to a message (В7.26): the line of a reply over the field; the next word to Lex, or one's own
       // text to the client, goes as the answer to it (`quoteUid`).
-      replyTo(uid) {
+      // part — the words selected in the message (block 2): the line shows them. The messenger gets the answer to
+      // the whole message: the door of the base (/folders/send) takes no quote of a part yet.
+      replyTo(uid, part) {
         const t = drawn.get(uid);
         if (!t || typeof deps.reply !== 'function') return;
         const q = quoteOfTurn(t, lookOf(uid), data && data.client);
-        deps.reply({ quoteUid: uid, head: replyHead(q), text: global.LexMessage.quoteWords(q) });
+        const words = String(part || '').replace(/\s+/g, ' ').trim();
+        deps.reply({ quoteUid: uid, head: replyHead(q), text: words ? `«${words}»` : global.LexMessage.quoteWords(q) });
       },
 
       // A word to Lex went with the line of a reply: the draft being written for it carries the quote of
@@ -747,10 +737,14 @@
       // A press on a quote (В7.37): the sheet of that message over the chat, which does not move — when it
       // was, the message in a frame with one message before it and two after, «Show in chat» and «Reply».
       // A message this chat does not have — the quote's own words, «Show in chat» off.
+      // A press on a quote (block 2, 2026-11-18): the chat goes to the message itself and lights it, the button
+      // «down» brings the reader back (WcThread.showTurn); a message the chat does not have — its sheet.
       openQuote(q) {
         const M = global.LexMessage;
-        if (!q || typeof deps.sheet !== 'function') return;
+        if (!q) return;
         const uid = String(q.uid || '');
+        if (uid && drawn.has(uid) && typeof deps.showInChat === 'function' && deps.showInChat(uid, { back: true })) return;
+        if (typeof deps.sheet !== 'function') return;
         const t = uid ? drawn.get(uid) : null;
         let nodes;
         let lit;
@@ -837,6 +831,11 @@
         bubble.hidden = false;
         const uid = turn.dataset.uid || '';
         const wins = ((data && data.windows) || []).filter((w) => w.turn === uid);
+        // The same answer with the same windows is not drawn again (block 2, 2026-11-18): a signal of any
+        // order came here every 1–3 s and took away what the person was selecting in it.
+        const sig = streaming ? null : JSON.stringify([raw, wins, sentQuote, data && data.client]);
+        if (sig && painted.get(bubble) === sig) return;
+        if (sig) painted.set(bubble, sig); else painted.delete(bubble);
         let i = 0;
         bubble.replaceChildren(...parts.map((p) => {
           if (p.kind === 'text') {

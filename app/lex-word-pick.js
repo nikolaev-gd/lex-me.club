@@ -886,7 +886,27 @@
     return !!String(sel).trim();
   }
 
+  // The press that picks a word for the teacher in a chat (block 2, 2026-11-18, Gennady: one press on a word made
+  // a chip and got in the way of the cursor and of a selection): a mouse — ⌥ (Alt) and a click, a plain click and a
+  // drag are the browser's selection; a finger — a tap, since a finger selects through «Select text» of the menu.
+  function isChatPick(e) {
+    if (!e) return false;
+    if (e.__lexMirrored) return true;
+    const touch = e.pointerType === 'touch' || e.pointerType === 'pen'
+      || (!e.pointerType && !!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches));
+    return touch || !!e.altKey;
+  }
+  // ⌥ held: the words of a chat show that a click picks them (the class lex-pick-key on the root).
+  function notePickKey(e) {
+    if (typeof document === 'undefined' || !document.documentElement) return;
+    const down = !!(e && e.type === 'keydown' ? (e.key === 'Alt' || e.altKey) : (e && e.type === 'keyup' && e.key !== 'Alt' && e.altKey));
+    document.documentElement.classList.toggle('lex-pick-key', down);
+  }
+
   if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('keydown', notePickKey, true);
+    document.addEventListener('keyup', notePickKey, true);
+    if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('blur', () => notePickKey(null));
     document.addEventListener('mousedown', noteMouseDown, true);
   }
 
@@ -952,6 +972,7 @@
     refreshHighlight,
     // протяжка
     isDragRelease,
+    isChatPick,
     // дев
     inspect,
     SELECTED_CLASS,

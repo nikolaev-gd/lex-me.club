@@ -168,7 +168,20 @@
         ic.appendChild(typeof it.icon === 'string' ? icon(it.icon, 16) : (it.icon || icon('send', 16)));
         b.append(ic, make('span', '', it.label));
       }
-      b.addEventListener('click', () => { close(); it.run(); });
+      // An item that confirms (Copy): its mark turns into a tick and its words into `confirm` for a moment at
+      // the item itself, then the menu goes; nothing else on the screen says it.
+      b.addEventListener('click', async () => {
+        if (!it.confirm) { close(); it.run(); return; }
+        let ok = false;
+        try { ok = !!(await it.run()); } catch (_) { ok = false; }
+        if (!ok) { close(); return; }
+        const ic = b.querySelector('.lex-sl-menu-icon');
+        if (ic) ic.replaceChildren(icon('check', 16, 2.4));
+        const words = b.querySelector(':scope > span:not(.lex-sl-menu-icon)');
+        if (words) words.textContent = it.confirm;
+        b.classList.add('is-done');
+        setTimeout(close, 800);
+      });
       box.appendChild(b);
     });
     if (hole) {
@@ -179,6 +192,9 @@
     }
     if (o.ring) o.ring.classList.add('lex-sl-ring');
     if (plain && o.lit) o.lit.classList.add('lex-sl-lit');
+    // The layer of a surface that stands over the page (the windows of the extension: ytvocab-sl-portal) —
+    // the menu, its catcher and its dim get it, so they stand over that window, in its palette.
+    if (o.layer) for (const el of [catcher, hole, box]) if (el) el.classList.add(o.layer);
     host.append(...[catcher, hole, box].filter(Boolean));
     const m = box.getBoundingClientRect();
     const pad = 8;
@@ -189,15 +205,35 @@
       top = o.at.y + m.height > window.innerHeight - pad ? o.at.y - m.height : o.at.y;
       left = o.at.x + m.width > window.innerWidth - pad ? o.at.x - m.width : o.at.x;
       top = Math.max(pad, Math.min(top, window.innerHeight - m.height - pad));
+    } else if (o.around) {
+      // The menu of a message by a finger (docs/spec/20-chat.md, «Меню сообщения»): under the message where
+      // it fits, else over it, else at the bottom of the screen — never over the words when there is room.
+      const a = o.anchor.getBoundingClientRect();
+      if (a.bottom + 8 + m.height <= window.innerHeight - pad) top = a.bottom + 8;
+      else if (a.top - 8 - m.height >= pad) top = a.top - 8 - m.height;
+      else top = window.innerHeight - m.height - pad;
+      left = a.left + m.width <= window.innerWidth - pad ? a.left : a.right - m.width;
     } else {
       const a = o.anchor.getBoundingClientRect();
-      top = a.top - m.height - 8;
+      top = o.below ? a.bottom + 4 : a.top - m.height - 8;
+      if (o.below && top + m.height > window.innerHeight - pad) top = a.top - m.height - 4;
       if (top < pad) top = a.bottom + 8;
+      top = Math.max(pad, Math.min(top, window.innerHeight - m.height - pad));
       left = o.align === 'left' ? a.left : a.right - m.width;
     }
     left = Math.max(pad, Math.min(left, window.innerWidth - m.width - pad));
     Object.assign(box.style, { left: `${left}px`, top: `${top}px` });
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    // The keyboard: Escape closes, the arrows go along the items (the focus stays in the menu).
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(); return; }
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const list = [...box.querySelectorAll('.lex-sl-menu-item')];
+      if (!list.length) return;
+      e.preventDefault();
+      const at = list.indexOf(document.activeElement);
+      const next = e.key === 'ArrowDown' ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+      list[next].focus({ preventScroll: true });
+    };
     function close() {
       if (closeOpen !== close) return;
       closeOpen = null;
