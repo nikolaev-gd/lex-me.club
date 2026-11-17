@@ -85,6 +85,7 @@
         title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey),
         end: c.channel && M.CHANNELS[c.channel] ? M.channel(c.channel) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
+        unread: { chat: c.chatKey },
       });
       if (global.LexChatMenu) {
         const act = (name) => chatAct(c, name);

@@ -125,8 +125,13 @@
     }, [
       el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
       ...(it.pinned ? [el('span.wc-conv-pin', { title: 'Pinned' }, [icon('pin')])] : []),
+      // How many of its messages are unread (В7.48): the shared number, repainted in place by the page.
+      ...(global.LexSection && global.LexSection.count ? [global.LexSection.count({ chat: it.id })] : []),
       more,
     ]);
+    line.dataset.unreadHost = '';
+    const num = line.querySelector('.lex-section-count');
+    if (num && !num.hidden) line.classList.add('has-count');
     // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside
     // the visible button, not instead of it.
     global.LexChatMenu.attach(line, () => chatMenu(it));

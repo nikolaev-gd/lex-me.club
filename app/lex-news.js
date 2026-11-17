@@ -150,6 +150,13 @@
       b.type = 'button';
       b.innerHTML = s.id === 'profi' ? ENTRY_ICON_PROFI : s.id === 'em' ? ENTRY_ICON_EM : ENTRY_ICON;
       b.appendChild(make('span', 'lex-news-entry-title', s.title));
+      // How many chats of the section have something unread (В7.48, lex-section.js).
+      if (global.LexSection && global.LexSection.count) {
+        b.dataset.unreadHost = '';
+        const num = global.LexSection.count({ section: s.id });
+        b.appendChild(num);
+        b.classList.toggle('has-count', !num.hidden);
+      }
       b.insertAdjacentHTML('beforeend', ENTRY_CHEVRON);
       b.dataset.section = s.id;
       b.addEventListener('click', () => onPick(s.id));

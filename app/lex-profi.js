@@ -1236,6 +1236,7 @@
         title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
+        unread: { order: c.order },
       });
       if (c.chatKey && global.LexChatMenu) {
         const act = (name) => chatAct(c, name);
@@ -1264,6 +1265,7 @@
         lead: global.LexMessage.avatarMark('profi', 48),
         title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
+        unread: { chat: '__lex_profi_orders__' },
       }));
       // The order is the server's: pinned, the talk, the silent ones last (chat_states.sql).
       const chats = home.chats || [];

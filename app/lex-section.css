@@ -198,6 +198,32 @@
 .lex-section .lex-section-row.has-lead > .lex-section-row-main { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
 .lex-section .lex-section-row-words { display: block; flex: 1 1 auto; min-width: 0; }
 .lex-section .lex-section-row.has-lead.is-unread::before { top: 31px; left: 0; }
+/* The number of the unread (В7.48, lex-section.js count): the yellow of «look here» with the background's
+   colour on it, 12/600, digits of one width, 20 high and at least 20 wide, 6 inside at the sides. It stands
+   in the lines of a section, in the list Chats and on the buttons of the sections, so it is not scoped to
+   .lex-section; a window that does not name the colours keeps the same yellow on white. With a number the
+   dot of the unread does not stand: one mark says it; the title is bold as an unread one. */
+.lex-section-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--lex-section-attention, var(--attention, #f2c14b));
+  color: var(--lex-section-bg-on-fg, var(--bg, #fff));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.lex-section-count[hidden] { display: none; }
+.lex-section .lex-section-row-subline > .lex-section-count { margin-left: auto; }
+.lex-section .lex-section-row.has-count::before { display: none; }
+.lex-section .lex-section-row.has-count .lex-section-row-title { font-weight: 600; opacity: 1; }
 .lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
 .lex-section .lex-section-mark {
   flex: 0 0 auto;

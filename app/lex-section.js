@@ -133,6 +133,8 @@
   // bot's: «Bot:» before it), and lead — the photo or the letter of the person 48 at the left
   // (LexMessage.avatar, В7.12; New orders — LexMessage.avatarMark), 12 before the words; the dot of
   // the unread then stands left of the photo. Its menu is the menu of a chat (lex-chat-menu.js).
+  // unread — what the number of the unread of the line counts (В7.48): { chat: key }, { order: number }
+  // or { section: id }; it stands at the right end of the sub line, and with a number the dot does not.
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
@@ -171,16 +173,62 @@
       n.append(o.sub || '');
       return n;
     };
-    if (o.end) {
+    const num = o.unread ? count(o.unread) : null;
+    if (o.end || (num && o.sub)) {
       const line = make('span', 'lex-section-row-subline');
       line.appendChild(sub());
-      line.appendChild(o.end);
+      if (o.end) line.appendChild(o.end);
+      if (num) line.appendChild(num);
       words.appendChild(line);
-    } else if (o.sub) words.appendChild(sub());
+    } else {
+      if (o.sub) words.appendChild(sub());
+      if (num) top.appendChild(num);
+    }
     el.appendChild(main);
     if (o.more && o.more.length) el.appendChild(moreButton(o.more));
+    if (num) { el.dataset.unreadHost = ''; paintCount(num); }
     return el;
   }
+
+  // ── the number of the unread (В7.48) ─────────────────────────────────────────
+  // The same count on every surface and on the icon of the iPhone (supabase/migrations/unread_counts.sql):
+  // how many messages of a chat, or how many chats of a section, are not seen yet. The page holds the
+  // server's last answer here (setUnread: from lex_missed_summary, from the answer of lex_chat_presence, at
+  // the signal «unread»). Every number on the page is a slot that names what it counts, and a new answer
+  // repaints them all in place: no list has to be drawn again for it. The host of a slot (an element with
+  // data-unread-host — a line, a chat of the list Chats, a button of a section) gets the class has-count.
+  let unreadNow = { chats: {}, orders: {}, sections: {} };
+  function unreadOf(what) {
+    if (!what) return 0;
+    const n = what.chat != null ? unreadNow.chats[what.chat]
+      : what.order != null ? unreadNow.orders[what.order]
+        : what.section != null ? unreadNow.sections[what.section] : 0;
+    return Number(n) > 0 ? Math.floor(Number(n)) : 0;
+  }
+  function paintCount(slot) {
+    const d = slot.dataset;
+    const n = unreadOf(d.unreadChat != null ? { chat: d.unreadChat }
+      : d.unreadOrder != null ? { order: d.unreadOrder } : { section: d.unreadSection });
+    slot.textContent = n > 99 ? '99+' : String(n);
+    slot.hidden = !n;
+    slot.setAttribute('aria-label', `${n} unread`);
+    const host = slot.closest('[data-unread-host]');
+    if (host) host.classList.toggle('has-count', !!n);
+  }
+  function count(what) {
+    const slot = make('span', 'lex-section-count');
+    if (what.chat != null) slot.dataset.unreadChat = String(what.chat);
+    else if (what.order != null) slot.dataset.unreadOrder = String(what.order);
+    else slot.dataset.unreadSection = String(what.section || '');
+    paintCount(slot);
+    return slot;
+  }
+  function setUnread(u) {
+    if (!u || typeof u !== 'object') return;
+    unreadNow = { chats: u.chats || {}, orders: u.orders || {}, sections: u.sections || {} };
+    if (typeof document !== 'undefined') document.querySelectorAll('.lex-section-count').forEach(paintCount);
+  }
+  const unread = () => unreadNow;
 
   // The time of a line of a chat (В7.34), the device's day: today — the hour, yesterday — «Вчера»,
   // this year — the day and the month, before — the date.
@@ -474,5 +522,6 @@
     };
   }
 
-  global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep };
+  global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
+    count, setUnread, unread };
 })(typeof window !== 'undefined' ? window : globalThis);

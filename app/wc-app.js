@@ -612,7 +612,20 @@
     if (key === presenceSent && !due) return;
     presenceSent = key;
     presenceAt = Date.now();
-    newsRpc('lex_chat_presence', { p_device: presenceDevice, p_chat_key: key, p_surface: 'web' }).catch(() => {});
+    // The answer brings the numbers of the unread after the chat on the screen took its own (В7.48).
+    newsRpc('lex_chat_presence', { p_device: presenceDevice, p_chat_key: key, p_surface: 'web' })
+      .then((r) => { if (r && r.unread && global.LexSection) global.LexSection.setUnread(r.unread); })
+      .catch(() => {});
+  }
+  // The numbers of the unread (supabase/migrations/unread_counts.sql): at the start, at every signal
+  // «unread» of the account (a message came or was seen on any device) and after the channel opens again.
+  async function readUnread() {
+    try {
+      const r = await newsRpc('lex_missed_summary', {});
+      if (r && r.unread && global.LexSection) global.LexSection.setUnread(r.unread);
+    } catch (err) {
+      console.warn('[wc] unread:', err && err.message);
+    }
   }
   setInterval(reportPresence, 3000);
   document.addEventListener('visibilitychange', reportPresence);
@@ -937,6 +950,8 @@
           // Questions: how many wait for an answer, and the newest of them.
           mark: isQ && r.open ? String(r.open) : null,
           sub: r.last || (r.count ? r.hint : 'Nothing yet.'),
+          // How many entries are unread (В7.48); the feed of questions — the section Questions.
+          unread: isQ ? { section: 'questions' } : { chat: `__lex_em_${r.kind}__` },
           onClick: () => frame.open((wanted) => openEmFeed(r.kind, wanted), 'The feed did not open.'),
         });
         list.appendChild(line);
@@ -2889,6 +2904,9 @@
       if (signal && signal.payload && String(signal.payload.chat || '').startsWith('__lex_profi__')) return;
       if (signal) refreshConversations();
     });
+    // The unread of the account changed on any device (unread_counts.sql): the numbers of the
+    // lines, the section buttons are read anew; after a break of the channel — once more.
+    signals.follow(['unread'], () => readUnread());
     // A row of Claude Code that came without the owner's message — the Mac's work on a code
     // task from this chat, its progress and its Итог (lex_cc_row_put, claude_code_rows.sql): the
     // open chat is read anew, so the row appears and grows while the Mac works. Not while this

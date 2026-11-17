@@ -638,6 +638,9 @@ button { font: inherit; color: inherit; }
   transform: translateY(-50%);
 }
 .wc-conv.is-unread .wc-conv-title { font-weight: 600; }
+/* A number of the unread (В7.48, lex-section.css) says it alone: no dot, the title bold. */
+.wc-conv.has-count::before { display: none; }
+.wc-conv.has-count .wc-conv-title { font-weight: 600; }
 .wc-conv-pin { flex: none; display: flex; width: 14px; height: 14px; color: var(--fg-muted); }
 .wc-conv-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
