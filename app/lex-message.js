@@ -1396,13 +1396,15 @@
     }
     return n;
   }
-  // «<client> · <budget>»: what is missing is left out.
-  const orderWho = (o) => [o.client, o.budget].map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
+  // «<client> · <budget> · <what the reply costs>»: what is missing is left out (the cost — Gennady,
+  // 18.11.2026: «Комиссия 130 ₽», «Оплата 31 ₽», «Цена отклика — в форме»).
+  const orderWho = (o) => [o.client, o.budget, o.pay].map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
 
-  // order({ order, title, url, at | timeText, client, budget, text, reply, state, foot, ask, folded,
+  // order({ order, title, url, at | timeText, client, budget, pay, text, reply, state, foot, ask, folded,
   //         onOpen, onFold })
-  //   state   { text, icon: 'tick' | 'cross' | 'reply' | null, danger } — on the right of «Reply»: the
-  //           price before the reply leaves, how it ended after
+  //   pay     what the reply costs, after the client and the budget
+  //   state   { text, icon: 'tick' | 'cross' | 'reply' | null, danger } — on the right above the reply
+  //           (no word «Reply» — Gennady, 18.11.2026): the price before the reply leaves, how it ended after
   //   foot    the row of buttons, made by the caller
   //   ask     { title, text } — the band on top
   //   folded  true — the three lines; onOpen() — a press on them; onFold() — the chevron up of a
@@ -1468,12 +1470,14 @@
     root.appendChild(inPart);
     if (o.reply || o.foot) {
       const out = make('div', 'lex-order-out');
-      const meta = make('div', 'lex-order-meta');
-      const state = make('span', `lex-order-meta-state${st.danger ? ' is-danger' : ''}`);
-      if (st.icon) state.appendChild(orderIcon(st.icon, 14, 2.4));
-      state.appendChild(make('span', '', st.text || ''));
-      meta.append(make('span', 'lex-order-meta-name', 'Reply'), state);
-      out.appendChild(meta);
+      if (st.text || st.icon) {
+        const meta = make('div', 'lex-order-meta');
+        const state = make('span', `lex-order-meta-state${st.danger ? ' is-danger' : ''}`);
+        if (st.icon) state.appendChild(orderIcon(st.icon, 14, 2.4));
+        state.appendChild(make('span', '', st.text || ''));
+        meta.appendChild(state);
+        out.appendChild(meta);
+      }
       if (o.reply) out.appendChild(make('div', 'lex-order-reply', o.reply));
       if (o.foot) out.appendChild(o.foot);
       root.appendChild(out);

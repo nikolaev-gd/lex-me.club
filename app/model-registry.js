@@ -165,6 +165,35 @@
       ],
     },
     {
+      // GPT-6.2 Sol — added 2026-11-18, replaces 6.1 Sol (hidden below).
+      // Prices from the models module catalog (~/Dev/ai-models, f65c0c6;
+      // developers.openai.com/api/docs/pricing, checked 2026-11-18): 2.00 in /
+      // 0.10 cached / 2.50 cache write (30 min) / 10.00 out; long context
+      // (>272K input, whole request) 4.00 / 0.20 / 5.00 / 15.00 — same as 6.1
+      // Sol. Image input — yes. Live check 2026-11-18: 'none' is a 400
+      // («Supported values are: 'low', 'medium', 'high', 'xhigh', and 'max'»),
+      // so Lex's default is 'low', as on 6.1 Sol. The price lives in
+      // public.models only (migration gpt62_sol_astra.sql).
+      apiModel: 'gpt-6.2-sol', provider: 'openai', type: 'text', label: '6.2 Sol',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+    },
+    {
+      // GPT-6.2 Astra — added 2026-11-18, replaces 6 Astra (hidden below).
+      // Catalog f65c0c6 (developers.openai.com/api/docs/pricing, checked
+      // 2026-11-18): 8.00 in / 0.40 cached / 10.00 cache write (30 min) / 40.00
+      // out; long context (>272K input, whole request) 16.00 / 0.80 / 20.00 /
+      // 60.00. Image input — yes. Live check 2026-11-18: 'none' is a 400, same
+      // ladder as 6.2 Sol, so Lex's default is 'low'.
+      apiModel: 'gpt-6.2-astra', provider: 'openai', type: 'text', label: '6.2 Astra',
+      vision: true,
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      defaultEffort: 'low',
+    },
+    {
+      // Hidden 2026-11-18 — superseded by 6.2 Sol, same convention as 5.6 Luna.
+      hidden: true, replacedBy: 'gpt-6.2-sol',
       // GPT-6.1 Sol — added 2026-11-14, replaces 6 Sol (hidden below).
       // developers.openai.com/api/docs/models/gpt-6.1-sol, checked 2026-11-13:
       // 2.00 in / 0.10 cached / 2.50 cache write / 10.00 out; long context
@@ -184,6 +213,8 @@
       defaultEffort: 'low',
     },
     {
+      // Hidden 2026-11-18 — superseded by 6.2 Astra, same convention as 5.6 Luna.
+      hidden: true, replacedBy: 'gpt-6.2-astra',
       // GPT-6 Astra — added 2026-11-14: OpenAI's top model («our most capable
       // model for the most demanding work»), out since 2026-08-27. Lex had no
       // Astra before, so it replaces nothing.

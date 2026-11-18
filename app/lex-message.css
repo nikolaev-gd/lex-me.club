@@ -947,8 +947,8 @@
  * person across the whole lane (the lane has one sender, as a channel), the corner 6 bottom left,
  * all inside cut by its edge. On top, when the order waits for a decision it is not sure of — a band
  * in the yellow of «look here»; then the grey part, what the client sent: the title (a link to the
- * order on Profi), its time, the client and the budget, the text; then the blue part, what the bot
- * answers: «Reply» and the price or how it ended, the text, the buttons (the main and the second
+ * order on Profi), its time, the client, the budget and what the reply costs, the text; then the blue part, what the bot
+ * answers: the price or how it ended on the right (no word «Reply», 18.11.2026), the text, the buttons (the main and the second
  * button, В7.6–В7.7). No frames inside: the text of both parts takes the whole width. Done orders
  * stand folded in three lines and open in place. It stands in a lane `lex-bubbles` (its colours). */
 .lex-order {
@@ -1015,13 +1015,12 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-order-meta {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 10px;
   color: var(--lex-bubble-out-meta);
   font-size: 12px;
 }
-.lex-order-meta-name { flex: none; font-weight: 600; }
-/* The words stand on the line of «Reply»; the mark beside them is centred on them. */
+/* The words stand on the right above the reply; the mark beside them is centred on them. */
 .lex-order-meta-state { display: flex; align-items: baseline; gap: 4px; min-width: 0; text-align: right; }
 .lex-order-meta-state.is-danger { color: var(--danger); }
 .lex-order-meta-state > svg { align-self: center; width: 14px; height: 14px; }

@@ -915,6 +915,11 @@ button { font: inherit; color: inherit; }
  * generic menu. Drawn with a stroke rather than an icon font so it inherits
  * the same 1.9 stroke weight as every other glyph on the page. */
 .wc-burger svg { width: 21px; height: 21px; }
+/* The corner holds one button on every screen (2026-11-18), as the bar of a section on the iPhone:
+ * the arrow back when the screen was opened from a section (lex-back.js), otherwise the three lines.
+ * The one rule for every chat: a screen that hid the lines without the arrow was a dead end (the feed
+ * of questions opened by its own button). */
+.wc-topbar:has(#wc-news-back:not([hidden])) .wc-burger { display: none !important; }
 
 
 /* ── Thread ──────────────────────────────────────────────────────────────── */
@@ -2181,11 +2186,10 @@ button { font: inherit; color: inherit; }
 .wc-turns.lex-bubbles.is-intake > .wc-turn { margin-bottom: 12px; }
 .wc-turns.is-intake > .wc-turn[hidden] { display: none; }
 /* The feed of questions (2026-11-14): every question one message, 16 between them; «One by one»
- * lays a pack out as single questions in its place. The bar: the arrow back and the title, no
- * three lines (as in an order chat). */
+ * lays a pack out as single questions in its place. The bar: the title by the arrow back or the three
+ * lines (one button in the corner, see .wc-burger). */
 .lex-bubbles > .wc-turn-q { margin-bottom: 16px; }
 .lex-bubbles > .wc-turn-pack.is-each { display: flex; flex-direction: column; gap: 16px; }
-.wc-main.is-em-titled .wc-burger { display: none !important; }
 .wc-chat-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wc-chat-title[hidden] { display: none !important; }
 .wc-chat-title-main { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }

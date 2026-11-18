@@ -1297,10 +1297,8 @@
   }
   function paintChatTitle(t) {
     const box = document.getElementById('wc-chat-title');
-    const main = document.querySelector('.wc-main');
     if (!box) return;
     box.hidden = !t;
-    if (main) main.classList.toggle('is-em-titled', !!t);
     if (!t) { box.replaceChildren(); return; }
     box.replaceChildren(
       WcUI.el('.wc-chat-title-main', {}, [t.title]),

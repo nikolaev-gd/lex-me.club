@@ -122,11 +122,9 @@
 .lex-profi-outbox-item .lex-profi-box-foot .lex-profi-btn { flex: 0 0 auto; gap: 6px; padding: 0 16px; }
 
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
- * Profi. The list of chats is a step back (the arrow), so the bar has no three lines. New orders has
- * the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place of the letter, «New orders»
- * and «Профи.ру» under it; the section's own bar steps aside on that screen. */
-.wc-main.is-profi-chat .wc-burger,
-.wc-main.is-profi-feed .wc-burger { display: none !important; }
+ * Profi. The corner holds the arrow back or the three lines, one rule for every chat (wc-app.css,
+ * .wc-burger). New orders has the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place
+ * of the letter, «New orders» and «Профи.ру» under it; the section's own bar steps aside on that screen. */
 .wc-main.is-profi-feed .lex-profi .lex-section-bar,
 .wc-main.is-profi-feed .wc-topbar-right { display: none; }
 .lex-profi-person .lex-profi-mark { width: 40px; height: 40px; }

@@ -1436,7 +1436,7 @@
       return it.state;
     }
 
-    // What stands on the right of «Reply»: the price before the reply leaves, how it ended after.
+    // What stands on the right above the reply: the price before the reply leaves, how it ended after.
     function stateWords(it, state) {
       const line = it.stateLine ? ` ${it.stateLine}` : '';
       switch (state) {
@@ -1478,7 +1478,7 @@
       const hasChat = it.hasChat || state !== it.state;
       const done = DONE.has(state);
       const base = { order: it.order, title: it.title, url: it.orderUrl, at: it.at, client: it.client, budget: it.budget,
-        state: stateWords(it, state) };
+        pay: it.pay, state: stateWords(it, state) };
       if (done && !opened.has(it.order)) {
         return { node: M.order({ ...base, folded: true, onOpen: () => { opened.add(it.order); repaintOrder(it.order); } }) };
       }
@@ -1502,9 +1502,11 @@
         if (a === 'reply_self') act('Reply yourself', '', () => replySelf(it));
       }
       if (hasChat && !actions.includes('reply_self')) foot.appendChild(button('lex-profi-btn', 'Open chat', () => openOrder(it.order)));
+      // The band in Russian with the monitor's reason right under it (Gennady, 18.11.2026); a monitor
+      // that gave no reason — what to do.
       const ask = it.uncertain && !done && actions.length && !it.busy ? {
-        title: 'Not sure this order fits',
-        text: state === 'countdown' ? 'Cancel it if the order does not fit.' : 'The reply is not sent. Send it or reply yourself.',
+        title: 'Не уверен, что заказ подходит',
+        text: it.why || (state === 'countdown' ? 'Отмени, если заказ не подходит.' : 'Отклик не отправлен: отправь или ответь сам.'),
       } : null;
       const node = M.order({ ...base, text: it.description, reply: it.draft, ask,
         foot: foot.childElementCount ? foot : null,
