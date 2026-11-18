@@ -83,6 +83,9 @@
   // сообщает серверу, сколько знаков ответа человек успел увидеть, а адресуется
   // это номером операции. Запись живёт ровно от заголовка ответа до конца хода.
   const serverOps = new Map();
+  // Turns with a number of operation, by request: the number, the chat and what of the answer
+  // came. After a break the page asks the server what became of the message (followAfterBreak).
+  const turnFates = new Map();
 
   const core = LexTeacherCore.create({
     TAG,
@@ -100,8 +103,21 @@
         WcBus.broadcast({ type: 'STREAM_DONE', requestId: msg.requestId, stopped: true });
         return;
       }
+      const fate = msg && turnFates.get(msg.requestId);
+      if (fate && msg.type === 'STREAM_CHUNK' && msg.text) fate.text += msg.text;
+      // A break is no refusal: the server writes the answer to its end on its own. Its word on the
+      // message decides the end of this turn, not the broken connection.
+      if (fate && msg.type === 'STREAM_ERROR' && isBreak(msg)) {
+        followAfterBreak(msg.requestId, msg).catch((err) => {
+          console.warn(TAG, 'after a break:', err && err.message);
+          turnFates.delete(msg.requestId);
+          WcBus.broadcast(msg);
+        });
+        return;
+      }
       if (msg && (msg.type === 'STREAM_DONE' || msg.type === 'STREAM_ERROR')) {
         stoppedByUser.delete(msg.requestId);
+        turnFates.delete(msg.requestId);
       }
       WcBus.broadcast(msg);
     },
@@ -1325,6 +1341,7 @@
       }
     });
 
+    if (opId) turnFates.set(m.requestId, { opId, chatKey: writeKey, text: '' });
     core.streamExplainWord(
       '',                       // word — a chat turn has none
       null, null, null,
@@ -1394,6 +1411,137 @@
   }
 
   WcBus.on('WC_SEND', runSend);
+
+  // ── The fate of a message after a break (chat_turn_fate.sql) ─────────────────────────────
+  // The connection broke (the laptop slept, the network changed, not a word in 15 seconds), or the
+  // server has this number already (a Retry of a message that did reach it, 409 duplicate_op).
+  // That is no refusal: the server writes the answer to its end on its own (llm-proxy). So the page
+  // asks the server what became of the message by its number (lex_op_state): written — the answer
+  // goes on in the same bubble to its end; still being taken — it waits; not there — the message
+  // stays as not sent, and Retry goes with the same number, so the server never answers one message
+  // twice. The database's signal «chat» of the answer wakes the wait; without it, every 20 seconds.
+  // The same rule as the iPhone (ChatStore.followAfterBreak).
+  const NOT_THERE = 'Lex did not get this message.';
+
+  function isBreak(msg) {
+    if (/duplicate_op/.test(String(msg.error || ''))) return true;
+    // Only the core's own end of a stream says what kind it was (lex-teacher-core.js): no status
+    // of the server and no watchdog — the connection broke.
+    if (!Object.prototype.hasOwnProperty.call(msg, 'httpStatus')) return false;
+    // The computer is offline: the request never left, the server cannot have it — «No connection»
+    // at once instead of asking a server that cannot be reached.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    return msg.timeout === true || msg.httpStatus == null;
+  }
+
+  async function followAfterBreak(requestId, broken) {
+    const fate = turnFates.get(requestId);
+    if (!fate || fate.following) return;
+    fate.following = true;
+    let wake = null;
+    const nudge = () => { const w = wake; wake = null; if (w) w(); };
+    const signals = global.WcSignals;
+    const follower = signals && typeof signals.follow === 'function'
+      ? signals.follow(['chat'], (sig) => {
+        const p = sig && sig.payload;
+        if (!sig || (p && (p.op === fate.opId || p.chat === fate.chatKey))) nudge();
+      })
+      : null;
+    fate.stop = () => { fate.stopped = true; nudge(); };
+    const wait = (ms) => new Promise((r) => {
+      wake = r;
+      setTimeout(() => { if (wake === r) nudge(); }, ms);
+    });
+    console.warn(TAG, 'the answer broke off — asking the server what became of the message', fate.opId);
+    let end = broken;
+    let known = false;
+    let misses = 0;
+    // The last word of the server, or the break: the wait is counted in time, not in questions — a
+    // signal of the chat wakes the next question at once, and three of them come in two seconds.
+    let heard = Date.now();
+    let gaveUp = false;
+    try {
+      for (;;) {
+        if (fate.stopped) { end = { type: 'STREAM_DONE', requestId, stopped: true }; break; }
+        let s = null;
+        try { s = await WcHistory.opState(fate.opId); misses = 0; heard = Date.now(); } catch (_) { misses += 1; }
+        if (fate.stopped) continue;
+        if (s && s.status === 'none') { end = Object.assign({}, broken, { error: NOT_THERE }); break; }
+        if (s && (s.status === 'pending' || s.status === 'begun')) {
+          known = true;
+          if (s.status === 'begun') {
+            // The server leads this turn: Stop tells it how much was seen (WC_STOP).
+            serverOps.set(requestId, fate.opId);
+            const content = String(s.content || '');
+            if (content.startsWith(fate.text)) {
+              const rest = content.slice(fate.text.length);
+              if (rest) { fate.text = content; WcBus.broadcast({ type: 'STREAM_CHUNK', requestId, text: rest }); }
+            }
+            if (s.state !== 'streaming') {
+              end = { type: 'STREAM_DONE', requestId, stopped: s.state === 'stopped', followed: true };
+              break;
+            }
+          }
+        } else if (!s && (Date.now() - heard >= (known ? 90000 : 20000))) {
+          // No word from the server: no connection. Retry with the same number is safe; the turn is
+          // asked again when the connection is back (followLate).
+          gaveUp = true;
+          break;
+        }
+        await wait(misses ? 3000 : 20000);
+      }
+    } finally {
+      if (follower) follower.stop();
+      turnFates.delete(requestId);
+      stoppedByUser.delete(requestId);
+    }
+    WcBus.broadcast(end);
+    if (gaveUp) followLate(fate.opId, fate.chatKey);
+  }
+
+  // A turn broken off while the server could not be asked: the cut answer and the red line stay until
+  // the server is heard. Asked again when the connection is back — a signal of the chat (or the channel
+  // back after a break), the computer online, the page shown again. Written there — the open chat is
+  // read anew (WC_TURN_LATE, wc-app.js) and shows the server's answer; not there — forgotten. The same
+  // rule as the iPhone (ChatStore.reconcileLate).
+  function followLate(opId, chatKey) {
+    let done = false;
+    let asking = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      if (follower) follower.stop();
+      try { global.removeEventListener('online', ask); } catch (_) { /* no window */ }
+      try { global.document && global.document.removeEventListener('visibilitychange', ask); } catch (_) { /* no document */ }
+      clearTimeout(expiry);
+    };
+    async function ask() {
+      if (done || asking) return;
+      if (global.document && global.document.visibilityState === 'hidden') return;
+      asking = true;
+      try {
+        const s = await WcHistory.opState(opId).catch(() => null);
+        if (!s || done) return;
+        if (s.status === 'none') { finish(); return; }
+        if (s.status === 'begun' && s.state !== 'streaming') {
+          finish();
+          console.warn(TAG, 'the broken-off answer is on the server — the chat is read anew', opId);
+          WcBus.broadcast({ type: 'WC_TURN_LATE', chatKey, opId });
+        }
+      } finally { asking = false; }
+    }
+    const signals = global.WcSignals;
+    const follower = signals && typeof signals.follow === 'function'
+      ? signals.follow(['chat', 'chats'], (sig) => {
+        const p = sig && sig.payload;
+        if (!sig || (p && (p.op === opId || p.chat === chatKey))) ask();
+      })
+      : null;
+    try { global.addEventListener('online', ask); } catch (_) { /* no window */ }
+    try { global.document && global.document.addEventListener('visibilitychange', ask); } catch (_) { /* no document */ }
+    // A page left open for hours does not keep asking about an old turn.
+    const expiry = setTimeout(finish, 30 * 60 * 1000);
+  }
 
   // The order chat that is open: its key and the model of the monitor (lex-profi.js).
   WcBus.on('WC_PROFI_CHAT', (m) => {
@@ -1532,6 +1680,18 @@
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
 
   WcBus.on('WC_STOP', async (m) => {
+    // Stop while the page waits for the server's word after a break: the seen length goes to the
+    // server, and the wait ends as a stopped answer.
+    const fate = turnFates.get(m.requestId);
+    if (fate && fate.following) {
+      const opId = serverOps.get(m.requestId) || null;
+      if (opId && Number.isFinite(Number(m.seenChars))) {
+        WcHistory.reportStopped(opId, Math.max(0, Math.round(Number(m.seenChars))))
+          .catch((err) => console.warn(TAG, 'stop not reported:', err && err.message));
+      }
+      fate.stop();
+      return { ok: true };
+    }
     const entry = inflightStreams.get(m.requestId);
     if (!entry || !entry.abort) return { ok: false, error: 'nothing to stop' };
     // Marked BEFORE the abort: the abort is what produces the error, and a

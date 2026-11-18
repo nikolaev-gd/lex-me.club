@@ -1403,7 +1403,11 @@
       // устройстве — сервер отказал до денег (409 regen_target_gone).
       const regenGone = !gate && typeof LexErrorText.isRegenTargetGone === 'function'
         && LexErrorText.isRegenTargetGone(text);
+      // The chat changed under the screen on another device (409 chat_moved): nothing was sent.
+      const chatMoved = !gate && !regenGone && typeof LexErrorText.isChatMoved === 'function'
+        && LexErrorText.isChatMoved(text);
       const shown = regenGone ? LexErrorText.regenTargetGone()
+        : chatMoved ? LexErrorText.chatMoved()
         : promptMissing ? LexErrorText.promptMissing(text)
         : profiRefused ? LexErrorText.profiRefused(text)
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)

@@ -3033,6 +3033,11 @@
             error: errorMessage,
             requestId,
             clickId,
+            // What kind of end: a status of the server (a refusal), the watchdog, or neither — the
+            // connection broke. After a break the page asks the server what became of the message
+            // (wc-backend.js followAfterBreak, chat_turn_fate.sql).
+            httpStatus,
+            timeout: isTimeout,
           });
         }
       } finally {

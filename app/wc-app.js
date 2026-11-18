@@ -2015,7 +2015,10 @@
     // реплик, и ровно то же правило применяет сервер: потому в базе на пузырь
     // одна строка, а не две. requestId рядом на эту роль не годится — он живёт
     // только внутри страницы и до сервера не доезжает вовсе.
-    const opId = global.LexTurnId.newOpId();
+    // Retry of a message that did not go keeps its number (opts.opId): a message that did reach
+    // the server gets its answer, not a second one (lex_op_claim, chat_turn_fate.sql).
+    const opId = (opts && typeof opts.opId === 'string' && opts.opId) || global.LexTurnId.newOpId();
+    ownOps.add(opId);
     const pressedAt = Date.now();
     // Kept on this device from this moment, until the server has it (restoreUnsent). A message
     // with pictures is not kept: the pictures live only in this page.
@@ -2268,6 +2271,9 @@
   const UNSENT_LOST_MS = 120000;
   const UNSENT_LOST_NOTE = 'Lex did not get this message.';
   const outbox = new Map();      // requestId → the kept message of a request on its way
+  // The numbers of messages sent from this page: the database's signal of their answers is this
+  // page's own stream, not a change to read (the follower of «chat» below).
+  const ownOps = new Set();
   let unsentChain = Promise.resolve();
   async function unsentAll() {
     try { const v = await WcStore.one(UNSENT_KEY, null); return Array.isArray(v) ? v : []; } catch (_) { return []; }
@@ -2292,7 +2298,7 @@
       onRetry: () => {
         if (state.requestId) { toast('Wait until the answer is written.'); return; }
         forget();
-        send(item.text, item.opts || {});
+        send(item.text, Object.assign({}, item.opts || {}, item.id ? { opId: item.id } : {}));
       },
       onTopUp: item.money ? () => WcTopup.open({ onPaid: refreshAccount }) : null,
       onEdit: () => { forget(); WcComposer.setText(item.text || ''); WcComposer.focus(); },
@@ -2339,6 +2345,12 @@
     for (const item of (await unsentAll()).filter((i) => i.chatKey === key)) {
       if (have.has(global.LexTurnId.userTurnUid(item.id))) { unsentDrop(item.id); continue; }
       if (going.has(item.id)) continue;
+      // The server's word on a message whose end this page did not hear (chat_turn_fate.sql):
+      // written — it is in the chat, beyond the page read or in a conversation apart; still being
+      // taken — it waits.
+      const fate = await WcHistory.opState(item.id).catch(() => null);
+      if (fate && fate.status === 'begun') { unsentDrop(item.id); continue; }
+      if (fate && fate.status === 'pending') continue;
       if (item.state !== 'failed') {
         if (now - Date.parse(item.at) < UNSENT_LOST_MS) continue;
         item.state = 'failed';
@@ -3220,6 +3232,10 @@
     signals.follow(['chat'], (signal) => {
       const key = signal && signal.payload && String(signal.payload.chat || '');
       if (!key || key !== state.conversationId || key.startsWith('__lex_profi__') || WcHistory.isFolderKey(key)) return;
+      // An answer the server writes (chat_turn_fate.sql): this page's own is on the screen by its
+      // stream; a let-go number has nothing to show. Another device's answer grows here.
+      const op = signal.payload.op;
+      if (op && (ownOps.has(op) || signal.payload.state === 'released')) return;
       clearTimeout(ccRowTimer);
       ccRowTimer = setTimeout(() => {
         WcThread.whenFree('cc-row', () => {
@@ -3431,6 +3447,20 @@
     WcBus.subscribe((msg) => {
       if (msg.type === 'WC_TURN_UIDS') {
         turnUids.set(msg.requestId, { userUid: msg.userUid, assistantUid: msg.assistantUid });
+      } else if (msg.type === 'WC_TURN_LATE') {
+        // A turn broken off without a word from the server turned out written there (wc-backend.js
+        // followLate): the open chat is read anew — the server's answer takes the place of the cut one.
+        const key = msg.chatKey;
+        if (key && key === state.conversationId && !WcThread.isStreaming()) {
+          WcBus.call('WC_LOAD_CONVERSATION', { id: key })
+            .then((again) => {
+              if (again && again.ok && state.conversationId === key && !WcThread.isStreaming()) {
+                WcThread.whenFree('late-turn', () => paintConversation(again, { keepPlace: true }));
+              }
+            })
+            .catch(() => {});
+          refreshAccount();
+        }
       } else if (msg.type === 'WC_CONVERSATION_OPENED') {
         // Беседа заведена до первого сообщения (диктовка): она и открыта.
         if (!state.conversationId && msg.id) {
@@ -3465,6 +3495,9 @@
           }
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
+        // An answer followed on the server after a break (wc-backend.js followAfterBreak): what the
+        // screen lacks of it comes from the chat as the server wrote it.
+        if (msg.type === 'STREAM_DONE' && msg.followed && state.conversationId) catchUpOpenChat(state.conversationId);
         if (msg.type === 'STREAM_DONE' && profiChat) refreshProfiChat().catch(() => {});
         // A feed's entries that came while the answer was written go in now.
         setTimeout(lookEmFeedIfDue, 0);

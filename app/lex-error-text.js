@@ -47,6 +47,7 @@
     'err.model.unpriced': 'This model is unavailable right now — pick another one. You were not charged.',
     'err.chat.conversationReset': 'This conversation was reset — reopen it to continue. You were not charged.',
     'err.chat.regenTargetGone': 'This answer has already changed — reopen the conversation to see the latest one. You were not charged.',
+    'err.chat.chatMoved': 'This chat has changed on another device — the latest version is on screen now. Nothing was sent.',
     'err.provider.busy': 'The service is overloaded right now. Please try again in a minute.',
     'err.provider.generic': 'The answer did not come through. Please try again.',
   };
@@ -249,6 +250,20 @@
     return t('err.chat.regenTargetGone');
   }
 
+  // ── 6а. Беседу поменяли на другом устройстве ──────────────────────────────
+  //
+  // Сообщение несёт уид последнего сообщения экрана (afterUid), и сервер в момент
+  // записи сверяет его с беседой (lex_op_claim, chat_turn_fate.sql): на другом
+  // устройстве выбрали другую версию или дописали беседу — 409 со стадией
+  // 'chat_moved', ничего не отправлено и не списано.
+  function isChatMoved(raw) {
+    return str(raw).includes('chat_moved');
+  }
+
+  function chatMoved() {
+    return t('err.chat.chatMoved');
+  }
+
   // ── 7. Места в очереди не дождались ───────────────────────────────────────
   //
   // Сервер держал запрос, пока не освободится место в очереди платных вызовов
@@ -280,6 +295,8 @@
     conversationReset,
     isRegenTargetGone,
     regenTargetGone,
+    isChatMoved,
+    chatMoved,
     isQueueBusy,
     busy,
   });

@@ -383,6 +383,11 @@
   const reportStopped = (opId, seenChars) =>
     post('/rest/v1/rpc/lex_turn_stopped', { p_op_id: opId, p_seen_chars: seenChars });
 
+  // What became of a message by its number (lex_op_state, chat_turn_fate.sql): {status: 'none'}
+  // — the server does not have it; 'pending' — still being taken; 'begun' — written, with the
+  // answer's text and state (streaming, done, stopped).
+  const opState = (opId) => post('/rest/v1/rpc/lex_op_state', { p_op_id: opId });
+
   // Скрытие, а не удаление: строки в public.video_chat_turns не трогаются
   // никогда. И оно теперь ОБЩЕЕ для всех устройств, а не своё у каждого, —
   // беседа, убранная здесь, исчезает и в расширении, и на телефоне.
@@ -686,6 +691,7 @@
     newsPost,
     personCard,
     reportStopped,
+    opState,
     attach,
     newUid,
     TAG,
