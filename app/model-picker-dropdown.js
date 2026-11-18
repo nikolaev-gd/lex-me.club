@@ -177,7 +177,8 @@
       if (submenuEl) { submenuEl.remove(); submenuEl = null; submenuForApiModel = null; }
     }
 
-    function openSubmenu(rowEl, apiModel, efforts, currentEffort, onChoose) {
+    // labelOf — подпись пункта по его значению (у ступеней подпись и есть значение).
+    function openSubmenu(rowEl, apiModel, efforts, currentEffort, onChoose, labelOf) {
       if (submenuForApiModel === apiModel) return;
       closeSubmenu();
       submenuForApiModel = apiModel;
@@ -192,7 +193,7 @@
         check.textContent = eff === currentEffort ? '✓' : '';
         const label = document.createElement('span');
         label.className = 'ytvocab-model-picker-label';
-        label.textContent = eff;
+        label.textContent = labelOf ? labelOf(eff) : eff;
         item.appendChild(check);
         item.appendChild(label);
         item.addEventListener('mousedown', (e) => e.stopPropagation());
@@ -308,6 +309,36 @@
       }
     }
 
+    // opts.choiceRow — необязательная строка под моделями, за чертой: выбор, который не модель,
+    // из нескольких вариантов («Подписка или токены API», claude_route.sql). Наведение или нажатие
+    // раскрывает подменю вариантов с галочкой на нынешнем, как ступени у модели.
+    // { label, options: [{value, label}], current, onChoose(value) }.
+    if (opts.choiceRow) {
+      const ch = opts.choiceRow;
+      const sep = document.createElement('div');
+      sep.className = 'ytvocab-model-picker-sep';
+      container.appendChild(sep);
+      const row = document.createElement('div');
+      row.className = 'ytvocab-model-picker-row ytvocab-model-picker-choice-row';
+      const check = document.createElement('span');
+      check.className = 'ytvocab-model-picker-check';
+      const label = document.createElement('span');
+      label.className = 'ytvocab-model-picker-label';
+      label.textContent = ch.label;
+      const chevron = document.createElement('span');
+      chevron.className = 'ytvocab-model-picker-chevron';
+      chevron.textContent = '›';
+      row.appendChild(check);
+      row.appendChild(label);
+      row.appendChild(chevron);
+      const labels = new Map(ch.options.map((o) => [o.value, o.label]));
+      const show = () => openSubmenu(row, '\u0000choice', ch.options.map((o) => o.value), ch.current,
+        (value) => { closeSubmenu(); ch.onChoose(value); }, (value) => labels.get(value) || value);
+      row.addEventListener('mouseenter', show);
+      row.addEventListener('click', show);
+      container.appendChild(row);
+    }
+
     // opts.tailRow — необязательная последняя строка под моделями, за чертой:
     // действие, а не выбор модели (пункт «Transcribe audio» под блоком
     // «Subtitles»). Ни галочки, ни ступеней; меню она не закрывает — что
@@ -382,6 +413,9 @@
       tailRow: opts.tailRow
         ? { label: opts.tailRow.label, onPick: (row) => opts.tailRow.onPick({ row, panel, relayout: place, close: closeThis }) }
         : null,
+      choiceRow: opts.choiceRow
+        ? { ...opts.choiceRow, onChoose: (value) => { closeActive(); opts.choiceRow.onChoose(value); } }
+        : null,
       getEffort: opts.getEffort,
       onPick: (provider, apiModel, effort) => {
         closeActive();
@@ -420,6 +454,9 @@
   //   action rather than a model («Transcribe audio» under the Subtitles
   //   block). isVisible is asked on every open; onPick gets
   //   ctl = {row, panel, relayout(), close()} and the menu stays open.
+  // opts.choiceRow: {label, get(): Promise<{options:[{value,label}], current}|null>, onChoose(value)}
+  //   — optional row below the models with a submenu of choices, e.g. «Подписка или токены API»;
+  //   get() is asked on every open, null — no row.
   function mount(trigger, config) {
     trigger.classList.add('ytvocab-model-picker-trigger');
     trigger.addEventListener('click', async (e) => {
@@ -458,10 +495,18 @@
         try { leadSelected = !!(await config.leadRow.isSelected()); } catch (_) { /* noop */ }
         leadRow = { label: config.leadRow.label, selected: leadSelected, onPick: config.leadRow.onPick };
       }
+      const choiceGot = config.choiceRow
+        ? Promise.resolve().then(() => config.choiceRow.get()).then((v) => v || null, () => null)
+        : null;
       let tailRow = null;
       if (tailShown && await tailShown) {
         const label = (typeof config.tailRow.label === 'function') ? config.tailRow.label() : config.tailRow.label;
         tailRow = { label: String(label || ''), onPick: config.tailRow.onPick };
+      }
+      let choiceRow = null;
+      const got = choiceGot ? await choiceGot : null;
+      if (got && Array.isArray(got.options) && got.options.length) {
+        choiceRow = { label: config.choiceRow.label, options: got.options, current: got.current, onChoose: config.choiceRow.onChoose };
       }
       // Пока ждали, началось другое открытие — показывает оно.
       if (seq !== openSeq) return;
@@ -470,6 +515,7 @@
         provider,
         leadRow,
         tailRow,
+        choiceRow,
         getEffort: config.getEffort,
         onPick: config.onPick,
         side: !!(openOpts && openOpts.side),
