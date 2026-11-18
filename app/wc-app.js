@@ -646,10 +646,14 @@
       .catch(() => {});
   }
   // The numbers of the unread from the server: the rows and the section buttons, and the number on the icon of the
-  // Mac app in the Dock — the sum of them (`badge`), the same as on the iPhone's icon.
+  // Mac app in the Dock — the sum of the buttons this page has (`badge_mac`): the iPhone's number counts the calendar
+  // too, and the page has no section «Календарь» to show or read it (mac_badge_no_calendar.sql). A server from
+  // before says `badge` alone.
+  const macBadgeOf = (u) => (u && u.badge_mac != null ? u.badge_mac : u && u.badge);
   function takeUnread(u) {
     if (global.LexSection) global.LexSection.setUnread(u);
-    if (u && u.badge != null) shellBadge(Number(u.badge) || 0);
+    const n = macBadgeOf(u);
+    if (n != null) shellBadge(Number(n) || 0);
   }
   // The numbers of the unread (supabase/migrations/unread_counts.sql): at the start, at every signal
   // «unread» of the account (a message came or was seen on any device) and after the channel opens again.
@@ -699,7 +703,8 @@
       // screen sends it the number alone (lex_push_badge_on, as the iPhone). The answer is the number now.
       if (!p.badge) return null;
       return newsRpc('lex_push_badge_on', { p_token: p.token }).then((r) => {
-        if (r && r.badge != null) shellBadge(Number(r.badge) || 0);
+        const n = macBadgeOf(r);
+        if (n != null) shellBadge(Number(n) || 0);
       });
     }).catch((e) => console.warn('[wc] push address:', e && e.message));
   }
