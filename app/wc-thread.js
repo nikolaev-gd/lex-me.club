@@ -1300,7 +1300,8 @@
           }
         }
         const node = old || el('span.wc-price');
-        node.textContent = sub ? 'по подписке' : global.LexChatMoney.format(usd);
+        // route 'api' — the owner chose API tokens in «+» (claude_route.sql).
+        node.textContent = sub ? (any.route === 'api' ? 'токены API' : 'по подписке') : global.LexChatMoney.format(usd);
         node.classList.toggle('wc-price-sub', sub);
         node.dataset.lexUsd = String(usd);
         node.title = [a.model, a.effort].filter(Boolean).join(' · ');

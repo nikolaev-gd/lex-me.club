@@ -439,6 +439,20 @@
     const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);
     return { modelId: modelId || null, efforts: (efforts && typeof efforts === 'object') ? efforts : {} };
   });
+  // Subscription or API tokens for the owner's chats with Claude (claude_route.sql): no route —
+  // read the choice, 'api' or 'subscription' — set it. available false — no row in «+».
+  WcBus.on('WC_CLAUDE_ROUTE', async (m) => {
+    const token = await A.validToken();
+    if (!token) return { ok: false };
+    const route = m && (m.route === 'api' || m.route === 'subscription') ? m.route : null;
+    const resp = await fetch(A.supabaseUrl() + '/rest/v1/rpc/lex_claude_route', {
+      method: 'POST',
+      headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(route ? { p_route: route } : {}),
+    });
+    if (!resp.ok) throw new Error('Claude: HTTP ' + resp.status);
+    return (await resp.json().catch(() => null)) || { ok: false };
+  });
   WcBus.on('WC_SET_TEXT_MODEL', async (m) => {
     const parts = String((m && m.modelId) || '').split(':');
     if (parts.length < 3 || !parts[0] || !parts[1]) throw new Error('Unknown model.');

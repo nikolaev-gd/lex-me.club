@@ -75,6 +75,8 @@
     'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',
     'lex_live_register', 'lex_notification_set', 'lex_notification_mode_set', 'lex_patch_user_settings',
+    // subscription or API tokens of Claude (claude_route.sql): asked at the «+», never kept
+    'lex_claude_route',
     // the moment a chat was last open: taken and written, never shown from a copy
     'lex_chat_seen',
     // what became of a message after a broken connection (chat_turn_fate.sql): asked live, never kept

@@ -851,6 +851,10 @@
             onSelect: () => tm.open(anchor),
           });
         }
+        // Подписка или токены API — строка только у аккаунта с базой (claude_route.sql).
+        let cr = null;
+        try { cr = hooks.claudeRoute && hooks.claudeRoute(); } catch (_) { cr = null; }
+        if (cr) items.push({ label: cr.label, icon: 'spark', onSelect: () => cr.toggle() });
         // Меню открывается по обычному нажатию, значит и отклик обычный —
         // `tap`. `press` носит долгое удержание (onLongPress выше), и разница
         // между ними здесь смысловая: она говорит пальцу, каким жестом это

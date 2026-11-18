@@ -2195,6 +2195,27 @@
     [[textModelLabel, textModelSees], [profiModelLabel, profiModelSees]] = await Promise.all([label(false), label(true)]);
   }
 
+  // Подписка или токены API (claude_route.sql, 2026-11-18): как идут ходы Геннадия к модели
+  // Claude. Один выбор на аккаунт, хранит сервер; строка «Claude» в меню «+» — только аккаунту с
+  // базой. Меню «+» открывается синхронно: выбор держится наготове и перечитывается при каждом
+  // открытии меню — выбор, сделанный на другом устройстве, доедет к следующему.
+  let claudeRoute = null;   // null — строки нет; 'subscription' | 'api'
+  async function refreshClaudeRoute(route) {
+    try {
+      const r = await WcBus.call('WC_CLAUDE_ROUTE', route ? { route } : {});
+      if (r && r.ok === true) claudeRoute = r.available ? (r.route === 'api' ? 'api' : 'subscription') : null;
+      return r;
+    } catch (err) {
+      if (route) WcUI.toast(String((err && err.message) || err), { error: true });
+      return null;
+    }
+  }
+  async function toggleClaudeRoute() {
+    const want = claudeRoute === 'api' ? 'subscription' : 'api';
+    const r = await refreshClaudeRoute(want);
+    if (r && r.ok === true) WcUI.toast(claudeRoute === 'api' ? 'Claude: токены API' : 'Claude: подписка');
+  }
+
   // ── Переспрос и «изменить» ───────────────────────────────────────────────
   async function regenerate(turn, modelId) {
     if (WcThread.isStreaming()) return;
@@ -3357,6 +3378,7 @@
       onEdit: editTurn,
     });
     refreshTextModelLabel();
+    refreshClaudeRoute();
     WcStore.subscribe((changes) => {
       if (changes && Object.keys(changes).some((k) => k.indexOf('activeModelId_') === 0)) refreshTextModelLabel();
     });
@@ -3403,6 +3425,11 @@
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
       // открывает меню моделей. Видят все, в каждом чате.
       textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
+      // Строка «Claude: подписка / токены API» — только аккаунту с базой; нажатие переключает.
+      claudeRoute: () => {
+        refreshClaudeRoute();
+        return claudeRoute ? { label: claudeRoute === 'api' ? 'Claude: токены API' : 'Claude: подписка', toggle: toggleClaudeRoute } : null;
+      },
       // Holding the arrow: in an order chat the text goes to the client at once, without the
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),
