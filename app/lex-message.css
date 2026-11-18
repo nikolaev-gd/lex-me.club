@@ -177,6 +177,18 @@
 .lex-bubble .lex-bubble-copy:hover, .lex-bubble .lex-bubble-copy:focus-visible { color: var(--fg, var(--lex-plain-fg)); outline: none; }
 .lex-bubble .lex-bubble-copy svg { display: block; width: 16px; height: 16px; stroke-width: 2; }
 
+/* A draft being changed in place (В7.20, Edit → Save): the bubble keeps its dashed edge — the only frame —
+   and its words become a field with the bubble's letters and colour; it takes the whole lane the bubble may
+   have (86 %) so that there is room to type, and grows with the words. */
+.lex-bubble.is-editing { width: 100%; }
+.lex-bubble .lex-bubble-edit {
+  -webkit-appearance: none; appearance: none;
+  display: block; box-sizing: border-box; width: 100%; margin: 0; padding: 0;
+  border: 0; border-radius: 0; outline: none; resize: none; overflow: hidden;
+  background: transparent; color: inherit; font: inherit; letter-spacing: inherit;
+  white-space: pre-wrap; overflow-wrap: anywhere; caret-color: currentColor;
+}
+
 /* The button that sends a text to a person (В7.23): the second button (В7.7) — 44, radius 12,
    --bg-hover, the words --fg 15/650, 0 12 inside; in the middle through 8 the mark of the place 18 and
    the words in one line with an ellipsis. Under the cursor and pressed — --bg-active; while the text is

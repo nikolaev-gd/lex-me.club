@@ -191,6 +191,7 @@
   // server; none yet while the answer is being written (paler, no Copy, no row). A box that went shows
   // no copy of itself: what went stands in the chat as a message with its ticks.
   // A draft that answers one message of the client carries its quote (В7.35), as the client will see it.
+  // The text is the window's: the person may have changed it (Edit → Save, below).
   function boxNode(text, win, deps, quote) {
     const M = global.LexMessage;
     const root = make('div', 'lex-profi-box');
@@ -200,26 +201,130 @@
       root.appendChild(note);
       return root;
     }
-    let note = null;
-    const copy = win ? async () => {
-      const ok = await deps.copy(win.text);
-      if (!ok && note) note.textContent = 'The browser refused the clipboard.';
-      return ok;
-    } : null;
-    const q = quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null;
-    root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, copy, quote: q }));
     if (!win) {
       root.classList.add('is-writing');
+      const q = quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null;
+      root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, quote: q }));
       return root;
     }
-    const price = priceLine(win.price);
-    if (price) root.appendChild(make('div', 'lex-profi-box-price', `Price: ${price}`));
-    const controls = boxControls(win, deps);
-    const foot = controls.foot;
-    note = controls.note;
-    root.appendChild(foot);
-    root.appendChild(note);
+    // What the person is typing into a box (Edit, not yet saved) lives in `deps.edits` (window → { text }),
+    // kept by the chat: a signal of the database redraws the answer, and the typed words must survive it.
+    const edits = deps.edits || new Map();
+    if (!canEdit(win)) edits.delete(win.id);
+    let shown = win.text != null ? win.text : text;
+    let line = '';
+    const quoteNode = () => (quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null);
+
+    function paintView() {
+      let note = null;
+      const copy = async () => {
+        const ok = await deps.copy(shown);
+        if (!ok && note) note.textContent = 'The browser refused the clipboard.';
+        return ok;
+      };
+      const kids = [M.bubble({ side: 'out', tone: 'draft', text: shown, copy, quote: quoteNode() })];
+      const price = priceLine(win.price);
+      if (price) kids.push(make('div', 'lex-profi-box-price', `Price: ${price}`));
+      const controls = boxControls(Object.assign({}, win, { text: shown }), deps, canEdit(win) ? startEdit : null);
+      note = controls.note;
+      if (line) note.textContent = line;
+      kids.push(controls.foot, note);
+      root.classList.remove('is-editing');
+      root.replaceChildren(...kids);
+    }
+
+    function startEdit() {
+      edits.set(win.id, { text: shown, fresh: true });
+      paintEdit();
+    }
+
+    // Edit → Save (Gennady, 2026-11-18): the bubble is the same, its words are a field; under it «Cancel» and
+    // «Save» stand in place of the row that sends. A tap on them sends nothing to anyone, so they are taps.
+    // Save writes the text into the box on the server (profi_box_text): Send, the time and every app read it
+    // from there. Escape cancels, Ctrl or Cmd with Enter saves.
+    function paintEdit() {
+      const entry = edits.get(win.id);
+      const old = entry.field;
+      const keep = !!entry.fresh || !!(old && old.isConnected && global.document.activeElement === old);
+      const caret = old && old.isConnected ? [old.selectionStart, old.selectionEnd] : null;
+      const note = make('div', 'lex-profi-box-note');
+      note.setAttribute('role', 'status');
+      const changed = () => {
+        const words = entry.text.trim();
+        return words !== '' && words !== shown.trim();
+      };
+      let busy = false;
+      const leave = () => {
+        edits.delete(win.id);
+        paintView();
+      };
+      const save = async () => {
+        if (busy || !changed()) return;
+        busy = true;
+        saveBtn.disabled = true;
+        cancelBtn.disabled = true;
+        note.textContent = 'Saving…';
+        let r = null;
+        try {
+          r = await deps.rpc('profi_box_text', { p_window: win.id, p_text: entry.text });
+        } catch (e) {
+          busy = false;
+          cancelBtn.disabled = false;
+          saveBtn.disabled = !changed();
+          note.textContent = 'Not saved. ' + ((e && e.message) || '');
+          return;
+        }
+        if (r && typeof r.text === 'string') shown = r.text;
+        line = r && r.saved === false ? 'Not saved: the text has already gone.' : '';
+        leave();
+        deps.refresh();
+      };
+      const ed = M.editField({
+        value: entry.text,
+        label: deps.folder ? 'Message to the person' : 'Message to the client',
+        onInput: (v) => {
+          entry.text = v;
+          saveBtn.disabled = busy || !changed();
+          if (note.textContent) note.textContent = '';
+        },
+        onKey: (e) => {
+          if (e.key === 'Escape') { e.preventDefault(); if (!busy) leave(); }
+          else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+        },
+      });
+      entry.field = ed.field;
+      const bubble = M.bubble({ side: 'out', tone: 'draft', body: ed.body, quote: quoteNode() });
+      bubble.classList.add('is-editing');
+      const cancelBtn = button('lex-profi-btn', 'Cancel', () => { if (!busy) leave(); });
+      cancelBtn.dataset.role = 'edit-cancel';
+      const saveBtn = button('lex-profi-btn is-main', 'Save', save);
+      saveBtn.dataset.role = 'edit-save';
+      saveBtn.disabled = !changed();
+      const foot = make('div', 'lex-profi-box-foot');
+      foot.append(cancelBtn, saveBtn);
+      const kids = [bubble];
+      const price = priceLine(win.price);
+      if (price) kids.push(make('div', 'lex-profi-box-price', `Price: ${price}`));
+      kids.push(foot, note);
+      root.classList.add('is-editing');
+      root.replaceChildren(...kids);
+      if (keep) ed.focus();
+      if (caret && !entry.fresh) {
+        global.requestAnimationFrame(() => {
+          if (ed.field.isConnected) { try { ed.field.setSelectionRange(caret[0], caret[1]); } catch (_) { /* no selection */ } }
+        });
+      }
+      entry.fresh = false;
+    }
+
+    if (edits.has(win.id)) paintEdit(); else paintView();
     return root;
+  }
+
+  // A box whose text may still change: nothing has gone out of it. The person's own text has its own Edit
+  // (when it did not go); the server says the same (profi_box_text).
+  function canEdit(win) {
+    return !!win && !win.direct && (win.state === 'ready' || win.state === 'scheduled' || (win.state === 'failed' && !!win.retry));
   }
 
   // What a box says under it about where it stands: the server's state of the box in words.
@@ -249,7 +354,7 @@
   //     person's own text leaves the chat and comes back into the field (deps.putBack);
   //   the person's own text that did not leave — «Delete» as well.
   // «Cancel» and «Delete» work by a tap, as before: nothing goes to a person by them.
-  function boxControls(win, deps) {
+  function boxControls(win, deps, onEdit) {
     const foot = make('div', 'lex-profi-box-foot');
     const note = make('div', 'lex-profi-box-note');
     note.setAttribute('role', 'status');
@@ -278,11 +383,10 @@
       const again = open && win.state === 'failed';
       const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : name ? `Hold to send to ${name}` : 'Hold to send';
       const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${name || (deps.folder ? 'the person' : 'the client')} on ${placeName(to)}. Hold to send`;
-      // «⋯» of a box of the model: the same box at a time, or its text into the field. A box of a folder chat
-      // goes at once (the queue of the database sends at once): its text into the field only.
-      const items = open && !win.direct && deps.folder ? (deps.putBack ? () => [
-        { label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) },
-      ] : null) : open && !win.direct ? () => {
+      // «⋯» of a box of the model: the same box at a time, or its words changed in the box (Edit). A box of a
+      // folder chat goes at once (the queue of the database sends at once): Edit only.
+      const editItem = onEdit ? { label: 'Edit', icon: 'pencil', run: () => onEdit() } : null;
+      const items = open && !win.direct && deps.folder ? (editItem ? () => [editItem] : null) : open && !win.direct ? () => {
         const list = [{
           label: 'Schedule…',
           icon: 'clock',
@@ -292,7 +396,7 @@
             await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
           },
         }];
-        if (deps.putBack) list.push({ label: 'Edit in the field', icon: 'pencil', run: () => deps.putBack(win.text) });
+        if (editItem) list.push(editItem);
         return list;
       } : null;
       // A box of a folder chat: its text goes by the Send of the chat (folder-send), tied to the box.
@@ -498,9 +602,12 @@
     // opened by Reply yourself opens with it off: the person came for the bot's draft in its box
     // and the talk with the model about it, and the clean view hides both.
     let clean = deps.clean !== false;
+    // The words being typed into the boxes of the chat (Edit, not yet saved), by window: they stay while the
+    // answer is drawn again.
+    const edits = new Map();
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, notify: deps.notify,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
-      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox });
+      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
     const revealed = new Set();
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet

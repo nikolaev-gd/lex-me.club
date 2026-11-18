@@ -60,6 +60,8 @@
 //                       round it (В7.22); a tick for 1,5 s once it copied
 //   bubble({ side: 'out', tone: 'draft', text, copy })   a draft for the client (В7.20): what went
 //                       to the client with a dashed edge inside; no line under the text
+//   editField({ value, label, onInput, onKey })   the words of a bubble as a field in the same bubble
+//                       (В7.20, Edit → Save of a draft): body for bubble(), the field, grow(), focus()
 //   sendHold({ channel, words, label, onSend, items, fit })   the button that sends a text to a
 //                       person (В7.23): a second button with the mark of the place and «Hold to send
 //                       to Dmitry»; a tap sends nothing, a hold of 480 ms sends; «⋯» by it opens
@@ -709,6 +711,43 @@
       }, 1500);
     });
     return b;
+  }
+
+  // The words of a bubble changed in place (В7.20, Edit → Save, Gennady 2026-11-18): the text of the bubble
+  // becomes a field inside the same bubble — the bubble's own edge is the only frame, no second one, the
+  // letters and the colour are the bubble's — and the field grows with the words.
+  //   editField({ value, label, onInput(value), onKey(event) }) → { body, field, grow, focus }
+  //     body — for `body` of bubble(); label — what is read from the screen; focus() — the caret at the
+  //     end, once the bubble stands in the page (it grows then, too).
+  function editField(o) {
+    const body = make('div', 'lex-edit-body');
+    const field = make('textarea', 'lex-bubble-edit');
+    field.value = (o && o.value) || '';
+    field.rows = 1;
+    if (o && o.label) field.setAttribute('aria-label', o.label);
+    const grow = () => {
+      field.style.height = 'auto';
+      field.style.height = `${field.scrollHeight}px`;
+    };
+    field.addEventListener('input', () => {
+      grow();
+      if (o && o.onInput) o.onInput(field.value);
+    });
+    if (o && o.onKey) field.addEventListener('keydown', o.onKey);
+    body.appendChild(field);
+    // The bubble is built before it stands in the page, and a field out of the page has no height yet.
+    const settle = (left) => {
+      if (field.isConnected) { grow(); return; }
+      if (left > 0) global.requestAnimationFrame(() => settle(left - 1));
+    };
+    settle(20);
+    const focus = () => global.requestAnimationFrame(() => {
+      if (!field.isConnected) return;
+      grow();
+      field.focus({ preventScroll: false });
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    return { body, field, grow, focus };
   }
 
   // The button that sends a text to a person (В7.23, Gennady's decision of 2026-11-16: «пусть это
@@ -2621,7 +2660,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);
