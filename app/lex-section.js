@@ -531,16 +531,19 @@
     }
 
     // A press on an item. run(wanted) is the section's: wanted() turns false when the person
-    // went elsewhere meanwhile, and then nothing moves. What failed goes to the status line.
+    // went elsewhere meanwhile, and then nothing moves. What failed goes to the status line, or
+    // to onFail(text) when the item is opened from a screen that is not this section's (the tabs of the people).
     let opening = 0;
-    async function open(run, failText) {
+    async function open(run, failText, onFail) {
       opening += 1;
       const mine = opening;
       const wanted = () => opening === mine;
       try {
         await run(wanted);
       } catch (e) {
-        if (wanted()) say(`${failText} ${(e && e.message) || ''}`.trim(), true);
+        if (!wanted()) return;
+        const text = `${failText} ${(e && e.message) || ''}`.trim();
+        if (onFail) onFail(text); else say(text, true);
       }
     }
 

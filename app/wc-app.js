@@ -530,6 +530,9 @@
     return SECTIONS[id];
   }
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
+  // The way back from a chat opened from a list: to the list of its section; from the tabs of the people (opts.from)
+  // there is none, the chat stands as every chat of the panel does and the three stripes open the panel again.
+  const backOfList = (id, opts) => (opts && opts.from === 'people' ? null : sectionTarget(id));
   let sectionOn = null;
   function sectionEls() {
     return {
@@ -579,13 +582,41 @@
     WcSidebar.close();
     await section.live.show({ back: !!(opts && opts.back) });
   }
+  // ── The tabs of the people (lex-people.js) ─────────────────────────────────
+  // Over the list of conversations: Lex, All, Profi.ru, Kolya, Other. The sections of the people (Profi.ru and the
+  // folders) the server names become tabs and have no button at the bottom of the panel; the rest of the sections
+  // (Questions, Extended Mind, News) stay buttons. A line of a tab is the line of its section, and a press opens the
+  // chat the way that section does, with no list of the section behind it.
+  const people = global.LexPeople.create({
+    tabsHost: document.getElementById('wc-people-tabs'),
+    listHost: document.getElementById('wc-people'),
+    convsHost: document.getElementById('wc-convs'),
+    tabs: (o) => WcUI.tabs(o),
+    read,
+    signals,
+    live: (id) => (SECTIONS[id] && SECTIONS[id].build ? ensureSection(id) : null),
+    // The chat of new orders and the settings are screens of Profi.ru: they open in its place, and the arrow leads
+    // back to its list.
+    showFeed: async (order) => {
+      await showSection('profi');
+      if (order) await SECTIONS.profi.live.openFeedAt(order); else SECTIONS.profi.live.openFeed();
+    },
+    notify: (text) => toast(text, { error: true }),
+    gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
+  });
+  document.getElementById('wc-people-gear').addEventListener('click', async () => {
+    await showSection('profi');
+    SECTIONS.profi.live.openSettings();
+  });
   // The buttons of the sections: from what this device kept, then as the server names them.
   // Every section the server names is then built and its list read (warm), so its first
   // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
   async function loadSections() {
     const draw = (list) => {
       for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
-      global.LexNews.renderEntries(document.getElementById('wc-sections'), list, (id) => {
+      people.setSections(list);
+      const buttons = (Array.isArray(list) ? list : []).filter((s) => !(s && people.isPeople(s.id)));
+      global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => {
         if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
         else if (SECTIONS[id]) showSection(id);
       });
@@ -610,6 +641,8 @@
       const live = ensureSection(s.id);
       if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
     }
+    // The one list of the people is read too, so that the first opening of the panel has it.
+    if (people.hasTabs) people.warm();
   }
 
   // ── What is on the screen, for the iPhone's notifications (2026-11-11) ────
@@ -652,6 +685,7 @@
   const macBadgeOf = (u) => (u && u.badge_mac != null ? u.badge_mac : u && u.badge);
   function takeUnread(u) {
     if (global.LexSection) global.LexSection.setUnread(u);
+    people.repaintTabs();
     const n = macBadgeOf(u);
     if (n != null) shellBadge(Number(n) || 0);
   }
@@ -803,13 +837,12 @@
     // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
     // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key.
     if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
-    // A message of a folder (folder_message): its section, and the chat over its list, as a press there opens it.
-    // A folder the page does not know (its button has not come yet) — the chat by itself.
+    // A message of a folder (folder_message): its chat, as a press on its line in the tabs of the people opens it.
+    // A folder the page does not know (its tab has not come yet) — the chat by itself.
     const folderId = lex.folder ? `folder:${lex.folder}` : '';
     if (WcHistory.isFolderKey(key) && SECTIONS[folderId]) {
-      await showSection(folderId);
-      if (!wanted()) return;
-      await openFolderChat(folderId, key, wanted);
+      ensureSection(folderId);
+      await openFolderChat(folderId, key, wanted, null, null, 'people');
       return;
     }
     if (key) await openConversation(key, { wanted });
@@ -1616,7 +1649,7 @@
     if (held && held.chatKey && held.chat) {
       const chat = makeProfiChat(order, held, keep, opts);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId });
-      await openConversation(held.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: held.chat });
+      await openConversation(held.chatKey, { profi: chat, back: backOfList('profi', opts), wanted, loaded: held.chat });
       // The chat is on screen: a lost answer is not «the chat did not open». The watch of the
       // section reads it again with the next change, and the visit's moment is written on leaving.
       if (profiChat === chat) await refreshProfiChat({ take: true }).catch((e) => console.warn('[wc] order chat:', e && e.message));
@@ -1635,7 +1668,7 @@
     if (keep) keep(data);
     const chat = makeProfiChat(order, data, keep, opts);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
-    await openConversation(data.chatKey, { profi: chat, back: sectionTarget('profi'), wanted, loaded: data.chat });
+    await openConversation(data.chatKey, { profi: chat, back: backOfList('profi', opts), wanted, loaded: data.chat });
   }
   // The server changed something: boxes, new turns, whether the client waits. The answer
   // being written stays as it is; its turn comes with the next change. take — the press that
@@ -1701,7 +1734,7 @@
       signals,
       rpc: newsRpc,
       read,
-      openChat: (key, wanted, held, keepIt) => openFolderChat(id, key, wanted, held, keepIt),
+      openChat: (key, wanted, held, keepIt, from) => openFolderChat(id, key, wanted, held, keepIt, from),
       notify: (text) => toast(text, { error: true }),
       onChange: (payload) => refreshFolderChat({ payload }),
       confirm: (title, text, o) => WcUI.confirm(title, text, o),
@@ -1736,7 +1769,7 @@
   }
   // A press on a chat of a folder: what the section holds (or this device kept) is on screen at once,
   // and the press then reads it and takes the moment of the visit; nothing held — one answer.
-  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt) {
+  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt, from) {
     let held = heldNow;
     if (!(held && held.chatKey && held.chat)) {
       const copy = await kept('folder_item', { p_chat_key: key });
@@ -1749,7 +1782,7 @@
     if (held && held.chatKey && held.chat) {
       const chat = makeFolderChat(sectionId, held, keepIt);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId || null });
-      await openConversation(held.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: held.chat });
+      await openConversation(held.chatKey, { profi: chat, back: backOfList(sectionId, { from }), wanted, loaded: held.chat });
       if (profiChat === chat) await refreshFolderChat({ take: true }).catch((e) => console.warn('[wc] folder chat:', e && e.message));
       return;
     }
@@ -1759,7 +1792,7 @@
     if (keepIt) keepIt(data);
     const chat = makeFolderChat(sectionId, data, keepIt);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId || null });
-    await openConversation(data.chatKey, { profi: chat, back: sectionTarget(sectionId), wanted, loaded: data.chat });
+    await openConversation(data.chatKey, { profi: chat, back: backOfList(sectionId, { from }), wanted, loaded: data.chat });
   }
   // The database changed something: a message came, one changed (a reaction, an edit, its file), a
   // text went or did not. A signal about another chat is not read. take — the press that showed the
@@ -1902,6 +1935,7 @@
   // легко развести разными решениями (это и была причина дефекта: жест шёл в
   // обход единственного места, где клавиатура убиралась).
   function onSidebarToggle(open) {
+    people.setActive(open);
     if (open) { WcComposer.blur(); return; }
     if (WcThread.isEmpty()) WcComposer.focus({ raiseKeyboard: true });
   }

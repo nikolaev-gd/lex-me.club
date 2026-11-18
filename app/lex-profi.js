@@ -1244,8 +1244,11 @@
 
     // opts.showLex — the chat opens with the discussion shown: the notification of a draft after a call brings the
     // person to that draft (В7.42), which the clean view would hide.
-    const openOrder = (order, opts) => frame.open(
-      (wanted) => deps.openOrder(order, wanted, held.get(order), keepOf(order), opts), 'The chat did not open.');
+    // opts.from — where the press came from: the tabs of the people open the chat with no way back to this
+    // section's list (wc-app.js, the arrow stays out). fail(text) — where a failure is told then (the status line of
+    // the section is not on the screen).
+    const openOrder = (order, opts, fail) => frame.open(
+      (wanted) => deps.openOrder(order, wanted, held.get(order), keepOf(order), opts), 'The chat did not open.', fail);
 
     // A press on an order outside the feed. While its reply still waits there (Cancel or
     // Send), the order opens in the feed, the way Telegram shows it: opening a chat for it
@@ -1253,7 +1256,7 @@
     // of the list says so (feed); an order that has no line in the list asks the feed itself.
     // A failed read counts as waiting, so that a bad network never stops a reply either.
     let focusOrder = null;
-    async function openOrderOrFeed(order, opts) {
+    async function openOrderOrFeed(order, opts, fail) {
       const line = ((home && home.chats) || []).find((c) => c.order === order);
       let waits = true;
       if (line && typeof line.feed === 'boolean') waits = line.feed;
@@ -1264,7 +1267,7 @@
           waits = !!it && (it.actions || []).some((a) => a === 'cancel' || a === 'send');
         } catch (_) { waits = true; }
       }
-      if (!waits) { openOrder(order, opts); return; }
+      if (!waits) { openOrder(order, opts, fail); return; }
       focusOrder = order;
       if (frame.screen === 'feed') await paintFeed();
       else go('feed', (home && home.feed && home.feed.title) || 'New orders');
@@ -1286,7 +1289,7 @@
     // Open or not is this window's own and lives as long as it.
     let silentOpen = false;
 
-    async function chatAct(c, act) {
+    async function chatAct(c, act, o) {
       try {
         // The mark is not a line of the list: the numbers of the unread carry it, and the signal «unread»
         // brings them to every device (important_chats.sql).
@@ -1294,21 +1297,27 @@
         await deps.rpc('chat_act', { p_op_id: newOpId(), p_chat_key: c.chatKey, p_act: act });
       } catch (e) {
         if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act !== 'important');
-        say((e && e.message) || 'It did not work.', true);
+        const text = (e && e.message) || 'It did not work.';
+        if (o && o.fail) o.fail(text); else say(text, true);
         return;
       }
       if (act === 'important' || act === 'unimportant') return;
       await reloadHome();
       if (frame.screen === 'home') paintHome();
+      if (o && o.after) o.after();
     }
 
     // A line of a chat (В7.34): the photo or the letter of the client 48 (В7.12), the name and the
     // order, the time, the pin of a pinned one; the last message, «Bot:» before the bot's; the tick of
     // Profi when Gennady or the bot wrote last.
-    function chatLine(c) {
+    // o — the tabs of the people draw the same line (lex-people.js): { from, fail, after, feed(order) }. A reply that
+    // waits in the feed opens the feed, and the feed is a screen of this section: feed() shows it.
+    function chatLine(c, o) {
       const line = global.LexSection.row({
         lead: global.LexMessage.avatar(c.client || c.title, { photo: c.photo, io: fileIo, size: 48 }),
-        title: c.title, sub: plainLinks(c.last || ''), dot: c.unread, onClick: () => openOrderOrFeed(c.order),
+        title: c.title, sub: plainLinks(c.last || ''), dot: c.unread,
+        onClick: () => (o && o.feed && c.feed ? o.feed(c.order)
+          : openOrderOrFeed(c.order, o && o.from ? { from: o.from } : undefined, o && o.fail)),
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
         unread: { order: c.order },
@@ -1316,7 +1325,7 @@
         draft: c.chatKey && !c.feed ? c.chatKey : null,
       });
       if (c.chatKey && global.LexChatMenu) {
-        const act = (name) => chatAct(c, name);
+        const act = (name) => chatAct(c, name, o);
         global.LexChatMenu.attach(line, () => ({
           title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
           important: global.LexSection.isImportant(c.chatKey),
@@ -1832,6 +1841,9 @@
       // of new orders is on the screen (webchat/wc-app.js, presenceKey).
       get screen() { return frame.screen; },
       openOrder: openOrderOrFeed,
+      // The line of an order chat as the list of the section draws it, and the settings, for the tabs of the people.
+      line: chatLine,
+      openSettings() { go('settings', 'Settings'); },
       openFeed() { go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
       async openFeedAt(order) {
         focusOrder = order;

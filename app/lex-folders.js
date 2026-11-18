@@ -50,8 +50,11 @@
     // the photo too: a new photo of the person is read again for the bar over the chat
     const stampOf = (c) => [c.at, c.last, c.unread, c.pinned, c.photo || ''].join('|');
     const keepOf = (key) => (item) => held.put(key, item);
-    const openChat = (key) => frame.open(
-      (wanted) => deps.openChat(key, wanted, held.get(key), keepOf(key)), 'The chat did not open.');
+    // o.from — where the press came from: the tabs of the people open the chat with no way back to this
+    // section's list (wc-app.js, the arrow stays out); o.fail(text) — where a failure is told then.
+    const openChat = (key, o) => frame.open(
+      (wanted) => deps.openChat(key, wanted, held.get(key), keepOf(key), o && o.from),
+      'The chat did not open.', o && o.fail);
 
     async function reloadHome(show) {
       const v = await readKept('folder_home', { p_folder: deps.folder }, (list, fresh) => {
@@ -66,7 +69,7 @@
 
     const DELETE_TEXT = 'It disappears from Lex. Nothing changes in the messengers. '
       + 'A new message of the person brings it back.';
-    async function chatAct(c, act) {
+    async function chatAct(c, act, o) {
       try {
         // The mark is not a line of the list: the numbers of the unread carry it, and the signal «unread»
         // brings them to every device (important_chats.sql).
@@ -74,23 +77,26 @@
         await deps.rpc('chat_act', { p_op_id: newOpId(), p_chat_key: c.chatKey, p_act: act });
       } catch (e) {
         if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act !== 'important');
-        say((e && e.message) || 'It did not work.', true);
+        const text = (e && e.message) || 'It did not work.';
+        if (o && o.fail) o.fail(text); else say(text, true);
         return;
       }
       if (act === 'important' || act === 'unimportant') return;
       await reloadHome();
       if (frame.screen === 'home') paint();
+      if (o && o.after) o.after();
     }
 
     // A line of a chat (В7.34): the photo of the person (folder_photos.sql) or the letter of the person or
     // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message with the mark of
     // the messenger it came by. The photo comes with the person's own pass, as the files of a message.
-    function chatLine(c) {
+    // o — the tabs of the people draw the same line (lex-people.js): { from, fail, after }.
+    function chatLine(c, o) {
       const M = global.LexMessage;
       const io = global.LexFileAttach && global.LexFileAttach.webIo;
       const line = global.LexSection.row({
         lead: M.avatar(c.title || '?', { size: 48, photo: c.photo, io }),
-        title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey),
+        title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey, o),
         end: c.channel && M.CHANNELS[c.channel] ? M.channel(c.channel) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
         unread: { chat: c.chatKey },
@@ -98,7 +104,7 @@
         draft: c.chatKey || null,
       });
       if (global.LexChatMenu) {
-        const act = (name) => chatAct(c, name);
+        const act = (name) => chatAct(c, name, o);
         global.LexChatMenu.attach(line, () => ({
           title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
           important: global.LexSection.isImportant(c.chatKey),
@@ -146,6 +152,8 @@
     return {
       el: frame.el,
       stopOpening: frame.stopOpening,
+      // The line of a chat of this folder, as the list of the folder draws it, for the tabs of the people.
+      line: chatLine,
       // The person left a chat of the folder: it is read again, so the next press shows it as it is now.
       visited(chatKey) { if (chatKey) held.ahead(chatKey, null); },
       async show() {

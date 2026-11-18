@@ -56,6 +56,7 @@
     lex_em_question_item: { by: ['p_item'], limit: 60 },  //   a question with its chat
     lex_em_feed_turns: { by: ['p_chat_key'], limit: 10 }, //   a feed read as a chat
     folder_home: { by: ['p_folder'], limit: 10 },          // a folder of chats (Kolya, Other): its list
+    people_home: {},                                      // the tabs of the people: every chat of them in one list
     folder_item: { by: ['p_chat_key'], limit: 60 },       //   a chat of it with its messages
     lex_folder_turns: { by: ['p_chat_key'], first: ['p_before_uid'], limit: 40 }, //   its messages
     news_feed: {},                                        // News: its first letters and the place in them
