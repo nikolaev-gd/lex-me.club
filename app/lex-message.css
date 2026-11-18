@@ -1,6 +1,6 @@
 /* lex-message.css — the look of lex-message.js: a message of a person or a program, the
  * day line, the «Новые» line, a record of a request to the database. One file for the
- * extension and the page lex-me.club/app; the iPhone draws the same in MessageParts.swift.
+ * extension and the page lex-me.club/app; the iPhone draws the same in ios/Lex/Lex/Parts/.
  * The text takes the size and the face of the chat it stands in. Selectors start with a
  * class of this module so the styles of a host page do not reach in. */
 

@@ -1,7 +1,7 @@
 // lex-message.js — the common parts of every chat where messages come without the person:
 // the feeds of Extended Mind, the chats of its questions, the order chats of Profi.ru, the
 // letter of a news chat. One file for the extension and the page lex-me.club/app (the Mac
-// app shows that page); the iPhone has the same parts in MessageParts.swift.
+// app shows that page); the iPhone has the same parts in ios/Lex/Lex/Parts/.
 //
 //   message({ name, at | timeText, body | text, tail, cls })   a message of a person or a
 //                       program: no bubble, no frame; the sender's name in bold and the time
@@ -933,7 +933,7 @@
   // plays at it at once. A press takes the next speed round, as in Telegram and WhatsApp; a hold
   // opens the menu of the speeds — the common menu of a held button (lex-send-later.js, В7.9). The
   // speed changes under the playing sound without a pause, and the voice keeps its pitch. The
-  // iPhone has the same speeds and words (LexVoiceSpeeds in MessageParts.swift).
+  // iPhone has the same speeds and words (LexVoiceSpeeds in ios/Lex/Lex/Parts/StoredFiles.swift).
   const SPEEDS = [1, 1.25, 1.5, 2, 2.5];
   const SPEED_KEY = 'lexVoiceSpeed';
   const speedText = (s) => `${s}×`;
@@ -1974,7 +1974,7 @@
   }
 
   // A message of emoji alone (В7.40) is 22 in its usual bubble. One rule with the iPhone (`LexEmoji.only`,
-  // MessageParts.swift): every letter of it, spaces aside, is a picture — its first sign is drawn as an
+  // ios/Lex/Lex/Parts/): every letter of it, spaces aside, is a picture — its first sign is drawn as an
   // emoji by itself, or is an emoji followed by more signs (❤️, 1️⃣, 👍🏽, a flag, a family).
   const EMOJI_SELF = /\p{Emoji_Presentation}/u;
   const EMOJI_ANY = /\p{Emoji}/u;
@@ -2224,7 +2224,7 @@
   // ── The one menu of a message, copy and selection (block 2, 2026-11-18) ─────────────────────
   // Gennady, 2026-11-17: «из чата нельзя скопировать вообще ничего» — every text of every chat is selected and
   // copied as in a messenger, and every message has one menu, the same on the page, in the Mac app and in the
-  // extension (the iPhone has its own in MessageParts.swift, item for item). docs/spec/20-chat.md, «Сообщения».
+  // extension (the iPhone has its own in ios/Lex/Lex/Parts/, item for item). docs/spec/20-chat.md, «Сообщения».
   //
   //   attachMenu(el, o)   the menu of the message `el` (a bubble, an answer, a record, a card). It opens by the
   //                       right button of a mouse (over a link, a picture or a video — the browser's own menu),
