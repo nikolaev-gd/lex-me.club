@@ -552,7 +552,7 @@ button { font: inherit; color: inherit; }
 .wc-sections:not([hidden]) + .wc-account { border-top: 0; }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-section-host, .wc-turn-news {
+.wc-sections, .wc-sidebar-new, .wc-section-host, .wc-turn-news {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-bg-on-fg: var(--bg);
   --lex-section-fg:     var(--fg);
@@ -568,6 +568,17 @@ button { font: inherit; color: inherit; }
   flex: 1;
   min-width: 0;
   padding-left: 2px;
+  color: var(--fg);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* «New chat» under the name and the word «Chats» over the list (2026-11-18). */
+.wc-sidebar-new { flex: none; padding: 4px 12px 6px; }
+.wc-sidebar-new[hidden] { display: none; }
+.wc-sidebar-chats {
+  flex: none;
+  padding: 8px 16px 0;
   color: var(--fg-muted);
   font-size: 13px;
   font-weight: 600;

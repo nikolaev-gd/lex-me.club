@@ -297,6 +297,11 @@
         hooks.onNew();
         WcSidebar.close();
       });
+      // «New chat» in the drawer itself: from a section the pencil of the head is not there.
+      global.LexNews.renderNewChat(document.getElementById('wc-sidebar-new'), 'New chat', () => {
+        hooks.onNew();
+        WcSidebar.close();
+      });
       document.getElementById('wc-sidebar-close').addEventListener('click', () => WcSidebar.toggle(false));
       document.getElementById('wc-sidebar-open').addEventListener('click', () => WcSidebar.toggle(true));
       elScrim.addEventListener('click', () => WcSidebar.toggle(false));

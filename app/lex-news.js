@@ -84,6 +84,8 @@
   const ENTRY_ICON = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h13v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z"/><path d="M17 9h3v10a2 2 0 0 1-2 2"/><path d="M8 9h5M8 13h5M8 17h3"/></svg>';
   const ENTRY_ICON_EM = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5.2A3 3 0 0 0 7 17a3 3 0 0 0 5 1V5.5A2.5 2.5 0 0 0 9.5 4z"/><path d="M14.5 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5.2A3 3 0 0 1 17 17a3 3 0 0 1-5 1"/></svg>';
   const ENTRY_ICON_PROFI = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-8 8H4l2.3-3A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14h4"/></svg>';
+  // The pencil of «New chat» — the two paths the head of a chat draws (chat-surface.js, newChatBtn).
+  const ENTRY_ICON_NEW = '<svg class="lex-news-entry-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg>';
   const ENTRY_CHEVRON = '<svg class="lex-news-entry-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
   // Heads of chats a card opened: the feed knows them, so no call is needed to show one.
@@ -163,6 +165,20 @@
       host.appendChild(b);
     }
     host.hidden = !host.childElementCount;
+  }
+
+  // The line «New chat» under the name of the menu of chats (Gennady, 2026-11-18): the look of the lines of
+  // the sections, with a pencil and no chevron. A press opens the empty main chat, from a section too.
+  function renderNewChat(host, label, onPick) {
+    host.replaceChildren();
+    const b = make('button', 'lex-news-entry lex-news-entry--new');
+    b.type = 'button';
+    b.innerHTML = ENTRY_ICON_NEW;
+    b.appendChild(make('span', 'lex-news-entry-title', label));
+    b.setAttribute('aria-label', label);
+    b.addEventListener('click', () => onPick());
+    host.appendChild(b);
+    host.hidden = false;
   }
 
   // ── Process again ───────────────────────────────────────────────────────────
@@ -808,6 +824,6 @@
     };
   }
 
-  const api = { createFeed, createChatHead, renderEntries, renderText, plainText, newOpId, talkLine, readLine, longLine, minutesWord };
+  const api = { createFeed, createChatHead, renderEntries, renderNewChat, renderText, plainText, newOpId, talkLine, readLine, longLine, minutesWord };
   global.LexNews = api;
 })(typeof window !== 'undefined' ? window : globalThis);
