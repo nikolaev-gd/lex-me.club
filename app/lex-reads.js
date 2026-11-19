@@ -30,7 +30,10 @@
 // twice(copy, answer, show, empty) → Promise of the answer
 //   copy()     → Promise of the copy or null;  answer() → Promise of the server's answer
 //   show(value, fresh, same)  the copy, when it comes before the answer (fresh false), then the
-//              answer (fresh true; same — it is exactly the copy already on the screen)
+//              answer (fresh true; same — it is exactly the copy that was handed to show before it).
+//              `same` says nothing of the screen when show did not draw that copy (the screen held a list
+//              already, which another window of the page may have outdated in the copy): such a screen
+//              compares the answer with what it draws itself (lex-people.js, `drawn`).
 //   empty()    optional: the copy goes on the screen only while the screen holds nothing yet,
 //              so a copy never covers what the window read meanwhile
 //   The answer failed: the copy, if it came, stays on the screen, and the error goes on.

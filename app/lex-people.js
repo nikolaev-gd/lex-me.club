@@ -42,7 +42,9 @@
     let chosen = null;       // the tab the person pressed in this run; the one kept on the device before it
     let active = false;      // the main page is on the screen
     let home = null;
+    let drawn = '';          // `home` as text: what the screen shows, to tell the server's answer from it
     let fresh = false;       // the list on the screen came from the server in this run
+    const textOf = (v) => { try { return JSON.stringify(v); } catch (_) { return null; } };
     let tabsRow = null;
     let follower = null;
     let reading = null;
@@ -126,10 +128,18 @@
     // ── reading ────────────────────────────────────────────────────────────────
     function reload() {
       if (reading) return reading;
-      reading = deps.read('people_home', {}, (v, isFresh, same) => {
-        // The copy this device kept draws the first frame; the server's answer takes its place.
-        if (!v || typeof v !== 'object' || (same && home) || (!isFresh && home)) return;
+      reading = deps.read('people_home', {}, (v, isFresh) => {
+        // The copy this device kept draws the first frame; the server's answer takes its place. A copy never covers a
+        // list that stands on the screen already.
+        if (!v || typeof v !== 'object' || (!isFresh && home)) return;
+        // The answer is compared with the list on THIS screen, not with the copy: the `same` of the reads says the answer
+        // is that copy, and a copy that was not drawn (the list stood already) says nothing of the screen. Another
+        // window of the page keeps its own, newer copy, and the two can be equal while this window still shows the dot
+        // that the other one has put out.
+        const text = textOf(v);
+        if (isFresh && home && text !== null && text === drawn) return;
         home = v;
+        drawn = text;
         if (isFresh) fresh = true;
         paint();
       }).catch((e) => {
