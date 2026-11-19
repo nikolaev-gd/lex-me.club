@@ -1394,19 +1394,71 @@
     const quiet = !!(opts && opts.quiet);
     const uids = r && Array.isArray(r.uids) ? r.uids.slice(0, 30) : [];
     const quoteUid = r && typeof r.quoteUid === 'string' && r.quoteUid ? r.quoteUid : null;
-    reply = uids.length || quoteUid
-      ? { uids, quoteUid, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
+    // Edit of a message that went to a person (19.11.2026): the same line over the field, with the pencil; it is no draft.
+    const editUid = r && typeof r.editUid === 'string' && r.editUid ? r.editUid : null;
+    reply = uids.length || quoteUid || editUid
+      ? { uids, quoteUid, editUid, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
     const slot = document.getElementById('wc-reply');
     if (slot) {
       slot.hidden = !reply;
       slot.replaceChildren(...(reply ? [global.LexMessage.replyBar({
-        head: reply.head, text: reply.text, onClose: () => setReply(null),
+        head: reply.head, text: reply.text, edit: !!reply.editUid,
+        onClose: () => (reply && reply.editUid ? endEdit() : setReply(null)),
       })] : []));
       if (reply && !quiet) WcComposer.focus();
     }
     if (!quiet) saveField();
     // A Reply in a chat of a folder goes to the messenger of the message it answers: the hint says it.
     paintAddressee();
+  }
+
+  // ── Edit of a message that went to a person (Gennady, 2026-11-19) ──────────
+  // «Edit» in the menu of one's own message in a chat of a person: its words go into the field, the line over the field
+  // says what is edited, and the arrow edits the message at the person (the edge function message-edit → the database →
+  // the messenger) — the model is not asked, no new message goes. What stood in the field comes back when the edit ends or
+  // is cancelled. The result comes into the chat as every edit does: «edited» with the earlier text.
+  let editStash = null;
+  function startEdit(e) {
+    if (!e || !e.uid) return;
+    // What stood in the field, with its Reply line, comes back when the edit ends: the edit is no draft.
+    if (!(reply && reply.editUid)) editStash = { text: WcComposer.text(), reply: replyOfField() };
+    setReply({ editUid: e.uid, head: e.head || 'Edit message', text: e.text || '' });
+    WcComposer.setText(e.text || '');
+    WcComposer.focus();
+  }
+  function endEdit() {
+    const was = editStash;
+    editStash = null;
+    setReply((was && was.reply) || null, { quiet: true });
+    WcComposer.setText((was && was.text) || '');
+  }
+  async function editSentText(uid, text) {
+    const out = await WcBus.call('WC_MESSAGE_EDIT', { body: { uid, text, opId: global.LexFolders.newOpId() } });
+    return (out && out.edit) || null;
+  }
+  async function submitEdit(text) {
+    const e = reply && reply.editUid ? reply : null;
+    const chat = profiChat;
+    const words = String(text || '').trim();
+    if (!e || !chat) return;
+    // The field was emptied by the press: what is wrong with the edit is said and the words go back under the line.
+    const refuse = (why) => {
+      if (words && !WcComposer.text().trim()) WcComposer.setText(words);
+      toast(why, { error: true });
+    };
+    if (!words) { refuse('Write the new words, or cancel the edit.'); return; }
+    if (global.WcAttach && WcAttach.count() > 0) { refuse('An edit takes words only. Take the file off the field first.'); return; }
+    try {
+      const out = await chat.editText(e.editUid, words);
+      if (!reply || reply.editUid !== e.editUid) return;
+      endEdit();
+      if (out && out.state === 'waiting') toast('The edit is on its way.');
+      if (out && out.state === 'stand') toast('This is a stand: nothing was edited.');
+      if (typeof chat.reload === 'function') chat.reload();
+    } catch (err) {
+      // Not edited: the words stay in the field with the line over it, to be changed or sent once more.
+      refuse('Not edited. ' + ((err && err.message) || ''));
+    }
   }
 
   // ── The draft of every chat (lex-drafts.js, 2026-11-17) ────────────────
@@ -1421,11 +1473,12 @@
   let restoring = 0;
   const newChatKey = () => (global.LexDrafts && global.LexDrafts.NEW_CHAT) || '__lex_new_chat__';
   function replyOfField() {
-    return reply ? { uids: reply.uids, quoteUid: reply.quoteUid, text: reply.text, head: reply.head } : null;
+    return reply && !reply.editUid ? { uids: reply.uids, quoteUid: reply.quoteUid, text: reply.text, head: reply.head } : null;
   }
   function saveField() {
     const D = global.LexDrafts;
     if (restoring || !fieldKey || !D) return;
+    if (reply && reply.editUid) return;
     D.put(fieldKey, { text: WcComposer.text(), reply: replyOfField(), attach: WcAttach.snapshot() });
   }
   function fillField(d) {
@@ -1465,6 +1518,8 @@
   function draftsChanged(keys, from) {
     if (global.LexSection && global.LexSection.paintDrafts) global.LexSection.paintDrafts(keys);
     if (from !== 'server' || !fieldKey || keys.indexOf(fieldKey) < 0) return;
+    // An edit of a sent message stands in the field: it is no draft, and another device's draft does not take its place.
+    if (reply && reply.editUid) return;
     const d = global.LexDrafts.get(fieldKey);
     const same = ((d && d.text) || '') === WcComposer.text()
       && JSON.stringify((d && d.reply) || null) === JSON.stringify(replyOfField());
@@ -1661,6 +1716,8 @@
       reply: (r) => setReply(r),
       replyQuote: () => (reply && reply.quoteUid) || null,
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
+      edit: (e) => startEdit(e),
+      editText: (uid, text) => editSentText(uid, text),
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the main page is shown.
@@ -1798,6 +1855,8 @@
       reply: (r) => setReply(r),
       replyQuote: () => (reply && reply.quoteUid) || null,
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
+      edit: (e) => startEdit(e),
+      editText: (uid, text) => editSentText(uid, text),
       reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
       sendBox: (win) => sendFolderBox(chat, win),
@@ -1990,6 +2049,8 @@
   }
 
   async function send(text, opts) {
+    // The line of Edit stands over the field: the arrow edits that message at the person (19.11.2026).
+    if (reply && reply.editUid) { await submitEdit(text); return; }
     // Whose words these are is fixed at the press: the chat on the screen then. A turn that waits for
     // the start's settings and finds another chat on the screen does not go anywhere — its words go
     // back into the draft of their own chat (giveBack). Before, the chat was read after the wait, and
@@ -3576,7 +3637,7 @@
       textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
       // Holding the arrow: in an order chat the text goes to the client at once, without the
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
-      sendMenu: (text) => (profiChat ? profiChat.sendMenu(text) : null),
+      sendMenu: (text) => (profiChat && !(reply && reply.editUid) ? profiChat.sendMenu(text) : null),
     });
     // The field of the chat the page starts on: a new chat, or the one already opened. Words typed
     // before the drafts were read stay in the field, as that chat's.
@@ -3763,5 +3824,7 @@
     regenerate,
     stopStream,
     toggleVoice,
+    // The page's own piece for the live checks of dev-tools (check-message-edit.mjs): a chat of a person made as the page makes it.
+    makeFolderChat,
   };
 })(typeof self !== 'undefined' ? self : globalThis);

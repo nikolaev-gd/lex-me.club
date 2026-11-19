@@ -472,6 +472,21 @@
     return out;
   }
 
+  // Edit of a message that went to a person (19.11.2026): the new words for it, through the edge function message-edit.
+  // → { edit: { state } }; a refusal (too late, not a text) comes as the error with the words of the database.
+  async function messageEdit(body) {
+    const token = await A().validToken();
+    if (!token) throw new Error('Sign in again.');
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/message-edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body || {}),
+    });
+    const out = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    return out;
+  }
+
   // ── One conversation ─────────────────────────────────────────────────────
   //
   // ЧТО ПОКАЗАТЬ, РЕШАЕТ СЕРВЕР. Прямого запроса к video_chat_turns здесь
@@ -682,6 +697,7 @@
     folderLimit,
     folderEarlier,
     folderSend,
+    messageEdit,
     emEarlier,
     emLimit,
     money,

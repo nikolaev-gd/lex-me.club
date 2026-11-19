@@ -39,6 +39,9 @@
   const CANCEL_WAIT_S = 5;
   const CANCEL_HOLD_S = 30;
   const STALE_S = 120;
+  // WhatsApp lets one edit one's own text for 15 minutes after the send (19.11.2026). The database says it again and
+  // has the last word: this only keeps «Edit» out of the menu of a message it would refuse.
+  const EDIT_WINDOW_MS = 15 * 60 * 1000;
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
 
   const { make, button, newOpId } = global.LexSection;
@@ -818,6 +821,9 @@
           at: () => t.authoredAt || null,
           host: () => root.parentElement,
           reply: (part) => self.replyTo(uid, part),
+          // Edit of a message that went to a person (19.11.2026): read when the menu opens, as the window of WhatsApp
+          // for editing closes 15 minutes after the send.
+          get editSent() { return self.canEditSent(t) ? () => self.editSent(t) : null; },
           earlier: () => {
             const look = lookOf(uid);
             if (!Array.isArray(look.edits) || !look.edits.length) return null;
@@ -1156,6 +1162,38 @@
       sendNow(text) {
         const menu = self.sendMenu(text, { plain: true });
         return menu && menu.items && menu.items[0] ? menu.items[0] : null;
+      },
+
+      // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, by WhatsApp, in the window of 15 minutes,
+      // not a photo, a voice message, a file or a sticker, not deleted, in a chat that has the person behind it. The chat
+      // draws the menu from this each time it opens (the window closes while the chat stands).
+      canEditSent(t) {
+        if (!data || typeof deps.edit !== 'function' || typeof deps.editText !== 'function') return false;
+        const uid = String((t && t.uid) || '');
+        if (!/^profi:wa:/.test(uid) || /@g\.us:/.test(uid)) return false;
+        if (t.origin !== 'profi_sent' && t.origin !== 'folder_out') return false;
+        if (folder && !data.send) return false;
+        const look = lookOf(uid);
+        if (look.deletedAt || look.sticker) return false;
+        if (storedFilesOf(t.attachments).length || photosOf(t.attachments).length) return false;
+        const sentAt = Date.parse(t.authoredAt || '');
+        if (!Number.isFinite(sentAt) || Date.now() - sentAt >= EDIT_WINDOW_MS) return false;
+        return !!wordsOf(t).trim();
+      },
+
+      // Edit begins: the words of the message go into the field and the line over it says what is being edited; the
+      // arrow of the field edits the message at the person (deps.edit → the page, wc-app.js).
+      editSent(t) {
+        const uid = String((t && t.uid) || '');
+        if (!uid || typeof deps.edit !== 'function') return;
+        deps.edit({ uid, head: 'Edit message', text: wordsOf(t) });
+      },
+
+      // The edit goes to the server (the edge function message-edit): → { state: 'edited' | 'waiting' | 'stand' }; the
+      // words of a refusal («too late», «not a text») are the error.
+      editText(uid, text) {
+        if (typeof deps.editText !== 'function') return Promise.reject(new Error('This chat does not edit messages.'));
+        return deps.editText(uid, text);
       },
 
       // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion

@@ -121,12 +121,14 @@
       host: elTurns,
       // У хода заготовки правится только фраза: строку заготовки править
       // нельзя, она встаёт сама при отправке через ту же пилюлю.
-      edit: profiChat ? null : () => {
+      // In a chat of a person (19.11.2026) too: the words go back into the field and the next send is a new word to Lex or,
+      // by a hold of the arrow, to the person. A chat of a person has no presets and no chosen words: no slot, no source.
+      edit: () => {
         const turn = turnOf();
         return hooks.onEdit && hooks.onEdit(
           (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
-          (opts && opts.presetSlot) || null,
-          (turn && turn.dataset.uid) || null);
+          profiChat ? null : ((opts && opts.presetSlot) || null),
+          profiChat ? null : ((turn && turn.dataset.uid) || null));
       },
       // «Send to … now» (19.11.2026): in a chat with a person behind it (an order, a person of a folder) a word to
       // Lex that was meant for him goes to him as it stands, at once, without the model — the first item of the

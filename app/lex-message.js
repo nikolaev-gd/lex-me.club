@@ -1909,17 +1909,18 @@
 
   // ── The line over the message box (В7.26) ───────────────────────────────────
   // Reply on a message: the next message answers it. The arrow of a reply, «Reply to …» and one line
-  // of the message, the cross that takes the line away.
+  // of the message, the cross that takes the line away. o.edit — the line of Edit (19.11.2026): the message being
+  // edited, the pencil instead of the arrow, the cross cancels the edit.
   function replyBar(o) {
-    const root = make('div', 'lex-reply');
-    const icon = strokes(REPLY_D, 16);
+    const root = make('div', o.edit ? 'lex-reply is-edit' : 'lex-reply');
+    const icon = strokes(o.edit ? EDIT_D : REPLY_D, 16);
     icon.classList.add('lex-reply-icon');
     const words = make('span', 'lex-reply-words');
-    words.append(make('span', 'lex-reply-head', o.head || 'Reply'), make('span', 'lex-reply-text', String(o.text || '').split('\n')[0]));
+    words.append(make('span', 'lex-reply-head', o.head || (o.edit ? 'Edit message' : 'Reply')), make('span', 'lex-reply-text', String(o.text || '').split('\n')[0]));
     const close = make('button', 'lex-reply-close');
     close.type = 'button';
-    close.title = 'Cancel the reply';
-    close.setAttribute('aria-label', 'Cancel the reply');
+    close.title = o.edit ? 'Cancel the edit' : 'Cancel the reply';
+    close.setAttribute('aria-label', o.edit ? 'Cancel the edit' : 'Cancel the reply');
     close.appendChild(strokes(CLOSE_D, 16));
     close.addEventListener('click', () => o.onClose && o.onClose());
     root.append(icon, words, close);

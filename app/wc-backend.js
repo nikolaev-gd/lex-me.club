@@ -1692,6 +1692,8 @@
   // A chat of a folder: Send to the person (folder-send), and one page more of its past.
   WcBus.on('WC_FOLDER_SEND', (m) => WcHistory.folderSend(m.body));
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
+  // Edit of a message that went to a person (message-edit).
+  WcBus.on('WC_MESSAGE_EDIT', (m) => WcHistory.messageEdit(m.body));
 
   WcBus.on('WC_STOP', async (m) => {
     // Stop while the page waits for the server's word after a break: the seen length goes to the
