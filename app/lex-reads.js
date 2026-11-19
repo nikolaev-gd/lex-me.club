@@ -104,6 +104,8 @@
     'profi_call_transcript',
     // the chat of a person by his ref, asked at the press on a link of Lex in the question «who is this» (В7.50), never kept
     'folder_chat_by_ref',
+    // where the chat of a notification lies now: asked at the tap on the notification of a person not recognized yet, never kept
+    'folder_chat_live',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_notification_modes', 'lex_missed', 'lex_missed_summary', 'sessions',

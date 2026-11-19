@@ -890,6 +890,18 @@
     // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
     // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key.
     if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
+    // The chat of a person not recognized yet (`whois`, push-decide.ts) may have gone out of the folders since: the person
+    // was confirmed, and his messages go on in his own chat. The server says where the chat lies now, and the click goes
+    // there. No answer within a moment, or nowhere to go — the chat as the notification had it.
+    if (lex.whois === true && WcHistory.isFolderKey(key)) {
+      const live = await Promise.race([newsRpc('folder_chat_live', { p_chat_key: key }).catch(() => null),
+        new Promise((resolve) => setTimeout(() => resolve(null), 2500))]);
+      if (!wanted()) return;
+      if (live && live.chatKey && live.folder) {
+        await openFromNotification({ kind: 'folder_message', chatKey: live.chatKey, folder: live.folder });
+        return;
+      }
+    }
     // A message of a folder (folder_message): its chat, as a press on its line in the tabs of the people opens it.
     // A folder the page does not know (its tab has not come yet) — the chat by itself.
     const folderId = lex.folder ? `folder:${lex.folder}` : '';
