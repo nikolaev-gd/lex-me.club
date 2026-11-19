@@ -83,6 +83,9 @@
   function setEmpty(isEmpty) {
     elEmpty.hidden = !isEmpty;
     if (global.WcHeader && WcHeader.setHasContent) WcHeader.setHasContent(!isEmpty);
+    // The main page of the people stands in place of an empty thread (wc-app.js paintHome): it gives way to the first
+    // word and comes back with the empty one.
+    if (hooks && typeof hooks.onEmpty === 'function') hooks.onEmpty(isEmpty);
   }
 
   // ── The menu of a message ────────────────────────────────────────────────

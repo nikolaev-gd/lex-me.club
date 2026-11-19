@@ -340,6 +340,7 @@
         takeField(id);
         leaveSection();
         state.conversationId = id;
+        paintHome();
         if (opts && opts.back) sectionBack.cameFrom(opts.back);
       }
       if (opts && opts.profi) {
@@ -530,9 +531,11 @@
     return SECTIONS[id];
   }
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
-  // The way back from a chat opened from a list: to the list of its section; from the tabs of the people (opts.from)
-  // there is none, the chat stands as every chat of the panel does and the three stripes open the panel again.
-  const backOfList = (id, opts) => (opts && opts.from === 'people' ? null : sectionTarget(id));
+  // The main page (paintHome) is the empty chat of Lex with the chats of the people on it: the way back from a chat of a
+  // person, from the chat of new orders and from the settings of Profi.ru.
+  const mainTarget = () => ({ title: 'Chats', go: () => newConversation() });
+  // The way back from a chat opened from a list: to the list of its section; from the main page (opts.from) — to the main page.
+  const backOfList = (id, opts) => (opts && opts.from === 'people' ? mainTarget() : sectionTarget(id));
   let sectionOn = null;
   function sectionEls() {
     return {
@@ -552,6 +555,7 @@
     main.classList.remove('is-section', 'is-news-opening');
     paintNewsBar(null);
     for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
+    paintHome();
   }
   // A section is built once and stays: built ahead of its first showing it already holds its
   // list, and «Profi.ru» shows it with nothing to wait for.
@@ -579,24 +583,25 @@
     sectionOn = id;
     host.hidden = false;
     main.classList.add('is-section');
+    paintHome();
     WcSidebar.close();
     await section.live.show({ back: !!(opts && opts.back) });
   }
-  // ── The tabs of the people (lex-people.js) ─────────────────────────────────
-  // Over the list of conversations: Lex, All, Profi.ru, Kolya, Other. The sections of the people (Profi.ru and the
-  // folders) the server names become tabs and have no button at the bottom of the panel; the rest of the sections
-  // (Questions, Extended Mind, News) stay buttons. A line of a tab is the line of its section, and a press opens the
-  // chat the way that section does, with no list of the section behind it.
+  // ── The main page: the chats with people (lex-people.js) ───────────────────
+  // An account that has chats with people starts on the empty chat of Lex with them on it: the tabs All, Profi.ru, Kolya
+  // in the bar and one list under them, in the place of the empty thread (paintHome). The sections of the people (Profi.ru
+  // and the folders) the server names become the tabs and the list, and have no button in the panel on the left; the rest
+  // of the sections (Questions, Extended Mind, News) stay buttons there. A line of the list is the line of its section,
+  // and a press opens the chat the way that section does, with the arrow back to the main page.
   const people = global.LexPeople.create({
     tabsHost: document.getElementById('wc-people-tabs'),
-    listHost: document.getElementById('wc-people'),
-    convsHost: document.getElementById('wc-convs'),
+    listHost: document.getElementById('wc-home'),
     tabs: (o) => WcUI.tabs(o),
     read,
     signals,
     live: (id) => (SECTIONS[id] && SECTIONS[id].build ? ensureSection(id) : null),
     // The chat of new orders and the settings are screens of Profi.ru: they open in its place, and the arrow leads
-    // back to its list.
+    // back to the main page.
     showFeed: async (order) => {
       await showSection('profi');
       if (order) await SECTIONS.profi.live.openFeedAt(order); else SECTIONS.profi.live.openFeed();
@@ -608,6 +613,40 @@
     await showSection('profi');
     SECTIONS.profi.live.openSettings();
   });
+  // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
+  // a person. The first message sent takes the page away (the thread is not empty then, WcThread.onEmpty).
+  function homeOn() {
+    return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
+  }
+  // What the main page changes on the screen: its list and its tabs show or hide, the list follows the server only while
+  // it is on the screen, and it stands where it was left. Asked from every place that changes what the screen holds; the
+  // asks of one turn of the page make one painting, after it.
+  let homeAsked = false;
+  let homeScroll = 0;
+  function paintHome() {
+    if (homeAsked) return;
+    homeAsked = true;
+    Promise.resolve().then(() => { homeAsked = false; applyHome(); });
+  }
+  function applyHome() {
+    const main = document.querySelector('.wc-main');
+    const bar = document.querySelector('.wc-topbar');
+    const host = document.getElementById('wc-home');
+    const tabsHost = document.getElementById('wc-people-tabs');
+    if (!main || !bar || !host || !tabsHost) return;
+    const on = homeOn();
+    const was = main.classList.contains('is-home');
+    const listBody = host.querySelector('.lex-section-body');
+    if (was && !on && listBody) homeScroll = listBody.scrollTop;
+    const showTabs = on && people.hasTabRow;
+    main.classList.toggle('is-home', on);
+    host.hidden = !on;
+    tabsHost.hidden = !showTabs;
+    // The bar has a line of tabs of its own under its buttons (the feed «Разбор» has one too).
+    bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
+    people.setActive(on);
+    if (on && !was && listBody) listBody.scrollTop = homeScroll;
+  }
   // The buttons of the sections: from what this device kept, then as the server names them.
   // Every section the server names is then built and its list read (warm), so its first
   // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
@@ -615,6 +654,7 @@
     const draw = (list) => {
       for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
       people.setSections(list);
+      paintHome();
       const buttons = (Array.isArray(list) ? list : []).filter((s) => !(s && people.isPeople(s.id)));
       global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => {
         if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
@@ -816,7 +856,7 @@
       await showSection('profi');
       if (!wanted()) return;
       // A draft after a call (В7.42): the chat opens with the discussion shown, on the draft.
-      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order, kind === 'profi_call_draft' ? { showLex: true } : undefined);
+      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order, kind === 'profi_call_draft' ? { showLex: true, from: 'people' } : { from: 'people' });
       else if (order) await SECTIONS.profi.live.openFeedAt(order);
       else SECTIONS.profi.live.openFeed();
       return;
@@ -1514,6 +1554,8 @@
   function buildProfi() {
     return global.LexProfi.createSection({
       back: sectionBack,
+      // The feed of new orders and the settings open from the main page of the people: the arrow leads back to it.
+      root: () => (people.hasTabs ? mainTarget() : null),
       signals,
       rpc: newsRpc,
       // The clients of the order chats the list shows: the Mac app names «Send to <first name>» on the notification of
@@ -1622,9 +1664,9 @@
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
-      // a person deleted from Lex takes his chat off the list — the list of the section is shown.
+      // a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
-      onPersonGone: () => showSection('profi', { back: true }),
+      onPersonGone: () => newConversation(),
     });
     chat.data = data;
     chat.keep = keep || null;
@@ -1891,7 +1933,10 @@
     if (document.visibilityState === 'visible') refreshProfiChat().catch(() => {});
   });
 
-  async function newConversation() {
+  // opts.typing — the person pressed «New chat» to write: the field takes the cursor and the keyboard rises. The main
+  // page shows the chats of people, and none of the other ways to it (the start, a chat deleted, the arrow back) raises
+  // a keyboard over them.
+  async function newConversation(opts) {
     if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же
@@ -1910,7 +1955,9 @@
     WcHeader.setTitle('');
     syncAttachment();
     paintAddressee();
+    paintHome();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
+    if (opts && opts.typing) WcComposer.focus({ raiseKeyboard: true });
   }
 
   // ── Клавиатура и боковая панель ──────────────────────────────────────────
@@ -1934,10 +1981,13 @@
   // проходят через эту точку. Раздельные вызовы плодили бы два места, которые
   // легко развести разными решениями (это и была причина дефекта: жест шёл в
   // обход единственного места, где клавиатура убиралась).
+  //
+  // The main page of the people (2026-11-19): over the chats of people no keyboard rises by itself — the screen one
+  // would cover the list. The field takes the cursor there only where the keyboard is on the desk, or when the person
+  // presses «New chat» or the field itself.
   function onSidebarToggle(open) {
-    people.setActive(open);
     if (open) { WcComposer.blur(); return; }
-    if (WcThread.isEmpty()) WcComposer.focus({ raiseKeyboard: true });
+    if (WcThread.isEmpty()) WcComposer.focus({ raiseKeyboard: !homeOn() });
   }
 
   async function send(text, opts) {
@@ -3050,6 +3100,8 @@
   // невставшего курсора — обмен плохого на худшее. Дальше вопрос закрывает
   // предохранитель оболочки, у него тот же срок.
   function caretThenReveal() {
+    // The main page of the people: a keyboard on the screen would cover the list, nothing waits for a caret.
+    if (homeOn() && global.LexComposerInput && global.LexComposerInput.onScreenKeyboard()) { shellPageReady(); return; }
     let p;
     try { p = WcComposer.focusUntilCaret({ raiseKeyboard: true }); } catch (_) { p = null; }
     if (!p || typeof p.then !== 'function') { shellPageReady(); return; }
@@ -3390,7 +3442,7 @@
       // Один вызов здесь остаётся как был — на быстрых сценариях (стол, возврат
       // на уже загруженную страницу) он срабатывает первым и всё заканчивается
       // на нём. `caretThenReveal` рядом — для тех случаев, когда не сработал.
-      WcComposer.focus({ raiseKeyboard: true });
+      WcComposer.focus({ raiseKeyboard: !homeOn() });
       caretThenReveal();
       askShellForPush();
     }
@@ -3426,6 +3478,8 @@
     WcThread.init({
       onPickModel: pickModelForAnswer,
       onEdit: editTurn,
+      // The thread got its first word or was cleared: the main page gives way or comes back.
+      onEmpty: paintHome,
     });
     refreshTextModelLabel();
     WcStore.subscribe((changes) => {
@@ -3452,7 +3506,7 @@
     WcAttach.chatKey = () => state.conversationId || null;
     WcSidebar.init({
       onOpen: openConversation,
-      onNew: newConversation,
+      onNew: () => newConversation({ typing: true }),
       onRename: renameConversation,
       onDelete: deleteConversation,
       onAct: actConversation,

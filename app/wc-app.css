@@ -552,7 +552,7 @@ button { font: inherit; color: inherit; }
 .wc-sections:not([hidden]) + .wc-account { border-top: 0; }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-people, .wc-sidebar-new, .wc-section-host, .wc-turn-news {
+.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .wc-turn-news {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-bg-on-fg: var(--bg);
   --lex-section-fg:     var(--fg);
@@ -573,17 +573,9 @@ button { font: inherit; color: inherit; }
   font-weight: 600;
 }
 
-/* «New chat» under the name and the word «Chats» over the list (2026-11-18). */
+/* «New chat» under the name, the conversations with the model under it (2026-11-18, 2026-11-19). */
 .wc-sidebar-new { flex: none; padding: 4px 12px 6px; }
 .wc-sidebar-new[hidden] { display: none; }
-.wc-sidebar-chats {
-  flex: none;
-  padding: 8px 16px 0;
-  color: var(--fg-muted);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: .02em;
-}
 
 /* Новый чат — иконка в шапке справа, а не строка в шторке. На телефоне шторка
  * закрыта, и кнопка внутри неё была за жестом, которого не видно. */
@@ -604,13 +596,18 @@ button { font: inherit; color: inherit; }
   padding: 6px 8px 10px;
 }
 
-/* The tabs of the people under the head of the panel (lex-people.js, В7.27): Lex, All, Profi.ru, Kolya, Other. The row
- * lists sideways when it does not fit. Their list takes the place of the list of conversations. */
-.wc-people-tabs { flex: none; padding: 2px 10px 8px; }
+/* The main page of an account that has chats with people (2026-11-19, lex-people.js, wc-app.js paintHome): the tabs
+ * All, Profi.ru, Kolya stand in the bar under its buttons, as the tabs of the feed «Разбор» (.wc-em-tabs), and the one
+ * list of the chats stands in the place of the thread of the empty chat. The bar and the field are the glass bars of
+ * every chat: the list passes under them and keeps room for them. */
+.wc-people-tabs { flex: 0 0 100%; min-width: 0; padding: 0 2px; }
 .wc-people-tabs[hidden] { display: none; }
-.wc-people { flex: 1; min-height: 0; height: auto; }
-.wc-people .lex-section-body { padding: 0 8px 12px; }
-.wc-people .lex-section-empty { padding: 18px 10px; color: var(--fg-faint); font-size: 13px; }
+.wc-home { flex: 1; min-height: 0; height: auto; padding-top: var(--wc-topbar-h, 52px); }
+.wc-home[hidden] { display: none; }
+.wc-home .lex-section-body { padding: 0 16px calc(var(--wc-composer-h, 88px) + 12px); scrollbar-gutter: stable; }
+.wc-home .lex-section-empty { padding: 18px 0; color: var(--fg-faint); font-size: 13px; }
+.wc-main.is-home .wc-thread { display: none; }
+.wc-people-gear svg { width: 21px; height: 21px; }
 
 .wc-convs-group {
   padding: 12px 8px 4px;

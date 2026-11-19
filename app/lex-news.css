@@ -267,8 +267,9 @@
 .ytvocab-chat-drawer-head:has(.ytvocab-chat-drawer-sections:not([hidden])) .ytvocab-chat-drawer-title { flex-basis: 100%; padding-left: 12px; text-align: left; }
 .ytvocab-chat-drawer-sections { flex: 1 1 0; min-width: 0; }
 .ytvocab-chat-drawer-sections[hidden] { display: none; }
-/* «New chat» under the name «Lex» and the word «Chats» over the list (2026-11-18): the line takes
-   the colours of the lines of the sections. */
+/* «New chat» under the name «Lex» (2026-11-18): the line takes the colours of the lines of the
+   sections. No word stands over the list under it: the chats of people have the main page
+   (2026-11-19), the list here is the conversations with the model. */
 .ytvocab-chat-drawer-new {
   --lex-section-fg: var(--lex-dark-fg);
   --lex-section-hover: var(--lex-dark-hover);
@@ -276,14 +277,6 @@
   padding: 2px 8px 6px;
 }
 .ytvocab-chat-drawer-new[hidden] { display: none; }
-.ytvocab-chat-drawer-chats {
-  flex: 0 0 auto;
-  padding: 6px 12px 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: .02em;
-  color: var(--lex-dark-fg-muted);
-}
 .ytvocab-chat-drawer-sections,
 .lex-news-host,
 .ytvocab-chat-history .lex-news-chat-head {

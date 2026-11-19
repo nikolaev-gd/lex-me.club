@@ -9,6 +9,9 @@
 //
 // A window gives:
 //   back                   the arrow of the window, see lex-back.js
+//   root()                 where the arrow of the first two screens leads, { title, go }, or null: the main
+//                          page of the people, from which the feed of new orders and the settings are
+//                          opened (lex-section.js, root)
 //   signals                the channel of the database's signals (lex-account-events.js): the
 //                          section and an open order chat read again at the signal «profi», a
 //                          press of the bot's menu gets its answer at «profi_cmd»
@@ -1272,6 +1275,7 @@
       title: 'Profi.ru',
       cls: 'lex-profi',
       back: deps.back,
+      root: deps.root,
       gear: () => go('settings', 'Settings'),
       signals: deps.signals,
       events: ['profi'],
@@ -1950,12 +1954,14 @@
       openOrder: openOrderOrFeed,
       // The line of an order chat as the list of the section draws it, and the settings, for the tabs of the people.
       line: chatLine,
-      openSettings() { go('settings', 'Settings'); },
-      openFeed() { go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
+      // The ways in from outside (a tab of the people, the gear over them, a notification): the screens of the section
+      // start over, so that the arrow leads out of it (lex-section.js, root).
+      openSettings() { frame.reset(); go('settings', 'Settings'); },
+      openFeed() { frame.reset(); go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
       async openFeedAt(order) {
         focusOrder = order;
         if (frame.screen === 'feed') await paintFeed();
-        else go('feed', (home && home.feed && home.feed.title) || 'New orders');
+        else { frame.reset(); go('feed', (home && home.feed && home.feed.title) || 'New orders'); }
       },
     };
   }

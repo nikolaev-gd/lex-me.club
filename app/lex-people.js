@@ -1,28 +1,28 @@
-// lex-people.js — the tabs of the people over the list of conversations, on the page and the Mac app:
-// Lex, All, Profi.ru, Kolya, Other (docs/spec/20-chat.md, «Вкладки людей»; the iPhone has the same in
-// PeopleTabs.swift). Lex is the list of conversations with the model, as it always was. The other tabs are the
-// chats with people, read once as one list (people_home, supabase/migrations/people_home.sql): «All» is the whole
-// list, the tab of a section is the lines that carry its id. The order, the pin, the dot and the lines folded as
-// «chats with no reply» are the server's; this file draws what comes. A line is the line its own section draws
-// (lex-profi.js, lex-folders.js: `line`), with its menu, and a press opens the chat the way that section does.
+// lex-people.js — the chats with people on the main page of the page and the Mac app: the tabs All, Profi.ru, Kolya
+// in the bar and one list under them, in the place of the empty chat (docs/spec/20-chat.md, «Главная страница»; the
+// iPhone has the same in PeopleTabs.swift and PeopleList.swift). The conversations with the model are not here: they
+// stand in the panel on the left. The chats with people are read once as one list (people_home,
+// supabase/migrations/people_home.sql): «All» is the whole list, the tab of a section is the lines that carry its id. A
+// section the server marks `tab: false` (folder_no_tab.sql: Other) has no tab of its own, its lines stand in «All».
+// The order, the pin, the dot and the lines folded as «chats with no reply» are the server's; this file draws what
+// comes. A line is the line its own section draws (lex-profi.js, lex-folders.js: `line`), with its menu, and a press
+// opens the chat the way that section does.
 //
 // create(deps) takes:
 //   tabsHost, listHost   where the row of tabs stands, and the frame of the list (a `.lex-section` with a status
-//                        line and a body); convsHost — the list of conversations, hidden while another tab shows
+//                        line and a body); the page shows and hides both with the main page
 //   tabs(o)              the common tabs (WcUI.tabs, В7.27)
 //   read(name, args, show)  the window's way of reading, the copy first (lex-reads.js)
 //   signals              the channel of the database's signals (lex-account-events.js)
 //   live(tabId)          the live section of a tab ('profi', 'folder:kolya'), built, or null
 //   showFeed(order)      the chat of new orders, at that order or at its top (a screen of Profi.ru)
-//   openSettings()       the settings of Profi.ru
 //   notify(text)         a failure the person has to see
-//   gear(on)             the gear of Profi.ru in the bar of the panel
+//   gear(on)             the gear of Profi.ru in the bar of the page
 //   onSelect(id)         a tab was chosen
-// create(deps) gives: setSections(list), select(id), setActive(on), repaintTabs(), warm(), selected.
+// create(deps) gives: setSections(list), select(id), setActive(on), repaintTabs(), warm(), selected, hasTabs, hasTabRow.
 (function (global) {
   'use strict';
 
-  const LEX = 'lex';
   const ALL = 'all';
   const KEPT_TAB = 'lex.peopleTab';
   const STALE_S = 120;
@@ -37,10 +37,10 @@
     const body = make('div', 'lex-section-body');
     deps.listHost.append(status, body);
 
-    let sections = [];       // the people's sections the server named: [{ id, title }], in its order
+    let sections = [];       // the people's sections the server named: [{ id, title, tab }], in its order
     let selected = null;
     let chosen = null;       // the tab the person pressed in this run; the one kept on the device before it
-    let active = false;      // the panel is open and a tab of the people is on it
+    let active = false;      // the main page is on the screen
     let home = null;
     let fresh = false;       // the list on the screen came from the server in this run
     let silentOpen = false;
@@ -57,25 +57,25 @@
     const kept = () => {
       try { return localStorage.getItem(KEPT_TAB); } catch (_) { return null; }
     };
+    // The sections that have a tab; a section without one (Other) has its chats in «All» only.
+    const tabbed = () => sections.filter((s) => s.tab);
     const unreadOf = (id) => {
       const u = global.LexSection.unread().sections || {};
       if (id !== ALL) return Math.max(0, Math.floor(Number(u[id]) || 0));
       return sections.reduce((n, s) => n + Math.max(0, Math.floor(Number(u[s.id]) || 0)), 0);
     };
     const labelOf = (id, title) => {
-      const n = id === LEX ? 0 : unreadOf(id);
+      const n = unreadOf(id);
       return n ? `${title} · ${n > 99 ? '99+' : n}` : title;
     };
     const items = () => [
-      { id: LEX, label: 'Lex' },
       { id: ALL, label: labelOf(ALL, 'All') },
-      ...sections.map((s) => ({ id: s.id, label: labelOf(s.id, s.title) })),
+      ...tabbed().map((s) => ({ id: s.id, label: labelOf(s.id, s.title) })),
     ];
-    const known = (id) => id === LEX || (sections.length > 0 && (id === ALL || sections.some((s) => s.id === id)));
+    const known = (id) => sections.length > 0 && (id === ALL || tabbed().some((s) => s.id === id));
 
     function paintTabs() {
-      deps.tabsHost.hidden = !sections.length;
-      if (!sections.length) return;
+      if (!tabbed().length) { tabsRow = null; deps.tabsHost.replaceChildren(); return; }
       if (!tabsRow) {
         tabsRow = deps.tabs({ label: 'Chats', items: items(), selected, onSelect: (id) => select(id) });
         deps.tabsHost.replaceChildren(tabsRow);
@@ -102,7 +102,7 @@
 
     function paint() {
       body.replaceChildren();
-      if (selected === LEX || !home) { say(''); return; }
+      if (!selected || !home) { say(''); return; }
       const note = selected === 'profi' ? monitorNote() : null;
       say(note ? note[0] : '', !!note);
       const list = make('div', 'lex-section-list');
@@ -117,11 +117,10 @@
       }
       const chats = (Array.isArray(home.chats) ? home.chats : []).filter((c) => selected === ALL || c.tab === selected);
       const silent = chats.filter((c) => c.group === 'silent');
-      let drawn = 0;
       for (const c of chats) {
         if (c.group === 'silent') continue;
         const line = lineOf(c);
-        if (line) { list.appendChild(line); drawn += 1; }
+        if (line) list.appendChild(line);
       }
       if (list.children.length) body.appendChild(list);
       else if (!silent.length) body.appendChild(make('div', 'lex-section-empty', 'No chats here yet.'));
@@ -151,10 +150,10 @@
         if (!v || typeof v !== 'object' || (same && home) || (!isFresh && home)) return;
         home = v;
         if (isFresh) fresh = true;
-        if (selected !== LEX) paint();
+        paint();
       }).catch((e) => {
         console.warn('[people] read:', e && e.message);
-        if (active && selected !== LEX) say('The chats did not load. ' + ((e && e.message) || ''), true);
+        if (active && selected) say('The chats did not load. ' + ((e && e.message) || ''), true);
       }).finally(() => { reading = null; });
       return reading;
     }
@@ -168,44 +167,52 @@
       if (follower) follower.stop();
       follower = null;
     }
-    function sync() {
-      const on = active && selected !== LEX;
-      if (on) { watch(); reload(); } else unwatch();
+    // The page shows the main page: the list follows the server and the gear of Profi.ru stands in the bar. `again` — the
+    // page just came to this screen: the list is read again; a change of the tab only draws the lines it has.
+    function sync(again) {
+      const on = active && !!selected;
+      if (on) { watch(); if (again || !home) reload(); } else unwatch();
       deps.gear(on && selected === 'profi');
     }
 
     // ── what the window says ───────────────────────────────────────────────────
     function select(id, quiet) {
-      if (!known(id)) id = sections.length ? ALL : LEX;
+      if (!known(id)) id = sections.length ? ALL : null;
       const changed = id !== selected;
       selected = id;
-      if (!quiet) {
+      if (!quiet && id) {
         chosen = id;
         try { localStorage.setItem(KEPT_TAB, id); } catch (_) { /* this time only */ }
       }
-      deps.convsHost.hidden = id !== LEX;
-      deps.listHost.hidden = id === LEX;
       paintTabs();
       paint();
-      sync();
+      sync(false);
       if (changed && deps.onSelect) deps.onSelect(id);
     }
 
     return {
       get selected() { return selected; },
+      // The account has chats with people: the main page shows them.
       get hasTabs() { return sections.length > 0; },
-      // The buttons the server named: the sections of the people become tabs (and leave the buttons); none — no
-      // row, the list of conversations as it was.
+      // The row of tabs stands: a section with a tab of its own is there (Other alone has none, its chats stand in «All»).
+      get hasTabRow() { return tabbed().length > 0; },
+      // The buttons the server named: the sections of the people become the tabs and the list (and leave the buttons);
+      // none — no main page of the people, the empty chat as it was.
       setSections(list) {
-        sections = (Array.isArray(list) ? list : []).filter((s) => s && isPeopleSection(s.id)).map((s) => ({ id: s.id, title: s.title || s.id }));
-        // The tab chosen the last time; the first time — «All».
-        // A tab that is not there (the account has no such section now) gives way to «All», or to Lex when no tab stands.
-        select(known(chosen) ? chosen : (known(kept()) ? kept() : (sections.length ? ALL : LEX)), true);
+        sections = (Array.isArray(list) ? list : []).filter((s) => s && isPeopleSection(s.id))
+          .map((s) => ({ id: s.id, title: s.title || s.id, tab: s.tab !== false }));
+        // The tab chosen the last time; the first time — «All». A tab that is not there (the account has no such section
+        // now) gives way to «All».
+        select(known(chosen) ? chosen : (known(kept()) ? kept() : ALL), true);
       },
       select,
-      setActive(on) { active = !!on; sync(); },
-      repaintTabs() { if (sections.length) paintTabs(); },
-      // The list is read at the start, so that the first opening of the panel has it.
+      setActive(on) {
+        if (active === !!on) return;
+        active = !!on;
+        sync(true);
+      },
+      repaintTabs() { if (tabbed().length) paintTabs(); },
+      // The list is read at the start, so that the first showing of the main page has it.
       warm() { return reload(); },
       isPeople: isPeopleSection,
     };

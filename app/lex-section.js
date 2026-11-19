@@ -13,6 +13,9 @@
 //   title          the name of the section
 //   cls            one more class on the root, the section's own styles hang on it
 //   back           the arrow of the window, see lex-back.js
+//   root()         { title, go } of the screen outside the section the person comes from (the main page of the
+//                  people), or null: the arrow of the section's first two screens leads there at once, and the
+//                  section's own list is no stop on the way
 //   tools          buttons of the bar, on the first screen only; a button with an icon is
 //                  iconButton(cls + ' lex-section-icon', svg, title, onClick), a zone of 44 (В7.11)
 //   gear()         what the gear opens; no gear without it
@@ -450,14 +453,28 @@
       paintStatus();
     }
 
-    // The arrow of the window leads from a screen inside the section to the one under it.
+    // The arrow of the window leads from a screen inside the section to the one under it; from the first two
+    // screens of a section entered from outside (opts.root) — out of the section, the screens starting over.
     function paintScreen() {
       titleEl.textContent = top().title;
       tools.hidden = stack.length > 1;
       root.classList.toggle('is-inner', stack.length > 1);
       if (!opts.back) return;
-      if (stack.length > 1) opts.back.cameFrom({ title: stack[stack.length - 2].title, go: pop });
+      const out = opts.root ? opts.root() : null;
+      if (stack.length > 2 || (stack.length === 2 && !out)) opts.back.cameFrom({ title: stack[stack.length - 2].title, go: pop });
+      else if (out) opts.back.cameFrom({ title: out.title, go: () => { reset(); return out.go(); } });
       else opts.back.clear();
+    }
+
+    // Every screen over the first is taken off, at once: the section is entered afresh.
+    function reset() {
+      if (stack.length < 2) return;
+      while (stack.length > 1) stack.pop().body.remove();
+      const to = top();
+      to.body.hidden = false;
+      to.body.scrollTop = to.top;
+      say('');
+      paintScreen();
     }
 
     // A screen over the current one. Everything under it stays alive, at its place.
@@ -552,6 +569,7 @@
       say,
       push,
       pop,
+      reset,
       open,
       isShown,
       get screen() { return top().id; },
