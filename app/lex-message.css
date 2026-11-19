@@ -783,6 +783,20 @@
 }
 .lex-q .lex-q-quiet:hover { color: var(--fg, var(--lex-plain-fg)); }
 .lex-q .lex-q-quiet:disabled { opacity: .5; cursor: default; }
+/* ── The question of Lex in the chat of a new person (В7.50, 19.11.2026) ───────────────────────────────
+ * The bubble of a question of the database with the mark of Lex over its words: the sparkle 14 and «Lex»
+ * 12/600 `--fg-muted` through 6, 4 above the words. The words are Markdown (paragraphs through .75em, a link as every
+ * link of Lex). The buttons stand as the variants of a question do — a column through 6 at 10 under the words. */
+.lex-q.lex-whois .lex-whois-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px;
+}
+.lex-q.lex-whois .lex-whois-head .lex-sparkle { flex: 0 0 auto; }
+.lex-q.lex-whois .lex-q-text > :first-child { margin-top: 0; }
+.lex-q.lex-whois .lex-q-text > :last-child { margin-bottom: 0; }
+.lex-q.lex-whois .lex-q-text p { margin: 0 0 .75em; }
+.lex-q.lex-whois .lex-q-text ul, .lex-q.lex-whois .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
+.lex-q.lex-whois .lex-q-text li { margin: .2em 0; }
 /* Answered or withdrawn: one line of the question and the time, under it at 4 a tick 14 and what
  * was answered, 13, the chevron 16 at the right. The press unfolds it: the whole question. */
 .lex-q.is-done { padding: 10px 12px; color: var(--lex-plate-fg); cursor: pointer; }

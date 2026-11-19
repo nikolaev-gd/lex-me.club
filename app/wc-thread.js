@@ -981,9 +981,10 @@
         }
         // The monitor's turns of an order chat: a message of the client, what went to him, a
         // notice of Profi.
-        // A chat of a folder: the person's messages and Gennady's, from every messenger.
+        // A chat of a folder: the person's messages and Gennady's, from every messenger; in the chat of a new person
+        // also the branch «who is this» — the question of Lex, Gennady's word to it, a line of the system (folder_whois).
         if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice'
-          || t.origin === 'folder_in' || t.origin === 'folder_out')) {
+          || t.origin === 'folder_in' || t.origin === 'folder_out' || t.origin === 'folder_whois')) {
           elTurns.append(profiChat.messageNode(t));
           return;
         }

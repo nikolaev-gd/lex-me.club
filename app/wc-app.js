@@ -1860,6 +1860,10 @@
       reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
       sendBox: (win) => sendFolderBox(chat, win),
+      // The branch «who is this» in the chat of a new person (В7.50): a link of Lex in the words of the question, and the
+      // press of «Подтвердить»; «Ответить» is the line over the field (reply above), its word goes by send().
+      go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
+      whoisConfirm: (uid) => whoisConfirm(chat, uid),
     });
     chat.folder = true;
     chat.sectionId = sectionId;
@@ -1986,6 +1990,51 @@
     return out && out.send ? out.send : { state: 'queued' };
   }
 
+  // ── The branch «who is this» in the chat of a new person (19.11.2026, В7.50) ─────────────────────────
+  // The question of Lex stands in the chat of the new person; «Ответить» puts the line «Reply to Lex» over the field with
+  // the uid of that question (the same line as a Reply on a message, В7.26, and kept in the draft the same way), and the
+  // next word of the field goes here — to the model of this one question (the edge function folder-whois), never to
+  // the person and never to the assistant. «Подтвердить» applies the proposal of the model.
+  const WHOIS_TURN = /^profi:whois:[0-9]{1,18}$/;
+  async function sendWhois(chat, key, text, r) {
+    const words = String(text || '').trim();
+    if (!words || !chat || !chat.data) return;
+    try {
+      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId() } });
+    } catch (err) {
+      giveBack(key, text, r);
+      toast('Not sent. ' + ((err && err.message) || ''), { error: true });
+      return;
+    }
+    // The word stands in the chat already (the server wrote it with the call): the line over the field leaves with it.
+    if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
+    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+  }
+  async function whoisConfirm(chat, uid) {
+    if (!chat || !chat.data || !WHOIS_TURN.test(String(uid || ''))) return { error: 'This question is not open.' };
+    try {
+      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, confirm: uid, opId: global.LexFolders.newOpId() } });
+    } catch (err) {
+      return { error: (err && err.message) || 'Try again.' };
+    }
+    if (reply && WHOIS_TURN.test(reply.quoteUid || '')) setReply(null);
+    await refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    return {};
+  }
+  // A press on a link of Lex in the words of the question: lex://chat/<ref of a person> — his chat among the chats of a
+  // folder; lex://order/<number> — the order chat of Profi.ru. The screen opens them as the press on a notification does.
+  async function openLexLink(place) {
+    const m = /^(chat|order)\/(.{1,100})$/.exec(String(place || ''));
+    if (!m) return;
+    if (m[1] === 'order') {
+      await openFromNotification({ kind: 'profi_message', chatKey: `__lex_profi__${m[2]}`, order: m[2] });
+      return;
+    }
+    const found = await newsRpc('folder_chat_by_ref', { p_ref: m[2] });
+    if (!found || !found.chatKey) { toast('This person has no chat in Lex.', { error: true }); return; }
+    await openFromNotification({ kind: 'folder_message', chatKey: found.chatKey, folder: found.folder || '' });
+  }
+
   // A chat left open behind other windows gets read when the person comes back to it.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') refreshProfiChat().catch(() => {});
@@ -2063,6 +2112,12 @@
     if (fieldKey !== key0 || profiChat !== chat0 || state.conversationId !== conv0) {
       giveBack(key0, text || '', reply0);
       toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
+      return;
+    }
+    // The branch «who is this»: with the line «Reply to Lex» of a question over the field the words go to the model of
+    // that question, nowhere else (a picture or a file of the field stays in it).
+    if (chat0 && chat0.folder && reply0 && WHOIS_TURN.test(reply0.quoteUid || '')) {
+      await sendWhois(chat0, key0, text, reply0);
       return;
     }
     // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the

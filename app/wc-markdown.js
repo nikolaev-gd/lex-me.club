@@ -21,15 +21,30 @@
   };
 
   // ── Inline ───────────────────────────────────────────────────────────────
+  // A link inside Lex (19.11.2026, the question «who is this»): lex://chat/<ref of a person> and lex://order/<number>.
+  // It is drawn only where the caller asks for it (render(src, { lex: true })): the words of the agent «Кто это»
+  // are the one place that writes such links. The anchor carries the place in data-lex-go and leads nowhere by
+  // itself — the part that holds the words opens the place (LexMessage.whois, onGo).
+  const LEX_GO = /^lex:\/\/((?:chat\/(?:p:[0-9a-f-]{36}|[gn]:(?:telegram|max|whatsapp):[^\s)]{1,80}))|(?:order\/[0-9]{1,18}))$/;
+  let lexLinks = false;
+
   // Order matters: code first, so that `**` inside a span of code stays
   // literal; links before emphasis, so a title with an asterisk survives.
   const INLINE = [
     { re: /`([^`\n]+)`/, make: (m) => el('code', m[1]) },
     {
-      re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/,
+      re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|lex:\/\/[^\s)]+)\)/,
       make: (m) => {
         const a = el('a', m[1]);
         a.className = 'lex-link';
+        const go = m[2].startsWith('lex://') ? LEX_GO.exec(m[2]) : null;
+        if (m[2].startsWith('lex://')) {
+          // A place of Lex: only where asked and only a place that exists; anything else stays as the words say.
+          if (!lexLinks || !go) return document.createTextNode(m[1]);
+          a.href = m[2];
+          a.dataset.lexGo = go[1];
+          return a;
+        }
         a.href = m[2];
         a.target = '_blank';
         // noopener is the one that matters (the opened page must not get a
@@ -77,7 +92,14 @@
   }
 
   // ── Block ────────────────────────────────────────────────────────────────
-  function render(src) {
+  function render(src, opts) {
+    // The nested renderings (a quote) keep what the first call asked: the flag is set for the whole call.
+    const before = lexLinks;
+    if (opts && typeof opts.lex === 'boolean') lexLinks = opts.lex;
+    try { return renderBlocks(src); } finally { lexLinks = before; }
+  }
+
+  function renderBlocks(src) {
     const frag = document.createDocumentFragment();
     const lines = String(src == null ? '' : src).split('\n');
     let i = 0;
@@ -196,8 +218,8 @@
   // stream frame, so it is deliberately a full re-render: patching a partially
   // written document in place is where a diffing renderer goes wrong (a fence
   // that opens on frame 40 changes the meaning of frames 1–39).
-  function into(node, src) {
-    node.replaceChildren(render(src));
+  function into(node, src, opts) {
+    node.replaceChildren(render(src, opts));
   }
 
   global.WcMarkdown = { render, into };

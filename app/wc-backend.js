@@ -1691,6 +1691,8 @@
   WcBus.on('WC_PERSON', (m) => WcHistory.personCard(m.body));
   // A chat of a folder: Send to the person (folder-send), and one page more of its past.
   WcBus.on('WC_FOLDER_SEND', (m) => WcHistory.folderSend(m.body));
+  // The branch «who is this» of a new person: a word to the model of that question, or Confirm (folder-whois).
+  WcBus.on('WC_FOLDER_WHOIS', (m) => WcHistory.folderWhois(m.body));
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
   // Edit of a message that went to a person (message-edit).
   WcBus.on('WC_MESSAGE_EDIT', (m) => WcHistory.messageEdit(m.body));

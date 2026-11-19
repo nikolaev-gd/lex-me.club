@@ -100,6 +100,8 @@
     'lex_em_requests_day',
     // the whole transcript of a call of an order chat, asked when the person opens it (В7.42)
     'profi_call_transcript',
+    // the chat of a person by his ref, asked at the press on a link of Lex in the question «who is this» (В7.50), never kept
+    'folder_chat_by_ref',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
     'lex_notification_settings', 'lex_notification_modes', 'lex_missed', 'lex_missed_summary', 'sessions',

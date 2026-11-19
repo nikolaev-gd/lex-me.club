@@ -472,6 +472,22 @@
     return out;
   }
 
+  // The branch «who is this» in the chat of a new person (19.11.2026, В7.50): a word of Gennady to the model of that one
+  // question { chatKey, opId, text }, or the press of Confirm { chatKey, opId, confirm: 'profi:whois:<n>' }, through the
+  // edge function folder-whois. Nothing of it goes to the person.
+  async function folderWhois(body) {
+    const token = await A().validToken();
+    if (!token) throw new Error('Sign in again.');
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/folder-whois', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
+      body: JSON.stringify(body || {}),
+    });
+    const out = await resp.json().catch(() => null);
+    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    return out;
+  }
+
   // Edit of a message that went to a person (19.11.2026): the new words for it, through the edge function message-edit.
   // → { edit: { state } }; a refusal (too late, not a text) comes as the error with the words of the database.
   async function messageEdit(body) {
@@ -697,6 +713,7 @@
     folderLimit,
     folderEarlier,
     folderSend,
+    folderWhois,
     messageEdit,
     emEarlier,
     emLimit,

@@ -97,6 +97,12 @@
 //                       bubble with its variants inside and the quiet «Пропустить» under them;
 //                       answered or withdrawn — one line, a press unfolds it. o = { at, pending,
 //                       open, onChoice(i), onToggle() }
+//   whois(o)            the question of Lex in the chat of a new person (В7.50, 19.11.2026): a message of the
+//                       agent «Кто это» — the mark of Lex over its words (Markdown the caller drew into `body`,
+//                       the links of it in Lex go to onGo), under them «Подтвердить» (the main button, the
+//                       words of the proposal under its name) and «Ответить» in a column, the time at the right
+//                       foot. o = { body | text, at, confirm: { say } | null, reply: bool, pending: { error }
+//                       | null, onReply(), onConfirm(), onGo(place) }; no buttons — a closed question
 //   questionPack(p, o)  the waiting questions with the same variants as one message: a title, a row
 //                       per question, one button for all and «One by one». p = { members:
 //                       [{ uid, at, view }], all, openRow, recording, errors, pending }, o = { onAll(),
@@ -1805,6 +1811,65 @@
     return root;
   }
 
+  // ── The question of Lex in the chat of a new person (В7.50, 19.11.2026) ──────────────────────────────────
+  // Gennady's decision of 19.11.2026: the messages of a person the database does not know stand in his chat at once;
+  // the question «who is this» stands in that very chat as a message of Lex, written by the agent «Кто это» (the
+  // person's words, the people it may be, the links to their chats). It is the bubble of a question of the database
+  // (В7.24) across the lane, with the mark of Lex over the words: the sparkle 14 and «Lex» 12/600 `--fg-muted`.
+  // Under the words, at 10, a column through 6: «Подтвердить» — the main button, with what it confirms in its second
+  // line (`confirm.say`), only on the turn that carries the model's proposal; «Ответить» — the second button when
+  // there is a proposal, the main one when there is not. Reply opens the conversation with the model about this one
+  // question (the line over the field, В7.26); Confirm applies the proposal and closes the question. A closed
+  // question, or a word of the model that is not the last of its branch, has no buttons: a message of Lex, the time
+  // at its right foot. While Confirm is on its way the ring turns on it and Reply is off; a refusal stands under the
+  // buttons in red «Не подтверждено: <причина>».
+  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error } | null, onReply, onConfirm, onGo })
+  function whois(o) {
+    o = o || {};
+    const root = make('div', 'lex-q lex-whois is-open');
+    const head = make('div', 'lex-whois-head');
+    head.append(sparkle(14), make('span', 'lex-whois-name', 'Lex'));
+    root.appendChild(head);
+    let text = o.body;
+    if (!text) { text = make('div', '', ''); text.textContent = o.text || ''; }
+    text.classList.add('lex-q-text');
+    root.appendChild(text);
+    // A place of Lex in the words (a link lex://…, the caller drew it with data-lex-go): the screen opens it, the
+    // browser does not leave.
+    if (typeof o.onGo === 'function') {
+      text.addEventListener('click', (e) => {
+        const a = e.target && e.target.closest ? e.target.closest('a[data-lex-go]') : null;
+        if (!a || !text.contains(a)) return;
+        e.preventDefault();
+        o.onGo(a.dataset.lexGo);
+      });
+    }
+    const busy = !!(o.pending && !o.pending.error);
+    const acts = make('div', 'lex-q-choices lex-whois-acts');
+    if (o.confirm) {
+      const yes = button({ label: 'Подтвердить', note: o.confirm.say || null, main: true, left: true });
+      if (busy) yes.classList.add('is-busy');
+      yes.disabled = busy;
+      yes.addEventListener('click', () => { if (!busy && typeof o.onConfirm === 'function') o.onConfirm(); });
+      acts.appendChild(yes);
+    }
+    if (o.reply) {
+      const say = button({ label: 'Ответить', main: !o.confirm, left: true });
+      say.disabled = busy;
+      say.addEventListener('click', () => { if (!busy && typeof o.onReply === 'function') o.onReply(); });
+      acts.appendChild(say);
+    }
+    if (acts.childElementCount) root.appendChild(acts);
+    if (o.pending) {
+      const note = make('div', `lex-q-note${o.pending.error ? ' is-error' : ''}`,
+        o.pending.error ? `Не подтверждено: ${o.pending.error}` : 'Подтверждаю…');
+      note.setAttribute('role', 'status');
+      root.appendChild(note);
+    }
+    root.appendChild(questionFoot(o.at, null, false, null, null));
+    return root;
+  }
+
   // ── A pack of questions (В7.25) ─────────────────────────────────────────────
   // The waiting questions the server put in one group (the same variants, the same one the database
   // thinks right) stand as one message: what they share as the title, a row per question with what it
@@ -2667,7 +2732,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, button, unsent, question, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, button, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);
