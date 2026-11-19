@@ -39,9 +39,21 @@
   const CANCEL_WAIT_S = 5;
   const CANCEL_HOLD_S = 30;
   const STALE_S = 120;
-  // WhatsApp lets one edit one's own text for 15 minutes after the send (19.11.2026). The database says it again and
-  // has the last word: this only keeps «Edit» out of the menu of a message it would refuse.
-  const EDIT_WINDOW_MS = 15 * 60 * 1000;
+  // The channels where «Edit» of a message that went to a person works (19.11.2026; Gennady: in every channel — WhatsApp,
+  // Telegram, Max, Profi.ru). One row per channel: the uid of its messages begins with `prefix`; `windowMs` — how long
+  // the messenger lets a message be edited after the send (null — no term); `personal(uid)` — the chat is a person's,
+  // not a group. The iPhone holds the same table (`editChannels`, ios/Lex/Lex/EditSent.swift), the server of Lex the
+  // same patterns (`lex_message_edit_patterns`, supabase/migrations/message_edit.sql) and the database of Gennady the
+  // same channels (`brain.edit_channels`, modules/actions/message_edits.sql): a channel is added in all four, and only
+  // when its executor is proven on the live messenger — a row without one is an empty place in the menu (lesson
+  // 2026-11-19). The database says the term again and has the last word: this only keeps «Edit» out of the menu of a
+  // message it would refuse.
+  const EDIT_CHANNELS = {
+    whatsapp: { prefix: 'profi:wa:', windowMs: 15 * 60 * 1000, personal: (uid) => !/@g\.us:/.test(uid) },
+    telegram: { prefix: 'profi:telegram:', windowMs: 48 * 60 * 60 * 1000, personal: (uid) => !uid.startsWith('profi:telegram:-') },
+    max: { prefix: 'profi:max:', windowMs: 7 * 24 * 60 * 60 * 1000, personal: (uid) => !uid.startsWith('profi:max:-') },
+  };
+  const editChannelOf = (uid) => Object.values(EDIT_CHANNELS).find((c) => uid.startsWith(c.prefix)) || null;
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
 
   const { make, button, newOpId } = global.LexSection;
@@ -1312,20 +1324,21 @@
         return menu && menu.items && menu.items[0] ? menu.items[0] : null;
       },
 
-      // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, by WhatsApp, in the window of 15 minutes,
-      // not a photo, a voice message, a file or a sticker, not deleted, in a chat that has the person behind it. The chat
-      // draws the menu from this each time it opens (the window closes while the chat stands).
+      // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, by a channel of EDIT_CHANNELS, in the
+      // window of that channel, not a photo, a voice message, a file or a sticker, not deleted, in a chat that has the
+      // person behind it. The chat draws the menu from this each time it opens (the window closes while the chat stands).
       canEditSent(t) {
         if (!data || typeof deps.edit !== 'function' || typeof deps.editText !== 'function') return false;
         const uid = String((t && t.uid) || '');
-        if (!/^profi:wa:/.test(uid) || /@g\.us:/.test(uid)) return false;
+        const channel = editChannelOf(uid);
+        if (!channel || !channel.personal(uid)) return false;
         if (t.origin !== 'profi_sent' && t.origin !== 'folder_out') return false;
         if (folder && !data.send) return false;
         const look = lookOf(uid);
         if (look.deletedAt || look.sticker) return false;
         if (storedFilesOf(t.attachments).length || photosOf(t.attachments).length) return false;
         const sentAt = Date.parse(t.authoredAt || '');
-        if (!Number.isFinite(sentAt) || Date.now() - sentAt >= EDIT_WINDOW_MS) return false;
+        if (!Number.isFinite(sentAt) || (channel.windowMs !== null && Date.now() - sentAt >= channel.windowMs)) return false;
         return !!wordsOf(t).trim();
       },
 
@@ -2133,5 +2146,5 @@
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
   global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode,
-    storedFilesOf, withoutFileMarks };
+    storedFilesOf, withoutFileMarks, EDIT_CHANNELS };
 })(typeof window !== 'undefined' ? window : globalThis);
