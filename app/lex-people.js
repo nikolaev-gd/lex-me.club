@@ -16,6 +16,7 @@
 //   signals              the channel of the database's signals (lex-account-events.js)
 //   live(tabId)          the live section of a tab ('profi', 'folder:kolya'), built, or null
 //   showFeed(order)      the chat of new orders, at that order or at its top (a screen of Profi.ru)
+//   showBot()            the bot's service chat (a screen of Profi.ru), the line under the new orders
 //   notify(text)         a failure the person has to see
 //   gear(on)             the gear of Profi.ru in the bar of the page
 //   onSelect(id)         a tab was chosen
@@ -48,6 +49,8 @@
     let tabsRow = null;
     let follower = null;
     let reading = null;
+    // The line of the bot's service chat reads its last message itself (profi_bot_chat(1)): people_home stays as it was.
+    let botHead = null;
 
     const say = (text, isError) => {
       status.textContent = text || '';
@@ -115,6 +118,16 @@
           mark: feed.active ? `${feed.active} sending` : '', onClick: () => deps.showFeed(null),
           unread: { chat: '__lex_profi_orders__' },
         }));
+        // The bot's service chat (19.11.2026): under the new orders, the same line as in the section.
+        const heard = (botHead && botHead.messages) || [];
+        const lastWords = heard[heard.length - 1] || null;
+        list.appendChild(global.LexSection.row({
+          lead: global.LexMessage.avatarBrand(48),
+          title: (botHead && botHead.title) || 'Бот Профи', sub: lastWords ? String(lastWords.text || '') : 'Nothing yet.', strong: true,
+          time: lastWords ? global.LexSection.listTime(lastWords.at) : '',
+          onClick: () => deps.showBot(),
+          unread: { chat: '__lex_profi_bot__' },
+        }));
       }
       const chats = (Array.isArray(home.chats) ? home.chats : []).filter((c) => selected === ALL || c.tab === selected);
       for (const c of chats) {
@@ -126,8 +139,18 @@
     }
 
     // ── reading ────────────────────────────────────────────────────────────────
+    // The bot's last message, for its line. An account without the section of Profi.ru has no such chat: nothing to draw.
+    function readBot() {
+      return Promise.resolve(deps.read('profi_bot_chat', { p_limit: 1 }, (b) => {
+        if (!b || typeof b !== 'object') return;
+        botHead = b;
+        if (selected === 'profi' && home) paint();
+      })).catch(() => {});
+    }
+
     function reload() {
       if (reading) return reading;
+      readBot();
       reading = deps.read('people_home', {}, (v, isFresh) => {
         // The copy this device kept draws the first frame; the server's answer takes its place. A copy never covers a
         // list that stands on the screen already.

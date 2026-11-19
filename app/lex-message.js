@@ -75,6 +75,8 @@
 //                       (default), 48 (the line of a chat) or 96 (the card of a person)
 //   avatarMark(channel, size)   the mark of a channel 28 on a round ground in place of a person
 //                       (the line of New orders)
+//   avatarBrand(size)   the Lex mark (lex-brand-mark.js) on the same round ground, in place of a person: the
+//                       line of the bot's service chat «Бот Профи» (19.11.2026)
 //   order({ … })        the message of an order in the chat of new orders of Profi.ru (В7.29): the grey
 //                       part of the client, the blue part of the bot's reply with the buttons, a yellow
 //                       band «Not sure» on top; a done order folded in three lines that open in place
@@ -1607,6 +1609,20 @@
     return n;
   }
 
+  // The Lex mark in place of a person (the line of the bot's service chat): the mark 26 high on the round
+  // ground --bg-hover, as the mark of a channel is. The letter L stands in if the mark's file is not loaded.
+  function avatarBrand(size) {
+    const n = make('span', 'lex-avatar is-mark is-brand');
+    n.setAttribute('aria-hidden', 'true');
+    avatarSize(n, size);
+    if (global.LexBrandMark && typeof global.LexBrandMark.svgMarkup === 'function') {
+      n.insertAdjacentHTML('beforeend', global.LexBrandMark.svgMarkup(26));
+    } else {
+      n.textContent = 'L';
+    }
+    return n;
+  }
+
   // ── Buttons (В7.6, В7.7) ─────────────────────────────────────────────────────
   // The main button — the colour of the main action (--accent), one in a row; the second — the
   // ground of a hover (--bg-hover). 44 high, radius 12, 15/650. `left` — the words at the left and
@@ -2732,7 +2748,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, button, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

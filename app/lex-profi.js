@@ -39,6 +39,11 @@
   const CANCEL_WAIT_S = 5;
   const CANCEL_HOLD_S = 30;
   const STALE_S = 120;
+  // How many of the bot's last messages its chat shows (profi_bot_chat): a service chat is read from its end.
+  const BOT_LIMIT = 200;
+  // The chat key of the bot's service chat: what the number of its unread and the open screen are told by.
+  const BOT_KEY = '__lex_profi_bot__';
+  const BOT_TITLE = 'Бот Профи';
   // The channels where «Edit» of a message that went to a person works (19.11.2026; Gennady: in every channel — WhatsApp,
   // Telegram, Max, Profi.ru). One row per channel: the uid of its messages begins with `prefix`; `windowMs` — how long
   // the messenger lets a message be edited after the send (null — no term); `personal(uid)` — the chat is a person's,
@@ -1491,6 +1496,8 @@
     let feedEls = new Map();
     let clockOffset = 0;
     let report = null;
+    // The line of the bot's service chat reads its last message itself (profi_bot_chat(1)); profi_home stays as it was.
+    let botHead = null;
 
     function go(id, title) {
       frame.push({ id, title });
@@ -1657,6 +1664,17 @@
         title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
         unread: { chat: '__lex_profi_orders__' },
+      }));
+      // The bot's service chat (19.11.2026): what the bot tells Gennady about itself, a line under the new orders.
+      const bot = botHead || {};
+      const heard = bot.messages || [];
+      const lastWords = heard[heard.length - 1] || null;
+      list.appendChild(global.LexSection.row({
+        lead: global.LexMessage.avatarBrand(48),
+        title: bot.title || BOT_TITLE, sub: lastWords ? plainLinks(lastWords.text || '') : 'Nothing yet.', strong: true,
+        time: lastWords ? global.LexSection.listTime(lastWords.at) : '',
+        onClick: () => go('bot', bot.title || BOT_TITLE),
+        unread: { chat: BOT_KEY },
       }));
       // The order is the server's: pinned, then the talk (chat_states.sql). A client who did not answer the
       // first message is not in the list: his order stays in the chat of the new orders (profi_only_answered.sql).
@@ -1924,6 +1942,45 @@
       if (deps.head) deps.head(frame.isShown() && frame.screen === 'feed' ? feedHead() : null);
     }
 
+    // ── the bot's service chat ───────────────────────────────────────────────
+    // What the bot tells Gennady about itself — it stopped, a captcha, money is low, a Mac took over — in order, the
+    // last at the bottom (profi_bot_chat.sql, 19.11.2026). Nothing is written here: the bot reads no answers, so
+    // the screen has no field, as the chat of new orders has none. A message is a bubble of the other side with the
+    // time under it; the day stands between two days (В7.14). The chat the person has open is read — the number of
+    // its unread goes by itself (the page tells the server which screen is open, webchat/wc-app.js, presenceKey).
+    let lastBot = null;
+    async function paintBot() {
+      if (frame.screen !== 'bot') return;
+      if (lastBot && !frame.body.childElementCount) drawBot(lastBot);
+      await readKept('profi_bot_chat', { p_limit: BOT_LIMIT }, (r) => {
+        if (!r) return;
+        lastBot = r;
+        drawBot(r);
+      }, () => !lastBot);
+    }
+
+    function drawBot(r) {
+      const { body } = frame;
+      if (frame.screen !== 'bot') return;
+      // A chat opens on its end and a message that comes sets it there again; a reader who has scrolled up to the old lines
+      // stays where they were.
+      const stick = !body.childElementCount || feedAtEnd(body);
+      const was = body.scrollTop;
+      body.replaceChildren();
+      const items = (r && r.messages) || [];
+      if (!items.length) { body.appendChild(make('div', 'lex-profi-empty', 'The bot has not written yet.')); return; }
+      const M = global.LexMessage;
+      const lane = make('div', 'lex-bubbles lex-profi-lane');
+      for (const m of items) {
+        const node = M.bubble({ side: 'in', text: m.text || '', stamp: M.stamp({ at: m.at }) });
+        node.dataset.at = m.at || '';
+        lane.appendChild(node);
+      }
+      M.mark(lane);
+      body.appendChild(lane);
+      body.scrollTop = stick ? body.scrollHeight : was;
+    }
+
     // ── settings: the rest of the bot's menu ─────────────────────────────────
     function paintSettings() {
       const { body } = frame;
@@ -2017,6 +2074,7 @@
       const { screen } = frame;
       if (screen === 'home') paintHome();
       else if (screen === 'feed') return paintFeed().catch((e) => say((e && e.message) || 'The orders did not load.', true));
+      else if (screen === 'bot') return paintBot().catch((e) => say((e && e.message) || 'The bot\'s messages did not load.', true));
       else if (screen === 'settings') paintSettings();
       else if (screen === 'report') return paintReport();
       return null;
@@ -2026,6 +2084,8 @@
     // the screen now), then the server's answer. Only the answer is fresh: what it says of the bot
     // (monitorSilent) and its number of change are the server's of now, a copy's are not.
     async function reloadHome(onCopy) {
+      // The line of the bot's chat is read beside the list and never fails it.
+      const head = readBotHead();
       await readKept('profi_home', { p_groups: true }, (h, fresh) => {
         if (!h) return;
         home = h;
@@ -2041,6 +2101,13 @@
         if (fresh) rev = h.rev;
         else if (onCopy) onCopy();
       }, () => !home);
+      await head;
+    }
+
+    async function readBotHead() {
+      try {
+        await readKept('profi_bot_chat', { p_limit: 1 }, (b) => { if (b) botHead = b; }, () => !botHead);
+      } catch (_) { /* the list does not wait for the line of the bot */ }
     }
 
     // A change counts as seen only when it reached the screen and the open order chat: after
@@ -2062,6 +2129,7 @@
             const { screen } = frame;
             if (screen === 'home' || screen === 'settings') paint();
             else if (screen === 'feed') await paintFeed();
+            else if (screen === 'bot') await paintBot();
           })());
         }
         if (deps.onChange) reads.push(deps.onChange());
@@ -2136,6 +2204,8 @@
       // start over, so that the arrow leads out of it (lex-section.js, root).
       openSettings() { frame.reset(); go('settings', 'Settings'); },
       openFeed() { frame.reset(); go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
+      // The bot's service chat: a tap on a notification of the Alerts (webchat/wc-app.js).
+      openBot() { frame.reset(); go('bot', BOT_TITLE); },
       async openFeedAt(order) {
         focusOrder = order;
         if (frame.screen === 'feed') await paintFeed();

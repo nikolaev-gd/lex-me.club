@@ -52,6 +52,7 @@
     lex_chat_marks: { by: ['p_chat_key'], limit: 40 },    // the marks under its answers
     profi_home: {},                                       // Profi.ru: the list
     profi_feed: {},                                       //   the new orders
+    profi_bot_chat: { by: ['p_limit'], limit: 2 },        //   the bot's service chat: its last message and the chat
     profi_item: { by: ['p_order'], limit: 60 },           //   an order with its chat
     lex_em_feed_home: {},                                 // Extended Mind: the feeds
     lex_em_questions: {},                                 //   the questions
@@ -78,7 +79,8 @@
     'profi_send_cancel', 'profi_box_text', 'folder_send_drop', 'open_news_item', 'save_news_position',
     'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',
-    'lex_live_register', 'lex_notification_set', 'lex_notification_mode_set', 'lex_patch_user_settings',
+    'lex_live_register', 'lex_notification_set', 'lex_notification_mode_set', 'lex_notification_breakthrough_set',
+    'lex_patch_user_settings',
     // subscription or API tokens of Claude (claude_route.sql): asked at the «+», never kept
     'lex_claude_route',
     // the moment a chat was last open: taken and written, never shown from a copy

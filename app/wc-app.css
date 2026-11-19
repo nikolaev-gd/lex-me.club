@@ -2043,6 +2043,14 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
+/* The position of a kind of notification and, under it, the switch «Break through silent mode»
+   (the screen of notifications, wc-settings.js). */
+.wc-notify-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+/* The field's select is as wide as 62% of its row (lex-settings-fields.css); in this column the row is the column itself. */
+.wc-notify-ctl select { max-width: none; }
+.wc-notify-break { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-muted); }
+.wc-notify-break[hidden] { display: none; }
+
 /* ── Переключатель в настройках ──────────────────────────────────────────────
  *
  * Родной `<input type="checkbox">` под слоем оформления: сам флажок уводится

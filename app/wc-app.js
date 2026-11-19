@@ -606,6 +606,10 @@
       await showSection('profi');
       if (order) await SECTIONS.profi.live.openFeedAt(order); else SECTIONS.profi.live.openFeed();
     },
+    showBot: async () => {
+      await showSection('profi');
+      SECTIONS.profi.live.openBot();
+    },
     notify: (text) => toast(text, { error: true }),
     gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
   });
@@ -704,6 +708,8 @@
     // The list of new orders is a screen of its own for the server: open, it takes the
     // notifications about orders off every device (2026-11-13).
     if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'feed') return '__lex_profi_orders__';
+    // The bot's service chat is a screen of its own for the server too: open, it reads the alerts (19.11.2026).
+    if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'bot') return '__lex_profi_bot__';
     if (sectionOn) return null;
     return state.conversationId || null;
   }
@@ -859,6 +865,13 @@
       if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order, kind === 'profi_call_draft' ? { showLex: true, from: 'people' } : { from: 'people' });
       else if (order) await SECTIONS.profi.live.openFeedAt(order);
       else SECTIONS.profi.live.openFeed();
+      return;
+    }
+    // An alert of the Profi.ru bot: its service chat in the section Profi.ru.
+    if (kind === 'profi_alert' || key === '__lex_profi_bot__') {
+      await showSection('profi');
+      if (!wanted()) return;
+      SECTIONS.profi.live.openBot();
       return;
     }
     if (WcHistory.isEmFeedKey(key)) {

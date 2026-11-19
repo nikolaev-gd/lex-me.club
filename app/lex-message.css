@@ -516,6 +516,8 @@
 /* A channel in place of a person (the line of New orders): its mark 28 on the ground of a hover. */
 .lex-avatar.is-mark { background: var(--bg-hover, rgba(127, 127, 127, .16)); }
 .lex-avatar.is-mark > .lex-channel-icon { width: 28px; height: 28px; }
+/* The Lex mark in place of a person (the bot's service chat): the same ground, the mark's own colour. */
+.lex-avatar.is-brand > svg { flex: none; }
 
 /* In a chat of bubbles the day is a plate in the middle, as the notices are. */
 .lex-bubbles > .lex-msg-day {
