@@ -1396,10 +1396,6 @@
     // anew at once, and every other window reads it by the signal of the change.
     const DELETE_TEXT = 'It disappears from Lex. Nothing changes on Profi.ru or in the messengers. '
       + 'A new message of the client brings it back.';
-    // The chats the client never answered stand folded in one line; Show opens them in place.
-    // Open or not is this window's own and lives as long as it.
-    let silentOpen = false;
-
     async function chatAct(c, act, o) {
       try {
         // The mark is not a line of the list: the numbers of the unread carry it, and the signal «unread»
@@ -1465,25 +1461,10 @@
         mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
         unread: { chat: '__lex_profi_orders__' },
       }));
-      // The order is the server's: pinned, the talk, the silent ones last (chat_states.sql).
-      const chats = home.chats || [];
-      const silent = chats.filter((c) => c.group === 'silent');
-      for (const c of chats) if (c.group !== 'silent') list.appendChild(chatLine(c));
+      // The order is the server's: pinned, then the talk (chat_states.sql). A client who did not answer the
+      // first message is not in the list: his order stays in the chat of the new orders (profi_only_answered.sql).
+      for (const c of home.chats || []) list.appendChild(chatLine(c));
       body.appendChild(list);
-      if (silent.length) {
-        const fold = global.LexMessage.fold({
-          text: (home.silent && home.silent.text) || `${silent.length} chats with no reply`,
-          action: silentOpen ? 'Hide' : 'Show',
-          onClick: () => { silentOpen = !silentOpen; paintHome(); },
-        });
-        fold.classList.add('lex-profi-fold');
-        body.appendChild(fold);
-        if (silentOpen) {
-          const rest = make('div', 'lex-section-list');
-          for (const c of silent) rest.appendChild(chatLine(c));
-          body.appendChild(rest);
-        }
-      }
     }
 
     // ── new orders ───────────────────────────────────────────────────────────

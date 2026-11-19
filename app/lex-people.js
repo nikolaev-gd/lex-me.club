@@ -4,8 +4,8 @@
 // stand in the panel on the left. The chats with people are read once as one list (people_home,
 // supabase/migrations/people_home.sql): «All» is the whole list, the tab of a section is the lines that carry its id. A
 // section the server marks `tab: false` (folder_no_tab.sql: Other) has no tab of its own, its lines stand in «All».
-// The order, the pin, the dot and the lines folded as «chats with no reply» are the server's; this file draws what
-// comes. A line is the line its own section draws (lex-profi.js, lex-folders.js: `line`), with its menu, and a press
+// The order, the pin and the dot are the server's (a client who did not answer the first message has no line here:
+// profi_only_answered.sql); this file draws what comes. A line is the line its own section draws (lex-profi.js, lex-folders.js: `line`), with its menu, and a press
 // opens the chat the way that section does.
 //
 // create(deps) takes:
@@ -43,7 +43,6 @@
     let active = false;      // the main page is on the screen
     let home = null;
     let fresh = false;       // the list on the screen came from the server in this run
-    let silentOpen = false;
     let tabsRow = null;
     let follower = null;
     let reading = null;
@@ -116,30 +115,12 @@
         }));
       }
       const chats = (Array.isArray(home.chats) ? home.chats : []).filter((c) => selected === ALL || c.tab === selected);
-      const silent = chats.filter((c) => c.group === 'silent');
       for (const c of chats) {
-        if (c.group === 'silent') continue;
         const line = lineOf(c);
         if (line) list.appendChild(line);
       }
       if (list.children.length) body.appendChild(list);
-      else if (!silent.length) body.appendChild(make('div', 'lex-section-empty', 'No chats here yet.'));
-      if (silent.length) {
-        const text = (home.silent && home.silent.text && silent.length === Number(home.silent.count))
-          ? home.silent.text
-          : `${silent.length} ${silent.length === 1 ? 'chat' : 'chats'} with no reply`;
-        const fold = global.LexMessage.fold({
-          text, action: silentOpen ? 'Hide' : 'Show',
-          onClick: () => { silentOpen = !silentOpen; paint(); },
-        });
-        fold.classList.add('lex-profi-fold');
-        body.appendChild(fold);
-        if (silentOpen) {
-          const rest = make('div', 'lex-section-list');
-          for (const c of silent) { const line = lineOf(c); if (line) rest.appendChild(line); }
-          body.appendChild(rest);
-        }
-      }
+      else body.appendChild(make('div', 'lex-section-empty', 'No chats here yet.'));
     }
 
     // ── reading ────────────────────────────────────────────────────────────────
