@@ -2032,27 +2032,46 @@
   async function sendWhois(chat, key, text, r) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return;
+    // One word at a time: while a word of this chat is on its way a second press does nothing — its words stay in the field
+    // (the press emptied it), the server never gets the same word twice from here.
+    if (!chat.whoisSending(words, r && r.quoteUid)) { giveBack(key, text, r); return; }
+    // The word stands at the end of the chat now, «Sending…», and the line over the field goes with it; a refusal brings
+    // both back (takeWordBack) and says why under the buttons of the question.
+    if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
+    WcThread.scrollToEnd();
     try {
       await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId() } });
     } catch (err) {
-      giveBack(key, text, r);
-      toast('Not sent. ' + ((err && err.message) || ''), { error: true });
+      const why = (err && err.message) || 'Try again.';
+      // false — the chat drew the word already: it went, there is nothing to take back.
+      if (chat.whoisRefused(why)) takeWordBack(key, text, r); else console.warn('[wc] word to Lex:', why);
       return;
     }
-    // The word stands in the chat already (the server wrote it with the call): the line over the field leaves with it.
-    if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
+    // The server has the word: Lex thinks under it until the chat draws it.
+    chat.whoisTaken();
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+  }
+  // The word the server refused goes back where it was typed: into the field of its chat with the line «Reply to Lex» over
+  // it, or into the draft of its chat when another one is on the screen now.
+  function takeWordBack(key, text, r) {
+    if (key !== fieldKey) { giveBack(key, text, r); return; }
+    const cur = WcComposer.text();
+    WcComposer.setText(cur.trim() ? `${text}\n${cur}` : text);
+    if (r && !reply) setReply(r);
   }
   async function whoisConfirm(chat, uid) {
     if (!chat || !chat.data || !WHOIS_TURN.test(String(uid || ''))) return { error: 'This question is not open.' };
+    let out;
     try {
-      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, confirm: uid, opId: global.LexFolders.newOpId() } });
+      out = await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, confirm: uid, opId: global.LexFolders.newOpId() } });
     } catch (err) {
       return { error: (err && err.message) || 'Try again.' };
     }
     if (reply && WHOIS_TURN.test(reply.quoteUid || '')) setReply(null);
-    await refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
-    return {};
+    // The question closes on the screen the moment the server says «accepted» (lex-profi.js whoisConfirm); the chat is read
+    // after, in its own time, and what it brings (the chat of the person) comes as it comes.
+    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    return { say: out && typeof out.say === 'string' ? out.say : '' };
   }
   // A press on a link of Lex in the words of the question: lex://chat/<ref of a person> — his chat among the chats of a
   // folder; lex://order/<number> — the order chat of Profi.ru. The screen opens them as the press on a notification does.

@@ -126,6 +126,14 @@
 /* «While you're busy» (busyNode): the countdown stands on Cancel as it does in an order message — the part and its
  * rules are in lex-message.css (В7.29), the seconds on the right, the ground of the time left under the words. */
 
+/* The word of Gennady to Lex in the branch «who is this», at the end of the chat before the chat draws it (lex-profi.js
+ * whoisWordItem): the bubble as the chat will draw it, «Sending…» under it on the right, then Lex «thinks» — the head and
+ * the dots of the assistant waiting for its first word (the rule in wc-app.css), 4 under the word on the left. */
+.lex-profi-msg.is-pending > .lex-profi-box-note { text-align: right; }
+/* The chat keeps 8 under its last message (its padding), the word at the end of it must stand where the chat will draw it. */
+.wc-profi-outbox > .lex-profi-msg.is-pending:first-child { margin-top: -8px; }
+.lex-whois-thinking { align-self: stretch; max-width: none; margin-top: 4px; padding: 0 2px; }
+
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
  * Profi. The corner holds the arrow back or the three lines, one rule for every chat (wc-app.css,
  * .wc-burger). New orders has the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place

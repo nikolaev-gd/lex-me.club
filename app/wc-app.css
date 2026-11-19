@@ -1048,7 +1048,8 @@ button { font: inherit; color: inherit; }
  * человеком. Пузырь только у реплики человека. */
 .wc-turn-assistant .wc-bubble { overflow-wrap: break-word; }
 
-.wc-turn-assistant.is-streaming .wc-bubble::after {
+.wc-turn-assistant.is-streaming .wc-bubble::after,
+.lex-whois-thinking .wc-bubble:empty::after {
   content: "";
   display: inline-block;
   width: 7px;
@@ -1065,7 +1066,8 @@ button { font: inherit; color: inherit; }
  * остальных: до него на экране не было вообще ничего, только мигающая палочка
  * там, где ещё нет текста. Три точки честно говорят «думает», палочка — «пишет
  * прямо сейчас», и путать их не надо. */
-.wc-turn-assistant.is-streaming .wc-bubble:empty::after {
+.wc-turn-assistant.is-streaming .wc-bubble:empty::after,
+.lex-whois-thinking .wc-bubble:empty::after {
   content: "";
   width: 42px;
   height: 9px;

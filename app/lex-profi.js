@@ -831,11 +831,40 @@
       }
       return last;
     };
-    // Confirm on its way or refused, by the uid of the turn it stands on: { } — on its way, { error } — refused.
+    // Confirm on its way or refused, by the uid of the turn it stands on: { } — on its way, { error } — refused. A word
+    // of Gennady that the server refused stands the same way under the buttons of the question it answered
+    // ({ error, word: true }, «Не отправлено: …»).
     const whoisBusy = new Map();
-    // What a message is drawn from: its look, its open earlier text, what Profi said the client read.
+    // The questions the server closed at a press of «Подтвердить» (19.11.2026): the buttons are gone and the plate
+    // «Подтверждено» stands at once, before the chat is read again; the plate goes when the line of the system itself is
+    // drawn. By the uid of the question: { say }.
+    const whoisDone = new Map();
+    // The word of Gennady to Lex that the database has not shown yet (a press of Send in the chat of the branch, the page:
+    // wc-app.js sendWhois). At the press it stands at the end of the chat «Sending…»; once the server took it Lex
+    // «thinks» under it; it goes the moment the chat draws the word itself, or in 8 s if that does not come.
+    // { text, at, state: 'sending' | 'taken', before: the uids of his words the chat had, quoteUid }.
+    let whoisWord = null;
+    let whoisWordTimer = 0;
+    // The host of the outbox the chat painted last (the timer and the word repaint it themselves).
+    let outboxHost = null;
+    // The plate of a closed question stands until the database brings the line of the system of its case: the plate of
+    // the database takes its place. → { say } | null.
+    const closedBy = (uid) => {
+      const d = whoisDone.get(uid);
+      const w = whoisOf(uid);
+      if (!d || !w) return null;
+      const said = Object.values((data && data.looks) || {}).some((l) => l && typeof l === 'object' && l.whois
+        && l.whois.by === 'system' && l.whois.case === w.case);
+      return said ? null : d;
+    };
+    // What a message is drawn from: its look, its open earlier text, what Profi said the client read. A turn of the branch
+    // also from the state of its case: the last word of the model, the last turn, Confirm, a closed question.
     const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid),
-      WHOIS_UID.test(uid) ? [lastWhois(), whoisBusy.get(uid) || null] : null]);
+      WHOIS_UID.test(uid)
+        ? [lastWhois(), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid)] : null]);
+    // The uids of the words of Gennady to Lex the chat has (his turns of the branch), to know which one is new.
+    const whoisHisWords = () => Object.entries((data && data.looks) || {})
+      .filter(([, l]) => l && typeof l === 'object' && l.whois && l.whois.by === 'gennady').map(([u]) => u);
     const remember = (t) => {
       const uid = String(t.uid || '');
       if (!uid) return;
@@ -1014,6 +1043,8 @@
         const by = w.by === 'gennady' ? 'gennady' : w.by === 'system' ? 'system' : 'model';
         const still = !!(o && o.still);
         if (!still) remember(t);
+        // The chat draws the word the press put at its end: the word of the press goes, this one takes its place.
+        if (!still && by === 'gennady' && whoisWord && !whoisWord.before.includes(uid)) self.whoisSettle();
         const row = make('div', `wc-turn lex-profi-msg is-whois is-${by}`);
         if (uid) row.dataset.uid = uid;
         if (t.authoredAt) row.dataset.at = t.authoredAt;
@@ -1026,27 +1057,26 @@
         }
         if (by === 'gennady') {
           // His word to the model about this question: the bubble of the person's word to Lex, «To Lex» over it.
-          const label = make('div', 'lex-bubble-label', '');
-          label.append(M.sparkle(12), document.createTextNode('To Lex'));
-          const bubble = M.bubble({ side: 'out', tone: 'self', label, text: words, stamp: M.stamp({ at: t.authoredAt }) });
+          const bubble = self.whoisWordBubble(words, t.authoredAt);
           row.appendChild(bubble);
           if (!still) self.attachWhoisMenu(row, bubble, t, 'out', false);
-          // Lex has not answered yet: a line under the word, for a minute and a half at most — the agent writes in
-          // seconds; a line that stayed would say what is not true.
+          // Lex has not answered yet: Lex «thinks» under the word (the dots of the assistant), for a minute and a half
+          // at most — the agent writes in seconds; dots that stayed would say what is not true.
           const waited = Date.now() - (Date.parse(t.authoredAt || '') || 0);
           if (!still && w.open && Number(w.turn) === lastOfCase(w.case) && waited >= 0 && waited < 90000) {
-            const note = make('div', 'lex-profi-box-note', 'Lex is replying…');
-            note.setAttribute('role', 'status');
-            row.appendChild(note);
-            setTimeout(() => note.remove(), 90000 - waited);
+            const thinking = self.thinking();
+            row.appendChild(thinking);
+            setTimeout(() => thinking.remove(), 90000 - waited);
           }
           return row;
         }
         const body = make('div', '', '');
         const md = global.WcMarkdown;
         if (md && typeof md.into === 'function') md.into(body, words, { lex: true }); else body.textContent = words;
-        // The buttons stand on the last word of the model in an open question only.
-        const last = !!w.open && lastWhois() === Number(w.turn);
+        // The buttons stand on the last word of the model in an open question only — and not on a question the server
+        // closed at a press of «Подтвердить» a moment ago: it says «Подтверждено» at once, the chat is read after.
+        const done = closedBy(uid);
+        const last = !done && !!w.open && lastWhois() === Number(w.turn);
         const part = M.whois({
           body, at: t.authoredAt,
           confirm: last && w.confirm && typeof deps.whoisConfirm === 'function' ? { say: String(w.confirm.say || '') } : null,
@@ -1057,6 +1087,7 @@
           onGo: (place) => { if (typeof deps.go === 'function') deps.go(place); },
         });
         row.appendChild(part);
+        if (done) row.appendChild(M.notice({ text: `Подтверждено: ${done.say}`.trim(), at: done.at }));
         // The question comes without the person: it can be new (the «Новые» line, the unread of the chat).
         row.dataset.in = '1';
         if (!still) self.attachWhoisMenu(row, part, t, null, last);
@@ -1086,21 +1117,110 @@
         deps.reply({ quoteUid: uid, head: 'Reply to Lex', text: plainLine(t.text, 160) });
       },
 
-      // «Подтвердить»: the ring on the button while the server applies the answer; a refusal stands under the buttons.
+      // The turn `uid` of the branch drawn again in its place (the ring, a refusal, a closed question).
+      redrawWhois(uid) {
+        const n = lane ? [...lane.querySelectorAll(':scope > .lex-profi-msg[data-uid]')].find((x) => x.dataset.uid === uid) : null;
+        if (n && drawn.has(uid)) n.replaceWith(self.whoisNode(drawn.get(uid)));
+      },
+
+      // «Подтвердить»: the ring on the button while the server applies the answer; a refusal stands under the buttons. The
+      // moment the server says «accepted» the question closes here — the buttons go and «Подтверждено» stands — without
+      // waiting for the chat to be read again (19.11.2026: the buttons stood for seconds after the server had them done).
       async whoisConfirm(uid) {
         const t = drawn.get(uid);
         const cur = whoisBusy.get(uid);
         if (!t || typeof deps.whoisConfirm !== 'function' || (cur && !cur.error)) return;
-        const again = () => {
-          const n = lane ? [...lane.querySelectorAll(':scope > .lex-profi-msg[data-uid]')].find((x) => x.dataset.uid === uid) : null;
-          if (n && drawn.has(uid)) n.replaceWith(self.whoisNode(drawn.get(uid)));
-        };
         whoisBusy.set(uid, {});
-        again();
+        self.redrawWhois(uid);
         let out;
         try { out = await deps.whoisConfirm(uid); } catch (e) { out = { error: (e && e.message) || 'Try again.' }; }
-        if (out && out.error) whoisBusy.set(uid, { error: String(out.error) }); else whoisBusy.delete(uid);
-        again();
+        if (out && out.error) whoisBusy.set(uid, { error: String(out.error) });
+        else {
+          whoisBusy.delete(uid);
+          const w = whoisOf(uid) || {};
+          whoisDone.set(uid, { say: String((out && out.say) || (w.confirm && w.confirm.say) || ''), at: new Date().toISOString() });
+        }
+        self.redrawWhois(uid);
+      },
+
+      // The word of Gennady to Lex: the bubble «To Lex» of the person's word, the same in the chat and at its end.
+      whoisWordBubble(words, at) {
+        const M = global.LexMessage;
+        const label = make('div', 'lex-bubble-label', '');
+        label.append(M.sparkle(12), document.createTextNode('To Lex'));
+        return M.bubble({ side: 'out', tone: 'self', label, text: words, stamp: M.stamp({ at }) });
+      },
+
+      // Lex «thinks»: the assistant waiting for its first word — its head and the three dots, drawn by the rule of the
+      // assistant (wc-app.css), not by a new one.
+      thinking() {
+        const box = make('div', 'lex-msg lex-profi-answer lex-whois-thinking', '');
+        box.setAttribute('role', 'status');
+        box.setAttribute('aria-label', 'Lex is thinking');
+        box.append(self.lexHead(new Date().toISOString()), make('div', 'wc-bubble', ''));
+        return box;
+      },
+
+      // A press of Send with the line «Reply to Lex» over the field (the page: wc-app.js sendWhois). false — a word of this
+      // chat is on its way: the second press does nothing, the caller keeps the words in the field. Otherwise the word
+      // stands at the end of the chat at once, «Sending…», and an earlier refusal under the buttons goes.
+      whoisSending(text, quoteUid) {
+        if (whoisWord) return false;
+        const old = quoteUid ? whoisBusy.get(quoteUid) : null;
+        if (old && old.word) { whoisBusy.delete(quoteUid); self.redrawWhois(quoteUid); }
+        whoisWord = { text: String(text || ''), at: new Date().toISOString(), state: 'sending', before: whoisHisWords(), quoteUid: quoteUid || null };
+        self.repaintOutbox();
+        return true;
+      },
+
+      // The server took the word: Lex thinks under it until the chat draws the word itself (8 s at most).
+      whoisTaken() {
+        if (!whoisWord) return;
+        whoisWord.state = 'taken';
+        clearTimeout(whoisWordTimer);
+        whoisWordTimer = setTimeout(() => self.whoisSettle(), 8000);
+        self.repaintOutbox();
+      },
+
+      // The server refused the word: it leaves the end of the chat, and the refusal stands in red under the buttons of the
+      // question it answered. false — the chat has drawn the word already: it went, nothing to take back.
+      whoisRefused(why) {
+        const w = whoisWord;
+        if (!w) return false;
+        whoisWord = null;
+        clearTimeout(whoisWordTimer);
+        if (w.quoteUid) {
+          whoisBusy.set(w.quoteUid, { error: String(why || 'Try again.'), word: true });
+          self.redrawWhois(w.quoteUid);
+        }
+        self.repaintOutbox();
+        return true;
+      },
+
+      // The word of the press is not at the end of the chat any more: the chat draws it, or the time is out.
+      whoisSettle() {
+        if (!whoisWord) return;
+        clearTimeout(whoisWordTimer);
+        whoisWord = null;
+        self.repaintOutbox();
+      },
+
+      // The word of the press as it stands at the end of the chat: as the chat will draw it, «Sending…» or Lex thinking under it.
+      whoisWordItem() {
+        const w = whoisWord;
+        const root = make('div', 'wc-turn lex-profi-msg is-whois is-gennady is-pending');
+        root.appendChild(self.whoisWordBubble(w.text, w.at));
+        if (w.state === 'sending') {
+          const note = make('div', 'lex-profi-box-note', 'Sending…');
+          note.setAttribute('role', 'status');
+          root.appendChild(note);
+        } else root.appendChild(self.thinking());
+        return root;
+      },
+
+      // The outbox painted again where the chat painted it last, if that is still the outbox of this chat.
+      repaintOutbox() {
+        if (outboxHost && outboxHost.__profiChat === self && outboxHost.isConnected) self.paintOutbox(outboxHost);
       },
 
       // The menu of a message (В7.36): the common menu of a message (LexMessage.attachMenu, block 2 of 2026-11-18)
@@ -1216,6 +1336,19 @@
       },
 
       // The person's word to the model: on the right, grey, «To Lex» over it, the time under it.
+      // The head of a word of Lex in the chat: the sparkle, «Lex», the time, «only you see this» — one for the answer of the
+      // assistant being drawn (dress) and for the assistant waiting for its first word (thinking).
+      lexHead(at) {
+        const M = global.LexMessage;
+        const head = make('div', 'lex-msg-head lex-profi-lex-head', '');
+        const mark = make('span', 'lex-profi-lex-mark', '');
+        mark.appendChild(M.sparkle(14));
+        const only = make('span', 'lex-profi-only', '');
+        only.append(M.eyeOff(12), document.createTextNode('only you see this'));
+        head.append(mark, make('span', 'lex-msg-name', 'Lex'), make('span', 'lex-msg-time', at ? M.timeOf(at) : ''), only);
+        return head;
+      },
+
       // The answer of the model: on the left in a dashed frame, «Lex · only you see this» over
       // it, the mark of the model beside it. Both are the bubbles of lex-message.js laid over
       // the turns the thread made; dressing twice changes nothing.
@@ -1239,12 +1372,7 @@
           let head = t.querySelector(':scope > .lex-profi-lex-head');
           if (!head) {
             t.classList.add('lex-msg', 'lex-profi-answer');
-            head = make('div', 'lex-msg-head lex-profi-lex-head', '');
-            const mark = make('span', 'lex-profi-lex-mark', '');
-            mark.appendChild(M.sparkle(14));
-            const only = make('span', 'lex-profi-only', '');
-            only.append(M.eyeOff(12), document.createTextNode('only you see this'));
-            head.append(mark, make('span', 'lex-msg-name', 'Lex'), make('span', 'lex-msg-time', ''), only);
+            head = self.lexHead();
             t.prepend(head);
           }
           const time = head.querySelector('.lex-msg-time');
@@ -1342,6 +1470,8 @@
       // The person's own texts on their way to the client, at the end of the chat (outboxNode).
       paintOutbox(host) {
         if (!host) return;
+        outboxHost = host;
+        host.__profiChat = self;
         // A chat of a folder: what Gennady sent and the database has not sent yet, and what it could not
         // send (until he sends it again or deletes it). A sent one stands in the chat as his message once the
         // database has it.
@@ -1349,7 +1479,7 @@
           const M = global.LexMessage;
           // A stand account (not an account of the database) sends to nobody: its text says so.
           const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent' && s.state !== 'dropped');
-          host.replaceChildren(...sends.map((s) => {
+          const items = sends.map((s) => {
             const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
             const body = make('div', '', '');
             body.textContent = s.text || '';
@@ -1393,8 +1523,11 @@
               : `${s.channel ? `Sending to ${placeName(s.channel)}` : 'Sending'}${s.test ? ' (test chat)' : ''}…`;
             root.appendChild(note);
             return root;
-          }));
-          host.hidden = !sends.length;
+          });
+          // The word to Lex of the branch «who is this» the press put here, until the chat draws it.
+          if (whoisWord) items.push(self.whoisWordItem());
+          host.replaceChildren(...items);
+          host.hidden = !items.length;
           return;
         }
         const wins = ((data && data.windows) || []).filter((w) => w.outbox);

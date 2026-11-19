@@ -1838,8 +1838,8 @@
   // question (the line over the field, В7.26); Confirm applies the proposal and closes the question. A closed
   // question, or a word of the model that is not the last of its branch, has no buttons: a message of Lex, the time
   // at its right foot. While Confirm is on its way the ring turns on it and Reply is off; a refusal stands under the
-  // buttons in red «Не подтверждено: <причина>».
-  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error } | null, onReply, onConfirm, onGo })
+  // buttons in red «Не подтверждено: <причина>»; the word to Lex the server refused (`pending.word`) — «Не отправлено: <причина>».
+  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word } | null, onReply, onConfirm, onGo })
   function whois(o) {
     o = o || {};
     const root = make('div', 'lex-q lex-whois is-open');
@@ -1878,7 +1878,7 @@
     if (acts.childElementCount) root.appendChild(acts);
     if (o.pending) {
       const note = make('div', `lex-q-note${o.pending.error ? ' is-error' : ''}`,
-        o.pending.error ? `Не подтверждено: ${o.pending.error}` : 'Подтверждаю…');
+        o.pending.error ? `${o.pending.word ? 'Не отправлено' : 'Не подтверждено'}: ${o.pending.error}` : 'Подтверждаю…');
       note.setAttribute('role', 'status');
       root.appendChild(note);
     }
