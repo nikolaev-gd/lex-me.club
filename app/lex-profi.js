@@ -1103,11 +1103,12 @@
       // where it goes is the server's rule, the same as for Send of a box. run → true once the
       // server took the text (the field is cleared then). The composer draws it with
       // LexSendLater.menu: a grey line on top, the mark of the place by the first item.
-      sendMenu(text) {
+      sendMenu(text, opts) {
         if (!data || !data.chatKey || !String(text || '').trim()) return null;
         // The line of a reply over the field (В7.26): the text goes as the answer to that message, and
-        // the line leaves with it. Without a line the call is as it was.
-        const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
+        // the line leaves with it. Without a line the call is as it was. opts.plain — the text of a message
+        // already in the chat (sendNow): the line over the field is not its business, no quote.
+        const quoteUid = !(opts && opts.plain) && typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
         // A chat of a folder: the text goes to the person now, without the assistant, where he wrote last, or to
         // the messenger of the message it answers; no time to pick (the queue of the database sends at once). A
         // group — none.
@@ -1147,6 +1148,14 @@
             },
           ],
         };
+      },
+
+      // «Send now» in the menu of one's own word to Lex (19.11.2026): the text of that message goes to the client
+      // or the person as it stands, at once, without the model — the first item of sendMenu, with no quote. null
+      // — this chat sends to nobody (a group, a chat in no folder) or the message has no words.
+      sendNow(text) {
+        const menu = self.sendMenu(text, { plain: true });
+        return menu && menu.items && menu.items[0] ? menu.items[0] : null;
       },
 
       // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion

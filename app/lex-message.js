@@ -2402,6 +2402,14 @@
     return d ? `${who}, [${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${timeOf(d)}]` : who;
   }
   const wholeText = (o, el) => String((o.text ? o.text() : plainOf(o.body || el)) || '').trim();
+  // The words of a copy of several: the head over each message — and only when there are several of them. One
+  // message copies as its words, as in Telegram (19.11.2026: «Me, [19.11.2026 14:15]» went to a client in a text
+  // pasted from one selected message). parts: [{ o, w }] — the menu entry of the message and its words.
+  function copyOfSeveral(parts) {
+    const list = parts.filter((p) => p && p.w);
+    if (list.length === 1) return list[0].w;
+    return list.map((p) => `${copyHead(p.o)}\n${p.w}`).join('\n\n');
+  }
 
   // The items of the menu, in the one order of every chat (docs/spec/20-chat.md, «Меню сообщения»).
   function menuItems(el, o, part) {
@@ -2580,12 +2588,11 @@
     let timer = null;
     copy.addEventListener('click', async () => {
       const list = all().filter((n) => chosen.has(n));
-      const words = list.map((n) => {
+      const words = copyOfSeveral(list.map((n) => {
         const o = MENU.get(n);
-        const w = wholeText(o, n);
-        return w ? `${copyHead(o)}\n${w}` : '';
-      }).filter(Boolean).join('\n\n');
-      if (!(await copyText(words))) return;
+        return { o, w: wholeText(o, n) };
+      }));
+      if (!words || !(await copyText(words))) return;
       copyIcon.replaceChildren(messageIcon('tick', 16));
       copyWords.textContent = 'Copied';
       clearTimeout(timer);
@@ -2623,7 +2630,9 @@
       .filter((n) => MENU.has(n) && range.intersectsNode(n))
       .filter((n, i, a) => !a.some((m) => m !== n && m.contains(n)));
     if (!hit.length) return;
-    if (hit.length === 1 && hit[0].contains(top)) {
+    // One message — its words alone, whatever else the selection touches (a triple click reaches the start of the
+    // next block, a drag ends over a line of the date): the head belongs to a copy of several only.
+    if (hit.length === 1) {
       const part = partIn(range, hit[0]);
       const raw = String(sel.toString() || '').replace(/\s+/g, ' ').trim();
       if (!part || part.replace(/\s+/g, ' ').trim() === raw) return;
@@ -2631,10 +2640,7 @@
       e.preventDefault();
       return;
     }
-    const words = hit.map((n) => {
-      const w = partIn(range, n);
-      return w ? `${copyHead(MENU.get(n))}\n${w}` : '';
-    }).filter(Boolean).join('\n\n');
+    const words = copyOfSeveral(hit.map((n) => ({ o: MENU.get(n), w: partIn(range, n) })));
     if (!words) return;
     e.clipboardData.setData('text/plain', words);
     e.preventDefault();

@@ -3522,6 +3522,8 @@
     WcThread.init({
       onPickModel: pickModelForAnswer,
       onEdit: editTurn,
+      // «Send to … now» in the menu of a word to Lex: the answer still being written to it stops.
+      onStopCurrent: stopStream,
       // The thread got its first word or was cleared: the main page gives way or comes back.
       onEmpty: paintHome,
     });

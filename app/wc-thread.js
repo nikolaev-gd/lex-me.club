@@ -128,6 +128,22 @@
           (opts && opts.presetSlot) || null,
           (turn && turn.dataset.uid) || null);
       },
+      // «Send to … now» (19.11.2026): in a chat with a person behind it (an order, a person of a folder) a word to
+      // Lex that was meant for him goes to him as it stands, at once, without the model — the first item of the
+      // menu of the arrow of the field (profiChat.sendNow). The answer of Lex to it, still being written, stops.
+      items: () => {
+        const go = profiChat && typeof profiChat.sendNow === 'function' ? profiChat.sendNow(userText(bubble)) : null;
+        if (!go) return [];
+        return [{
+          label: go.label,
+          icon: go.icon,
+          run: () => {
+            const next = (turnOf() || {}).nextElementSibling;
+            if (next && next.classList.contains('is-streaming') && hooks.onStopCurrent) hooks.onStopCurrent();
+            return go.run();
+          },
+        }];
+      },
     });
   }
 
@@ -1012,6 +1028,9 @@
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
+          // An answer with no word (stopped before the first one, the model said nothing) is not drawn: the
+          // question stands alone (docs/spec/20-chat.md, «Остановка хода»).
+          if (!String(t.text || '').trim() && t.origin !== 'news' && t.origin !== 'voice') return;
           const { turn } = t.origin === 'news'
             ? newsTurn(t.text, opts && opts.newsHead ? opts.newsHead() : null)
             : assistantTurn(t.text);
@@ -1287,6 +1306,9 @@
         // price, the words «по подписке» in its place — shown whether prices are or not.
         const any = money && money.answers ? money.answers.get(t.dataset.uid) : null;
         const sub = !!(any && any.subscription === true);
+        // «по подписке» under a question is the mark of an empty answer (stopped before the first word, no
+        // word at all): there is no answer to put it under and nothing was paid — no mark at all.
+        if (sub && t.classList.contains('wc-turn-user')) { if (old) old.remove(); continue; }
         const a = show || sub ? any : null;
         const usd = sub ? 0 : (a && a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
         if (usd == null) { if (old) old.remove(); continue; }
@@ -1350,13 +1372,21 @@
       // Ответ дописан — вот теперь его можно резать на слова. Раньше нельзя:
       // каждый кадр потока перерисовывает пузырь целиком.
       if (entry.text && global.WcWordPick && !profiChat) WcWordPick.ready(entry.bubble, entry.text, 'markdown');
+      // The person pressed «stop» before the first word: the question stays, the empty answer goes and no
+      // plaque comes in its place — the press is the explanation (19.11.2026: a red frame with «Stopped
+      // before the first word.» under his own «stop» read as a failure). The iPhone drops it the same way
+      // (`dropAnswerIfEmpty`); docs/spec/20-chat.md, «Остановка хода».
+      if (!entry.text && msg.stopped) {
+        entry.turn.remove();
+        syncFeet();
+        maybeStick();
+        return;
+      }
       // An answer that ended without a single token is a failure the reader
       // must see; an empty bubble reads as "the model had nothing to say".
       if (!entry.text) {
         entry.turn.classList.add('wc-turn-error');
-        entry.bubble.textContent = msg.stopped
-          ? 'Stopped before the first word.'
-          : 'The teacher sent no answer.';
+        entry.bubble.textContent = 'The teacher sent no answer.';
       }
       maybeStick();
     },
