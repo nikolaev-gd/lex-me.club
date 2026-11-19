@@ -802,7 +802,8 @@
     return /^HTTP \d/.test(raw) ? 'The server of Lex did not take it.' : raw.slice(0, 200);
   }
   // A button on a notification of the Mac app (PushNotifications.swift): the same calls as the same buttons of this
-  // page, with its sign-in — Cancel and Send of a new order (profi_command, as New orders), «Send to <name>» of a
+  // page, with its sign-in — Cancel and Send of a new order (profi_command, as New orders), Cancel of the bot's short
+  // message while he is busy (profi_busy_command, as the card in the order chat), «Send to <name>» of a
   // draft after a call (profi_send, as holding the button under the draft), and the words typed into the field of a
   // message a person wrote (profi_send_text in an order chat, folder-send in a chat of a folder, as Send of the chat).
   // Pressing Send there is Gennady's «yes» to that text, as in the chat; the text goes through the queue of actions of
@@ -818,6 +819,13 @@
           p_args: what === 'cancel' ? { pressed_at: Date.now() / 1000 } : {},
         });
         return { ok: true };
+      }
+      if (what === 'busy_cancel') {
+        // Cancel on «While you're busy» (the bot's short message to a client): the bot is told with the job the
+        // button was made for and its word is waited for — a text that has gone meanwhile is not «cancelled».
+        if (!a.order) return { ok: false };
+        const r = await global.LexProfi.busyCommand(newsRpc, a.order, 'cancel', String(a.job || ''));
+        return r.ok ? { ok: true } : { ok: false, why: String(r.error || '').slice(0, 200) };
       }
       if (what === 'call_send') {
         if (!a.window) return { ok: false };

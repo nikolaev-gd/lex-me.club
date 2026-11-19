@@ -531,6 +531,150 @@
     return root;
   }
 
+  // ── «While you're busy» (profi_busy.sql, 2026-11-19) ──────────────────────────────────────────────────
+  // The bot's short message to the client while Gennady is busy stands at the end of the chat as a text that
+  // has not gone yet, like his own text on its way (outboxNode): until it goes (then it is the message in the
+  // chat), is cancelled, or is taken into a box. `busy` of profi_open says the state and what it holds:
+  //   waiting    the countdown: «Goes at 14:05», Cancel with the seconds on it (В7.29) and Edit; at zero —
+  //              «Sending now…», the buttons gone (the bot has the text);
+  //   rewriting  the client wrote more, the bot writes the text again: Cancel;
+  //   cancelled, not_sent   the text stays and Edit; what the bot says about it (`reason`) is its own words,
+  //              Russian, shown as they are.
+  // Edit takes the text into a box of the chat (the same box as the draft after a call): the bot stops the
+  // countdown and the chat shows the box, to change by hand and send by holding (В7.23). Both buttons go to the
+  // bot (profi_busy_command) with the job they were pressed on; the bot's word comes back as the result of the
+  // command, a refusal stands under the text.
+  // d: rpc, order, refresh() — read the chat again, edited() — the box came, show it.
+  const BUSY_WAIT_S = 8;
+  const clockOf = (sec) => new Date(sec * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const BUSY_REFUSED = {
+    changed: 'The text has just changed. Look at it again.',
+    closed: 'It is not waiting any more.',
+  };
+  const busyRefusal = (code) => BUSY_REFUSED[code] || 'It did not go.';
+  async function busyResult(rpc, id, seconds) {
+    const until = Date.now() + seconds * 1000;
+    for (;;) {
+      let r = null;
+      try { r = await rpc('profi_command_result', { p_id: id }); } catch (_) { /* once more below */ }
+      if (r && r.done) return r.result || {};
+      if (Date.now() >= until) return { ok: false, error: 'The monitor did not answer. Is the working Mac awake?' };
+      await new Promise((res) => setTimeout(res, 500));
+    }
+  }
+  // A press on Cancel or Edit, from the card or from a button of a notification: the command goes to the bot with
+  // the job it was pressed on, the bot's word is waited for. → { ok, error? } (error — words to show as they are).
+  async function busyCommand(rpc, order, kind, job) {
+    try {
+      const r = await rpc('profi_busy_command', { p_op_id: newOpId(), p_order: String(order), p_kind: kind, p_job: job || '' });
+      if (!r || !r.ok) return { ok: false, error: busyRefusal(r && r.error) };
+      const res = await busyResult(rpc, r.id, BUSY_WAIT_S);
+      return res.ok ? { ok: true } : { ok: false, error: res.error || 'The bot did not take it.' };
+    } catch (e) {
+      return { ok: false, error: (e && e.message) || 'The command did not go.' };
+    }
+  }
+  // What a press said, kept by the order and the job it was made on: while the bot answers, the chat is drawn again at
+  // the database's signal (a command in the queue changes the section — the live check, 19.11.2026: the card made then
+  // forgot «Cancelling…» and its buttons were on again), and the card made then must still say the words of the press
+  // — or the bot's refusal, the card standing as it was. `paint` is the newest card's: the one a press repaints.
+  const busyTalk = new Map();
+  function talkOf(key) {
+    let t = busyTalk.get(key);
+    if (!t) {
+      t = { pending: '', refused: '', paint: null };
+      busyTalk.set(key, t);
+      if (busyTalk.size > 40) busyTalk.delete(busyTalk.keys().next().value);
+    }
+    return t;
+  }
+  function busyNode(b, d) {
+    const M = global.LexMessage;
+    const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item lex-profi-busy');
+    root.dataset.busy = b.state;
+    // The seconds are counted on the server's clock (`now`), not on the page's.
+    const skew = Number.isFinite(b.now) ? b.now - Date.now() / 1000 : 0;
+    const secondsLeft = () => (b.sendAt || 0) - (Date.now() / 1000 + skew);
+    const span = b.sendAt && b.at && b.sendAt > b.at ? b.sendAt - b.at : 0;
+    // pending — the words of a press under way; refused — what the bot or the server answered to the last press.
+    const talk = talkOf(`${d.order}|${b.job}`);
+    let cd = null;
+    let seen = false;
+
+    const press = (kind) => async () => {
+      talk.pending = kind === 'cancel' ? 'Cancelling…' : 'Opening the text…';
+      talk.refused = '';
+      if (talk.paint) talk.paint();
+      const res = await busyCommand(d.rpc, d.order, kind, b.job);
+      talk.pending = '';
+      if (!res.ok) talk.refused = res.error;
+      else if (kind === 'edit' && d.edited) d.edited();
+      if (talk.paint) talk.paint();
+      if (d.refresh) d.refresh();
+    };
+
+    function paint() {
+      const going = b.state === 'waiting' && secondsLeft() <= 0;
+      const body = make('div', '', '');
+      body.textContent = b.text || '';
+      let stamp = null;
+      if (b.state === 'waiting' && b.sendAt) {
+        stamp = make('div', 'lex-stamp');
+        const t = make('span', 'lex-stamp-time lex-sl-when', '');
+        t.append(global.LexSendLater.icon('clock', 12), document.createTextNode(`Goes at ${clockOf(b.sendAt)}`));
+        stamp.appendChild(t);
+      }
+      const bubble = M.bubble({ side: 'out', body, stamp });
+      if (b.state === 'waiting' || b.state === 'rewriting') bubble.classList.add('is-scheduled');
+      const line = talk.pending || talk.refused || (
+        going ? 'Sending now…'
+          : b.state === 'waiting' ? (b.retry ? `It did not go${b.reason ? `: ${b.reason}` : ''}. Trying again.` : '')
+          : b.state === 'rewriting' ? 'The client wrote more: the bot writes the text again.'
+          : b.state === 'cancelled' ? 'Cancelled: it will not go.'
+          : b.reason || 'The bot did not send it.');
+      const note = make('div', 'lex-profi-box-note', line);
+      note.setAttribute('role', 'status');
+      const foot = make('div', 'lex-profi-box-foot');
+      cd = null;
+      const can = (b.state === 'waiting' && !going) || b.state === 'rewriting' || b.state === 'cancelled' || b.state === 'not_sent';
+      if (can) {
+        if (b.state === 'waiting' || b.state === 'rewriting') {
+          const cancel = button('lex-profi-btn is-danger', 'Cancel', press('cancel'));
+          cancel.dataset.role = 'busy-cancel';
+          if (talk.pending) cancel.disabled = true;
+          foot.appendChild(cancel);
+          if (b.state === 'waiting' && !talk.pending) cd = M.countdown(cancel);
+        }
+        if (b.state !== 'rewriting') {
+          const edit = button('lex-profi-btn', 'Edit', press('edit'));
+          edit.dataset.role = 'busy-edit';
+          if (talk.pending) edit.disabled = true;
+          foot.appendChild(edit);
+        }
+      }
+      foot.hidden = !foot.childElementCount;
+      root.replaceChildren(bubble, note, foot);
+      if (cd) {
+        const left = Math.max(0, secondsLeft());
+        cd.set(left, span > 0 ? left / span : 0);
+      }
+    }
+    talk.paint = paint;
+    paint();
+
+    // The seconds go on by themselves between the server's words; at zero the buttons go (the bot has the text).
+    if (b.state === 'waiting' && b.sendAt) {
+      const timer = setInterval(() => {
+        if (!root.isConnected) { if (seen) clearInterval(timer); return; }
+        seen = true;
+        const left = secondsLeft();
+        if (left <= 0) { clearInterval(timer); paint(); return; }
+        if (cd) cd.set(left, span > 0 ? left / span : 0);
+      }, 1000);
+    }
+    return root;
+  }
+
   function sendingLine(ch) {
     return ch ? `Sending to ${placeName(ch)}…` : 'The monitor is sending it.';
   }
@@ -1254,8 +1398,16 @@
           return;
         }
         const wins = ((data && data.windows) || []).filter((w) => w.outbox);
-        host.replaceChildren(...wins.map((w) => outboxNode(w, boxDeps())));
-        host.hidden = !wins.length;
+        const nodes = wins.map((w) => outboxNode(w, boxDeps()));
+        // The bot's short message while Gennady is busy (busyNode) comes last: it is the newest.
+        const busy = data && data.busy && typeof data.busy === 'object' ? data.busy : null;
+        if (busy) {
+          nodes.push(busyNode(busy, { rpc: deps.rpc, order: deps.order, refresh: deps.reload,
+            // The box Edit made is a model's box: the clean view would hide it, so the chat shows the discussion.
+            edited: () => self.setClean(false) }));
+        }
+        host.replaceChildren(...nodes);
+        host.hidden = !nodes.length;
       },
 
       // Does the field of this chat take text (LexComposerBox.hint, .locked). An order chat and the chat of a
@@ -2215,6 +2367,6 @@
   }
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
-  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode,
+  global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode, busyNode, busyCommand,
     storedFilesOf, withoutFileMarks, EDIT_CHANNELS };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -75,7 +75,7 @@
   // news_feed above, with the place in it).
   const CALLS = [
     // commands and writes
-    'profi_command', 'profi_command_result', 'profi_send', 'profi_send_text', 'profi_send_at',
+    'profi_command', 'profi_command_result', 'profi_busy_command', 'profi_send', 'profi_send_text', 'profi_send_at',
     'profi_send_cancel', 'profi_box_text', 'folder_send_drop', 'open_news_item', 'save_news_position',
     'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',

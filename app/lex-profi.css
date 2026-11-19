@@ -123,6 +123,8 @@
 /* Under one's own text the buttons stand at their own width, on the right (the design). */
 .lex-profi-outbox-item .lex-profi-box-foot { justify-content: flex-end; }
 .lex-profi-outbox-item .lex-profi-box-foot .lex-profi-btn { flex: 0 0 auto; gap: 6px; padding: 0 16px; }
+/* «While you're busy» (busyNode): the countdown stands on Cancel as it does in an order message — the part and its
+ * rules are in lex-message.css (В7.29), the seconds on the right, the ground of the time left under the words. */
 
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
  * Profi. The corner holds the arrow back or the three lines, one rule for every chat (wc-app.css,
