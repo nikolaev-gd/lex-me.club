@@ -2794,6 +2794,8 @@
             // An order chat drew nothing of the server while the conversation went on: now it
             // reads the chat — what the client wrote meanwhile, the spoken turns in its look.
             if (!superseded && profiChat && state.conversationId === convId) refreshProfiChat().catch(() => {});
+            // The page that came out during the call is taken now (signal «page»).
+            applyNewPage();
           },
         },
       });
@@ -3322,6 +3324,22 @@
       balanceFirst = false;
       WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
     });
+    // A new page is out (supabase/migrations/page_signal.sql): the release tells the server, the
+    // server tells every open Lex. Only the Mac app takes it (its mark says `page`): it reloads the
+    // window, and what was typed stays in the drafts. Nothing asks the server on a timer.
+    let pageFirst = true;
+    signals.follow(['page'], async (signal) => {
+      if (!signal) {
+        // The channel is open again and the journal could not say what was missed: the page itself
+        // is asked once. The first opening is the start — the page just loaded is the newest.
+        if (pageFirst) { pageFirst = false; return; }
+        pageNewStamp = await liveStamp();
+      } else {
+        pageFirst = false;
+        pageNewStamp = (signal.payload && signal.payload.stamp) ? String(signal.payload.stamp) : null;
+      }
+      applyNewPage();
+    });
     // The list of chats changed on any device: a new chat, a new message, a title, a rename,
     // hiding (account_changes.sql), pinned, read, unread, deleted (chat_states.sql). The list Chats
     // is read anew, and the open chat if the screen lacks a message the server has; the list of
@@ -3453,6 +3471,33 @@
   function firstFrameOf(start) {
     return new Promise((done) => {
       Promise.resolve().then(() => start(done)).then(done, done);
+    });
+  }
+
+  // ── A new page is out (2026-11-19) ────────────────────────────────────────
+  // The stamp of the page this window loaded is `WC_BUILD.stamp` (dev-tools/build-webchat.mjs; a
+  // stand serves files as they are and has none). The signal «page» names the stamp of the page
+  // laid out now. Another stamp: tell the Mac app, which reloads the window. Not while an answer is
+  // coming or a call goes on — then at their end (the end of the answer, the end of the call).
+  let pageNewStamp = null;
+  const builtStamp = () => (global.WC_BUILD && global.WC_BUILD.stamp ? String(global.WC_BUILD.stamp) : '');
+  const shellTakesPage = () => !!(global.__lexShell && global.__lexShell.page);
+  const callGoes = () => !!(global.WcVoice && (global.WcVoice.active || global.WcVoice.connecting));
+  async function liveStamp() {
+    try {
+      const r = await fetch(String(location.href).split('#')[0], { cache: 'no-store' });
+      const m = /WC_BUILD\s*=\s*\{[^}]*"stamp"\s*:\s*"([^"]+)"/.exec(await r.text());
+      return m ? m[1] : null;
+    } catch (_) { return null; }
+  }
+  function applyNewPage() {
+    if (!pageNewStamp || !builtStamp() || pageNewStamp === builtStamp() || !shellTakesPage()) { pageNewStamp = null; return; }
+    if (callGoes() || WcThread.isStreaming()) return;
+    WcThread.whenFree('page', () => {
+      if (!pageNewStamp || pageNewStamp === builtStamp() || callGoes() || WcThread.isStreaming()) return;
+      const stamp = pageNewStamp;
+      pageNewStamp = null;
+      tellShell({ word: 'page', stamp });
     });
   }
 
@@ -3597,6 +3642,8 @@
           state.requestId = null;
           WcComposer.setStreaming(false);
         }
+        // A page that came out while the answer went is taken a moment after its end.
+        if (pageNewStamp) setTimeout(applyNewPage, 2000);
         // The message got its answer, or a part of one the server keeps: it leaves the store.
         // A refusal took it out of the outbox already (onUnsent, called by WcThread.error).
         // After the thread's own handling of the same event, whatever the order of the listeners.
