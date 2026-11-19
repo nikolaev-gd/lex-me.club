@@ -1470,9 +1470,8 @@
       && JSON.stringify((d && d.reply) || null) === JSON.stringify(replyOfField());
     if (!same) fillField(d);
   }
-  // Who gets the text of the field — the words of the empty field (LexComposerBox.hint): «To Lex»,
-  // «To Эдуард · WhatsApp» in a chat of a folder, «To Lex · hold ↑ to Дмитрий · Profi.ru» in an order
-  // chat; a group takes no text (the field says so and takes no typing).
+  // The empty field has no words (LexComposerBox.hint), except where it takes no text: a group and a chat
+  // in no folder say so and take no typing.
   function paintAddressee() {
     const B = global.LexComposerBox;
     if (!B || typeof WcComposer.setHint !== 'function') return;
@@ -1480,7 +1479,7 @@
     if (profiChat && typeof profiChat.addressee === 'function') {
       try { to = profiChat.addressee() || to; } catch (e) { console.warn('[wc] addressee:', e && e.message); }
     }
-    WcComposer.setHint(B.hint(to, 'en'), B.locked(to));
+    WcComposer.setHint(B.hint(to), B.locked(to));
   }
   // The words of a turn that did not go go back where they were typed: into the field, when it is still
   // that chat's; into the draft of their chat when another one is on the screen now.

@@ -109,9 +109,9 @@
   font-size: var(--lex-composer-font);
   line-height: var(--lex-composer-line);
 }
-/* Подсказка «кому уйдёт текст» (LexComposerBox.hint) — одной строкой: длинная
-   («To Lex · hold ↑ to …») обрезается многоточием, а не переносится во вторую
-   строку окошка. */
+/* Слова закрытого поля (LexComposerBox.hint) — одной строкой: длинные обрезаются
+   многоточием, а не переносятся во вторую строку окошка. В пустом поле, которое
+   принимает текст, подсказки нет. */
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-textarea::placeholder,
 .wc-composer #wc-input::placeholder {
   white-space: nowrap;

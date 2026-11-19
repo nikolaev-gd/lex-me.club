@@ -21,14 +21,6 @@
 
   const { menu, toast } = WcUI;
 
-  // The empty field's hint — one text for every surface, kept in
-  // ../lex-composer-box.js. Set the moment this file runs (the field is
-  // already in the document), not in init(), which waits for the session.
-  (function setHint() {
-    const field = document.getElementById('wc-input');
-    if (field && global.LexComposerBox) field.placeholder = global.LexComposerBox.placeholder('en');
-  })();
-
   let elForm, elInput, elSend, elVoice, elMic, elPlus, elModeSplit, elNote;
   let hooks = {};
   // The field takes no text (a group, a chat that takes no messages now): setHint(…, true).
@@ -969,14 +961,14 @@
 
     text() { return elInput.value; },
 
-    // Who gets the text (LexComposerBox.hint): the words of the empty field. lock — the field takes
-    // no text at all (a group: Lex does not write there): it says so at once, takes no typing, and no
-    // button of the box works.
+    // The words of the empty field (LexComposerBox.hint): none, except in a field that takes no text at
+    // all. lock — the field takes no text (a group: Lex does not write there): it says so at once, takes
+    // no typing, and no button of the box works. The field's name for a screen reader stays «Message».
     setHint(words, lock) {
       if (!elInput) return;
-      const next = words || (global.LexComposerBox ? global.LexComposerBox.placeholder('en') : '');
+      const next = words || '';
       if (elInput.placeholder !== next) elInput.placeholder = next;
-      elInput.setAttribute('aria-label', next);
+      elInput.setAttribute('aria-label', next || 'Message');
       const was = locked;
       locked = !!lock;
       elInput.disabled = locked;

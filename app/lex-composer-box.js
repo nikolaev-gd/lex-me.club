@@ -1,27 +1,23 @@
 // lex-composer-box.js — the composer's text and its layout rule, the same on
-// every surface: the hint in the empty field, and which of the two layouts the
-// box takes for what is typed in it. The composer's sizes and the two layouts
+// every surface: the words of a field that takes no typing, and which of the two
+// layouts the box takes for what is typed in it. The composer's sizes and the two layouts
 // themselves live next door in lex-composer-box.css; the two files are one
 // module.
 //
 // Loaded by the extension (both content_scripts in manifest.json and
 // LexSurfaceDeps.scripts — the side panel and the small window) and by the web
 // page (webchat/index.html; the Mac app shows that page). The iPhone app gets
-// the English text at build time: dev-tools/ios-composer-box.mjs runs this
+// the words of a locked field at build time: dev-tools/ios-composer-box.mjs runs this
 // file and writes it into the app bundle, so no surface keeps its own copy;
 // the layout rule is written again in Swift (ChatScreen.swift, ComposerLayout),
 // because SwiftUI lays the box out itself.
 //
-// The hint names who gets the text (Gennady's task 17.11.2026, «Черновик на
-// каждый чат и адресат в поле»): before, it was «Message…» in every chat, and
-// one tap could send a person the words meant for another. Now the empty field
-// says «To Lex» where the text goes to the model, «To <name> · <channel>» where
-// it goes to a person, «To Lex · hold ↑ to <name> · <channel>» in an order chat
-// of Profi.ru (a tap goes to the model, a hold to the client), and «Lex does not
-// write to groups» in a group, where the field takes no text. The web page and
-// the iPhone are English only; the extension also has a Russian UI, and for it
-// the hint of the model is written here in Russian (the extension has no chats
-// with people).
+// The empty field carries no hint of who gets the text (Gennady's decision
+// 2026-11-19: «To Lex», «To <name> · <channel>» and «To Lex · hold ↑ to …» are
+// gone from every field on every surface; they were added 17.11.2026 and cut
+// off with an ellipsis in a narrow field). The only words left in an empty
+// field say why it takes no typing: «Lex does not write to groups» in a group,
+// «This chat takes no messages now» in a chat of a person in no folder.
 //
 // The layout follows Gemini's composer (owner's decision 2026-11-13): one line
 // — a pill with «+», the text and the microphone inside — while the field is
@@ -30,48 +26,19 @@
 (function (root) {
   'use strict';
 
-  const PLACEHOLDER = Object.freeze({
-    en: 'To Lex',
-    ru: 'Для Lex',
-  });
-
-  // The hint for a UI language ('en' | 'ru'); anything else gets English. It is
-  // the hint of a chat with the model; a chat with a person asks hint() below.
-  function placeholder(lang) {
-    return PLACEHOLDER[lang] || PLACEHOLDER.en;
-  }
-
-  // Who gets the text, as words in the empty field. {who} — the person's first
-  // name, {where} — the name of the channel the text goes by. The iPhone gets
-  // these templates at build time with the hint above (composer-box.json).
+  // The words of a field that takes no typing: why it does not. The iPhone gets
+  // them at build time (composer-box.json).
   const HINTS = Object.freeze({
-    lex: 'To Lex',
-    person: 'To {who} · {where}',
-    personBare: 'To {who}',
-    order: 'To Lex · hold ↑ to {who} · {where}',
-    orderBare: 'To Lex · hold ↑ to {who}',
     group: 'Lex does not write to groups',
     closed: 'This chat takes no messages now',
   });
 
-  // to: 'lex' — the model; 'person' — a chat of a folder, Enter and the arrow send
-  // to the person; 'order' — an order chat, a tap goes to the model and a hold to
-  // the client; 'group' — a group, no text goes from Lex; 'closed' — a chat of a
-  // person that takes no text now (in no folder). who — the name as the chat has
-  // it (the first word is taken; none — «the person», «the client»), where — the
-  // channel's name ('' — not known). 'group' and 'closed' are a field that takes
-  // no typing (locked()).
-  function hint(o, lang) {
-    const to = (o && o.to) || 'lex';
-    if (to === 'group' || to === 'closed') return HINTS[to];
-    if (to === 'person' || to === 'order') {
-      const who = String((o && o.who) || '').trim().split(/\s+/)[0]
-        || (to === 'order' ? 'the client' : 'the person');
-      const where = String((o && o.where) || '').trim();
-      const t = where ? HINTS[to] : HINTS[to + 'Bare'];
-      return t.replace('{who}', who).replace('{where}', where);
-    }
-    return placeholder(lang);
+  // to: 'group' — a group, no text goes from Lex; 'closed' — a chat of a person
+  // that takes no text now (in no folder); any other chat takes text and has no
+  // hint. 'group' and 'closed' are a field that takes no typing (locked()).
+  function hint(o) {
+    const to = o && o.to;
+    return (to === 'group' || to === 'closed') ? HINTS[to] : '';
   }
   const locked = (o) => !!(o && (o.to === 'group' || o.to === 'closed'));
 
@@ -131,9 +98,8 @@
     const pad = (parseFloat(fs.paddingTop) || 0) + (parseFloat(fs.paddingBottom) || 0);
     const canSend = (typeof o.canSend === 'boolean') ? o.canSend : text.trim().length > 0;
 
-    // An empty field is one line whatever its hint: a long hint («To Lex · hold ↑
-    // to …») is cut with an ellipsis (lex-composer-box.css), not wrapped into a
-    // second line of the box.
+    // An empty field is one line whatever its hint: a long hint is cut with an
+    // ellipsis (lex-composer-box.css), not wrapped into a second line of the box.
     if (!text && !(canSend && presetsOn(box))) {
       box.classList.remove(MULTI);
       field.style.height = 'auto';
@@ -166,5 +132,5 @@
     field.style.overflowY = natural > cap + 1 ? 'auto' : 'hidden';
   }
 
-  root.LexComposerBox = Object.freeze({ PLACEHOLDER, HINTS, placeholder, hint, locked, fit });
+  root.LexComposerBox = Object.freeze({ HINTS, hint, locked, fit });
 })(typeof self !== 'undefined' ? self : globalThis);

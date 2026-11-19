@@ -1090,23 +1090,12 @@
         host.hidden = !wins.length;
       },
 
-      // Who gets the text of the field — the words of the empty field (LexComposerBox.hint). An order chat and
-      // the chat of a person in a folder: Lex by a tap, the client or the person by a hold, where his text would
-      // go (the rule of sendMenu below: the channel of the message a Reply answers, or where he wrote last); a
-      // group and a chat in no folder: nobody (the field takes no text).
+      // Does the field of this chat take text (LexComposerBox.hint, .locked). An order chat and the chat of a
+      // person in a folder do (a tap goes to Lex, a hold to the client or the person — the rule of sendMenu
+      // below); a group and a chat in no folder do not.
       addressee() {
-        const quoteUid = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
-        // A chat of a person in a folder: Lex by a tap, the person by a hold, as in an order chat (Gennady,
-        // 2026-11-18: the assistant in correspondence).
-        if (folder) {
-          if (!data) return { to: 'order', who: '' };
-          if (!data.send) return { to: data.kind === 'group' ? 'group' : 'closed' };
-          const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
-          return { to: 'order', who: data.client || data.title || '', where: where ? placeName(where) : '' };
-        }
-        if (!data) return { to: 'order', who: '' };
-        const place = quoteUid ? ((data.channels && data.channels[quoteUid]) || 'profi') : (data.replyTo || 'profi');
-        return { to: 'order', who: data.client || '', where: placeName(place) };
+        if (folder && data && !data.send) return { to: data.kind === 'group' ? 'group' : 'closed' };
+        return { to: 'order' };
       },
 
       // Holding the arrow of the field (wc-composer.js): the text to the client at once, without
