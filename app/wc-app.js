@@ -428,8 +428,9 @@
     apply: (_key, money) => {
       WcThread.paintMoney(money);
       // Once per open chat the queue of the database itself is asked about a message on its
-      // way; after that its state comes with the signal «marks».
-      if (brainAsked !== state.conversationId) { brainAsked = state.conversationId; brainLook(); }
+      // way; after that it is asked every 3 s while something is on its way (brainWatch below),
+      // and its state also comes with the signal «marks».
+      if (brainAsked !== state.conversationId) { brainAsked = state.conversationId; brainLook(); } else brainWatch.kick();
     },
     currentKey: () => 'open:' + moneyEpoch,
     signals,
@@ -443,49 +444,78 @@
   // просит база. «Отменить» отменяет сообщение в очереди базы (llm-proxy, brain-action).
   // Ушло ли сообщение, говорит сама база: каждая смена задачи в её очереди приходит лентой
   // Extended Mind, сервер ставит состояние пометки, и база шлёт сигнал «marks» — страница
-  // перечитывает пометки беседы (lex_chat_marks). Очередь базы страница спрашивает сама
-  // (brain-action status) только при открытии беседы и после обрыва канала.
-  let brainLooking = false;
-  function liveSend() {
-    for (const list of WcThread.brainMarks().values()) {
-      if (list.some((m) => m.kind === 'send' && (m.state === 'ждёт' || m.state === 'идёт'))) return true;
-    }
-    return false;
+  // перечитывает пометки беседы (lex_chat_marks).
+  // С 20.11.2026 сообщение человеку, которое подготовила модель, стоит под ответом окошком
+  // (lex-draft-box.js, В7.51): долгое нажатие отправляет, Edit меняет текст, Cancel снимает
+  // ждущее. Каждое действие — один вызов brain-action с видом пометки окошка; ответ несёт список
+  // пометок беседы целиком и ложится на экран сразу. Пока окошко в пути (отправляется, ждёт, идёт;
+  // и старая пометка send в ждёт и идёт), очередь базы переспрашивается раз в 3 секунды, не дольше
+  // 10 минут; сигнал «marks» идёт рядом, как шёл. Черновик, который ждёт долгого нажатия, не опрашивается.
+  function applyBrainMarks(list) {
+    if (!Array.isArray(list)) return;
+    if (global.LexDraftBox && global.LexDraftBox.sameMarks(WcThread.brainMarks(), list)) return;
+    WcThread.setBrainMarks(list);
+    brainWatch.kick();
   }
-  async function brainLook() {
-    const key = state.conversationId;
-    if (!key || brainLooking || !liveSend()) return;
-    brainLooking = true;
-    try {
-      const r = await newsPost('brain-action', { op: 'status', chatKey: key });
-      if (state.conversationId === key && r && Array.isArray(r.marks)) WcThread.setBrainMarks(r.marks);
-    } catch (e) {
-      console.warn('[wc] brain status:', e && e.message);
-    } finally {
-      brainLooking = false;
-    }
-  }
+  const brainWatch = global.LexDraftBox ? global.LexDraftBox.watch({
+    open: () => !!state.conversationId,
+    alive: () => global.LexDraftBox.aliveIn(WcThread.brainMarks()),
+    ask: async () => {
+      const key = state.conversationId;
+      if (!key) return;
+      try {
+        const r = await newsPost('brain-action', { op: 'status', chatKey: key });
+        if (state.conversationId === key && r) applyBrainMarks(r.marks);
+      } catch (e) {
+        console.warn('[wc] brain status:', e && e.message);
+      }
+    },
+  }) : { kick() {}, stop() {} };
+  // Очередь базы — один раз при открытии беседы и после обрыва канала; дальше опрос идёт, пока что-то в пути.
+  function brainLook() { brainWatch.kick({ now: true }); }
   signals.follow(['marks'], async (signal) => {
     const key = state.conversationId;
     if (!key) return;
-    if (!signal) { await brainLook(); return; }
+    if (!signal) { brainLook(); return; }
     if (!signal.payload || signal.payload.chat !== key) return;
     const marks = await newsRpc('lex_chat_marks', { p_chat_key: key });
-    if (state.conversationId === key && Array.isArray(marks)) WcThread.setBrainMarks(marks);
+    if (state.conversationId === key) applyBrainMarks(marks);
   });
+  // Один вызов окошка: тот же brain-action, что у «Отменить», с видом пометки окошка. Ответ сервера —
+  // как есть ({ ok, state, text, busy, marks }); не дошли до сервера — Error с причиной. Список пометок
+  // ответа чужой беседы на экран не попадает.
+  async function draftCall(body) {
+    const key = state.conversationId;
+    const r = await newsPost('brain-action', Object.assign({ chatKey: key }, body));
+    if (!r) throw new Error('No answer.');
+    return state.conversationId === key ? r : Object.assign({}, r, { marks: null });
+  }
+  const draftBoxes = global.LexDraftBox ? global.LexDraftBox.create({
+    send: (m) => draftCall({ op: 'send', turnUid: m.uid, kind: m.kind }),
+    text: (m, text) => draftCall({ op: 'text', turnUid: m.uid, kind: m.kind, text }),
+    cancel: (m) => draftCall({ op: 'cancel', turnUid: m.uid, kind: m.kind }),
+    apply: applyBrainMarks,
+    follow: (o) => brainWatch.kick(o),
+    copy: (text) => copyText(text),
+  }) : null;
+  let draftChat = null;
   WcThread.setBrainHooks({
     onYes: () => { send('Да'); },
     onCancel: async (uid) => {
       const key = state.conversationId;
       const r = await newsPost('brain-action', { op: 'cancel', chatKey: key, turnUid: uid });
-      if (state.conversationId === key && r && Array.isArray(r.marks)) WcThread.setBrainMarks(r.marks);
+      if (state.conversationId === key && r) applyBrainMarks(r.marks);
       return r;
     },
+    boxes: draftBoxes,
   });
 
   function resetMoney() {
     brainAsked = null;
     moneyEpoch++;
+    brainWatch.stop();
+    // Слова, набранные в окошке, и его строки живут, пока открыта та же беседа: перерисовка ленты их не трогает.
+    if (draftBoxes && draftChat !== state.conversationId) { draftBoxes.reset(); draftChat = state.conversationId; }
     if (moneyRefresher) moneyRefresher.cancel();
     WcThread.paintMoney(null);
   }

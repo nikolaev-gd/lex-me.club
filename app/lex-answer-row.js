@@ -345,11 +345,18 @@
   // беседы: yes — модель ждёт согласия Геннадия, под ответом кнопка «Да»; send —
   // база поставила сообщение от его имени в очередь: кому, номер, когда, и
   // состояние задачи. Узел собирается здесь, окно ставит его под ответ.
+  // С 20.11.2026 сообщение человеку, которое подготовила модель, стоит под ответом окошком
+  // (пометка вида box:<n>, lex-draft-box.js, В7.51): пузырь с текстом и кнопка, которая
+  // отправляет долгим нажатием, как в чате заказа Профи. Окошки рисует общая часть
+  // LexDraftBox, здесь они только встают первыми в узел. Старые пометки send и yes
+  // рисуются как раньше; «Да» у yes с data.draft скрыта: на старое согласие на черновик
+  // ответить уже нечем.
   //   marks      — пометки этого ответа (массив);
   //   o.isLast   — ответ последний в беседе и уже дописан: только под ним «Да»;
   //   o.onYes()  — нажата «Да» (окно отправляет «Да» следующим сообщением);
-  //   o.onCancel(uid) → Promise<{ ok, state, text }> — нажата «Отменить».
-  // Подписи — по-русски: это разговор Геннадия с базой о людях и сообщениях.
+  //   o.onCancel(uid) → Promise<{ ok, state, text }> — нажата «Отменить»;
+  //   o.boxes    — контроллер окошек окна (LexDraftBox.create); без него окошек нет.
+  // Подписи старых пометок — по-русски: это разговор Геннадия с базой о людях и сообщениях.
   const SEND_LINE = {
     'идёт': 'Сообщение уже взяли в отправку — отменить нельзя.',
     'ушло': 'Сообщение ушло.',
@@ -359,11 +366,13 @@
   };
   function brainMarksNode(marks, o) {
     const list = Array.isArray(marks) ? marks : [];
-    const yes = o && o.isLast ? list.find((m) => m && m.kind === 'yes') : null;
+    const boxes = o && o.boxes && global.LexDraftBox ? global.LexDraftBox.boxesOf(list) : [];
+    const yes = o && o.isLast ? list.find((m) => m && m.kind === 'yes' && !(m.data && m.data.draft)) : null;
     const sends = list.filter((m) => m && m.kind === 'send' && m.data);
-    if (!yes && !sends.length) return null;
+    if (!yes && !sends.length && !boxes.length) return null;
     const box = document.createElement('div');
-    box.className = 'lex-brain-marks';
+    box.className = boxes.length ? 'lex-brain-marks has-boxes' : 'lex-brain-marks';
+    for (const m of boxes) box.appendChild(o.boxes.node(m));
     for (const m of sends) {
       const d = m.data || {};
       const row = document.createElement('div');

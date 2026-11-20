@@ -2230,3 +2230,6 @@ button { font: inherit; color: inherit; }
 .wc-reply { margin: 0 0 6px; }
 .wc-reply[hidden] { display: none !important; }
 .wc-turn-assistant > .lex-brain-marks { margin-top: 10px; --lex-brain-line: var(--line); --lex-brain-hover: var(--bg-hover); --lex-brain-danger: var(--danger); }
+/* The windows of messages to people (В7.51) stand under the row of the answer as the box of an order chat does (it has
+ * 2 of its own, and the foot of the turn pulls 8 up): 2 here, not the 10 of the old marks. */
+.wc-turn-assistant > .lex-brain-marks.has-boxes { margin-top: 2px; }

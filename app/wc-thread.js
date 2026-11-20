@@ -651,6 +651,9 @@
 
   let lastMoney = null;
   let brainHooks = null;
+  // Что нарисовано под каждым ответом: по этому знаку видно, что пометки не менялись и узел
+  // трогать не надо (окошко под зажатым пальцем не должно заменяться при каждом обновлении денег).
+  const brainSigs = new WeakMap();
   function paintBrainMarks() {
     const marks = (lastMoney && lastMoney.marks) || new Map();
     const answers = [...elTurns.querySelectorAll('.wc-turn-assistant[data-uid]')];
@@ -658,17 +661,27 @@
     const lastIsEnd = last && !last.classList.contains('is-streaming') && !last.nextElementSibling;
     for (const t of answers) {
       const old = t.querySelector(':scope > .lex-brain-marks');
-      if (old) old.remove();
       const list = marks.get(t.dataset.uid);
-      if (!list || !global.LexAnswerRow || !global.LexAnswerRow.brainMarksNode) continue;
+      if (!list || !global.LexAnswerRow || !global.LexAnswerRow.brainMarksNode) { if (old) old.remove(); continue; }
+      const isLast = t === last && lastIsEnd;
+      const sig = JSON.stringify([isLast, list]);
+      if (old && brainSigs.get(old) === sig) continue;
+      // Новый узел строится, пока старый ещё на странице: окошко видит в нём слова, которые человек
+      // печатает в Edit, и фокус поля, и переносит их в новый.
       const node = global.LexAnswerRow.brainMarksNode(list, {
-        isLast: t === last && lastIsEnd,
+        isLast,
         onYes: () => brainHooks && brainHooks.onYes && brainHooks.onYes(),
         onCancel: (uid) => (brainHooks && brainHooks.onCancel ? brainHooks.onCancel(uid) : Promise.resolve(null)),
+        boxes: (brainHooks && brainHooks.boxes) || null,
       });
+      if (old) old.remove();
       if (!node) continue;
+      brainSigs.set(node, sig);
       const foot = t.querySelector(':scope > .wc-turn-foot');
-      if (foot) t.insertBefore(node, foot); else t.append(node);
+      // Окошки сообщений людям стоят под строкой ответа (копия, кнопка модели), как в чате заказа Профи;
+      // старые пометки «Да» и «Отменить» — как были, над строкой.
+      if (node.classList.contains('has-boxes')) { if (foot) foot.after(node); else t.append(node); }
+      else if (foot) t.insertBefore(node, foot); else t.append(node);
     }
   }
 
@@ -1342,8 +1355,9 @@
 
     // Пометки под ответами в чатах с базой (lex-answer-row.js, brainMarksNode): «Да» под
     // последним дописанным ответом, сообщения в очереди базы с «Отменить». hooks:
-    // onYes() и onCancel(uid) → Promise. setBrainMarks — новые пометки беседы без денег
-    // (ответ проверки очереди).
+    // onYes() и onCancel(uid) → Promise; boxes — контроллер окошек сообщений людям
+    // (LexDraftBox.create, lex-draft-box.js: оно же ставит окошки под ответ, под строкой ответа).
+    // setBrainMarks — новые пометки беседы без денег (ответ проверки очереди).
     setBrainHooks(hooks) { brainHooks = hooks || null; },
     setBrainMarks(list) {
       if (!lastMoney) return;

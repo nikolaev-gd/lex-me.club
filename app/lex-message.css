@@ -1285,3 +1285,25 @@ a.lex-order-title:hover { text-decoration: underline; }
 /* A face that opens on a press (pressFace): its words select with a mouse, like a <button> it presses. */
 .lex-press { -webkit-user-select: text; user-select: text; }
 @media (pointer: fine) { .lex-press { cursor: pointer; } }
+
+/* ── The window of a message to a person in an ordinary chat (В7.51, 2026-11-20) ──────────────────
+ * lex-draft-box.js: the box of an order chat of Profi.ru (lex-profi.css, В7.20 and В7.23) under an answer
+ * of the model — the draft bubble on the right, up to 86 % of the lane, a dashed edge, Copy in its
+ * corner; 6 under it the row of the send, 86 % of the lane, its right edge the bubble's: «Hold to send
+ * to …» (the rest) and «⋯» through 6; the line of the state under the row, 13, right. Over the row of a
+ * draft the small lines (when it goes, a new person, files). Edit: «Cancel» at its own width and «Save»
+ * the main button, the rest, where the row stood. Windows of one answer stand 12 apart. The layout lives
+ * here and not in lex-answer-row.css: the standalone chat of the extension does not load that file. */
+.lex-brain-marks.has-boxes { align-self: stretch; align-items: stretch; gap: 12px; width: 100%; }
+.lex-brain-marks.has-boxes > .lex-brain-send, .lex-brain-marks.has-boxes > .lex-choice { align-self: flex-start; }
+.lex-draft-box { display: flex; flex-direction: column; align-items: flex-end; box-sizing: border-box; width: 100%; text-align: left; }
+.lex-draft-box > .lex-bubble { max-width: 86%; }
+.lex-draft-box.is-cancelled > .lex-bubble { opacity: .6; }
+.lex-draft-box > .lex-draft-box-info { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; }
+.lex-draft-box > .lex-draft-box-info + .lex-draft-box-info { margin-top: 2px; }
+.lex-draft-box > .lex-draft-box-foot { display: flex; justify-content: flex-end; gap: 6px; width: 86%; margin-top: 6px; }
+.lex-draft-box-foot > .lex-btn { flex: 0 0 auto; padding: 0 16px; }
+.lex-draft-box-foot > .lex-btn.is-main { flex: 1 1 0; }
+.lex-draft-box > .lex-draft-box-note { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.lex-draft-box > .lex-draft-box-note.is-error { color: var(--danger); }
+.lex-draft-box > .lex-draft-box-note:empty { display: none; }
