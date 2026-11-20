@@ -684,7 +684,14 @@
   // The buttons of the sections: from what this device kept, then as the server names them.
   // Every section the server names is then built and its list read (warm), so its first
   // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
+  // Settled when the sections are known (kept copy or the server's answer, or a failed read): a notification that
+  // launched the page and names a folder waits for it (`openFromNotification`), so the chat opens in its section.
+  let sectionsKnown = null;
+  const sectionsKnownPromise = new Promise((resolve) => { sectionsKnown = resolve; });
   async function loadSections() {
+    try { await loadSectionsNow(); } finally { sectionsKnown(); }
+  }
+  async function loadSectionsNow() {
     const draw = (list) => {
       for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
       people.setSections(list);
@@ -943,6 +950,13 @@
     // A message of a folder (folder_message): its chat, as a press on its line in the tabs of the people opens it.
     // A folder the page does not know (its tab has not come yet) — the chat by itself.
     const folderId = lex.folder ? `folder:${lex.folder}` : '';
+    // The page launched by this very click has not read its sections yet: the chat waits for them (not longer than a few
+    // seconds), so it opens in the section of its folder — its header, the messenger under each message, the field that
+    // writes to the person — and not as an ordinary chat.
+    if (folderId && WcHistory.isFolderKey(key) && !SECTIONS[folderId]) {
+      await Promise.race([sectionsKnownPromise, new Promise((resolve) => setTimeout(resolve, 6000))]);
+      if (!wanted()) return;
+    }
     if (WcHistory.isFolderKey(key) && SECTIONS[folderId]) {
       ensureSection(folderId);
       await openFolderChat(folderId, key, wanted, null, null, 'people');
