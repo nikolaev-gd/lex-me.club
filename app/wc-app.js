@@ -1938,7 +1938,7 @@
   // lex-profi.js (createChat with folder): the person's messages from every messenger, Gennady's,
   // the marks of the messengers, files. There is no model in it: Send gives the text to the
   // database, which sends it where the person wrote last (the edge function folder-send). A group
-  // has no Send. The chat lives in the same place as an order chat (profiChat).
+  // has Send by a hold of the arrow where the database sends to the groups of its messenger. The chat lives in the same place as an order chat (profiChat).
   function buildFolder(id) {
     return global.LexFolders.createSection({
       folder: SECTIONS[id].folder,
@@ -2271,8 +2271,9 @@
       return;
     }
     // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the
-    // text to the person goes by a hold of the arrow, sendMenu, or from a box). A group and a chat in no folder
-    // take no text (the field is locked); a preset has no place here.
+    // text to the person goes by a hold of the arrow, sendMenu, or from a box). A group the database does not send
+    // to and a chat in no folder take no text (the field is locked); a preset has no place here. A group it sends
+    // to has no model: a tap sends nothing, the words stay in the field and say to hold the arrow.
     if (profiChat && profiChat.folder && (opts && opts.mode)) {
       toast('Presets are not in the chats of folders.', { error: true });
       return;
@@ -2280,6 +2281,11 @@
     if (profiChat && profiChat.folder && (!profiChat.data || !profiChat.data.send)) {
       giveBack(key0, text || '', reply0);
       toast(profiChat.data && profiChat.data.kind === 'group' ? 'Lex does not write to groups: answer in the messenger.' : 'This chat takes no messages now.', { error: true });
+      return;
+    }
+    if (profiChat && profiChat.folder && profiChat.data.kind === 'group') {
+      giveBack(key0, text || '', reply0);
+      toast(`Hold the arrow to send to the group ${profiChat.data.title || ''}`.trim() + '.', { error: true });
       return;
     }
     // The chat on the screen came from this device's copy: the turn goes once the server's answer

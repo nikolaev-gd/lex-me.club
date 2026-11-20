@@ -784,7 +784,10 @@
   // messages, with no order over them. The person's chat has the model, the assistant in correspondence
   // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by sendBox(win) → { state,
   // channel } | null; holding the arrow, sendText(text, quoteUid) → true once the server took the text for the
-  // person (the edge function folder-send). A group has no model and no Send.
+  // person (the edge function folder-send). A group has no model: a tap sends nothing there; holding the arrow
+  // sends the text to the group itself, where the database of Gennady sends to the groups of that messenger
+  // (data.send, folder_group_send.sql) — the menu and the line under the text name the group, for every member
+  // of it reads the text (Gennady, 20.11.2026).
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
@@ -1516,6 +1519,12 @@
         // database has it.
         if (folder) {
           const M = global.LexMessage;
+          // A group: the line under the text names it — «Sending to the group <title> in Telegram…».
+          const sendPlace = (s) => {
+            const ch = s.channel ? placeName(s.channel) : '';
+            if (!data || data.kind !== 'group') return ch;
+            return `the group ${data.title || data.client || ''}`.trim() + (ch ? ` in ${ch}` : '');
+          };
           // A stand account (not an account of the database) sends to nobody: its text says so.
           const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent' && s.state !== 'dropped');
           const items = sends.map((s) => {
@@ -1538,7 +1547,7 @@
               };
               let part = null;
               part = M.unsent({
-                note: [s.channel ? `to ${placeName(s.channel)}` : '', s.error || ''].filter(Boolean).join(' · '),
+                note: [sendPlace(s) ? `to ${sendPlace(s)}` : '', s.error || ''].filter(Boolean).join(' · '),
                 onRetry: typeof deps.sendText === 'function' ? async () => {
                   part.update({ sending: true });
                   const ok = await deps.sendText(s.text || '', s.quoteUid || null, { again: true });
@@ -1559,7 +1568,7 @@
             note.textContent = s.state === 'failed'
               ? `Not sent. ${s.error || ''}`.trim()
               : s.state === 'stand' ? 'A stand account: this text goes to nobody.'
-              : `${s.channel ? `Sending to ${placeName(s.channel)}` : 'Sending'}${s.test ? ' (test chat)' : ''}…`;
+              : `${sendPlace(s) ? `Sending to ${sendPlace(s)}` : 'Sending'}${s.test ? ' (test chat)' : ''}…`;
             root.appendChild(note);
             return root;
           });
@@ -1584,7 +1593,8 @@
 
       // Does the field of this chat take text (LexComposerBox.hint, .locked). An order chat and the chat of a
       // person in a folder do (a tap goes to Lex, a hold to the client or the person — the rule of sendMenu
-      // below); a group and a chat in no folder do not.
+      // below); a group the database sends to does too (a hold only: no model there). A group it does not send
+      // to and a chat in no folder do not.
       addressee() {
         // The chat of an agent: no Send to a person, but the field is open — its words go to the agent (wc-app.js send).
         if (folder && data && !data.send && data.kind !== 'agent') return { to: data.kind === 'group' ? 'group' : 'closed' };
@@ -1607,11 +1617,19 @@
         if (quoteUid && WHOIS_UID.test(quoteUid)) return null;
         // A chat of a folder: the text goes to the person now, without the assistant, where he wrote last, or to
         // the messenger of the message it answers; no time to pick (the queue of the database sends at once). A
-        // group — none.
+        // group the database does not send to — none. A group it sends to: the head and the item name the group,
+        // every member of it reads the text.
         if (folder) {
           if (!data.send || typeof deps.sendText !== 'function') return null;
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
           const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
+          if (data.kind === 'group') {
+            return {
+              group: true,
+              head: `To the group ${data.title || data.client || ''}`.trim() + ': everyone in it will read this',
+              items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
+            };
+          }
           return {
             head: `To ${data.client || data.title || 'the person'}, without Lex`,
             items: [{ label: `Send to ${where ? placeName(where) : 'the person'} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
