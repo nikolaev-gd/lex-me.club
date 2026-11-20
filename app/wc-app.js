@@ -767,6 +767,9 @@
   }
   function reportPresence() {
     const key = presenceKey();
+    // The screen is looked at here anyway: the place the Mac app opens at next time (keepScreenPlace). A hidden
+    // window keeps the place it was hidden at.
+    if (document.visibilityState === 'visible') keepScreenPlace();
     const due = key && Date.now() - presenceAt > 30000;
     if (key === presenceSent && !due) return;
     presenceSent = key;
@@ -3790,7 +3793,7 @@
       WcComposer.focus({ raiseKeyboard: !homeOn() });
       caretThenReveal();
       askShellForPush();
-      restorePlace();
+      restoreScreenPlace();
     }
   }
 
@@ -3825,19 +3828,24 @@
       if (!pageNewStamp || pageNewStamp === builtStamp() || callGoes() || WcThread.isStreaming()) return;
       const stamp = pageNewStamp;
       pageNewStamp = null;
-      keepPlace();
+      keepScreenPlace();
       tellShell({ word: 'page', stamp });
     });
   }
 
-  // ── The window comes back where it was (2026-11-20) ───────────────────────
-  // Gennady, 20.11.2026: the Mac app reloaded at every release and threw him out of his chat to the
-  // main page. The reload for a new page must not move the person: the Mac app reloads the window
-  // only while he is not in it (AppDelegate, `pagePending`) and calls `__lexKeepPlace` just before,
-  // the page that loads next opens the same chat (restorePlace). The place lives in sessionStorage
-  // for two minutes: a launch by the person, and his own «Reload page», start at the main page as before.
+  // ── The Mac app opens where it was left (2026-11-20) ──────────────────────
+  // Gennady, 20.11.2026: the reload for a new page is welcome and happens at once, but it threw him
+  // out of his chat to the main page: «если я закрыл на одной странице, пусть на той же открывается».
+  // The Mac app keeps the place of the screen on the device — a chat with the model, a chat of a
+  // person, an order chat, a feed of Extended Mind, New orders, the bot's chat — and the page that
+  // loads next opens it: after a reload for a new page, after his «Reload page», after the app was
+  // quit and started (a release that replaces the app does that). Left on the main page or in
+  // another section — the main page. The place is the account's: another account starts at the main
+  // page. A press on a notification that started the app comes after and wins. The browser page
+  // starts at the main page as before.
   const PLACE_KEY = 'lexPlaceKept';
-  const PLACE_LIVES_MS = 120000;
+  const keepsPlace = () => !!global.__lexShell;
+  const placeAccount = () => { try { const x = WcAuth.session(); return (x && x.user && x.user.id) || ''; } catch (_) { return ''; } };
   function placeNow() {
     const live = sectionOn === 'profi' && SECTIONS.profi.live;
     if (live && live.screen === 'feed') return { kind: 'profi_order' };
@@ -3852,36 +3860,30 @@
     }
     return { chatKey: key };
   }
-  function keepPlace() {
+  let placeSaid;
+  let placeReady = false;   // not before the kept place was read: the main page of the start would wipe it
+  function keepScreenPlace() {
+    if (!keepsPlace() || !placeReady) return;
     try {
-      if (global.LexDrafts) global.LexDrafts.flush();
       const place = placeNow();
-      if (place) global.sessionStorage.setItem(PLACE_KEY, JSON.stringify({ place, at: Date.now() }));
-      else global.sessionStorage.removeItem(PLACE_KEY);
-      return !!place;
-    } catch (_) { return false; }
+      const said = place ? JSON.stringify({ place, account: placeAccount() }) : '';
+      if (said === placeSaid) return;
+      placeSaid = said;
+      if (said) global.localStorage.setItem(PLACE_KEY, said);
+      else global.localStorage.removeItem(PLACE_KEY);
+    } catch (_) { /* no storage: the main page */ }
   }
-  function restorePlace() {
+  function restoreScreenPlace() {
     let kept = null;
-    try {
-      kept = JSON.parse(global.sessionStorage.getItem(PLACE_KEY) || 'null');
-      global.sessionStorage.removeItem(PLACE_KEY);
-    } catch (_) { kept = null; }
-    if (!kept || !kept.place || !(Date.now() - Number(kept.at) < PLACE_LIVES_MS)) return;
-    openFromNotification(kept.place).catch((e) => console.warn('[wc] place:', e && e.message));
+    try { kept = JSON.parse(global.localStorage.getItem(PLACE_KEY) || 'null'); } catch (_) { kept = null; }
+    if (!keepsPlace() || !kept || !kept.place || kept.account !== placeAccount()) { placeReady = true; keepScreenPlace(); return; }
+    placeSaid = JSON.stringify(kept);
+    // Until the kept chat is on the screen the main page of the start is not the place.
+    openFromNotification(kept.place)
+      .catch((e) => console.warn('[wc] place:', e && e.message))
+      .then(() => { placeReady = true; });
   }
-  global.__lexKeepPlace = keepPlace;
-  // The Mac app asks just before it reloads the window for a new page. An answer coming or a call
-  // going on (the person left the window meanwhile): no — the word `page` goes again at their end.
-  global.__lexTakePage = (stamp) => {
-    if (callGoes() || WcThread.isStreaming()) {
-      if (stamp) pageNewStamp = String(stamp);
-      applyNewPage();
-      return false;
-    }
-    keepPlace();
-    return true;
-  };
+  global.addEventListener('pagehide', keepScreenPlace);
 
   // The page's own code on the device (sw.js): from the second opening on, the page and its files
   // open with no question to the network. The browser looks for a new version at every opening
