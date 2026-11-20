@@ -253,7 +253,11 @@
       newsHead, keepPlace: !!(opts && opts.keepPlace), emEarlier: emEarlierOf(r), incoming: incomingOpts(),
       // A tapped notification of an entry of a feed: the chat stands on that entry.
       focusUid: (opts && !opts.keepPlace && opts.focusUid) || null,
+      // An answer the server writes now stands as the stream — from the server's answer, not from
+      // this device's copy (opts.kept).
+      follow: !(opts && opts.kept),
     });
+    followRunning();
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
     // A message on its way: its state as the queue of the database has it now, once.
@@ -334,7 +338,7 @@
     const current = () => openSeq === mine && !(opts && opts.wanted && !opts.wanted());
     // The chat stands on the screen: the first frame of it, from the copy or from the answer.
     let stood = false;
-    const stand = (r, again) => {
+    const stand = (r, again, kept) => {
       if (!stood) {
         // The field is this chat's from now: the last chat's words go to its draft, this one's come.
         takeField(id);
@@ -347,7 +351,7 @@
         if (!stood) enterProfiChat(opts.profi);
         opts.profi.words = monitorWords(r.turns);
       }
-      paintConversation(r, again ? Object.assign({}, opts, { keepPlace: true }) : opts);
+      paintConversation(r, Object.assign({}, opts, again ? { keepPlace: true } : {}, kept ? { kept: true } : {}));
       if (!stood) {
         WcSidebar.setActive(id);
         WcSidebar.close();
@@ -371,7 +375,7 @@
         WcBus.call('WC_LOAD_CONVERSATION', { id, kept: true }).catch(() => null),
         answer.then(() => null, () => null),
       ]);
-      if (copy && copy.ok && current()) stand(copy, false);
+      if (copy && copy.ok && current()) stand(copy, false, true);
       else copy = null;
     }
     let r;
@@ -386,8 +390,10 @@
     if (loaded) beginVisitFrom(id, loaded.since);
     else await beginVisit(id);
     if (!current()) return;
-    // The answer is the copy, unchanged: what stands is right as it is.
-    if (copy && JSON.stringify(copy.turns) === JSON.stringify(r.turns) && !incomingOpts()) {
+    // The answer is the copy, unchanged: what stands is right as it is — unless it has an answer the
+    // server writes now, which the copy never draws as the stream.
+    if (copy && JSON.stringify(copy.turns) === JSON.stringify(r.turns) && !incomingOpts()
+      && !r.turns.some((t) => t && t.live && t.opId)) {
       if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
       return;
     }
@@ -1665,7 +1671,8 @@
         const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
         if (!again || !again.ok || state.conversationId !== key) return;
         if (profiChat) profiChat.words = monitorWords(again.turns);
-        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts() });
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
+        followRunning();
       };
       more.label = 'Earlier messages';
       return more;
@@ -1675,7 +1682,8 @@
       await WcBus.call('WC_EM_EARLIER', { key });
       const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
       if (again && again.ok && state.conversationId === key) {
-        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts() });
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
+        followRunning();
       }
     };
   }
@@ -1918,7 +1926,8 @@
     WcThread.whenFree('profi-chat', () => {
       if (profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
       chat.words = words;
-      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts() });
+      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), follow: true });
+      followRunning();
       if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
       restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
     });
@@ -2042,7 +2051,8 @@
     WcThread.whenFree('profi-chat', () => {
       if (profiChat !== chat || state.conversationId !== data.chatKey) return;
       chat.words = words;
-      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r) });
+      WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r), follow: true });
+      followRunning();
     });
   }
   // Send in a chat of a folder: the text goes to the database for the person (folder-send), which
@@ -2345,6 +2355,7 @@
     // the server gets its answer, not a second one (lex_op_claim, chat_turn_fate.sql).
     const opId = (opts && typeof opts.opId === 'string' && opts.opId) || global.LexTurnId.newOpId();
     ownOps.add(opId);
+    opOfRequest.set(requestId, opId);
     const pressedAt = Date.now();
     // Kept on this device from this moment, until the server has it (restoreUnsent). A message
     // with pictures is not kept: the pictures live only in this page.
@@ -2610,10 +2621,60 @@
   const leftChats = new Map();   // requestId → the key of the chat it was sent in
   function leaveStream() {
     if (!state.requestId) return;
+    if (isFollow(state.requestId)) {
+      // An answer followed from the server's read: the page stops following it here (not Stop); the
+      // chat open again follows it anew from the server's read.
+      WcBus.call('WC_UNFOLLOW', { requestId: state.requestId }).catch(() => {});
+      WcThread.detach(state.requestId);
+      WcThread.settled(state.requestId);
+      turnUids.delete(state.requestId);
+      state.requestId = null;
+      WcComposer.setStreaming(false);
+      return;
+    }
     leftChats.set(state.requestId, state.conversationId || null);
+    // The database's signals of this answer are no longer this page's own stream: back in its chat,
+    // the page reads them as any other answer the server writes (the follower of «chat» below).
+    const op = opOfRequest.get(state.requestId);
+    if (op) ownOps.delete(op);
     WcThread.detach(state.requestId);
     state.requestId = null;
     WcComposer.setStreaming(false);
+  }
+
+  // ── The answer the server writes, after a return to its chat (2026-11-20) ────────────────
+  // Gennady sent a message, went to another chat and came back: only his question stood, while
+  // Claude Code worked minutes without a word. Now the chat read gives such an answer with its
+  // number and the step it is at (chat_turn_live.sql), the thread draws it as the stream
+  // (WcThread.renderTurns), and the page follows it here: the composer is in Stop — Stop goes by
+  // its number and the characters seen (WC_STOP) — and the answer is followed to its end through
+  // the database's signal «chat» of that number and its fate between signals (wc-backend.js
+  // WC_FOLLOW). The same after a reload, a restart of the Mac app and on another device.
+  const isFollow = (requestId) => typeof requestId === 'string' && requestId.startsWith('follow:');
+  function followRunning() {
+    const f = WcThread.followed();
+    if (!f) {
+      // The answer the page followed is not on the screen any more (the chat read anew shows its end).
+      if (isFollow(state.requestId)) {
+        WcBus.call('WC_UNFOLLOW', { requestId: state.requestId }).catch(() => {});
+        turnUids.delete(state.requestId);
+        state.requestId = null;
+        WcComposer.setStreaming(false);
+      }
+      return;
+    }
+    // The page's own stream stands: its words come by the stream (a render drops streams, so this
+    // is a guard, not a case).
+    if (state.requestId && state.requestId !== f.requestId && !isFollow(state.requestId)) return;
+    state.requestId = f.requestId;
+    WcComposer.setStreaming(true, f.requestId);
+    // The price under it when it ends (requestMoney by its uids, STREAM_DONE below).
+    turnUids.set(f.requestId, {
+      assistantUid: f.uid,
+      userUid: global.LexTurnId ? global.LexTurnId.userTurnUid(f.opId) : null,
+    });
+    WcBus.call('WC_FOLLOW', { requestId: f.requestId, opId: f.opId, chatKey: state.conversationId, text: f.text, stepSeq: f.stepSeq })
+      .catch((err) => console.warn('[wc] follow:', err && err.message));
   }
 
   // ── Messages Lex did not take (Gennady, 2026-11-16) ─────────────────────────────────────
@@ -2632,6 +2693,8 @@
   // The numbers of messages sent from this page: the database's signal of their answers is this
   // page's own stream, not a change to read (the follower of «chat» below).
   const ownOps = new Set();
+  // The number of every message this page sent, by its request: leaving its chat gives its signals back.
+  const opOfRequest = new Map();
   let unsentChain = Promise.resolve();
   async function unsentAll() {
     try { const v = await WcStore.one(UNSENT_KEY, null); return Array.isArray(v) ? v : []; } catch (_) { return []; }
@@ -3883,6 +3946,7 @@
           state.requestId = null;
           WcComposer.setStreaming(false);
         }
+        opOfRequest.delete(msg.requestId);
         // A page that came out while the answer went is taken a moment after its end.
         if (pageNewStamp) setTimeout(applyNewPage, 2000);
         // The message got its answer, or a part of one the server keeps: it leaves the store.

@@ -597,6 +597,12 @@
     // с выбором модели и копированием нет, и после перезагрузки это видно
     // только по этому полю.
     origin: r.origin || null,
+    // An answer the server writes (chat_turn_live.sql): its state and number of operation; while it
+    // runs, live — since when, how many steps of work, the current step. Such an answer is drawn as
+    // the stream and followed to its end (WcThread.renderTurns, wc-backend.js WC_FOLLOW).
+    state: (r.role === 'assistant' && typeof r.state === 'string' && r.state) || null,
+    opId: (r.role === 'assistant' && typeof r.op_id === 'string' && r.op_id) || null,
+    live: (r.role === 'assistant' && r.live && typeof r.live === 'object') ? r.live : null,
     // An entry of a feed of Extended Mind: whether the database took the answer of its
     // question, and which (the entry's data).
     em: (r.origin && String(r.origin).indexOf('em_') === 0) ? emAnswer(r.em_data) : null,

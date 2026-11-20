@@ -776,7 +776,7 @@
           let overflowFrame = false;
           try {
             const d = JSON.parse(data);
-            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd, stopped: d.stopped === true });
             // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
             // и токены. Отдельного запроса за ней нет.
             onProxyTimings?.({
@@ -1137,7 +1137,7 @@
           let overflowFrame = false;
           try {
             const d = JSON.parse(data);
-            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd, stopped: d.stopped === true });
             // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
             // и токены. Отдельного запроса за ней нет.
             onProxyTimings?.({
@@ -1428,7 +1428,7 @@
           let overflowFrame = false;
           try {
             const d = JSON.parse(data);
-            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd, stopped: d.stopped === true });
             // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
             // и токены. Отдельного запроса за ней нет.
             onProxyTimings?.({
@@ -1611,7 +1611,7 @@
           let overflowFrame = false;
           try {
             const d = JSON.parse(data);
-            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd });
+            onBilled?.({ inputCost: d.billedInputCostUsd, outputCost: d.billedOutputCostUsd, stopped: d.stopped === true });
             // Разбивка времени по часам сервера приезжает ТЕМ ЖЕ кадром, что цена
             // и токены. Отдельного запроса за ней нет.
             onProxyTimings?.({
@@ -2461,6 +2461,8 @@
       // (prices live only on the server — there is no local fallback).
       let billedInputCost = null;
       let billedOutputCost = null;
+      // The server's word in the same frame: the turn was stopped by a Stop pressed elsewhere.
+      let stoppedElsewhere = false;
       // Разбивка времени по часам СЕРВЕРА. Приезжает завершающим кадром прокси
       // (onProxyTimings ниже) — тем же, что несёт цену и токены. На прямом,
       // непрокси-пути этих чисел нет и быть не может: сервера в нём нет.
@@ -2793,9 +2795,12 @@
         },
         // Marked-up display price from the proxy (lex_proxy_done frame). Stored raw
         // as received — the client neither knows nor applies the multiplier.
-        onBilled: ({ inputCost, outputCost }) => {
+        onBilled: ({ inputCost, outputCost, stopped }) => {
           if (Number.isFinite(inputCost)) billedInputCost = inputCost;
           if (Number.isFinite(outputCost)) billedOutputCost = outputCost;
+          // Stop was pressed on another device (the server heard it by the beat of the turn,
+          // chat_turn_live.sql): this window ends the answer as stopped, not as one with no words.
+          if (stopped) stoppedElsewhere = true;
         },
         // Responses API only — propagated back to content so the in-memory
         // cache can chain the next chat-turn via previous_response_id.
@@ -2984,6 +2989,7 @@
           const dispOutputCost = billedOutputCost;
           emit(tabId, {
             type: 'STREAM_DONE', requestId, clickId,
+            ...(stoppedElsewhere ? { stopped: true, stoppedElsewhere: true } : {}),
             ttftMs: ttft_ms,
             // Разбивка по часам сервера + метка хода, по которой лента потом
             // дошлёт своё число в ту же строку журнала вызовов.

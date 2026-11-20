@@ -43,6 +43,9 @@
   let onUnsent = null;
   // Requests whose chat the person left mid-answer: still read by the page, no longer shown.
   const left = new Set();
+  // The answer the server writes now that the last renderTurns drew as the stream (its follower's
+  // request, number, uid, the words and the step it stood at), or null.
+  let followedNow = null;
   // The streaming turn, keyed by requestId: {node, bubble, text}. A map rather
   // than one variable because a stopped stream can still deliver a trailing
   // frame after the next one has started.
@@ -748,6 +751,22 @@
     if (prev.raw && global.WcWordPick) WcWordPick.ready(entry.bubble, prev.raw, 'markdown');
   }
 
+  // The grey line of the work over (or under) an answer being written: what the model does now.
+  // A turn of Claude Code by the subscription (step.cc) says the whole line itself and works on
+  // after its first words: the line stands under the growing answer and stays until the turn
+  // ends (done / error), changed by every next action. The live stream (tool) and an answer the
+  // server writes, drawn from its read (renderTurns), draw it the same way.
+  function paintWork(entry, step) {
+    if (step.cc) entry.cc = true;
+    let line = entry.turn.querySelector(':scope > .wc-brain-work');
+    if (!line) {
+      line = el('.wc-brain-work');
+      if (entry.cc) entry.bubble.after(line);
+      else entry.turn.insertBefore(line, entry.bubble);
+    }
+    line.textContent = step.line || ('Extended Mind: ' + (step.label || step.name || 'working'));
+  }
+
   // The line of the work with the database leaves when the answer starts: the words
   // themselves say the model is done looking.
   function clearBrainWork(entry) {
@@ -970,6 +989,7 @@
       // и обязан уйти вместе с ними.
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
+      followedNow = null;
       elTurns.replaceChildren();
       if (profiChat) elTurns.append(profiChat.head());
       // A feed shows its latest entries; the earlier ones come by this button.
@@ -1044,12 +1064,29 @@
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
+          // An answer the server writes now (chat_turn_live.sql: running, its number, live): drawn as the
+          // stream — the dots or the words so far, the grey line of the current step — and followed to
+          // its end (wc-app.js followRunning). Only from the server's answer (opts.follow), never from
+          // this device's copy: a copy may keep as running an answer that ended long ago.
+          const running = !!(opts && opts.follow && t.live && t.opId) && t.origin !== 'news' && t.origin !== 'voice';
           // An answer with no word (stopped before the first one, the model said nothing) is not drawn: the
           // question stands alone (docs/spec/20-chat.md, «Остановка хода»).
-          if (!String(t.text || '').trim() && t.origin !== 'news' && t.origin !== 'voice') return;
+          if (!running && !String(t.text || '').trim() && t.origin !== 'news' && t.origin !== 'voice') return;
           const { turn } = t.origin === 'news'
             ? newsTurn(t.text, opts && opts.newsHead ? opts.newsHead() : null)
             : assistantTurn(t.text);
+          if (running) {
+            turn.classList.add('is-streaming');
+            const entry = { turn, bubble: turn.querySelector('.wc-bubble'), text: String(t.text || '') };
+            // Its words are cut when it ends (done), as a stream's: every frame redraws the bubble.
+            if (global.WcWordPick) WcWordPick.forgetBubble(entry.bubble);
+            const step = t.live.step && typeof t.live.step === 'object' ? t.live.step : null;
+            // The line of the database's work leaves when the words start (chunk); Claude Code's stays.
+            if (step && (step.cc === true || !entry.text)) paintWork(entry, { cc: step.cc === true, line: step.line, label: step.label, name: step.name });
+            const requestId = 'follow:' + t.opId;
+            live.set(requestId, entry);
+            followedNow = { requestId, opId: String(t.opId), uid: t.uid ? String(t.uid) : null, text: entry.text, stepSeq: step ? step.seq : null };
+          }
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
           // Модель ответа (из денег беседы) — подпись кнопки модели.
@@ -1257,18 +1294,8 @@
     tool(msg) {
       const entry = live.get(msg.requestId);
       if (!entry) return;
-      let line = entry.turn.querySelector(':scope > .wc-brain-work');
       if (msg.phase === 'start') {
-        // A turn of Claude Code by the subscription (msg.cc) says the whole line itself and
-        // works on after its first words: the line stands under the growing answer and stays
-        // until the turn ends (done / error), changed by every next action.
-        if (msg.cc) entry.cc = true;
-        if (!line) {
-          line = el('.wc-brain-work');
-          if (entry.cc) entry.bubble.after(line);
-          else entry.turn.insertBefore(line, entry.bubble);
-        }
-        line.textContent = msg.line || ('Extended Mind: ' + (msg.label || msg.name || 'working'));
+        paintWork(entry, msg);
         maybeStick();
       }
     },
@@ -1393,7 +1420,9 @@
       // plaque comes in its place — the press is the explanation (19.11.2026: a red frame with «Stopped
       // before the first word.» under his own «stop» read as a failure). The iPhone drops it the same way
       // (`dropAnswerIfEmpty`); docs/spec/20-chat.md, «Остановка хода».
-      if (!entry.text && msg.stopped) {
+      // A followed answer the server no longer writes (msg.lost: it died mid-turn, or no word from it
+      // for long) ends the same quiet way: no dots and no Stop left, and no red frame for a loss.
+      if (!entry.text && (msg.stopped || msg.lost)) {
         entry.turn.remove();
         syncFeet();
         maybeStick();
@@ -1655,6 +1684,9 @@
     // True while any stream is open — the composer asks before deciding
     // whether its button says "send" or "stop".
     isStreaming() { return live.size > 0; },
+    // The answer the server writes now that the last render drew as the stream (renderTurns with
+    // follow): { requestId, opId, uid, text, stepSeq } — wc-app.js follows it; null — none.
+    followed() { return followedNow && live.has(followedNow.requestId) ? followedNow : null; },
     // Текст реплики с этим уидом на экране — или null, если её там нет.
     // Сверка ленты с беседой после голосового разговора (voice/feed-check.js).
     shownTextOf(uid) {

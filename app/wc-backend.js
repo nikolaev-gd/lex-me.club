@@ -790,6 +790,9 @@
   // не голой фразой: так его на следующих ходах видит и учитель расширения и
   // айфона, где переписку собирает сервер. Промпта заготовки здесь нет никогда.
   const normalizeTurns = (turns) => (turns || [])
+    // An answer still without a word (the server writes it, chat_turn_live.sql) is no turn of the
+    // teacher yet: the list goes on as it did before the read gave such answers.
+    .filter((t) => !(t.role === 'assistant' && !String(t.text || '').trim()))
     .map((t) => ({ role: t.role, text: (t.role === 'user' && t.later) || t.text, uid: t.uid || WcHistory.newUid(), model: t.model || null }));
 
   function setOpen(id, turns, apart) {
@@ -1448,6 +1451,10 @@
     return msg.timeout === true || msg.httpStatus == null;
   }
 
+  // The same follower takes an answer the page did not send or no longer holds (fate.follow: the
+  // chat opened again mid-answer, a reload, another device — chat_turn_live.sql, WC_FOLLOW below):
+  // it starts from what the server's read showed, draws the steps of the work as the stream draws
+  // them, and ends quietly (lost) when the server no longer writes the answer.
   async function followAfterBreak(requestId, broken) {
     const fate = turnFates.get(requestId);
     if (!fate || fate.following) return;
@@ -1462,13 +1469,17 @@
       })
       : null;
     fate.stop = () => { fate.stopped = true; nudge(); };
+    // Leaving the chat of a followed answer is not Stop: the follower only stops listening.
+    fate.quit = () => { fate.quitted = true; nudge(); };
     const wait = (ms) => new Promise((r) => {
       wake = r;
       setTimeout(() => { if (wake === r) nudge(); }, ms);
     });
-    console.warn(TAG, 'the answer broke off — asking the server what became of the message', fate.opId);
-    let end = broken;
-    let known = false;
+    if (fate.follow) console.log(TAG, 'following the answer the server writes', fate.opId);
+    else console.warn(TAG, 'the answer broke off — asking the server what became of the message', fate.opId);
+    const lost = { type: 'STREAM_DONE', requestId, followed: true, lost: true };
+    let end = fate.follow ? lost : broken;
+    let known = !!fate.follow;
     let misses = 0;
     // The last word of the server, or the break: the wait is counted in time, not in questions — a
     // signal of the chat wakes the next question at once, and three of them come in two seconds.
@@ -1476,42 +1487,81 @@
     let gaveUp = false;
     try {
       for (;;) {
+        if (fate.quitted) { end = null; break; }
         if (fate.stopped) { end = { type: 'STREAM_DONE', requestId, stopped: true }; break; }
         let s = null;
         try { s = await WcHistory.opState(fate.opId); misses = 0; heard = Date.now(); } catch (_) { misses += 1; }
-        if (fate.stopped) continue;
-        if (s && s.status === 'none') { end = Object.assign({}, broken, { error: NOT_THERE }); break; }
+        if (fate.stopped || fate.quitted) continue;
+        if (s && s.status === 'none') { end = fate.follow ? lost : Object.assign({}, broken, { error: NOT_THERE }); break; }
         if (s && (s.status === 'pending' || s.status === 'begun')) {
           known = true;
           if (s.status === 'begun') {
             // The server leads this turn: Stop tells it how much was seen (WC_STOP).
             serverOps.set(requestId, fate.opId);
-            const content = String(s.content || '');
-            if (content.startsWith(fate.text)) {
-              const rest = content.slice(fate.text.length);
-              if (rest) { fate.text = content; WcBus.broadcast({ type: 'STREAM_CHUNK', requestId, text: rest }); }
+            // The words that came, the step of the work it is at (the grey line, as the stream draws
+            // it — WcThread.tool), its end: one rule with the extension (lex-turn-follow.js).
+            const n = global.LexTurnFollow.next({ text: fate.text, stepSeq: fate.stepSeq }, s);
+            if (n.text) { fate.text += n.text; WcBus.broadcast({ type: 'STREAM_CHUNK', requestId, text: n.text }); }
+            if (n.step) {
+              fate.stepSeq = n.step.seq;
+              WcBus.broadcast({ type: 'STREAM_TOOL', requestId, phase: 'start', name: n.step.name, label: n.step.label, line: n.step.line, cc: n.step.cc });
             }
-            if (s.state !== 'streaming') {
-              end = { type: 'STREAM_DONE', requestId, stopped: s.state === 'stopped', followed: true };
+            if (n.end === 'done' || n.end === 'stopped') {
+              end = { type: 'STREAM_DONE', requestId, stopped: n.end === 'stopped', followed: true };
               break;
             }
+            if (n.end === 'lost') { end = lost; break; }
           }
         } else if (!s && (Date.now() - heard >= (known ? 90000 : 20000))) {
           // No word from the server: no connection. Retry with the same number is safe; the turn is
           // asked again when the connection is back (followLate).
           gaveUp = true;
+          if (fate.follow) end = lost;
           break;
         }
         await wait(misses ? 3000 : 20000);
       }
     } finally {
       if (follower) follower.stop();
-      turnFates.delete(requestId);
+      // A follower that left takes nothing of the one that came in its place under the same request.
+      const mine = turnFates.get(requestId) === fate;
+      if (mine) turnFates.delete(requestId);
       stoppedByUser.delete(requestId);
+      if (fate.follow && mine) serverOps.delete(requestId);
     }
-    WcBus.broadcast(end);
-    if (gaveUp) followLate(fate.opId, fate.chatKey);
+    if (end) WcBus.broadcast(end);
+    if (gaveUp && !fate.follow) followLate(fate.opId, fate.chatKey);
   }
+
+  // An answer the server writes now, drawn from its read (WcThread.renderTurns): followed by its
+  // number to its end — the words, the steps, the end — through the database's signal «chat» and,
+  // between signals, its fate (lex_op_state). One follower per answer: a second call takes over the
+  // first one's place with what the new frame shows, so no word is drawn twice.
+  WcBus.on('WC_FOLLOW', (m) => {
+    if (!m || !m.requestId || !m.opId) return { ok: false };
+    const opId = String(m.opId);
+    const text = String(m.text || '');
+    for (const [rid, f] of turnFates) {
+      if (!f.follow || f.opId !== opId) continue;
+      if (rid === m.requestId && !f.quitted) { f.text = text; if (m.stepSeq != null) f.stepSeq = m.stepSeq; return { ok: true }; }
+      if (f.quit) f.quit();
+    }
+    turnFates.set(m.requestId, { opId, chatKey: m.chatKey || null, text, stepSeq: m.stepSeq == null ? null : m.stepSeq, follow: true });
+    serverOps.set(m.requestId, opId);
+    followAfterBreak(m.requestId, null).catch((err) => {
+      console.warn(TAG, 'following an answer:', err && err.message);
+      turnFates.delete(m.requestId);
+      WcBus.broadcast({ type: 'STREAM_DONE', requestId: m.requestId, followed: true, lost: true });
+    });
+    return { ok: true };
+  });
+  // The person left the chat of a followed answer: no end comes on the screen; the chat open again
+  // follows the answer anew from the server's read.
+  WcBus.on('WC_UNFOLLOW', (m) => {
+    const f = m && turnFates.get(m.requestId);
+    if (f && f.follow) { if (f.quit) f.quit(); else turnFates.delete(m.requestId); }
+    return { ok: true };
+  });
 
   // A turn broken off while the server could not be asked: the cut answer and the red line stay until
   // the server is heard. Asked again when the connection is back — a signal of the chat (or the channel
