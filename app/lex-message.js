@@ -635,6 +635,9 @@
     if (o.channel && CHANNELS[o.channel]) {
       root.append(channel(o.channel), channelName(o.channel), make('span', 'lex-stamp-dot', '·'));
     }
+    // A label in the place of the channel (a branch of the chat of an agent: the short name of its correction,
+    // 20.11.2026): plain words, cut with an ellipsis, so the time always stays.
+    if (o.label) root.append(make('span', 'lex-stamp-label', String(o.label)), make('span', 'lex-stamp-dot', '·'));
     // В7.39: a message the person deleted at his side — a bin 12 and «deleted»; an edited one — «edited»;
     // both before the time.
     if (o.deleted) {
@@ -1839,13 +1842,18 @@
   // question, or a word of the model that is not the last of its branch, has no buttons: a message of Lex, the time
   // at its right foot. While Confirm is on its way the ring turns on it and Reply is off; a refusal stands under the
   // buttons in red «Не подтверждено: <причина>»; the word to Lex the server refused (`pending.word`) — «Не отправлено: <причина>».
-  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word } | null, onReply, onConfirm, onGo })
+  // In the chat of an agent (the editor of instructions, 20.11.2026) a word of Lex is a turn of one branch of many: over
+  // its words the quote of the turn it answers (`quote`, a node of quote(), В7.35), at its foot before the time the name
+  // of its branch (`caption`), the way a message names its channel there (В7.2).
+  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word } | null, onReply, onConfirm, onGo,
+  //           quote, caption })
   function whois(o) {
     o = o || {};
     const root = make('div', 'lex-q lex-whois is-open');
     const head = make('div', 'lex-whois-head');
     head.append(sparkle(14), make('span', 'lex-whois-name', 'Lex'));
     root.appendChild(head);
+    if (o.quote) root.appendChild(o.quote);
     let text = o.body;
     if (!text) { text = make('div', '', ''); text.textContent = o.text || ''; }
     text.classList.add('lex-q-text');
@@ -1882,7 +1890,10 @@
       note.setAttribute('role', 'status');
       root.appendChild(note);
     }
-    root.appendChild(questionFoot(o.at, null, false, null, null));
+    const foot = questionFoot(o.at, null, false, null, null);
+    // the name of the branch, «·», the time — as the stamp of a message names its channel (В7.2)
+    if (o.caption) foot.prepend(make('span', 'lex-q-caption', String(o.caption)), make('span', 'lex-q-dot', '·'));
+    root.appendChild(foot);
     return root;
   }
 

@@ -2108,7 +2108,11 @@
   // the uid of that question (the same line as a Reply on a message, В7.26, and kept in the draft the same way), and the
   // next word of the field goes here — to the model of this one question (the edge function folder-whois), never to
   // the person and never to the assistant. «Подтвердить» applies the proposal of the model.
-  const WHOIS_TURN = /^profi:whois:[0-9]{1,18}$/;
+  // The chat of an agent of the database (a:, the editor of instructions, 20.11.2026): every word of its field goes to the
+  // agent by the same way — with the line «Reply to Lex» into the branch of that turn (`turn`), without it as a NEW
+  // correction; nothing of it goes to a person or to the assistant.
+  const WHOIS_TURN = /^profi:(?:whois|editor):[0-9]{1,18}$/;
+  const isAgentChat = (chat) => !!(chat && chat.folder && chat.data && chat.data.kind === 'agent');
   async function sendWhois(chat, key, text, r) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return;
@@ -2120,11 +2124,18 @@
     if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
     WcThread.scrollToEnd();
     try {
-      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId() } });
+      await WcBus.call('WC_FOLDER_WHOIS', { body: {
+        chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId(),
+        ...(isAgentChat(chat) && r && WHOIS_TURN.test(r.quoteUid || '') ? { turn: r.quoteUid } : {}),
+      } });
     } catch (err) {
       const why = (err && err.message) || 'Try again.';
       // false — the chat drew the word already: it went, there is nothing to take back.
-      if (chat.whoisRefused(why)) takeWordBack(key, text, r); else console.warn('[wc] word to Lex:', why);
+      if (chat.whoisRefused(why)) {
+        takeWordBack(key, text, r);
+        // A new correction answers no turn: there are no buttons to say it under, the toast says it.
+        if (!r) toast('Not sent. ' + why, { error: true });
+      } else console.warn('[wc] word to Lex:', why);
       return;
     }
     // The server has the word: Lex thinks under it until the chat draws it.
@@ -2252,6 +2263,11 @@
     // that question, nowhere else (a picture or a file of the field stays in it).
     if (chat0 && chat0.folder && reply0 && WHOIS_TURN.test(reply0.quoteUid || '')) {
       await sendWhois(chat0, key0, text, reply0);
+      return;
+    }
+    // The chat of an agent: a word without the line goes to the agent as a new correction.
+    if (isAgentChat(chat0)) {
+      await sendWhois(chat0, key0, text, null);
       return;
     }
     // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the
