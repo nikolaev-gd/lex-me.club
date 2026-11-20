@@ -32,7 +32,8 @@
 //                         point (the pointer of a right click), not over the anchor. danger — the item
 //                         is red (Delete chat). plain without lit is the menu of «⋯» by the button that sends to the client
 //                         (В7.23): nothing leaves by opening it. onClose() — the menu went, by any way
-//   pick(o)               the sheet of the time: { text, client } → Promise<Date|null>
+//   pick(o)               the sheet of the time: { text, client, at } → Promise<Date|null>; at — the
+//                         time a waiting box already has: «Other time» opens on it
 (function (global) {
   'use strict';
 
@@ -326,7 +327,9 @@
       sheet.appendChild(list);
 
       sheet.appendChild(make('div', 'lex-sl-label', 'Other time'));
-      const first = quick(n)[0].at;
+      // A box that already waits opens on its own time; else on the first ready one.
+      const had = opts.at ? new Date(opts.at) : null;
+      const first = had && !Number.isNaN(had.getTime()) && had.getTime() > n.getTime() ? had : quick(n)[0].at;
       const fields = make('div', 'lex-sl-fields');
       const field = (type, value, ic, label) => {
         const wrap = make('label', 'lex-sl-field');

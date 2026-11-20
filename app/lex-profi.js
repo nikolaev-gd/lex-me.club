@@ -367,7 +367,8 @@
         return win.channel
           ? `${placeName(win.channel)} did not confirm it. Look at the chat there: Lex will not send it again. ${win.error || ''}`
           : `The site did not confirm it. Look at the chat on Profi: Lex will not send it again. ${win.error || ''}`;
-      default: return '';
+      // A box whose tag named a time the server did not take (profi_box_at.sql): why it waits for a hold.
+      default: return win.state === 'ready' && win.atNote ? win.atNote : '';
     }
   }
 
@@ -379,7 +380,10 @@
   //     text at a time (lex-send-later.js) — and «Edit in the field» — the text into the field, to
   //     change by hand and send by holding the arrow;
   //   scheduled — «Hold to send now» and «Cancel»: the box of the model waits for a send again, the
-  //     person's own text leaves the chat and comes back into the field (deps.putBack);
+  //     person's own text leaves the chat and comes back into the field (deps.putBack). A box of the
+  //     model keeps its «⋯» while it waits (Gennady, 20.11.2026): «Schedule…» changes the time, «Edit»
+  //     the words, the time stays; it may have been born scheduled by the time of its tag
+  //     (<client_text at="…">, profi_box_at.sql);
   //   the person's own text that did not leave — «Delete» as well.
   // «Cancel» and «Delete» work by a tap, as before: nothing goes to a person by them.
   function boxControls(win, deps, onEdit) {
@@ -414,12 +418,13 @@
       // «⋯» of a box of the model: the same box at a time, or its words changed in the box (Edit). A box of a
       // folder chat goes at once (the queue of the database sends at once): Edit only.
       const editItem = onEdit ? { label: 'Edit', icon: 'pencil', run: () => onEdit() } : null;
-      const items = open && !win.direct && deps.folder ? (editItem ? () => [editItem] : null) : open && !win.direct ? () => {
+      const items = open && !win.direct && deps.folder ? (editItem ? () => [editItem] : null) : (open || scheduled) && !win.direct ? () => {
         const list = [{
           label: 'Schedule…',
           icon: 'clock',
           run: async () => {
-            const at = await global.LexSendLater.pick({ text: win.text, client: deps.client });
+            // A box that waits opens the sheet on its own time.
+            const at = await global.LexSendLater.pick({ text: win.text, client: deps.client, at: scheduled ? win.sendAt : null });
             if (!at) return;
             await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
           },
@@ -448,9 +453,10 @@
       // The person's own text waiting for its time: «Cancel», then «Hold to send now» (the design).
       if (scheduled && win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
       foot.appendChild(send);
+      // A waiting box of the model: «Hold to send now», «Cancel», then «⋯» at the edge, where it stands by any box.
+      if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
       if (more) foot.appendChild(more);
     }
-    if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
     if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
     note.textContent = stateLine(win, deps.folder ? 'the person' : 'the client');
     if (!foot.childElementCount) foot.hidden = true;
