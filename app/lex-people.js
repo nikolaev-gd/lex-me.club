@@ -1,4 +1,4 @@
-// lex-people.js — the chats with people on the main page of the page and the Mac app: the tabs All, Profi.ru, Kolya
+// lex-people.js — the chats with people on the main page of the page and the Mac app: the tabs All, Clients, Kolya
 // in the bar and one list under them, in the place of the empty chat (docs/spec/20-chat.md, «Главная страница»; the
 // iPhone has the same in PeopleTabs.swift and PeopleList.swift). The conversations with the model are not here: they
 // stand in the panel on the left. The chats with people are read once as one list (people_home,
@@ -88,7 +88,9 @@
     const fail = (text) => deps.notify(text);
 
     function lineOf(c) {
-      const live = deps.live(c.tab);
+      // A line is drawn and opened by the section that holds its chat: a chat of a folder — by its folder, also when
+      // it stands under another tab (a client's group under «Clients», client_group_chat.sql).
+      const live = deps.live(c.source === 'folder' && c.folder ? `folder:${c.folder}` : c.tab);
       if (!live || !live.line) return null;
       return live.line(c, { from: 'people', fail, after: () => { reload().catch(() => {}); }, feed: (order) => deps.showFeed(order) });
     }

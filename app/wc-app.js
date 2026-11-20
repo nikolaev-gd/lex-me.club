@@ -552,7 +552,7 @@
   const SECTIONS = {
     em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },
-    profi: { title: 'Profi.ru', build: buildProfi, dropsStream: true, leave: leaveProfiChat },
+    profi: { title: 'Clients', build: buildProfi, dropsStream: true, leave: leaveProfiChat },
     // Questions: a button of its own (2026-11-17), it opens the feed of questions of the database
     // itself, the one Extended Mind held before; no list of its own.
     questions: { title: 'Questions', opens: () => openQuestions() },
@@ -635,7 +635,7 @@
   // the main page (lex-profi.js, enter). wanted — see showSection.
   const showProfi = (screen, order, wanted) => showSection('profi', { enter: (live) => live.enter(screen, order), wanted });
   // ── The main page: the chats with people (lex-people.js) ───────────────────
-  // An account that has chats with people starts on the empty chat of Lex with them on it: the tabs All, Profi.ru, Kolya
+  // An account that has chats with people starts on the empty chat of Lex with them on it: the tabs All, Clients, Kolya
   // in the bar and one list under them, in the place of the empty thread (paintHome). The sections of the people (Profi.ru
   // and the folders) the server names become the tabs and the list, and have no button in the panel on the left; the rest
   // of the sections (Questions, Extended Mind, News) stay buttons there. A line of the list is the line of its section,

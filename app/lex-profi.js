@@ -1799,7 +1799,7 @@
     // A window that gives no such way reads the server alone.
     const readKept = deps.read || ((name, args, show) => deps.rpc(name, args).then((v) => { show(v, true, false); return v; }));
     const frame = global.LexSection.createFrame({
-      title: 'Profi.ru',
+      title: 'Clients',
       cls: 'lex-profi',
       back: deps.back,
       root: deps.root,

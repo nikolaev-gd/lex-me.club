@@ -597,7 +597,7 @@ button { font: inherit; color: inherit; }
 }
 
 /* The main page of an account that has chats with people (2026-11-19, lex-people.js, wc-app.js paintHome): the tabs
- * All, Profi.ru, Kolya stand in the bar under its buttons, as the tabs of the feed «Разбор» (.wc-em-tabs), and the one
+ * All, Clients, Kolya stand in the bar under its buttons, as the tabs of the feed «Разбор» (.wc-em-tabs), and the one
  * list of the chats stands in the place of the thread of the empty chat. The bar and the field are the glass bars of
  * every chat: the list passes under them and keeps room for them. */
 .wc-people-tabs { flex: 0 0 100%; min-width: 0; padding: 0 2px; }
