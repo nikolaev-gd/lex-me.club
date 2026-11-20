@@ -26,7 +26,6 @@
 
   const ALL = 'all';
   const KEPT_TAB = 'lex.peopleTab';
-  const STALE_S = 120;
 
   const isPeopleSection = (id) => id === 'profi' || String(id || '').startsWith('folder:');
 
@@ -95,11 +94,12 @@
       return live.line(c, { from: 'people', fail, after: () => { reload().catch(() => {}); }, feed: (order) => deps.showFeed(order) });
     }
 
+    // The red line of the tab Profi.ru: only the monitor's own stop with its reason. A silent monitor
+    // is not said here (Gennady, 20.11.2026): the line was judged by the age of a list read minutes
+    // before, and the bot's alert says it when the monitor is really gone.
     function monitorNote() {
       if (!home || !fresh || !home.feed) return null;
       const st = home.status || {};
-      const at = home.statusAt ? new Date(home.statusAt).getTime() : 0;
-      if (!at || Date.now() - at > STALE_S * 1000) return ['The monitor is not on line: nothing new will come until a Mac wakes up.', true];
       if (st.stopped) return [`The monitor is stopped: ${st.stopped}`, true];
       return null;
     }

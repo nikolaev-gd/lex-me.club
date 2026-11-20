@@ -38,7 +38,6 @@
   // the screen says the monitor did not answer; the order's copy takes over after CANCEL_HOLD_S.
   const CANCEL_WAIT_S = 5;
   const CANCEL_HOLD_S = 30;
-  const STALE_S = 120;
   // How many of the bot's last messages its chat shows (profi_bot_chat): a service chat is read from its end.
   const BOT_LIMIT = 200;
   // The chat key of the bot's service chat: what the number of its unread and the open screen are told by.
@@ -1775,9 +1774,6 @@
     let rev = null;
     let ticker = null;
     let home = null;
-    // The list on the screen came from the server in this run, not from the kept screens: a kept
-    // one says nothing about the monitor being silent — its moment is old, the fresh answer will.
-    let homeFresh = false;
     let feedEls = new Map();
     let clockOffset = 0;
     let report = null;
@@ -1874,12 +1870,6 @@
     }
 
     // ── home ─────────────────────────────────────────────────────────────────
-    function monitorSilent() {
-      if (!home || !homeFresh) return false;
-      const at = home.statusAt ? new Date(home.statusAt).getTime() : 0;
-      return !at || Date.now() - at > STALE_S * 1000;
-    }
-
     // The menu of a chat (lex-chat-menu.js, В7.33): Pin or Unpin, Mark as read or unread, Delete
     // chat. The server decides what the press means for the list (chat_states.sql); the list is read
     // anew at once, and every other window reads it by the signal of the change.
@@ -1939,8 +1929,9 @@
       body.replaceChildren();
       if (!home) return;
       const st = home.status || {};
-      if (monitorSilent()) say('The monitor is not on line: nothing new will come until a Mac wakes up.', true);
-      else if (st.stopped) say(`The monitor is stopped: ${st.stopped}`, true);
+      // Only the monitor's own stop is said here; a silent monitor is not (Gennady, 20.11.2026: the
+      // line judged by the age of a list read minutes before, and the bot's alert says it when the monitor is gone).
+      if (st.stopped) say(`The monitor is stopped: ${st.stopped}`, true);
       else say('');
       const list = make('div', 'lex-section-list');
       const feed = home.feed || {};
@@ -2366,15 +2357,14 @@
     }
 
     // The list: the copy this device kept while the section holds nothing yet (onCopy — it is on
-    // the screen now), then the server's answer. Only the answer is fresh: what it says of the bot
-    // (monitorSilent) and its number of change are the server's of now, a copy's are not.
+    // the screen now), then the server's answer. Only the answer is fresh: its number of change is
+    // the server's of now, a copy's is not.
     async function reloadHome(onCopy) {
       // The line of the bot's chat is read beside the list and never fails it.
       const head = readBotHead();
       await readKept('profi_home', { p_groups: true }, (h, fresh) => {
         if (!h) return;
         home = h;
-        homeFresh = fresh;
         // The clients of the order chats (the line's title is «client | order»), for whoever names buttons by them.
         if (fresh && typeof deps.clients === 'function') {
           const names = (Array.isArray(h.chats) ? h.chats : []).map((c) => {
