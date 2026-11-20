@@ -1223,7 +1223,8 @@
       signals,
       events: ['em'],
       check: async () => { await readHome(); },
-      onBack: (id) => { if (id === 'home') frame.open(() => readHome(), 'The feeds did not load.'); },
+      // Back to the list: it is read again, and a reading that failed says nothing (Gennady, 20.11.2026).
+      onBack: (id) => { if (id === 'home') readHome().catch((e) => console.warn('[em] back:', e && e.message)); },
     });
     emFrame = frame;
     function paint() {
@@ -1264,12 +1265,19 @@
       async show() {
         frame.enter();
         // What this device saw the last time, in the first frame; the server comes after.
+        let read = true;
         try {
           await readHome();
         } catch (e) {
-          frame.say('The feeds did not load. ' + ((e && e.message) || ''), true);
+          // Silent on the screen: the copy of the last time stays, and the bot's alert tells what is broken.
+          read = false;
+          console.warn('[em] show:', e && e.message);
         }
-        if (frame.isShown()) frame.watch();
+        if (frame.isShown()) {
+          frame.watch();
+          // A reading that failed: the frame looks again after a pause until one look goes.
+          if (!read) frame.lookNow();
+        }
       },
       // The page started and the account has the section: its list is read and drawn before
       // the section is shown, so the first press shows what is there now.
@@ -1920,7 +1928,6 @@
       rpc: newsRpc,
       read,
       openChat: (key, wanted, held, keepIt, from) => openFolderChat(id, key, wanted, held, keepIt, from),
-      notify: (text) => toast(text, { error: true }),
       onChange: (payload) => refreshFolderChat({ payload }),
       confirm: (title, text, o) => WcUI.confirm(title, text, o),
     });

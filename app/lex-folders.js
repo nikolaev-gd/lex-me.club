@@ -23,7 +23,7 @@
   }
 
   // deps: folder (its id), title, back, signals, rpc, read (the window's way of reading, lex-reads.js),
-  // openChat(chatKey, wanted, held, keep) — a press on a line; notify(text); confirm(title, text, o);
+  // openChat(chatKey, wanted, held, keep) — a press on a line; confirm(title, text, o);
   // onChange(payload) — the database changed something of a folder (payload.chatKey — which chat): the open
   // chat reads itself again.
   function createSection(deps) {
@@ -37,7 +37,6 @@
       // signal «folders» (lex_folder_touch).
       events: ['folders'],
       check: (signal) => poll(signal),
-      notify: deps.notify,
       onBack: () => paint(),
     });
     const { say } = frame;
@@ -163,7 +162,10 @@
           await reloadHome(() => { if (frame.screen === 'home') paint(); });
           paint();
         } catch (e) {
-          say('The folder did not load. ' + ((e && e.message) || ''), true);
+          // Silent on the screen (Gennady, 20.11.2026): the copy of the last time stays, the bot's alert tells what is broken.
+          console.warn('[folders] show:', e && e.message);
+          // The frame looks again after a pause until one look goes, so the copy does not stay for good.
+          frame.lookNow();
         }
       },
       async warm() {

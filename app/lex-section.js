@@ -24,19 +24,15 @@
 //                  never asks the server on a timer (Gennady, 2026-11-13).
 //   check(signal)  the look itself: signal — what came ({ event, payload }), null — a look to
 //                  catch up, the channel being open again
-//   notify(text)   the server is lost while the section is off the screen
 //   onBack(id)     the person came back to this screen
 (function (global) {
   'use strict';
 
-  // Failed looks in a row before the status line says so: one lost answer is not news.
-  const LOST_AFTER = 3;
   // A look that gave no answer for this long counts as failed, and the next one may go.
   const STUCK_MS = 15000;
   // A failed look is tried again after these pauses: something changed and is not on the
   // screen yet. This is no watch for news — it stops at the first good look.
   const AGAIN_MS = [1000, 2000, 5000, 10000, 20000, 30000];
-  const LOST_TEXT = 'No connection to the server. Lex keeps trying.';
 
   const GEAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>';
   const DOTS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5h.01M12 12h.01M12 19h.01"/></svg>';
@@ -438,11 +434,10 @@
     const top = () => stack[stack.length - 1];
     const isShown = () => root.isConnected && !root.closest('[hidden]');
 
-    // What the section says, and over it what the watch has to say.
+    // What the section says. The watch says nothing here: a lost connection is no red line (Gennady, 20.11.2026).
     let said = [''];
-    let lost = false;
     function paintStatus() {
-      const [text, isError, isBusy] = lost ? [LOST_TEXT, true] : said;
+      const [text, isError, isBusy] = said;
       status.textContent = text || '';
       status.hidden = !text;
       status.classList.toggle('is-error', !!isError);
@@ -502,26 +497,17 @@
     }
 
     // The watch follows the signals of the server: a signal of this section — a look. The
-    // channel opens again after a break — one look, to catch up. A failed look only tells
-    // the status line, is tried again after a pause until one goes, and the first good one
-    // takes the words away; so does the channel coming back. Looks never pile up: what comes
-    // during one makes one more after it (lex-account-events.js, follow).
+    // channel opens again after a break — one look, to catch up. A failed look is tried again
+    // after a pause until one goes, and says nothing — no line, no toast (Gennady, 20.11.2026):
+    // the screen keeps what it has, and the bot's alert tells what is broken. Looks never pile
+    // up: what comes during one makes one more after it (lex-account-events.js, follow).
     let follower = null;
     let fails = 0;
-    let channelLost = false;
     let againTimer = null;
     let looking = 0;
-    function paintLost() {
-      const now = channelLost || fails >= LOST_AFTER;
-      if (now === lost) return;
-      lost = now;
-      paintStatus();
-      if (lost && !isShown() && opts.notify) opts.notify(LOST_TEXT);
-    }
     function failed(e) {
       console.warn(`[section] ${opts.title}:`, e && e.message);
       fails += 1;
-      paintLost();
       if (againTimer || !follower) return;
       const pause = AGAIN_MS[Math.min(fails - 1, AGAIN_MS.length - 1)];
       againTimer = setTimeout(() => { againTimer = null; if (follower) follower.now(); }, pause);
@@ -538,7 +524,6 @@
         if (looking !== mine) return;
         fails = 0;
         if (againTimer) { clearTimeout(againTimer); againTimer = null; }
-        paintLost();
       } catch (e) {
         if (looking === mine) failed(e);
       } finally {
@@ -579,9 +564,7 @@
       stopOpening() { opening += 1; },
       watch() {
         if (follower || !opts.check || !opts.signals) return;
-        follower = opts.signals.follow(opts.events || [], look, {
-          onLost: (v) => { channelLost = v; paintLost(); },
-        });
+        follower = opts.signals.follow(opts.events || [], look, {});
       },
       unwatch() {
         if (follower) follower.stop();
@@ -589,14 +572,13 @@
         if (againTimer) { clearTimeout(againTimer); againTimer = null; }
         looking = 0;
         fails = 0;
-        channelLost = false;
-        paintLost();
       },
       // A look now, as after a signal: the section knows something changed by itself.
       lookNow() { if (follower) follower.now(); },
     };
   }
 
+  // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
-    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts };
+    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS };
 })(typeof window !== 'undefined' ? window : globalThis);

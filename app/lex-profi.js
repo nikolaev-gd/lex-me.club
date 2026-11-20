@@ -22,7 +22,7 @@
 //                          fresher answer; opts.replySelf — opened by Reply yourself: with the
 //                          discussion shown (the draft of the bot), not in the clean view
 //   copy(text)             put text on the clipboard, returns true when it worked
-//   notify(text)           the server is lost while an order chat stands over the section
+//   notify(text)           a failed press the person has to see
 //   onChange()             the server changed something: read the open order chat, a promise
 //   head(nodes)            what the bar of the window shows in place of the section's own bar: the
 //                          head of New orders (the mark of Профи.ру and its words), null — the bar
@@ -1766,10 +1766,12 @@
       signals: deps.signals,
       events: ['profi'],
       check: (signal) => poll(signal),
-      notify: deps.notify,
       onBack: () => { syncHead(); return paint(); },
     });
     const { say } = frame;
+    // A reading of a screen that failed says nothing on it (Gennady, 20.11.2026): what the screen has stays, and the
+    // bot's alert tells what is broken. Only a press that did not go says so on the line.
+    const quiet = (where) => (e) => { console.warn(`[profi] ${where}:`, e && e.message); };
 
     let rev = null;
     let ticker = null;
@@ -1928,11 +1930,9 @@
       held.unwatch();
       body.replaceChildren();
       if (!home) return;
-      const st = home.status || {};
-      // Only the monitor's own stop is said here; a silent monitor is not (Gennady, 20.11.2026: the
-      // line judged by the age of a list read minutes before, and the bot's alert says it when the monitor is gone).
-      if (st.stopped) say(`The monitor is stopped: ${st.stopped}`, true);
-      else say('');
+      // No red line over the list (Gennady, 20.11.2026): a monitor that stopped or went silent is told by the
+      // bot's alert in its own chat, not by a line that every reading of the list would put up again.
+      say('');
       const list = make('div', 'lex-section-list');
       const feed = home.feed || {};
       list.appendChild(global.LexSection.row({
@@ -2349,8 +2349,8 @@
     function paint() {
       const { screen } = frame;
       if (screen === 'home') paintHome();
-      else if (screen === 'feed') return paintFeed().catch((e) => say((e && e.message) || 'The orders did not load.', true));
-      else if (screen === 'bot') return paintBot().catch((e) => say((e && e.message) || 'The bot\'s messages did not load.', true));
+      else if (screen === 'feed') return paintFeed().catch(quiet('feed'));
+      else if (screen === 'bot') return paintBot().catch(quiet('bot'));
       else if (screen === 'settings') paintSettings();
       else if (screen === 'report') return paintReport();
       return null;
@@ -2438,7 +2438,9 @@
           await reloadHome(() => { if (frame.screen === 'home') paintHome(); });
           await paint();
         } catch (e) {
-          say('The section did not load. ' + ((e && e.message) || ''), true);
+          quiet('show')(e);
+          // The frame looks again after a pause until one look goes, so the copy of the last time does not stay for good.
+          frame.lookNow();
         }
       },
       // The app started and has the section: its list is read and drawn while the section is

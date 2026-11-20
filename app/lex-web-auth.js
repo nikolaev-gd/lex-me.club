@@ -20,11 +20,31 @@
 // anything that gets a script onto it. The web teacher signs in on its own.
 //
 // REFRESH POLICY IS THE EXTENSION'S, NOT THE SITE'S. The site drops the
-// session whenever a refresh fails; the extension keeps it when the failure
-// looks transient (5xx, 429, a dead network) and only clears on a real auth
-// rejection. Copied here deliberately: this page is meant to stay open through
-// a laptop suspend, and a signed-out chat that lost its conversation because
-// the wifi blinked is a much worse failure than one stale token.
+// session whenever a refresh fails; the extension keeps it unless the server
+// refuses the refresh token for good. Copied here deliberately: this page is
+// meant to stay open through a laptop suspend, and a signed-out chat that lost
+// its conversation because the wifi blinked is a much worse failure than one
+// stale token.
+//
+// THE REFUSAL IS READ FROM THE HTTP STATUS, NOT FROM THE MESSAGE (20.11.2026).
+// The first copy matched the message against a list of words («HTTP 429»,
+// «network»…), but gotrue() puts the server's own text in the message
+// («Request rate limit reached», «Too many concurrent token refresh
+// requests…»), which never matched — a pause was taken for a refusal and the
+// session was erased. Only 400, 401 and 403 are a refusal; a rate limit (429),
+// a concurrent refresh (409), a server error (5xx) and a dead network are a
+// pause: the session stays and the next call tries again.
+//
+// ONE REFRESH AT A TIME (same day). After a laptop wakes, thirty callers find
+// the token expired at the same moment; each started its own refresh with the
+// same refresh token (32 requests in 6 seconds, rate limits, 409s). Now they
+// all wait for the one in flight.
+//
+// A PAUSE IS WAITED OUT (same day). A server that said «too many» was asked
+// again at once by every caller that got no token — 15 more requests in 3
+// seconds. After a pause (429, 409, 5xx, no network) the next request waits 3,
+// 10, then 30 seconds; a good answer or the network coming back ends the wait.
+// In between, validToken() answers «no token now» without asking.
 (function (global) {
   'use strict';
 
@@ -37,9 +57,12 @@
   const URL_BASE = CFG.supabaseUrl.replace(/\/+$/, '');
   const KEY = CFG.supabaseKey;
 
-  // Same regex the extension uses. A refresh that fails for one of these
-  // reasons leaves the stored session alone and simply reports "no token now".
-  const TRANSIENT = /HTTP\s*5\d\d|HTTP\s*429|Failed to fetch|NetworkError|network|timeout|ECONN|ETIMEDOUT|load failed/i;
+  // The server's final word on a refresh token: it is not valid and never will be. Every other
+  // failure of a refresh (429, 409, 5xx, no network) leaves the stored session alone and simply
+  // reports "no token now".
+  const REFUSED = new Set([400, 401, 403]);
+  // How long the next request waits after a pause of the server, growing while it goes on.
+  const PAUSES_MS = [3000, 10000, 30000];
 
   function read() {
     try { return JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (_) { return null; }
@@ -78,8 +101,10 @@
     });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-      throw new Error(json.msg || json.error_description || json.error_code
+      const err = new Error(json.msg || json.error_description || json.error_code
         || json.error || json.message || ('HTTP ' + resp.status));
+      err.status = resp.status;
+      throw err;
     }
     return json;
   }
@@ -273,17 +298,47 @@
     return s;
   }
 
-  async function refresh() {
+  // The session is alive when its access token has not run out.
+  const alive = (s) => !!(s && s.access_token && s.expires_at && (s.expires_at - Date.now()) > 0);
+
+  // One refresh at a time: whoever comes while it is in flight gets its answer (see the head of the file).
+  // The promise is dropped when it settles, a failed one included, so the next call tries afresh.
+  let refreshing = null;
+  let pausedUntil = 0;
+  let pauses = 0;
+  const unpause = () => { pausedUntil = 0; pauses = 0; };
+  // The network came back: no reason to wait for the end of a pause the dead network caused.
+  if (typeof global.addEventListener === 'function') global.addEventListener('online', () => { pausedUntil = 0; });
+  function refresh() {
+    if (refreshing) return refreshing;
+    if (Date.now() < pausedUntil) return Promise.resolve(null);
+    refreshing = doRefresh().finally(() => { refreshing = null; });
+    return refreshing;
+  }
+
+  async function doRefresh() {
     const s = read();
     if (!s || !s.refresh_token) return null;
     try {
       const json = await gotrue('/token?grant_type=refresh_token', { refresh_token: s.refresh_token });
       const next = fromToken(json);
       write(next);
+      unpause();
       return next;
     } catch (err) {
-      const msg = String((err && err.message) || err);
-      if (TRANSIENT.test(msg)) return null;   // keep the session, report "no token now"
+      // A pause (429, 409, 5xx, no network): keep the session, report "no token now", and let the server rest.
+      if (!REFUSED.has(err && err.status)) {
+        pausedUntil = Date.now() + PAUSES_MS[Math.min(pauses, PAUSES_MS.length - 1)];
+        pauses += 1;
+        return null;
+      }
+      // Refused as spent or unknown. Another window of the same origin may have renewed the session
+      // meanwhile: what the storage holds now is its session, not ours to erase.
+      const now = read();
+      if (now && now.refresh_token && now.refresh_token !== s.refresh_token) {
+        unpause();
+        return alive(now) ? now : null;
+      }
       write(null);
       return null;
     }

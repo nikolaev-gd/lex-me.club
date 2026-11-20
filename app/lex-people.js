@@ -9,8 +9,9 @@
 // opens the chat the way that section does.
 //
 // create(deps) takes:
-//   tabsHost, listHost   where the row of tabs stands, and the frame of the list (a `.lex-section` with a status
-//                        line and a body); the page shows and hides both with the main page
+//   tabsHost, listHost   where the row of tabs stands, and the frame of the list (a `.lex-section` with a body, and
+//                        no status line: a list that did not load says nothing, Gennady 20.11.2026); the page shows
+//                        and hides both with the main page
 //   tabs(o)              the common tabs (WcUI.tabs, В7.27)
 //   read(name, args, show)  the window's way of reading, the copy first (lex-reads.js)
 //   signals              the channel of the database's signals (lex-account-events.js)
@@ -37,11 +38,8 @@
 
   function create(deps) {
     const make = (tag, cls, text) => global.LexSection.make(tag, cls, text);
-    const status = make('div', 'lex-section-status');
-    status.setAttribute('role', 'status');
-    status.hidden = true;
     const body = make('div', 'lex-section-body');
-    deps.listHost.append(status, body);
+    deps.listHost.append(body);
 
     let sections = [];       // the people's sections the server named: [{ id, title, tab }], in its order
     let selected = null;
@@ -49,19 +47,17 @@
     let active = false;      // the main page is on the screen
     let home = null;
     let drawn = '';          // `home` as text: what the screen shows, to tell the server's answer from it
-    let fresh = false;       // the list on the screen came from the server in this run
     const textOf = (v) => { try { return JSON.stringify(v); } catch (_) { return null; } };
     let tabsRow = null;
     let follower = null;
     let reading = null;
+    // A read that failed says nothing on the screen, and is tried again after a pause until one goes: the same ladder as
+    // the looks of the sections (lex-section.js), so that the copy of the last time does not stay for good. It runs only
+    // while the main page is on the screen (`follower`), and stops at the first good read.
+    let fails = 0;
+    let againTimer = null;
     // The line of the bot's service chat reads its last message itself (profi_bot_chat(1)): people_home stays as it was.
     let botHead = null;
-
-    const say = (text, isError) => {
-      status.textContent = text || '';
-      status.hidden = !text;
-      status.classList.toggle('is-error', !!isError);
-    };
 
     // The sections that have a tab; a section without one (Other) has its chats in «All» only.
     const tabbed = () => sections.filter((s) => s.tab);
@@ -97,21 +93,12 @@
       return live.line(c, { from: 'people', fail, after: () => { reload().catch(() => {}); }, feed: (order) => deps.showFeed(order) });
     }
 
-    // The red line of the tab Profi.ru: only the monitor's own stop with its reason. A silent monitor
-    // is not said here (Gennady, 20.11.2026): the line was judged by the age of a list read minutes
-    // before, and the bot's alert says it when the monitor is really gone.
-    function monitorNote() {
-      if (!home || !fresh || !home.feed) return null;
-      const st = home.status || {};
-      if (st.stopped) return [`The monitor is stopped: ${st.stopped}`, true];
-      return null;
-    }
+    // There is no red line over this list (Gennady, 20.11.2026): a monitor that stopped or went silent is told
+    // by the bot's alert in its own chat, and a list that did not load keeps the copy on the screen.
 
     function paint() {
       body.replaceChildren();
-      if (!selected || !home) { say(''); return; }
-      const note = selected === 'profi' ? monitorNote() : null;
-      say(note ? note[0] : '', !!note);
+      if (!selected || !home) return;
       const list = make('div', 'lex-section-list');
       if (selected === 'profi' && home.feed) {
         const feed = home.feed;
@@ -166,13 +153,26 @@
         if (isFresh && home && text !== null && text === drawn) return;
         home = v;
         drawn = text;
-        if (isFresh) fresh = true;
         paint();
-      }).catch((e) => {
+      }).then(() => {
+        fails = 0;
+        stopAgain();
+      }, (e) => {
+        // Silent on the screen: the copy of the last time stays, and the bot's alert tells what is broken.
         console.warn('[people] read:', e && e.message);
-        if (active && selected) say('The chats did not load. ' + ((e && e.message) || ''), true);
+        readAgain();
       }).finally(() => { reading = null; });
       return reading;
+    }
+
+    function stopAgain() {
+      if (againTimer) { clearTimeout(againTimer); againTimer = null; }
+    }
+    function readAgain() {
+      fails += 1;
+      if (againTimer || !follower) return;
+      const ladder = global.LexSection.AGAIN_MS;
+      againTimer = setTimeout(() => { againTimer = null; if (follower) reload(); }, ladder[Math.min(fails - 1, ladder.length - 1)]);
     }
 
     // The database says something of the people changed: the one list is read again, while it is on the screen.
@@ -183,6 +183,8 @@
     function unwatch() {
       if (follower) follower.stop();
       follower = null;
+      stopAgain();
+      fails = 0;
     }
     // The page shows the main page: the list follows the server and the gear of Profi.ru stands in the bar. `again` — the
     // page just came to this screen: the list is read again; a change of the tab only draws the lines it has.

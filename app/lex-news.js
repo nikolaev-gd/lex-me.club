@@ -573,8 +573,9 @@
             lastSaved = topCard();
             if (frame.isShown()) frame.watch();
           } catch (e) {
+            // Silent on the screen (Gennady, 20.11.2026): what the screen has stays, the next opening reads again.
             opened = false;
-            setStatus('The feed did not load. ' + ((e && e.message) || ''), true);
+            console.warn('[news] show:', e && e.message);
           }
           return;
         }
