@@ -68,8 +68,9 @@
     }
 
     // A line of a chat (В7.34): the photo of the person (folder_photos.sql) or the letter of the person or
-    // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message with the mark of
-    // the messenger it came by. The photo comes with the person's own pass, as the files of a message.
+    // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message. The mark of the
+    // messenger stands only inside the chat, at every message (Gennady, 20.11.2026): the list is a plain list
+    // of chats, with the number of the unread. The photo comes with the person's own pass, as the files of a message.
     // o — the main page of the people draws the line (lex-people.js): { from, fail, after }.
     function chatLine(c, o) {
       const M = global.LexMessage;
@@ -77,7 +78,6 @@
       const line = global.LexSection.row({
         lead: M.avatar(c.title || '?', { size: 48, photo: c.photo, io }),
         title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey, o),
-        end: c.channel && M.CHANNELS[c.channel] ? M.channel(c.channel) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
         unread: { chat: c.chatKey },
         // The draft of the chat, while it has one: «Draft: …» in place of the last message.
