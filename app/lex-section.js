@@ -15,7 +15,8 @@
 //   back           the arrow of the window, see lex-back.js
 //   root()         { title, go } of the screen outside the section the person comes from (the main page of the
 //                  people), or null: the arrow of the section's first two screens leads there at once, and the
-//                  section's own list is no stop on the way
+//                  section's own first screen is no stop on the way: with a root it is never shown, the screen the
+//                  section is entered on stands over it
 //   tools          buttons of the bar, on the first screen only; a button with an icon is
 //                  iconButton(cls + ' lex-section-icon', svg, title, onClick), a zone of 44 (В7.11)
 //   gear()         what the gear opens; no gear without it
@@ -431,6 +432,10 @@
     const first = { id: 'home', title: opts.title, body: make('div', 'lex-section-body'), top: 0 };
     root.append(bar, status, first.body);
     const stack = [first];
+    // A section entered from outside (opts.root) is never on its first screen: it stays under the others, hidden, and the
+    // arrow does not stop there (paintScreen).
+    const stays = (screen) => !!opts.root && screen === first;
+    first.body.hidden = stays(first);
     const top = () => stack[stack.length - 1];
     const isShown = () => root.isConnected && !root.closest('[hidden]');
 
@@ -466,7 +471,7 @@
       if (stack.length < 2) return;
       while (stack.length > 1) stack.pop().body.remove();
       const to = top();
-      to.body.hidden = false;
+      to.body.hidden = stays(to);
       to.body.scrollTop = to.top;
       say('');
       paintScreen();
@@ -489,7 +494,7 @@
       if (stack.length < 2) return undefined;
       stack.pop().body.remove();
       const to = top();
-      to.body.hidden = false;
+      to.body.hidden = stays(to);
       to.body.scrollTop = to.top;
       say('');
       paintScreen();

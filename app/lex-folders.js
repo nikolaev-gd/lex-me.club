@@ -2,18 +2,18 @@
 //
 // The database of Gennady sorts the people he writes with into folders by its cases (Kolya — the people
 // and the groups of the cases of Kolya; Other — the working people outside them and outside Profi.ru),
-// and the relay brings every chat of a folder into Lex with its past. A folder is a button under the
-// list of chats; it opens the list of its chats, the way Profi.ru does. A chat of a folder is drawn by
-// the order chat object of lex-profi.js (createChat with folder): one person — one chat from every
-// messenger, the mark of the messenger at every message, files as files.
+// and the relay brings every chat of a folder into Lex with its past. The chats of a folder stand on the
+// main page of the people (lex-people.js), in its tab Kolya and in «All», as lines this file draws (`line`);
+// a press opens the chat over that page, and the arrow leads back to it. A folder has no list of its own (20.11.2026).
+// A chat of a folder is drawn by the order chat object of lex-profi.js (createChat with folder): one person — one
+// chat from every messenger, the mark of the messenger at every message, files as files.
 //
-// The list is the frame of a section (lex-section.js) with its lines (row), the menu of a chat
-// (lex-chat-menu.js) and the photo or the letter of the person (lex-message.js avatar). The server
-// decides what stands where and in which order (folder_home); the page draws it.
+// What is left of a folder here is its line with the menu of a chat (lex-chat-menu.js) and the photo or the letter of
+// the person (lex-message.js avatar), the chats held ahead, and the watch over the server's signals that keeps an open
+// chat of the folder up to date. The server decides what stands where and in which order (people_home); the page draws it.
 (function (global) {
   'use strict';
 
-  const make = (tag, cls, text) => global.LexSection.make(tag, cls, text);
   const newOpId = () => global.LexSection.newOpId();
 
   // The words under a line: the last message, «You:» before Gennady's.
@@ -22,25 +22,20 @@
     return c.by === 'owner' && text ? `You: ${text}` : text;
   }
 
-  // deps: folder (its id), title, back, signals, rpc, read (the window's way of reading, lex-reads.js),
-  // openChat(chatKey, wanted, held, keep) — a press on a line; confirm(title, text, o);
-  // onChange(payload) — the database changed something of a folder (payload.chatKey — which chat): the open
-  // chat reads itself again.
+  // deps: folder (its id), title, signals, rpc, openChat(chatKey, wanted, held, keep) — a press on a line;
+  // confirm(title, text, o); onChange(payload) — the database changed something of a folder (payload.chatKey — which
+  // chat): the open chat reads itself again.
   function createSection(deps) {
-    const readKept = deps.read || ((name, args, show) => deps.rpc(name, args).then((v) => { show(v, true, false); return v; }));
     const frame = global.LexSection.createFrame({
       title: deps.title,
       cls: 'lex-folder',
-      back: deps.back,
       signals: deps.signals,
       // A message came into a chat of a folder, a chat moved, a chat was read, pinned or deleted: the
       // signal «folders» (lex_folder_touch).
       events: ['folders'],
       check: (signal) => poll(signal),
-      onBack: () => paint(),
     });
     const { say } = frame;
-    let home = null;
     let rev = null;
 
     // The chats this window holds: every line that comes on the screen is read ahead (folder_item, nothing
@@ -49,22 +44,10 @@
     // the photo too: a new photo of the person is read again for the bar over the chat
     const stampOf = (c) => [c.at, c.last, c.unread, c.pinned, c.photo || ''].join('|');
     const keepOf = (key) => (item) => held.put(key, item);
-    // o.from — where the press came from: the tabs of the people open the chat with no way back to this
-    // section's list (wc-app.js, the arrow stays out); o.fail(text) — where a failure is told then.
+    // o.fail(text) — where a failure is told: the status line of this section is not on the screen.
     const openChat = (key, o) => frame.open(
-      (wanted) => deps.openChat(key, wanted, held.get(key), keepOf(key), o && o.from),
+      (wanted) => deps.openChat(key, wanted, held.get(key), keepOf(key)),
       'The chat did not open.', o && o.fail);
-
-    async function reloadHome(show) {
-      const v = await readKept('folder_home', { p_folder: deps.folder }, (list, fresh) => {
-        if (!list || typeof list !== 'object') return;
-        home = list;
-        if (fresh && list.rev != null) rev = Math.max(Number(list.rev) || 0, rev || 0);
-        if (show) show();
-      });
-      if (v && typeof v === 'object') home = v;
-      return home;
-    }
 
     const DELETE_TEXT = 'It disappears from Lex. Nothing changes in the messengers. '
       + 'A new message of the person brings it back.';
@@ -81,15 +64,13 @@
         return;
       }
       if (act === 'important' || act === 'unimportant') return;
-      await reloadHome();
-      if (frame.screen === 'home') paint();
       if (o && o.after) o.after();
     }
 
     // A line of a chat (В7.34): the photo of the person (folder_photos.sql) or the letter of the person or
     // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message with the mark of
     // the messenger it came by. The photo comes with the person's own pass, as the files of a message.
-    // o — the tabs of the people draw the same line (lex-people.js): { from, fail, after }.
+    // o — the main page of the people draws the line (lex-people.js): { from, fail, after }.
     function chatLine(c, o) {
       const M = global.LexMessage;
       const io = global.LexFileAttach && global.LexFileAttach.webIo;
@@ -114,21 +95,8 @@
       return line;
     }
 
-    function paint() {
-      const { body } = frame;
-      held.unwatch();
-      body.replaceChildren();
-      if (!home) return;
-      const chats = Array.isArray(home.chats) ? home.chats : [];
-      say(chats.length ? '' : 'No chats here yet.');
-      if (!chats.length) return;
-      const list = make('div', 'lex-section-list');
-      for (const c of chats) list.appendChild(chatLine(c));
-      body.appendChild(list);
-    }
-
-    // A signal of the folders: the stamp it carries says whether this window saw it already. The list
-    // is read when it is on the screen; the open chat reads itself (onChange).
+    // A signal of the folders: the stamp it carries says whether this window saw it already. The chat that
+    // is open reads itself (onChange); the main page follows the same signal by itself (lex-people.js).
     async function poll(signal) {
       const told = signal && signal.payload && signal.payload.rev != null ? Number(signal.payload.rev) : null;
       if (told != null && rev != null && told <= rev) return;
@@ -136,11 +104,8 @@
       if (r != null && r === rev) return;
       const seen = rev;
       try {
-        const reads = [];
-        if (frame.isShown()) reads.push(reloadHome().then(() => { if (frame.screen === 'home') paint(); }));
         // The signal names the chat it is about: the open chat reads itself only for its own.
-        if (deps.onChange) reads.push(deps.onChange((signal && signal.payload) || null));
-        await Promise.all(reads);
+        if (deps.onChange) await deps.onChange((signal && signal.payload) || null);
         if (r != null) rev = Math.max(Number(r) || 0, rev || 0);
       } catch (e) {
         rev = seen;
@@ -151,32 +116,11 @@
     return {
       el: frame.el,
       stopOpening: frame.stopOpening,
-      // The line of a chat of this folder, as the list of the folder draws it, for the tabs of the people.
+      // The line of a chat of this folder, for the main page of the people.
       line: chatLine,
       // The person left a chat of the folder: it is read again, so the next press shows it as it is now.
       visited(chatKey) { if (chatKey) held.ahead(chatKey, null); },
-      async show() {
-        frame.enter();
-        this.watch();
-        try {
-          await reloadHome(() => { if (frame.screen === 'home') paint(); });
-          paint();
-        } catch (e) {
-          // Silent on the screen (Gennady, 20.11.2026): the copy of the last time stays, the bot's alert tells what is broken.
-          console.warn('[folders] show:', e && e.message);
-          // The frame looks again after a pause until one look goes, so the copy does not stay for good.
-          frame.lookNow();
-        }
-      },
-      async warm() {
-        if (frame.isShown()) return;
-        try {
-          await reloadHome(() => { if (frame.screen === 'home') paint(); });
-          if (!frame.isShown() && frame.screen === 'home') paint();
-        } catch (e) {
-          console.warn('[folders] warm:', e && e.message);
-        }
-      },
+      // The chat that is open reads itself at the signals of the folders (the page starts the watch with the chat).
       watch() { frame.watch(); },
       unwatch() { frame.unwatch(); },
       hide() { this.unwatch(); },

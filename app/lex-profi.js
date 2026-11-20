@@ -4,14 +4,22 @@
 // screens in Swift, on the same server calls. The extension does not load this file: the
 // server does not name the section to it.
 //
+// The section has no list of its own (20.11.2026): the chats of Profi.ru stand on the main page of the people (lex-people.js)
+// as lines this file draws (`line`), and a press opens a chat over that page. What is left of the section are the screens
+// the main page opens over itself — the chat of new orders, the bot's service chat, the settings and what they open (a
+// report) — and the first screen of the frame under them, which is never on the screen: `enter` puts one of them over it
+// before the section is shown, and the arrow of the first two screens leads out, to the main page (`root`).
+//
 // Everything that decides lives on the server: which chat stands where, which buttons an
 // order has, what a box holds and whether it went. This file draws what it is told.
 //
 // A window gives:
 //   back                   the arrow of the window, see lex-back.js
-//   root()                 where the arrow of the first two screens leads, { title, go }, or null: the main
-//                          page of the people, from which the feed of new orders and the settings are
-//                          opened (lex-section.js, root)
+//   root()                 where the arrow of the first two screens leads, { title, go }: the main page of the
+//                          people, over which the feed of new orders, the bot's chat and the settings are
+//                          shown (lex-section.js, root)
+//   showFeed(order)        show New orders at that order (or at its top) over the main page: the window shows the
+//                          section on that screen. A reply that waits there is not opened as a chat
 //   signals                the channel of the database's signals (lex-account-events.js): the
 //                          section and an open order chat read again at the signal «profi», a
 //                          press of the bot's menu gets its answer at «profi_cmd»
@@ -40,8 +48,6 @@
   const CANCEL_HOLD_S = 30;
   // How many of the bot's last messages its chat shows (profi_bot_chat): a service chat is read from its end.
   const BOT_LIMIT = 200;
-  // The chat key of the bot's service chat: what the number of its unread and the open screen are told by.
-  const BOT_KEY = '__lex_profi_bot__';
   const BOT_TITLE = 'Бот Профи';
   // The channels where «Edit» of a message that went to a person works (19.11.2026; Gennady: in every channel — WhatsApp,
   // Telegram, Max, Profi.ru). One row per channel: the uid of its messages begins with `prefix`; `windowMs` — how long
@@ -1762,7 +1768,6 @@
       cls: 'lex-profi',
       back: deps.back,
       root: deps.root,
-      gear: () => go('settings', 'Settings'),
       signals: deps.signals,
       events: ['profi'],
       check: (signal) => poll(signal),
@@ -1775,12 +1780,12 @@
 
     let rev = null;
     let ticker = null;
+    // What the monitor says of itself (profi_home): the status for the settings, the title of New orders, the clients of
+    // the order chats for the Mac app. The chats in it are the main page's business (people_home), not drawn here.
     let home = null;
     let feedEls = new Map();
     let clockOffset = 0;
     let report = null;
-    // The line of the bot's service chat reads its last message itself (profi_bot_chat(1)); profi_home stays as it was.
-    let botHead = null;
 
     function go(id, title) {
       frame.push({ id, title });
@@ -1851,11 +1856,15 @@
     // A press on an order outside the feed. While its reply still waits there (Cancel or
     // Send), the order opens in the feed, the way Telegram shows it: opening a chat for it
     // would stop the sending (Reply yourself), and a look at an order stops nothing. The line
-    // of the list says so (feed); an order that has no line in the list asks the feed itself.
-    // A failed read counts as waiting, so that a bad network never stops a reply either.
+    // of the main page says so (feed); the section's last reading of its chats (profi_home)
+    // says it for an order the page has no line for, and the feed itself for one that has no
+    // line there. opts.fresh — a notification: only the feed itself is asked, what the section
+    // read a while ago may be old. A failed read counts as waiting, so that a bad network never
+    // stops a reply either. The feed is a screen of this section: while the section is on the
+    // screen it is pushed in place, otherwise the window shows the section on it (deps.showFeed).
     let focusOrder = null;
     async function openOrderOrFeed(order, opts, fail) {
-      const line = ((home && home.chats) || []).find((c) => c.order === order);
+      const line = opts && opts.fresh ? null : ((home && home.chats) || []).find((c) => c.order === order);
       let waits = true;
       if (line && typeof line.feed === 'boolean') waits = line.feed;
       else {
@@ -1866,12 +1875,13 @@
         } catch (_) { waits = true; }
       }
       if (!waits) { openOrder(order, opts, fail); return; }
+      if (!frame.isShown() && typeof deps.showFeed === 'function') { await deps.showFeed(order); return; }
       focusOrder = order;
       if (frame.screen === 'feed') await paintFeed();
-      else go('feed', (home && home.feed && home.feed.title) || 'New orders');
+      else go('feed', feedTitle());
     }
+    const feedTitle = () => (home && home.feed && home.feed.title) || 'New orders';
 
-    // ── home ─────────────────────────────────────────────────────────────────
     // The menu of a chat (lex-chat-menu.js, В7.33): Pin or Unpin, Mark as read or unread, Delete
     // chat. The server decides what the press means for the list (chat_states.sql); the list is read
     // anew at once, and every other window reads it by the signal of the change.
@@ -1890,15 +1900,13 @@
         return;
       }
       if (act === 'important' || act === 'unimportant') return;
-      await reloadHome();
-      if (frame.screen === 'home') paintHome();
       if (o && o.after) o.after();
     }
 
     // A line of a chat (В7.34): the photo or the letter of the client 48 (В7.12), the name and the
     // order, the time, the pin of a pinned one; the last message, «Bot:» before the bot's; the tick of
     // Profi when Gennady or the bot wrote last.
-    // o — the tabs of the people draw the same line (lex-people.js): { from, fail, after, feed(order) }. A reply that
+    // o — the main page of the people draws the line (lex-people.js): { from, fail, after, feed(order) }. A reply that
     // waits in the feed opens the feed, and the feed is a screen of this section: feed() shows it.
     function chatLine(c, o) {
       const line = global.LexSection.row({
@@ -1923,39 +1931,6 @@
       // A reply that waits in the feed opens the feed, not the chat: nothing to read ahead.
       if (!c.feed) held.watch(line, c.order, stampOf(c));
       return line;
-    }
-
-    function paintHome() {
-      const { body } = frame;
-      held.unwatch();
-      body.replaceChildren();
-      if (!home) return;
-      // No red line over the list (Gennady, 20.11.2026): a monitor that stopped or went silent is told by the
-      // bot's alert in its own chat, not by a line that every reading of the list would put up again.
-      say('');
-      const list = make('div', 'lex-section-list');
-      const feed = home.feed || {};
-      list.appendChild(global.LexSection.row({
-        lead: global.LexMessage.avatarMark('profi', 48),
-        title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
-        mark: feed.active ? `${feed.active} sending` : '', onClick: () => go('feed', 'New orders'),
-        unread: { chat: '__lex_profi_orders__' },
-      }));
-      // The bot's service chat (19.11.2026): what the bot tells Gennady about itself, a line under the new orders.
-      const bot = botHead || {};
-      const heard = bot.messages || [];
-      const lastWords = heard[heard.length - 1] || null;
-      list.appendChild(global.LexSection.row({
-        lead: global.LexMessage.avatarBrand(48),
-        title: bot.title || BOT_TITLE, sub: lastWords ? plainLinks(lastWords.text || '') : 'Nothing yet.', strong: true,
-        time: lastWords ? global.LexSection.listTime(lastWords.at) : '',
-        onClick: () => go('bot', bot.title || BOT_TITLE),
-        unread: { chat: BOT_KEY },
-      }));
-      // The order is the server's: pinned, then the talk (chat_states.sql). A client who did not answer the
-      // first message is not in the list: his order stays in the chat of the new orders (profi_only_answered.sql).
-      for (const c of home.chats || []) list.appendChild(chatLine(c));
-      body.appendChild(list);
     }
 
     // ── new orders ───────────────────────────────────────────────────────────
@@ -2210,7 +2185,7 @@
       const mark = M.channel('profi');
       mark.classList.add('lex-profi-mark');
       const words = make('div', 'lex-profi-person-words');
-      words.append(make('div', 'lex-profi-person-name', (home && home.feed && home.feed.title) || 'New orders'),
+      words.append(make('div', 'lex-profi-person-name', feedTitle()),
         make('div', 'lex-profi-person-channel', M.CHANNELS.profi.name));
       return [mark, words];
     }
@@ -2346,22 +2321,19 @@
       }
     }
 
+    // The screen the section stands on (never its first one: see `enter`).
     function paint() {
       const { screen } = frame;
-      if (screen === 'home') paintHome();
-      else if (screen === 'feed') return paintFeed().catch(quiet('feed'));
-      else if (screen === 'bot') return paintBot().catch(quiet('bot'));
-      else if (screen === 'settings') paintSettings();
+      if (screen === 'feed') return paintFeed().catch(quiet('feed'));
+      if (screen === 'bot') return paintBot().catch(quiet('bot'));
+      if (screen === 'settings') paintSettings();
       else if (screen === 'report') return paintReport();
       return null;
     }
 
-    // The list: the copy this device kept while the section holds nothing yet (onCopy — it is on
-    // the screen now), then the server's answer. Only the answer is fresh: its number of change is
-    // the server's of now, a copy's is not.
-    async function reloadHome(onCopy) {
-      // The line of the bot's chat is read beside the list and never fails it.
-      const head = readBotHead();
+    // What the monitor says of itself and of the chats (profi_home): the copy this device kept while the section holds
+    // nothing yet, then the server's answer. Only the answer carries the number of change that is the server's of now.
+    async function reloadHome() {
       await readKept('profi_home', { p_groups: true }, (h, fresh) => {
         if (!h) return;
         home = h;
@@ -2371,18 +2343,10 @@
             const parts = String((c && c.title) || '').split(' | ');
             return parts.length > 1 ? parts[0] : '';
           }).filter(Boolean);
-          try { deps.clients(names); } catch (_) { /* a hook must not stop the list */ }
+          try { deps.clients(names); } catch (_) { /* a hook must not stop the screen */ }
         }
         if (fresh) rev = h.rev;
-        else if (onCopy) onCopy();
       }, () => !home);
-      await head;
-    }
-
-    async function readBotHead() {
-      try {
-        await readKept('profi_bot_chat', { p_limit: 1 }, (b) => { if (b) botHead = b; }, () => !botHead);
-      } catch (_) { /* the list does not wait for the line of the bot */ }
     }
 
     // A change counts as seen only when it reached the screen and the open order chat: after
@@ -2402,7 +2366,7 @@
           reads.push((async () => {
             await reloadHome();
             const { screen } = frame;
-            if (screen === 'home' || screen === 'settings') paint();
+            if (screen === 'settings') paint();
             else if (screen === 'feed') await paintFeed();
             else if (screen === 'bot') await paintBot();
           })());
@@ -2425,6 +2389,7 @@
         const order = orderOfKey.get(chatKey);
         if (order) held.ahead(order, null);
       },
+      // The section is on the screen, on the screen `enter` chose (or on the one it was left on).
       async show() {
         frame.enter();
         syncHead();
@@ -2432,24 +2397,26 @@
         // The person may leave during the reading: hide() stops the watch, and an order chat
         // starts its own.
         this.watch();
-        // The list as this device saw it the last time, in the first frame; the server's answer
-        // takes its place. In memory it is drawn already: the section stays alive.
+        // The screen as this device saw it the last time, in the first frame; the server's answer takes its place. What the
+        // monitor says of itself (the status of the settings, the title of New orders) is read beside it.
+        const drawing = paint();
         try {
-          await reloadHome(() => { if (frame.screen === 'home') paintHome(); });
-          await paint();
+          await reloadHome();
+          syncHead();
+          if (frame.screen === 'settings') paint();
+          await drawing;
         } catch (e) {
           quiet('show')(e);
           // The frame looks again after a pause until one look goes, so the copy of the last time does not stay for good.
           frame.lookNow();
         }
       },
-      // The app started and has the section: its list is read and drawn while the section is
-      // not on the screen yet, so the first press on «Profi.ru» shows what is there now.
+      // The app started and has the section: what the monitor says of itself is read while the section is not on the
+      // screen yet, so that its first showing has the status, the title and the clients of the order chats.
       async warm() {
         if (frame.isShown()) return;
         try {
-          await reloadHome(() => { if (frame.screen === 'home') paintHome(); });
-          if (!frame.isShown() && frame.screen === 'home') paintHome();
+          await reloadHome();
         } catch (e) {
           console.warn('[profi] warm:', e && e.message);
         }
@@ -2468,25 +2435,26 @@
         this.unwatch();
         if (deps.head) deps.head(null);
       },
-      // A notification of the Mac app was clicked (webchat/wc-app.js): a message of an order
-      // chat opens the order the way a press on it outside the feed does; a notification
-      // about an order (new, reply sent, not sent) — the feed of new orders at that order.
-      // The screen of the section now ('home', 'feed', …): the page tells the server the list
-      // of new orders is on the screen (webchat/wc-app.js, presenceKey).
+      // The screen of the section now ('feed', 'bot', …): the page tells the server which screen is open, the list of
+      // new orders and the bot's chat have a number of unread of their own (webchat/wc-app.js, presenceKey).
       get screen() { return frame.screen; },
+      // A press on an order outside the feed, or a notification about a message of an order chat (opts.fresh): the chat of
+      // the order, or New orders at it while its reply waits there. The chat opens over the main page when opts.from is
+      // 'people'.
       openOrder: openOrderOrFeed,
-      // The line of an order chat as the list of the section draws it, and the settings, for the tabs of the people.
+      // The line of an order chat as the main page of the people draws it.
       line: chatLine,
-      // The ways in from outside (a tab of the people, the gear over them, a notification): the screens of the section
-      // start over, so that the arrow leads out of it (lex-section.js, root).
-      openSettings() { frame.reset(); go('settings', 'Settings'); },
-      openFeed() { frame.reset(); go('feed', (home && home.feed && home.feed.title) || 'New orders'); },
-      // The bot's service chat: a tap on a notification of the Alerts (webchat/wc-app.js).
-      openBot() { frame.reset(); go('bot', BOT_TITLE); },
-      async openFeedAt(order) {
-        focusOrder = order;
-        if (frame.screen === 'feed') await paintFeed();
-        else { frame.reset(); go('feed', (home && home.feed && home.feed.title) || 'New orders'); }
+      // The ways in from outside (the line of New orders or of the bot's chat on the main page, its gear, a notification):
+      // the screens of the section start over on the one asked for — 'feed' (at `order`, or at its top), 'bot' or
+      // 'settings' — so that the arrow leads out of the section, to the main page (lex-section.js, root). It is said
+      // before the section is on the screen, and the first screen of the section is never seen on the way.
+      enter(screen, order) {
+        frame.reset();
+        if (screen === 'feed') {
+          focusOrder = order || null;
+          frame.push({ id: 'feed', title: feedTitle() });
+        } else if (screen === 'bot') frame.push({ id: 'bot', title: BOT_TITLE });
+        else frame.push({ id: 'settings', title: 'Settings' });
       },
     };
   }

@@ -552,20 +552,23 @@
     questions: { title: 'Questions', opens: () => openQuestions() },
   };
   // A folder of chats (Kolya, Other; lex-folders.js) is a section the server names 'folder:<id>' with
-  // its title (lex_home_sections): its entry here is made when the server names it.
+  // its title (lex_home_sections): its entry here is made when the server names it. It has no screen of its own: its
+  // chats stand on the main page, and the section is what keeps their lines and the open chat of the folder alive.
   function folderSection(id, title) {
     if (!/^folder:[a-z][a-z0-9_]{0,30}$/.test(String(id || ''))) return null;
     if (!SECTIONS[id]) {
-      SECTIONS[id] = { title: title || id.slice(7), build: () => buildFolder(id), dropsStream: true, leave: leaveFolderChat, folder: id.slice(7) };
+      SECTIONS[id] = { title: title || id.slice(7), build: () => buildFolder(id), leave: leaveFolderChat, folder: id.slice(7) };
     } else if (title) SECTIONS[id].title = title;
     return SECTIONS[id];
   }
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
   // The main page (paintHome) is the empty chat of Lex with the chats of the people on it: the way back from a chat of a
-  // person, from the chat of new orders and from the settings of Profi.ru.
+  // person, from the chat of new orders, the bot's chat and the settings of Profi.ru, and from whatever a notification opens
+  // (20.11.2026: no notification leads to a list of a section).
   const mainTarget = () => ({ title: 'Chats', go: () => newConversation() });
-  // The way back from a chat opened from a list: to the list of its section; from the main page (opts.from) — to the main page.
-  const backOfList = (id, opts) => (opts && opts.from === 'people' ? mainTarget() : sectionTarget(id));
+  // The way back from an order chat: opened from the main page (opts.from) — to the main page; opened from the chat of new
+  // orders or from a report — to that screen of Profi.ru, where it stands as it was left.
+  const profiBack = (opts) => (opts && opts.from === 'people' ? mainTarget() : sectionTarget('profi'));
   let sectionOn = null;
   function sectionEls() {
     return {
@@ -600,15 +603,20 @@
   }
   // opts.back — the way back from a chat of the section: it stands where it was left. Without
   // it the section is entered (its line, a notification), and News reads its feed anew.
+  // opts.enter(live) — the screen the section is entered on (Profi.ru: its feed, its bot's chat, its settings): it is
+  // said before the section is on the screen, so that the first screen of the section is never seen on the way.
+  // opts.wanted() — turns false when the person went elsewhere meanwhile, and then nothing moves.
   async function showSection(id, opts) {
     const { main, host } = sectionEls();
     const section = SECTIONS[id];
     await endVoiceOnLeave('news');
+    if (opts && opts.wanted && !opts.wanted()) return;
     if (section.dropsStream && WcThread.isStreaming()) leaveStream();
     // A section has no field: the words of the chat left go to its draft.
     takeField(null);
     leaveSection();
     ensureSection(id);
+    if (opts && opts.enter) opts.enter(section.live);
     for (const el of host.children) el.hidden = el !== section.live.el;
     sectionOn = id;
     host.hidden = false;
@@ -617,6 +625,9 @@
     WcSidebar.close();
     await section.live.show({ back: !!(opts && opts.back) });
   }
+  // A screen of Profi.ru over the main page: 'feed' (at `order`, or at its top), 'bot' or 'settings'. The arrow leads back to
+  // the main page (lex-profi.js, enter). wanted — see showSection.
+  const showProfi = (screen, order, wanted) => showSection('profi', { enter: (live) => live.enter(screen, order), wanted });
   // ── The main page: the chats with people (lex-people.js) ───────────────────
   // An account that has chats with people starts on the empty chat of Lex with them on it: the tabs All, Profi.ru, Kolya
   // in the bar and one list under them, in the place of the empty thread (paintHome). The sections of the people (Profi.ru
@@ -630,23 +641,14 @@
     read,
     signals,
     live: (id) => (SECTIONS[id] && SECTIONS[id].build ? ensureSection(id) : null),
-    // The chat of new orders and the settings are screens of Profi.ru: they open in its place, and the arrow leads
-    // back to the main page.
-    showFeed: async (order) => {
-      await showSection('profi');
-      if (order) await SECTIONS.profi.live.openFeedAt(order); else SECTIONS.profi.live.openFeed();
-    },
-    showBot: async () => {
-      await showSection('profi');
-      SECTIONS.profi.live.openBot();
-    },
+    // The chat of new orders, the bot's chat and the settings are screens of Profi.ru: they open over the main page, and the
+    // arrow leads back to it.
+    showFeed: (order) => showProfi('feed', order || null),
+    showBot: () => showProfi('bot'),
     notify: (text) => toast(text, { error: true }),
     gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
   });
-  document.getElementById('wc-people-gear').addEventListener('click', async () => {
-    await showSection('profi');
-    SECTIONS.profi.live.openSettings();
-  });
+  document.getElementById('wc-people-gear').addEventListener('click', () => { showProfi('settings'); });
   // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
   // a person. The first message sent takes the page away (the thread is not empty then, WcThread.onEmpty).
   function homeOn() {
@@ -692,7 +694,7 @@
   // Every section the server names is then built and its list read (warm), so its first
   // showing waits for nothing. News reads its own feed when shown (it keeps it itself).
   // Settled when the sections are known (kept copy or the server's answer, or a failed read): a notification that
-  // launched the page and names a folder waits for it (`openFromNotification`), so the chat opens in its section.
+  // launched the page waits for it (`openFromNotification`), so it opens over the main page, on «All», in its section.
   let sectionsKnown = null;
   const sectionsKnownPromise = new Promise((resolve) => { sectionsKnown = resolve; });
   async function loadSections() {
@@ -900,8 +902,12 @@
       return { ok: false, why: refusalWords(err) };
     }
   }
-  // What a notification is about (the `lex` part push-send puts in it) → the screen. The main page behind it is «All»
-  // (Gennady, 20.11.2026): the arrow back from the chat it opens leads there, whatever tab was pressed before.
+  // What a notification is about (the `lex` part push-send puts in it) → the screen. ANY tap (Gennady, 20.11.2026) first puts
+  // the main page on «All», at the top of its list (`homeToAll`; the tab pressed is not kept), then opens what the notification
+  // is about over the main page, the way a row of «All» opens it, and the arrow back leads to the main page. No notification
+  // leads to the list of a section (Profi.ru, a folder, Extended Mind): the screens of Profi.ru it opens come straight over the
+  // main page, and a chat opens without any section on the way. An account without chats of people has no main page: there the
+  // feeds and the conversations open as they did before it.
   async function openFromNotification(lex) {
     if (!lex) return;
     const mine = ++notificationOpens;
@@ -911,22 +917,33 @@
     // A notification of the calendar shows the window as it was (below): the main page stays on its tab.
     if (!(key === '__lex_calendar__' || kind.startsWith('calendar'))) homeToAll();
     const order = lex.order ? String(lex.order) : '';
-    // About an order (new, reply sent, not sent): the feed of new orders at it, as on the
-    // iPhone. A message in an order chat: that order.
-    if (kind === 'profi_order' || (key.startsWith('__lex_profi__') && order)) {
-      await showSection('profi');
-      if (!wanted()) return;
-      // A draft after a call (В7.42): the chat opens with the discussion shown, on the draft.
-      if (kind !== 'profi_order') await SECTIONS.profi.live.openOrder(order, kind === 'profi_call_draft' ? { showLex: true, from: 'people' } : { from: 'people' });
-      else if (order) await SECTIONS.profi.live.openFeedAt(order);
-      else SECTIONS.profi.live.openFeed();
+    // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
+    // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key, and not
+    // a tab either.
+    if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
+    // A click that launched the page comes before the sections are known: the chat opens in its section, when they are (not
+    // longer than a few seconds).
+    await Promise.race([sectionsKnownPromise, new Promise((resolve) => setTimeout(resolve, 6000))]);
+    if (!wanted()) return;
+    if (people.hasTabs) people.toAll();   // the sections are known now: «All» again, if a tab was pressed while they came
+    const back = people.hasTabs ? mainTarget() : undefined;
+    // About an order (new, reply sent, not sent): New orders at it, as on the iPhone; without the number — at its top.
+    if (kind === 'profi_order') {
+      await showProfi('feed', order || null, wanted);
       return;
     }
-    // An alert of the Profi.ru bot: its service chat in the section Profi.ru.
+    // A message of an order chat, a draft after a call (В7.42: the chat opens with the discussion shown, on the draft): the
+    // chat as a row of «All» opens it, or New orders at that order while its reply waits there. The section Profi.ru is
+    // not shown for it: only what that opens is.
+    if (key.startsWith('__lex_profi__') && order) {
+      await ensureSection('profi').openOrder(order,
+        kind === 'profi_call_draft' ? { from: 'people', fresh: true, showLex: true } : { from: 'people', fresh: true },
+        (text) => toast(text, { error: true }));
+      return;
+    }
+    // An alert of the Profi.ru bot: its service chat, over the main page.
     if (kind === 'profi_alert' || key === '__lex_profi_bot__') {
-      await showSection('profi');
-      if (!wanted()) return;
-      SECTIONS.profi.live.openBot();
+      await showProfi('bot', null, wanted);
       return;
     }
     if (WcHistory.isEmFeedKey(key)) {
@@ -934,17 +951,15 @@
       // before the one feed is that question there too).
       const item = (key.match(/^__lex_em_question_(-?\d+)__$/) || [])[1];
       const ref = typeof lex.ref === 'string' && lex.ref ? lex.ref : null;
-      // Questions have a button of their own: their feed opens straight, not through Extended Mind.
-      const kind = item ? 'question' : key.replace(/^__lex_em_|__$/g, '');
-      if (kind !== 'question') await showSection('em');
+      const feed = item ? 'question' : key.replace(/^__lex_em_|__$/g, '');
+      // Over the main page the feed opens by itself and the arrow leads to that page. Without it: Extended Mind first and
+      // the arrow to it; Questions have a button of their own, their feed opens straight.
+      if (!back && feed !== 'question') await showSection('em', { wanted });
       if (!wanted()) return;
-      if (item) await openEmFeed('question', wanted, ref || `em:${item}`);
-      else await openEmFeed(kind, wanted, ref);
+      if (item) await openEmFeed('question', wanted, ref || `em:${item}`, back);
+      else await openEmFeed(feed, wanted, ref, back);
       return;
     }
-    // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
-    // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key.
-    if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
     // The chat of a person not recognized yet (`whois`, push-decide.ts) may have gone out of the folders since: the person
     // was confirmed, and his messages go on in his own chat. The server says where the chat lies now, and the click goes
     // there. No answer within a moment, or nowhere to go — the chat as the notification had it.
@@ -957,22 +972,15 @@
         return;
       }
     }
-    // A message of a folder (folder_message): its chat, as a press on its line in the tabs of the people opens it.
-    // A folder the page does not know (its tab has not come yet) — the chat by itself.
+    // A message of a folder (folder_message): its chat, as a press on its line on the main page opens it.
     const folderId = lex.folder ? `folder:${lex.folder}` : '';
-    // The page launched by this very click has not read its sections yet: the chat waits for them (not longer than a few
-    // seconds), so it opens in the section of its folder — its header, the messenger under each message, the field that
-    // writes to the person — and not as an ordinary chat.
-    if (folderId && WcHistory.isFolderKey(key) && !SECTIONS[folderId]) {
-      await Promise.race([sectionsKnownPromise, new Promise((resolve) => setTimeout(resolve, 6000))]);
-      if (!wanted()) return;
-    }
     if (WcHistory.isFolderKey(key) && SECTIONS[folderId]) {
       ensureSection(folderId);
-      await openFolderChat(folderId, key, wanted, null, null, 'people');
+      await openFolderChat(folderId, key, wanted, null, null);
       return;
     }
-    if (key) await openConversation(key, { wanted });
+    // Any other chat: a conversation with the model, with the arrow to the main page when there is one.
+    if (key) await openConversation(key, { wanted, back });
   }
   global.__lexShellPush = shellPush;
   global.__lexShellAction = shellAction;
@@ -1354,17 +1362,18 @@
     emHeld.put(id, emRemember(id, copy));
     return copy;
   }
-  async function openEmFeed(kind, wanted, focusUid) {
+  // back — the way back from the feed when it is not the section's own (a notification over the main page leads back to it).
+  async function openEmFeed(kind, wanted, focusUid, back) {
     const id = `feed:${kind}`;
     const held = await heldOrKept(id, 'lex_em_feed_item', { p_kind: kind });
     if (!wanted()) return;
-    if (held && held.chat) { await openEmChat(held, wanted, true, focusUid); return; }
+    if (held && held.chat) { await openEmChat(held, wanted, true, focusUid, back); return; }
     const info = await newsRpc('lex_em_feed_item', { p_kind: kind, p_take: true, p_limit: WcHistory.emLimit(emKeyOf(kind)) });
     if (!wanted() || !info || !info.chatKey) return;
     emHeld.put(id, emRemember(id, info));
-    await openEmChat(info, wanted, false, focusUid);
+    await openEmChat(info, wanted, false, focusUid, back);
   }
-  async function openEmChat(info, wanted, fromHeld, focusUid) {
+  async function openEmChat(info, wanted, fromHeld, focusUid, back) {
     const key = info.chatKey;
     // The feed that was open is left here, before the hooks of this one are set: leaving the section
     // on the way (leaveSection) would otherwise take them off after they are set.
@@ -1384,7 +1393,7 @@
       : requests ? { title: 'Обращения к базе', sub: daySub(emRequestsDay) } : null);
     sectionEls().main.classList.add('is-em-feed');
     await WcBus.call('WC_EM_FEED', { key, sessionId: info.sessionId });
-    await openConversation(key, { back: questions ? null : sectionTarget('em'), wanted, loaded: info.chat || null, focusUid });
+    await openConversation(key, { back: back || (questions ? null : sectionTarget('em')), wanted, loaded: info.chat || null, focusUid });
     if (state.conversationId !== key) {
       if (!emOpen) { paintChatTitle(null); sectionEls().main.classList.remove('is-em-feed'); }
       return;
@@ -1703,8 +1712,10 @@
   function buildProfi() {
     return global.LexProfi.createSection({
       back: sectionBack,
-      // The feed of new orders and the settings open from the main page of the people: the arrow leads back to it.
-      root: () => (people.hasTabs ? mainTarget() : null),
+      // The feed of new orders, the bot's chat and the settings open over the main page of the people: the arrow leads back
+      // to it. showFeed — New orders over it from a press on an order whose reply waits there.
+      root: mainTarget,
+      showFeed: (order) => showProfi('feed', order || null),
       signals,
       rpc: newsRpc,
       // The clients of the order chats the list shows: the Mac app names «Send to <first name>» on the notification of
@@ -1842,7 +1853,7 @@
     if (held && held.chatKey && held.chat) {
       const chat = makeProfiChat(order, held, keep, opts);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId });
-      await openConversation(held.chatKey, { profi: chat, back: backOfList('profi', opts), wanted, loaded: held.chat });
+      await openConversation(held.chatKey, { profi: chat, back: profiBack(opts), wanted, loaded: held.chat });
       // The chat is on screen: a lost answer is not «the chat did not open». The watch of the
       // section reads it again with the next change, and the visit's moment is written on leaving.
       if (profiChat === chat) await refreshProfiChat({ take: true }).catch((e) => console.warn('[wc] order chat:', e && e.message));
@@ -1861,7 +1872,7 @@
     if (keep) keep(data);
     const chat = makeProfiChat(order, data, keep, opts);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId });
-    await openConversation(data.chatKey, { profi: chat, back: backOfList('profi', opts), wanted, loaded: data.chat });
+    await openConversation(data.chatKey, { profi: chat, back: profiBack(opts), wanted, loaded: data.chat });
   }
   // The server changed something: boxes, new turns, whether the client waits. The answer
   // being written stays as it is; its turn comes with the next change. take — the press that
@@ -1923,11 +1934,9 @@
     return global.LexFolders.createSection({
       folder: SECTIONS[id].folder,
       title: SECTIONS[id].title,
-      back: sectionBack,
       signals,
       rpc: newsRpc,
-      read,
-      openChat: (key, wanted, held, keepIt, from) => openFolderChat(id, key, wanted, held, keepIt, from),
+      openChat: (key, wanted, held, keepIt) => openFolderChat(id, key, wanted, held, keepIt),
       onChange: (payload) => refreshFolderChat({ payload }),
       confirm: (title, text, o) => WcUI.confirm(title, text, o),
     });
@@ -1967,7 +1976,7 @@
   }
   // A press on a chat of a folder: what the section holds (or this device kept) is on screen at once,
   // and the press then reads it and takes the moment of the visit; nothing held — one answer.
-  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt, from) {
+  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt) {
     let held = heldNow;
     if (!(held && held.chatKey && held.chat)) {
       const copy = await kept('folder_item', { p_chat_key: key });
@@ -1980,7 +1989,7 @@
     if (held && held.chatKey && held.chat) {
       const chat = makeFolderChat(sectionId, held, keepIt);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId || null });
-      await openConversation(held.chatKey, { profi: chat, back: backOfList(sectionId, { from }), wanted, loaded: held.chat });
+      await openConversation(held.chatKey, { profi: chat, back: mainTarget(), wanted, loaded: held.chat });
       if (profiChat === chat) await refreshFolderChat({ take: true }).catch((e) => console.warn('[wc] folder chat:', e && e.message));
       return;
     }
@@ -1990,7 +1999,7 @@
     if (keepIt) keepIt(data);
     const chat = makeFolderChat(sectionId, data, keepIt);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId || null });
-    await openConversation(data.chatKey, { profi: chat, back: backOfList(sectionId, { from }), wanted, loaded: data.chat });
+    await openConversation(data.chatKey, { profi: chat, back: mainTarget(), wanted, loaded: data.chat });
   }
   // The database changed something: a message came, one changed (a reaction, an edit, its file), a
   // text went or did not. A signal about another chat is not read. take — the press that showed the
