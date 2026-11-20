@@ -35,7 +35,8 @@
   const NOTIFY_INTRO = 'Banner and count — a notification, and the message counts as unread. Count only — no '
     + 'notification: the number in Lex and on its icon. Nothing — neither. Break through silent mode — with «Banner '
     + 'and count»: the notification is urgent, and on the iPhone it rings an alarm that the silent switch does not '
-    + 'stop. Off by default.';
+    + 'stop. Off by default, on for the alarms of the calendar. A chat you marked as important rings only while '
+    + '«Important chats» is on.';
   // The switch under the position of a kind (profi_bot_chat.sql, 19.11.2026), in the words of the iPhone
   // (`NotificationSettingsView.breakthroughLabel`).
   const NOTIFY_BREAK = 'Break through silent mode';
@@ -246,6 +247,8 @@
           kinds.forEach((k) => {
             // The switch counts with «Banner and count» only: under the other positions it is out of sight.
             let breakRow = null;
+            // A row of one switch, no position (alarm_loud.sql, «Important chats»): its switch is always in sight.
+            const only = k.switch_only === true;
             const s = select(NOTIFY_MODES, k.mode || 'banner', (v) => {
               const before = k.mode || 'banner';
               if (v === before) return;
@@ -273,9 +276,9 @@
                 });
             });
             sw.querySelector('input').setAttribute('aria-label', `${NOTIFY_BREAK}: ${k.title}`);
-            breakRow = el('div.wc-notify-break', { hidden: (k.mode || 'banner') !== 'banner' || null },
+            breakRow = el('div.wc-notify-break', { hidden: (!only && (k.mode || 'banner') !== 'banner') || null },
               [el('span', { text: NOTIFY_BREAK }), sw]);
-            rows.push(field(k.title, k.hint || '', el('div.wc-notify-ctl', {}, [s, breakRow])));
+            rows.push(field(k.title, k.hint || '', el('div.wc-notify-ctl', {}, only ? [breakRow] : [s, breakRow])));
           });
         });
         list.replaceChildren(...rows);
