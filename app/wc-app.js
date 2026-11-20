@@ -1985,7 +1985,10 @@
   }
   // A press on a chat of a folder: what the section holds (or this device kept) is on screen at once,
   // and the press then reads it and takes the moment of the visit; nothing held — one answer.
+  // The section of the folder chat opened last (placeNow: the place the window comes back to).
+  let folderOfChat = null;
   async function openFolderChat(sectionId, key, wanted, heldNow, keepIt) {
+    folderOfChat = { key, sectionId };
     let held = heldNow;
     if (!(held && held.chatKey && held.chat)) {
       const copy = await kept('folder_item', { p_chat_key: key });
@@ -3787,6 +3790,7 @@
       WcComposer.focus({ raiseKeyboard: !homeOn() });
       caretThenReveal();
       askShellForPush();
+      restorePlace();
     }
   }
 
@@ -3821,9 +3825,63 @@
       if (!pageNewStamp || pageNewStamp === builtStamp() || callGoes() || WcThread.isStreaming()) return;
       const stamp = pageNewStamp;
       pageNewStamp = null;
+      keepPlace();
       tellShell({ word: 'page', stamp });
     });
   }
+
+  // ── The window comes back where it was (2026-11-20) ───────────────────────
+  // Gennady, 20.11.2026: the Mac app reloaded at every release and threw him out of his chat to the
+  // main page. The reload for a new page must not move the person: the Mac app reloads the window
+  // only while he is not in it (AppDelegate, `pagePending`) and calls `__lexKeepPlace` just before,
+  // the page that loads next opens the same chat (restorePlace). The place lives in sessionStorage
+  // for two minutes: a launch by the person, and his own «Reload page», start at the main page as before.
+  const PLACE_KEY = 'lexPlaceKept';
+  const PLACE_LIVES_MS = 120000;
+  function placeNow() {
+    const live = sectionOn === 'profi' && SECTIONS.profi.live;
+    if (live && live.screen === 'feed') return { kind: 'profi_order' };
+    if (live && live.screen === 'bot') return { kind: 'profi_alert', chatKey: '__lex_profi_bot__' };
+    if (sectionOn) return null;
+    const key = state.conversationId;
+    if (!key) return null;
+    if (key.startsWith('__lex_profi__')) return { kind: 'profi_message', chatKey: key, order: key.slice('__lex_profi__'.length) };
+    if (WcHistory.isFolderKey(key)) {
+      const sec = folderOfChat && folderOfChat.key === key ? String(folderOfChat.sectionId || '') : '';
+      return { kind: 'folder_message', chatKey: key, folder: sec.replace(/^folder:/, '') };
+    }
+    return { chatKey: key };
+  }
+  function keepPlace() {
+    try {
+      if (global.LexDrafts) global.LexDrafts.flush();
+      const place = placeNow();
+      if (place) global.sessionStorage.setItem(PLACE_KEY, JSON.stringify({ place, at: Date.now() }));
+      else global.sessionStorage.removeItem(PLACE_KEY);
+      return !!place;
+    } catch (_) { return false; }
+  }
+  function restorePlace() {
+    let kept = null;
+    try {
+      kept = JSON.parse(global.sessionStorage.getItem(PLACE_KEY) || 'null');
+      global.sessionStorage.removeItem(PLACE_KEY);
+    } catch (_) { kept = null; }
+    if (!kept || !kept.place || !(Date.now() - Number(kept.at) < PLACE_LIVES_MS)) return;
+    openFromNotification(kept.place).catch((e) => console.warn('[wc] place:', e && e.message));
+  }
+  global.__lexKeepPlace = keepPlace;
+  // The Mac app asks just before it reloads the window for a new page. An answer coming or a call
+  // going on (the person left the window meanwhile): no — the word `page` goes again at their end.
+  global.__lexTakePage = (stamp) => {
+    if (callGoes() || WcThread.isStreaming()) {
+      if (stamp) pageNewStamp = String(stamp);
+      applyNewPage();
+      return false;
+    }
+    keepPlace();
+    return true;
+  };
 
   // The page's own code on the device (sw.js): from the second opening on, the page and its files
   // open with no question to the network. The browser looks for a new version at every opening
