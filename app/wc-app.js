@@ -657,6 +657,13 @@
   // asks of one turn of the page make one painting, after it.
   let homeAsked = false;
   let homeScroll = 0;
+  // «New chat» and a notification: the main page is «All», at the top of its list (lex-people.js, toAll).
+  function homeToAll() {
+    homeScroll = 0;
+    const listBody = document.querySelector('#wc-home .lex-section-body');
+    if (listBody) listBody.scrollTop = 0;
+    people.toAll();
+  }
   function paintHome() {
     if (homeAsked) return;
     homeAsked = true;
@@ -893,13 +900,16 @@
       return { ok: false, why: refusalWords(err) };
     }
   }
-  // What a notification is about (the `lex` part push-send puts in it) → the screen.
+  // What a notification is about (the `lex` part push-send puts in it) → the screen. The main page behind it is «All»
+  // (Gennady, 20.11.2026): the arrow back from the chat it opens leads there, whatever tab was pressed before.
   async function openFromNotification(lex) {
     if (!lex) return;
     const mine = ++notificationOpens;
     const wanted = () => mine === notificationOpens;
     const kind = String(lex.kind || '');
     const key = typeof lex.chatKey === 'string' ? lex.chatKey : '';
+    // A notification of the calendar shows the window as it was (below): the main page stays on its tab.
+    if (!(key === '__lex_calendar__' || kind.startsWith('calendar'))) homeToAll();
     const order = lex.order ? String(lex.order) : '';
     // About an order (new, reply sent, not sent): the feed of new orders at it, as on the
     // iPhone. A message in an order chat: that order.
@@ -2138,8 +2148,10 @@
 
   // opts.typing — the person pressed «New chat» to write: the field takes the cursor and the keyboard rises. The main
   // page shows the chats of people, and none of the other ways to it (the start, a chat deleted, the arrow back) raises
-  // a keyboard over them.
+  // a keyboard over them. «New chat» also puts the main page on «All» at its top (Gennady, 20.11.2026); the arrow back
+  // keeps the tab it left.
   async function newConversation(opts) {
+    if (opts && opts.typing) homeToAll();
     if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же

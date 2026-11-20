@@ -20,12 +20,18 @@
 //   notify(text)         a failure the person has to see
 //   gear(on)             the gear of Profi.ru in the bar of the page
 //   onSelect(id)         a tab was chosen
-// create(deps) gives: setSections(list), select(id), setActive(on), repaintTabs(), warm(), selected, hasTabs, hasTabRow.
+// create(deps) gives: setSections(list), select(id), toAll(), setActive(on), repaintTabs(), warm(), selected, hasTabs,
+// hasTabRow.
+//
+// The tab is «All» by default (Gennady, 20.11.2026): the start of the page, «New chat» and a notification put it there
+// (`toAll`). The tab pressed holds only while the person goes from the list into a chat and back by the arrow.
 (function (global) {
   'use strict';
 
   const ALL = 'all';
-  const KEPT_TAB = 'lex.peopleTab';
+  // The device kept the tab pressed until 20.11.2026; it is not read any more, and the key goes at the start.
+  const OLD_KEPT_TAB = 'lex.peopleTab';
+  try { global.localStorage && global.localStorage.removeItem(OLD_KEPT_TAB); } catch (_) { /* nothing kept */ }
 
   const isPeopleSection = (id) => id === 'profi' || String(id || '').startsWith('folder:');
 
@@ -39,7 +45,7 @@
 
     let sections = [];       // the people's sections the server named: [{ id, title, tab }], in its order
     let selected = null;
-    let chosen = null;       // the tab the person pressed in this run; the one kept on the device before it
+    let chosen = null;       // the tab the person pressed since the main page last came by «New chat» or a notification
     let active = false;      // the main page is on the screen
     let home = null;
     let drawn = '';          // `home` as text: what the screen shows, to tell the server's answer from it
@@ -57,9 +63,6 @@
       status.classList.toggle('is-error', !!isError);
     };
 
-    const kept = () => {
-      try { return localStorage.getItem(KEPT_TAB); } catch (_) { return null; }
-    };
     // The sections that have a tab; a section without one (Other) has its chats in «All» only.
     const tabbed = () => sections.filter((s) => s.tab);
     const unreadOf = (id) => {
@@ -194,10 +197,7 @@
       if (!known(id)) id = sections.length ? ALL : null;
       const changed = id !== selected;
       selected = id;
-      if (!quiet && id) {
-        chosen = id;
-        try { localStorage.setItem(KEPT_TAB, id); } catch (_) { /* this time only */ }
-      }
+      if (!quiet && id) chosen = id;
       paintTabs();
       paint();
       sync(false);
@@ -215,11 +215,16 @@
       setSections(list) {
         sections = (Array.isArray(list) ? list : []).filter((s) => s && isPeopleSection(s.id))
           .map((s) => ({ id: s.id, title: s.title || s.id, tab: s.tab !== false }));
-        // The tab chosen the last time; the first time — «All». A tab that is not there (the account has no such section
+        // The tab pressed in this run; at the start — «All». A tab that is not there (the account has no such section
         // now) gives way to «All».
-        select(known(chosen) ? chosen : (known(kept()) ? kept() : ALL), true);
+        select(known(chosen) ? chosen : ALL, true);
       },
       select,
+      // «New chat» and a notification: the main page behind them is «All», whatever tab was pressed before.
+      toAll() {
+        chosen = null;
+        select(ALL, true);
+      },
       setActive(on) {
         if (active === !!on) return;
         active = !!on;
