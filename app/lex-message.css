@@ -705,6 +705,27 @@
 /* The line of the tasks without remarks of a day (В7.4 with a tick). */
 .lex-fold .lex-fold-check { flex: none; }
 
+/* ── «Who is this» under the bar of a chat (В7.52) ─────────────────────────────
+ * The words of the database about the person, as they came: 13 in the second colour, three lines at most and an
+ * ellipsis after them. A line of its own under the bar, as wide as the thread (the window gives the place:
+ * .wc-chat-who). In an order chat the line is a button that opens the card of the person: no ground of its own,
+ * brighter under the cursor, its zone 44 (the look stays the line: 18 a line and 4 over and under it). */
+.lex-brief {
+  -webkit-appearance: none; appearance: none;
+  position: relative;
+  display: block; box-sizing: border-box; width: 100%; min-width: 0; margin: 0; padding: 4px 0;
+  border: 0; background: none; color: var(--fg-muted);
+  font: inherit; font-size: 13px; font-weight: 400; line-height: 18px; text-align: left;
+}
+.lex-brief-words {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+  overflow: hidden; overflow-wrap: anywhere;
+}
+button.lex-brief { cursor: pointer; transition: color 120ms ease; }
+button.lex-brief::after { content: ''; position: absolute; inset: -10px 0; }
+button.lex-brief:hover, button.lex-brief:active { color: var(--fg-soft); }
+button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+
 /* ── Buttons (В7.6, В7.7) ──────────────────────────────────────────────────────
  * The main button — the colour of the main action, one in a row; the second — the ground of a
  * hover. 44 high, radius 12, 15/650. `is-left` — a variant of a question: the words at the left,

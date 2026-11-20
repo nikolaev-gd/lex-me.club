@@ -1785,7 +1785,10 @@
           const words = make('div', 'lex-profi-person-words', '');
           words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
           person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);
-          return { person, link: data && data.kind === 'person' ? cleanButton() : null, open: null, who: name };
+          // «Who is this» (В7.52): the words the entry of the database brought (folder_open `brief`); no card to
+          // open from a chat of a folder yet, so the line is not pressed.
+          return { person, link: data && data.kind === 'person' ? cleanButton() : null, open: null, who: name,
+            brief: M.brief(data && data.brief) };
         }
         const who = (data && data.client) || 'Client';
         const words = make('div', 'lex-profi-person-words', '');
@@ -1797,7 +1800,28 @@
           ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
             onGone: deps.onPersonGone, io: fileIo })
           : null;
-        return { person, link: cleanButton(), open, who };
+        // «Who is this» (В7.52): the words kept on the order (profi_open `brief`); a press opens the card, as the name.
+        return { person, link: cleanButton(), open, who, brief: M.brief(data && data.brief, { onOpen: open }) };
+      },
+
+      // «Who is this» of an order chat comes with the card of the person (the server asks the database and keeps
+      // the words on the order, chat_brief.sql): the chat asks the card once it is open, and when the words are
+      // not the ones on the screen, reads the order again — they come with it and the device keeps them
+      // (profi_item, lex-reads.js), so the next opening has them at once. A chat of a folder gets its words
+      // with its entry. A card that did not come changes nothing.
+      async askBrief() {
+        if (folder || !deps.person || !data || !data.chatKey) return;
+        const key = data.chatKey;
+        let card = null;
+        try {
+          card = (await deps.person({ op: 'card', chatKey: key })).card;
+        } catch (e) {
+          console.warn('[profi] who is this:', e && e.message);
+          return;
+        }
+        if (!card || !data || data.chatKey !== key) return;
+        const words = (card.brief && card.brief.text) || null;
+        if (words !== (data.brief || null) && deps.reload) deps.reload();
       },
 
       // The clean view: only the screen, the model reads the whole chat and the server is not

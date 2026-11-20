@@ -2180,6 +2180,13 @@ button { font: inherit; color: inherit; }
  * line of their own under its buttons (the bar grows, and the thread under it moves down with it:
  * --wc-topbar-h is measured). Over the feed «Разбор»: «Люди · N», «Работа · N», «Всё». */
 .wc-topbar.has-tabs { flex-wrap: wrap; }
+/* «Who is this» (В7.52, lex-message.css .lex-brief): the same place as the tabs — a line of its own under the
+ * buttons of the bar, the thread starts under it (--wc-topbar-h is measured). As wide as the words of the thread:
+ * its column (.wc-turns: 760 with 20 at the sides, 14 on a narrow screen), the bar's own 12 taken off. */
+.wc-topbar:has(#wc-chat-who:not([hidden])) { flex-wrap: wrap; }
+.wc-chat-who { flex: 0 0 100%; min-width: 0; box-sizing: border-box; padding: 0 max(8px, calc((100% - 720px) / 2)); }
+@media (max-width: 720px) { .wc-chat-who { padding: 0 2px; } }
+.wc-chat-who[hidden] { display: none; }
 .wc-em-tabs { flex: 0 0 100%; min-width: 0; padding: 0 2px; }
 .wc-em-tabs[hidden] { display: none; }
 .wc-tabs { display: flex; gap: 6px; min-width: 0; overflow-x: auto; scrollbar-width: none; }

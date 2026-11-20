@@ -1701,13 +1701,16 @@
       main: document.querySelector('.wc-main'),
       person: document.getElementById('wc-profi-person'),
       link: document.getElementById('wc-profi-link'),
+      who: document.getElementById('wc-chat-who'),
     };
   }
   function leaveProfiChat() {
-    const { main, person, link } = profiEls();
+    const { main, person, link, who } = profiEls();
     person.hidden = true;
     person.replaceChildren();
     link.replaceChildren();
+    who.replaceChildren();
+    who.hidden = true;
     main.classList.remove('is-profi-chat', 'is-profi-clean');
     paintProfiOutbox(null);
     // The line of a reply on a message of this chat does not go to another chat: it is this chat's
@@ -1764,6 +1767,8 @@
     main.classList.toggle('is-profi-clean', !!chat.clean);
     paintProfiBar();
     paintProfiOutbox(chat);
+    // «Who is this» of an order chat (В7.52): the card of the person brings the words (lex-profi.js askBrief).
+    chat.askBrief();
     // The section the chat came from follows the server while it is open: Profi.ru, or its folder.
     const from = SECTIONS[chat.sectionId || 'profi'];
     if (from && from.live) from.live.watch();
@@ -1774,7 +1779,7 @@
   // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
   // button of the clean view (lex-profi.js bar(); the order on Profi is the title of the card).
   function paintProfiBar() {
-    const { person, link } = profiEls();
+    const { person, link, who } = profiEls();
     if (!profiChat || !profiChat.data) return;
     const bar = profiChat.bar();
     person.replaceChildren(...bar.person.childNodes);
@@ -1784,6 +1789,9 @@
     person.setAttribute('aria-label', (bar.who || 'Client') + '. Open the card of the person');
     person.hidden = false;
     link.replaceChildren(...(bar.link ? [bar.link] : []));
+    // «Who is this» (В7.52): the words of the database under the buttons of the bar; none — no line and no room.
+    who.replaceChildren(...(bar.brief ? [bar.brief] : []));
+    who.hidden = !bar.brief;
     // The chat's data came: who gets the text (the name, where he wrote last).
     paintAddressee();
   }

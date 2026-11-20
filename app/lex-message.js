@@ -1643,6 +1643,28 @@
     return b;
   }
 
+  // ── «Who is this» under the bar of a chat (В7.52, 2026-11-20) ────────────────
+  // One or two phrases about the person the chat is with — his post, his company, what he does, where he came
+  // from. The database of Lex writes them (the cards of people kept up to date after a message and a call); the
+  // part shows them as they came: 13 `--fg-muted`, three lines at most, then an ellipsis. It stands under the bar
+  // of the chat on a line of its own, as wide as the thread, and does not scroll with it; no words — no line (the
+  // caller draws nothing: null). `onOpen` — a press opens the card of the person (an order chat, В7.41): the line
+  // is then a button with a zone of 44. The card shows the same words whole as its first block (lex-person.js).
+  function brief(text, o) {
+    const words = String(text == null ? '' : text).trim();
+    if (!words) return null;
+    const open = o && o.onOpen;
+    const n = make(open ? 'button' : 'div', 'lex-brief');
+    if (open) {
+      n.type = 'button';
+      n.setAttribute('aria-label', words + '. Open the card of the person');
+      n.addEventListener('click', open);
+    }
+    n.title = words;
+    n.appendChild(make('span', 'lex-brief-words', words));
+    return n;
+  }
+
   // ── A message that was not sent (В7.47, 2026-11-16) ─────────────────────────
   // The person sent a word to Lex and Lex did not take it: no connection, not enough money, the server
   // busy, the model refused before its first word. As in ChatGPT and Telegram the message stays in the
@@ -2759,7 +2781,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

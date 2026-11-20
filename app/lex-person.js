@@ -132,6 +132,15 @@
     if (card.who) head.appendChild(make('div', 'lex-person-who', card.who));
     root.appendChild(head);
 
+    // «Who is this» (В7.52): the words of the database about the person, whole, the first block; read only.
+    if (card.brief && card.brief.text) {
+      const brief = make('div', 'lex-person-block lex-person-text lex-person-brief');
+      const top = make('div', 'lex-person-text-head');
+      top.appendChild(make('span', 'lex-person-text-title', card.brief.title || 'In brief'));
+      brief.append(top, make('div', 'lex-person-text-body', card.brief.text));
+      root.appendChild(brief);
+    }
+
     // About: the person's own text from his profile.
     if (card.about && card.about.text) {
       const about = make('div', 'lex-person-block lex-person-text');
