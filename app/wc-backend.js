@@ -1436,8 +1436,10 @@
   // asks the server what became of the message by its number (lex_op_state): written — the answer
   // goes on in the same bubble to its end; still being taken — it waits; not there — the message
   // stays as not sent, and Retry goes with the same number, so the server never answers one message
-  // twice. The database's signal «chat» of the answer wakes the wait; without it, every 20 seconds.
-  // The same rule as the iPhone (ChatStore.followAfterBreak).
+  // twice. Nothing is asked on a timer: the fate is read at once, at every signal «chat» of the
+  // answer, when the channel is open again without its journal, and when the server has been silent
+  // as long as it gives the answer itself (LexTurnFollow.follow). The same rule as the iPhone
+  // (ChatStore.followAfterBreak).
   const NOT_THERE = 'Lex did not get this message.';
 
   function isBreak(msg) {
@@ -1459,70 +1461,45 @@
     const fate = turnFates.get(requestId);
     if (!fate || fate.following) return;
     fate.following = true;
-    let wake = null;
-    const nudge = () => { const w = wake; wake = null; if (w) w(); };
-    const signals = global.WcSignals;
-    const follower = signals && typeof signals.follow === 'function'
-      ? signals.follow(['chat'], (sig) => {
-        const p = sig && sig.payload;
-        if (!sig || (p && (p.op === fate.opId || p.chat === fate.chatKey))) nudge();
-      })
-      : null;
-    fate.stop = () => { fate.stopped = true; nudge(); };
-    // Leaving the chat of a followed answer is not Stop: the follower only stops listening.
-    fate.quit = () => { fate.quitted = true; nudge(); };
-    const wait = (ms) => new Promise((r) => {
-      wake = r;
-      setTimeout(() => { if (wake === r) nudge(); }, ms);
-    });
     if (fate.follow) console.log(TAG, 'following the answer the server writes', fate.opId);
     else console.warn(TAG, 'the answer broke off — asking the server what became of the message', fate.opId);
+    // The reading, the signal, the deadline and the ladder are the one rule of lex-turn-follow.js.
+    const run = global.LexTurnFollow.follow({
+      op: fate.opId,
+      chat: fate.chatKey,
+      seen: { text: fate.text, stepSeq: fate.stepSeq },
+      known: !!fate.follow,
+      read: () => WcHistory.opState(fate.opId),
+      signals: global.WcSignals || null,
+      // The server leads this turn: Stop tells it how much was seen (WC_STOP).
+      onBegun: () => serverOps.set(requestId, fate.opId),
+      // The words that came and the step of the work it is at (the grey line, as the stream draws
+      // it — WcThread.tool).
+      onText: (text) => { fate.text += text; WcBus.broadcast({ type: 'STREAM_CHUNK', requestId, text }); },
+      onStep: (step) => {
+        fate.stepSeq = step.seq;
+        WcBus.broadcast({ type: 'STREAM_TOOL', requestId, phase: 'start', name: step.name, label: step.label, line: step.line, cc: step.cc });
+      },
+    });
+    fate.stop = () => run.stop('stopped here');
+    // Leaving the chat of a followed answer is not Stop: the follower only stops listening.
+    fate.quit = () => run.stop('quit');
     const lost = { type: 'STREAM_DONE', requestId, followed: true, lost: true };
-    let end = fate.follow ? lost : broken;
-    let known = !!fate.follow;
-    let misses = 0;
-    // The last word of the server, or the break: the wait is counted in time, not in questions — a
-    // signal of the chat wakes the next question at once, and three of them come in two seconds.
-    let heard = Date.now();
+    let end = null;
     let gaveUp = false;
     try {
-      for (;;) {
-        if (fate.quitted) { end = null; break; }
-        if (fate.stopped) { end = { type: 'STREAM_DONE', requestId, stopped: true }; break; }
-        let s = null;
-        try { s = await WcHistory.opState(fate.opId); misses = 0; heard = Date.now(); } catch (_) { misses += 1; }
-        if (fate.stopped || fate.quitted) continue;
-        if (s && s.status === 'none') { end = fate.follow ? lost : Object.assign({}, broken, { error: NOT_THERE }); break; }
-        if (s && (s.status === 'pending' || s.status === 'begun')) {
-          known = true;
-          if (s.status === 'begun') {
-            // The server leads this turn: Stop tells it how much was seen (WC_STOP).
-            serverOps.set(requestId, fate.opId);
-            // The words that came, the step of the work it is at (the grey line, as the stream draws
-            // it — WcThread.tool), its end: one rule with the extension (lex-turn-follow.js).
-            const n = global.LexTurnFollow.next({ text: fate.text, stepSeq: fate.stepSeq }, s);
-            if (n.text) { fate.text += n.text; WcBus.broadcast({ type: 'STREAM_CHUNK', requestId, text: n.text }); }
-            if (n.step) {
-              fate.stepSeq = n.step.seq;
-              WcBus.broadcast({ type: 'STREAM_TOOL', requestId, phase: 'start', name: n.step.name, label: n.step.label, line: n.step.line, cc: n.step.cc });
-            }
-            if (n.end === 'done' || n.end === 'stopped') {
-              end = { type: 'STREAM_DONE', requestId, stopped: n.end === 'stopped', followed: true };
-              break;
-            }
-            if (n.end === 'lost') { end = lost; break; }
-          }
-        } else if (!s && (Date.now() - heard >= (known ? 90000 : 20000))) {
-          // No word from the server: no connection. Retry with the same number is safe; the turn is
-          // asked again when the connection is back (followLate).
-          gaveUp = true;
-          if (fate.follow) end = lost;
-          break;
-        }
-        await wait(misses ? 3000 : 20000);
+      const r = await run.done;
+      if (r.end === 'stopped here') end = { type: 'STREAM_DONE', requestId, stopped: true };
+      else if (r.end === 'done' || r.end === 'stopped') end = { type: 'STREAM_DONE', requestId, stopped: r.end === 'stopped', followed: true };
+      else if (r.end === 'lost') end = lost;
+      else if (r.end === 'none') end = fate.follow ? lost : Object.assign({}, broken, { error: NOT_THERE });
+      else if (r.end === 'silent') {
+        // No word from the server: no connection. Retry with the same number is safe; the turn is
+        // asked again when the connection is back (followLate).
+        gaveUp = true;
+        end = fate.follow ? lost : broken;
       }
     } finally {
-      if (follower) follower.stop();
       // A follower that left takes nothing of the one that came in its place under the same request.
       const mine = turnFates.get(requestId) === fate;
       if (mine) turnFates.delete(requestId);
@@ -1534,8 +1511,8 @@
   }
 
   // An answer the server writes now, drawn from its read (WcThread.renderTurns): followed by its
-  // number to its end — the words, the steps, the end — through the database's signal «chat» and,
-  // between signals, its fate (lex_op_state). One follower per answer: a second call takes over the
+  // number to its end — the words, the steps, the end — through the database's signal «chat» and its
+  // fate (lex_op_state) read at the signal. One follower per answer: a second call takes over the
   // first one's place with what the new frame shows, so no word is drawn twice.
   WcBus.on('WC_FOLLOW', (m) => {
     if (!m || !m.requestId || !m.opId) return { ok: false };
