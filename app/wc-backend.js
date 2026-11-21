@@ -1481,9 +1481,14 @@
         WcBus.broadcast({ type: 'STREAM_TOOL', requestId, phase: 'start', name: step.name, label: step.label, line: step.line, cc: step.cc });
       },
     });
-    fate.stop = () => run.stop('stopped here');
-    // Leaving the chat of a followed answer is not Stop: the follower only stops listening.
-    fate.quit = () => run.stop('quit');
+    // The handler of WC_FOLLOW reaches the follow through these: a frame of the same answer drawn
+    // anew hands it the words it shows (run.seen), so none is drawn twice.
+    fate.run = run;
+    fate.stop = () => { fate.stopped = true; run.stop('stopped here'); };
+    // Leaving the chat of a followed answer is not Stop: the follower only stops listening. Marked at
+    // once: a WC_FOLLOW of the same answer that comes before this follow has wound up starts a new
+    // one, never takes this ended one for alive.
+    fate.quit = () => { fate.quitted = true; run.stop('quit'); };
     const lost = { type: 'STREAM_DONE', requestId, followed: true, lost: true };
     let end = null;
     let gaveUp = false;
@@ -1520,7 +1525,12 @@
     const text = String(m.text || '');
     for (const [rid, f] of turnFates) {
       if (!f.follow || f.opId !== opId) continue;
-      if (rid === m.requestId && !f.quitted) { f.text = text; if (m.stepSeq != null) f.stepSeq = m.stepSeq; return { ok: true }; }
+      if (rid === m.requestId && !f.quitted) {
+        f.text = text;
+        if (m.stepSeq != null) f.stepSeq = m.stepSeq;
+        if (f.run) { f.run.seen.text = text; if (m.stepSeq != null) f.run.seen.stepSeq = m.stepSeq; }
+        return { ok: true };
+      }
       if (f.quit) f.quit();
     }
     turnFates.set(m.requestId, { opId, chatKey: m.chatKey || null, text, stepSeq: m.stepSeq == null ? null : m.stepSeq, follow: true });
