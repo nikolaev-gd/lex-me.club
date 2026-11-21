@@ -520,7 +520,8 @@
 .lex-fold:hover .lex-fold-action { text-decoration: underline; }
 
 /* The photo or the letter of a person (В7.12): the letter on its colour, the photo over it once it came.
-   40 by default (the bar over a chat), 48 in the line of a chat, 96 in the card of a person. */
+   40 by default (the bar over a chat), 36 in a line of the message of «Кто это» (В7.54), 48 in the line of a chat,
+   96 in the card of a person. */
 .lex-avatar {
   position: relative;
   flex: 0 0 auto;
@@ -536,6 +537,7 @@
   font-weight: 700;
   line-height: 1;
 }
+.lex-avatar.is-36 { width: 36px; height: 36px; font-size: 15px; }
 .lex-avatar.is-48 { width: 48px; height: 48px; font-size: 18px; }
 .lex-avatar.is-96 { width: 96px; height: 96px; font-size: 40px; }
 .lex-avatar > img {
@@ -847,41 +849,75 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 }
 .lex-q .lex-q-quiet:hover { color: var(--fg, var(--lex-plain-fg)); }
 .lex-q .lex-q-quiet:disabled { opacity: .5; cursor: default; }
-/* ── The question of Lex in the chat of a new person (В7.50, 19.11.2026) ───────────────────────────────
+/* ── A word of an agent in its task chat (В7.50) ─────────────────────────────────────────────────────────
  * The bubble of a question of the database with the mark of Lex over its words: the sparkle 14 and «Lex»
  * 12/600 `--fg-muted` through 6, 4 above the words. The words are Markdown (paragraphs through .75em, a link as every
- * link of Lex). The buttons stand as the variants of a question do — a column through 6 at 10 under the words. */
+ * link of Lex). */
 .lex-q.lex-whois .lex-whois-head {
   display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
   color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px;
 }
 .lex-q.lex-whois .lex-whois-head .lex-sparkle { flex: 0 0 auto; }
-.lex-q.lex-whois .lex-q-text > :first-child { margin-top: 0; }
-.lex-q.lex-whois .lex-q-text > :last-child { margin-bottom: 0; }
-.lex-q.lex-whois .lex-q-text p { margin: 0 0 .75em; }
-.lex-q.lex-whois .lex-q-text ul, .lex-q.lex-whois .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
-.lex-q.lex-whois .lex-q-text li { margin: .2em 0; }
-/* ── The outcomes of the agent «Кто это» (В7.54, 21.11.2026, variant Б «Полоса решения») ─────────────────────────
- * The bright message of the agent: the whole width of the chat, the bubble of the person's word (`--lex-bubble-in`,
- * 18 18 18 6) with the band of the decision on top — the icon 18 and the headline 16/650 through 8, 10 12 — and under it
- * the words (10 12 8), the buttons (a column through 6 at 10), the foot «✦ Lex · time». The band says what happened:
- * attached — `--bg-active`, the words `--fg`; guess — `--attention-wash`, the words `--attention`; question —
- * `--attention`, the words `--bg`. The band of an order card (`.lex-order-ask`) is the same band. */
-.lex-q.lex-whois.is-band { padding: 0; overflow: hidden; }
-.lex-q.lex-whois .lex-whois-band {
-  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
-  background: var(--bg-active); color: var(--fg, var(--lex-plain-fg));
+.lex-q.lex-whois .lex-q-text > :first-child,
+.lex-whois-msg .lex-q-text > :first-child { margin-top: 0; }
+.lex-q.lex-whois .lex-q-text > :last-child,
+.lex-whois-msg .lex-q-text > :last-child { margin-bottom: 0; }
+.lex-q.lex-whois .lex-q-text p, .lex-whois-msg .lex-q-text p { margin: 0 0 .75em; }
+.lex-q.lex-whois .lex-q-text ul, .lex-q.lex-whois .lex-q-text ol,
+.lex-whois-msg .lex-q-text ul, .lex-whois-msg .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
+.lex-q.lex-whois .lex-q-text li, .lex-whois-msg .lex-q-text li { margin: .2em 0; }
+/* ── The message of the agent «Кто это» (В7.54, 21.11.2026, boards WhoisW1, WhoisW2) ───────────────────────────
+ * An ordinary message of the other side, as in Telegram: the bubble `--lex-bubble-in`, 18 18 18 6, inside 8 12 6,
+ * 86 % of the lane, no buttons. The mark 12/600 (`--attention` while it waits for a word of Gennady), the conclusion
+ * 16/650, the lines of who is who on `--bg-raised` (radius 12, at least 52, the face 36), the words 15 `--fg-soft`,
+ * over a line `--line` what the agent waits for 15, the time 12 at the right foot. */
+.lex-whois-msg {
+  box-sizing: border-box; display: block; width: 86%; max-width: 86%; margin: 0 auto 0 0;
+  padding: 8px 12px 6px; border-radius: 18px 18px 18px 6px;
+  background: var(--lex-bubble-in); color: var(--fg, var(--lex-plain-fg));
+  font-size: 15px; line-height: 20px; text-align: left; overflow-wrap: anywhere;
 }
-.lex-q.lex-whois.is-guess .lex-whois-band { background: var(--attention-wash); color: var(--attention); }
-.lex-q.lex-whois.is-question .lex-whois-band { background: var(--attention); color: var(--bg); }
-.lex-q.lex-whois .lex-whois-mark { flex: 0 0 auto; display: block; width: 18px; height: 18px; margin-top: 1px; }
-.lex-q.lex-whois .lex-whois-headline {
-  flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere;
+.lex-whois-msg .lex-whois-mark {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
+  color: var(--fg, var(--lex-plain-fg)); font-size: 12px; font-weight: 600; line-height: 16px;
 }
-.lex-q.lex-whois .lex-whois-main { padding: 10px 12px 8px; }
-.lex-q.lex-whois .lex-whois-acts.is-first { margin-top: 0; }
-.lex-q.lex-whois .lex-q-foot .lex-sparkle { flex: 0 0 auto; width: 12px; height: 12px; color: var(--fg-muted); }
-.lex-q.lex-whois .lex-q-foot .lex-whois-by { flex: 0 0 auto; font-weight: 600; }
+.lex-whois-msg.is-wait .lex-whois-mark { color: var(--attention); }
+.lex-whois-msg.is-plain .lex-whois-mark { color: var(--fg-muted); }
+.lex-whois-msg .lex-whois-mark .lex-sparkle { flex: 0 0 auto; }
+.lex-whois-msg .lex-whois-headline { font-size: 16px; font-weight: 650; line-height: 22px; }
+.lex-whois-msg .lex-whois-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.lex-whois-msg .lex-whois-row {
+  box-sizing: border-box; display: flex; align-items: center; gap: 10px; min-height: 52px;
+  padding: 6px 8px 6px 10px; border-radius: 12px; background: var(--bg-raised);
+  color: inherit; text-decoration: none;
+}
+.lex-whois-msg .lex-whois-row.is-link { cursor: pointer; }
+.lex-whois-msg .lex-whois-row.is-link:hover { background: var(--bg-hover); }
+.lex-whois-msg .lex-whois-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lex-whois-msg .lex-whois-row .lex-avatar.is-square { border-radius: 10px; }
+/* A deal is no person: its letter on the ground of the window, a square 10 (people are circles). */
+.lex-whois-msg .lex-whois-row .lex-avatar.is-deal {
+  background: var(--bg) !important; color: var(--fg, var(--lex-plain-fg)); box-shadow: inset 0 0 0 1px var(--line);
+}
+.lex-whois-msg .lex-whois-row-words { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.lex-whois-msg .lex-whois-row-caption { color: var(--fg-muted); font-size: 12px; line-height: 16px; }
+.lex-whois-msg .lex-whois-row-name,
+.lex-whois-msg .lex-whois-row-sub { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-whois-msg .lex-whois-row-name { font-size: 15px; font-weight: 600; line-height: 20px; }
+.lex-whois-msg .lex-whois-row-sub { color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.lex-whois-msg .lex-whois-row-go { flex: 0 0 auto; width: 16px; height: 16px; color: var(--fg-muted); }
+.lex-whois-msg .lex-q-text { margin-top: 0; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+.lex-whois-msg .lex-whois-headline + .lex-q-text,
+.lex-whois-msg .lex-whois-rows + .lex-q-text { margin-top: 8px; }
+.lex-whois-msg .lex-q-text.is-why { color: var(--fg-soft); }
+.lex-whois-msg .lex-whois-ask {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); white-space: pre-wrap;
+}
+.lex-whois-msg .lex-whois-note { margin-top: 6px; color: var(--danger); font-size: 13px; line-height: 18px; }
+.lex-whois-msg .lex-whois-foot {
+  display: flex; justify-content: flex-end; margin-top: 2px;
+  color: var(--fg-muted); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums;
+}
 /* Answered or withdrawn: one line of the question and the time, under it at 4 a tick 14 and what
  * was answered, 13, the chevron 16 at the right. The press unfolds it: the whole question. */
 .lex-q.is-done { padding: 10px 12px; color: var(--lex-plate-fg); cursor: pointer; }

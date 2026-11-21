@@ -202,6 +202,14 @@
   // What the parts need to show the stored files (LexMessage.files): one for the order chats and the
   // chats of Lex — LexFileAttach.webIo (lex-file-attach.js).
   const fileIo = global.LexFileAttach.webIo;
+  // The Russian form of a word by its number: 1 участник, 3 участника, 5 участников.
+  function plural(n, one, few, many) {
+    const a = Math.abs(n) % 100;
+    const b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b === 1) return one;
+    return b >= 2 && b <= 4 ? few : many;
+  }
 
   // ── the ticks under what went to the client ─────────────────────────────────
   // The tick of Profi's list of chats, the same drawing, colours and size: one grey stroke, the
@@ -820,10 +828,10 @@
   // of the window; showInChat(uid) — the chat goes to a message and lights it; reply({ quoteUid, head,
   // text }) — the line of a reply over the field (В7.26); replyQuote() — the uid of the message the line
   // of a reply answers now, or null; replyDone() — the text left with it, the line goes.
-  // the branch «who is this» (19.11.2026, В7.50) — in the chat of a new person, deps also gives: go(place) — a press on a
-// link of Lex inside the words of the agent («chat/p:<person>», «order/<number>»): the screen opens that chat;
-// whoisConfirm(uid) → Promise<{ error? }> — the press of «Подтвердить» on the turn `uid` (the edge function folder-whois);
-// a press of «Ответить» goes by reply({ quoteUid: uid, head, text }), the line over the field (В7.26).
+  // the agent «Кто это» (В7.50, В7.54) — deps also gives: go(place) — a press on a link of Lex inside its words or on a
+  // line of its message («chat/p:<person>», «order/<number>»): the screen opens that chat; armReply({ quoteUid, head,
+  // text }) — the line «Reply to Lex» over the field put by the chat itself, only where no line stands. A word of Gennady
+  // with that line goes to the agent (the page: wc-app.js sendWhois); there are no buttons.
 // folder — the chat of a person or a group of a folder of chats (Kolya, Other; folder_chats.sql): the same
   // messages, with no order over them. The person's chat has the model, the assistant in correspondence
   // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by sendBox(win) → { state,
@@ -868,10 +876,11 @@
       const l = data && data.looks && uid ? data.looks[uid] : null;
       return l && typeof l === 'object' ? l : {};
     };
-    // The branch «who is this» (19.11.2026, В7.50): a turn of it is drawn from its look {case, turn, by, open, confirm}
-    // and from which word of the model is the last of an open question — only that word carries the buttons.
-    // A task chat of an agent of the base (a:, the section «Agents», 21.11.2026) is made of such turns alone
-    // (`editor:<n>`): the agent's words, Gennady's, the system's — and no buttons at all: Gennady just writes words.
+    // The branch «who is this» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54): a turn of it is drawn from its
+    // look {case, turn, by, kind, headline, writer, rows, ask, open} and from which word of the model is the one that
+    // waits for a word of Gennady — that word says «нужен твой ответ», and the line «Reply to Lex» stands over the field
+    // by itself (whoisArm). A task chat of an agent of the base (a:, the section «Agents», 21.11.2026) is made of such
+    // turns alone (`editor:<n>`): the agent's words, Gennady's, the system's; Gennady just writes words.
     const WHOIS_UID = /^profi:(?:whois|editor):[0-9]{1,18}$/;
     const agent = () => !!(data && data.kind === 'agent');
     const whoisOf = (uid) => {
@@ -895,42 +904,47 @@
       }
       return last;
     };
-    // Confirm on its way or refused, by the uid of the turn it stands on: { } — on its way, { error } — refused. A word
-    // of Gennady that the server refused stands the same way under the buttons of the question it answered
-    // ({ error, word: true }, «Не отправлено: …»).
-    const whoisBusy = new Map();
-    // The questions the server closed at a press of «Подтвердить» (19.11.2026): the buttons are gone and the plate
-    // «Подтверждено» stands at once, before the chat is read again; the plate goes when the line of the system itself is
-    // drawn. By the uid of the question: { say }.
-    const whoisDone = new Map();
-    // The attaches the server undid at a press of the undo (21.11.2026, В7.54): the button goes and «Отменено» stands at
-    // once; the chat read after takes the message away (a chat of a person, an order chat) or keeps it without the
-    // button (the chat of the new person, a group). By the uid of the turn: { text, at }.
-    const whoisUndone = new Map();
-    // The word of Gennady to Lex that the database has not shown yet (a press of Send in the chat of the branch, the page:
-    // wc-app.js sendWhois). At the press it stands at the end of the chat «Sending…»; once the server took it Lex
+    // The turn of a case under that number, if the chat holds it.
+    const whoisTurn = (id, n) => {
+      for (const l of Object.values((data && data.looks) || {})) {
+        const w = l && typeof l === 'object' ? l.whois : null;
+        if (w && w.case === id && Number(w.turn) === n) return w;
+      }
+      return null;
+    };
+    // The word of the model that waits for Gennady: the last open word of the model, the last turn of its case, not an
+    // attach the agent made by itself (it asks nothing), never in a task chat of an agent. A line of the system without
+    // a kind after it («Не получилось применить решение: … Напиши ещё раз, кто это.») changed nothing: the case is still
+    // open, so that word waits again.
+    const whoisWaits = (uid) => {
+      const w = whoisOf(uid);
+      if (!w || agent() || w.by !== 'model' || !w.open || w.kind === 'attached' || w.kind === 'undone') return false;
+      const n = Number(w.turn);
+      if (!(n > 0) || lastWhois() !== n) return false;
+      const last = lastOfCase(w.case);
+      if (last === n) return true;
+      const after = whoisTurn(w.case, last);
+      return !!(after && after.by === 'system' && !after.kind && after.open);
+    };
+    // A word of Gennady the server refused, by the uid of the turn it answered: { error } — «Не отправлено: …» stands in
+    // red under that message until the next word goes.
+    const whoisNote = new Map();
+    // The waits whose line «Reply to Lex» this chat put over the field by itself (whoisArm), `<uid>@<last turn of the
+    // case>`: once each — × keeps it off until a newer word of the agent waits, or the same word waits anew.
+    const whoisArmed = new Set();
+    // The word of Gennady to Lex that the database has not shown yet (a press of Send with the line «Reply to Lex», the
+    // page: wc-app.js sendWhois). At the press it stands at the end of the chat «Sending…»; once the server took it Lex
     // «thinks» under it; it goes the moment the chat draws the word itself, or in 8 s if that does not come.
     // { text, at, state: 'sending' | 'taken', before: the uids of his words the chat had, quoteUid }.
     let whoisWord = null;
     let whoisWordTimer = 0;
     // The host of the outbox the chat painted last (the timer and the word repaint it themselves).
     let outboxHost = null;
-    // The plate of a closed question stands until the database brings the line of the system of its case: the plate of
-    // the database takes its place. → { say } | null.
-    const closedBy = (uid) => {
-      const d = whoisDone.get(uid);
-      const w = whoisOf(uid);
-      if (!d || !w) return null;
-      const said = Object.values((data && data.looks) || {}).some((l) => l && typeof l === 'object' && l.whois
-        && l.whois.by === 'system' && l.whois.case === w.case);
-      return said ? null : d;
-    };
     // What a message is drawn from: its look, its open earlier text, what Profi said the client read. A turn of the branch
-    // also from the state of its case: the last word of the model, the last turn, Confirm, a closed question.
+    // also from the state of its case: the last word of the model, the last turn, a refused word under it.
     const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid),
       WHOIS_UID.test(uid)
-        ? [lastWhois(), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid),
-          whoisUndone.get(uid) || null] : null]);
+        ? [lastWhois(), lastOfCase((whoisOf(uid) || {}).case), whoisNote.get(uid) || null] : null]);
     // The uids of the words of Gennady to Lex the chat has (his turns of the branch), to know which one is new.
     const whoisHisWords = () => Object.entries((data && data.looks) || {})
       .filter(([, l]) => l && typeof l === 'object' && l.whois && l.whois.by === 'gennady').map(([u]) => u);
@@ -1102,12 +1116,13 @@
         return root;
       },
 
-      // The branch «who is this» in the chat of a new person (19.11.2026, В7.50). A turn of the model is the question of
-      // Lex: its words are Markdown with links (a site opens in a new tab, a place of Lex — in Lex), under the last one of
-      // an open question stand «Подтвердить» (where the model proposed an answer) and «Ответить»; a word of Gennady in
-      // the branch is his bubble to Lex; a line of the system («Подтверждено: …») is a plate. The look of a turn is
-      // `look.whois` ({ case, turn, by: model | gennady | system, open, confirm: { say } }); the person never gets any of
-      // it, and the assistant in correspondence never reads it.
+      // The branch «who is this» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54). A turn of the model is the
+      // message of the agent «Кто это»: the mark, the conclusion, the lines of who writes and whom the agent takes him
+      // for (a press opens that chat or that card), the reason (Markdown with links: a site opens in a new tab, a place
+      // of Lex — in Lex), what the agent waits for under a line. Gennady answers in words: the line «Reply to Lex» over
+      // the field (whoisArm for a waiting word, Reply in the menu for an attach). A word of Gennady in the branch is his
+      // bubble to Lex; a line of the system («Отменено: …») is a plate. The look of a turn is `look.whois`; the person
+      // never gets any of it, and the assistant in correspondence never reads it.
       whoisNode(t, o) {
         const M = global.LexMessage;
         const uid = String(t.uid || '');
@@ -1122,10 +1137,7 @@
         if (t.authoredAt) row.dataset.at = t.authoredAt;
         row.dataset.look = sigOf(uid);
         let words = String(t.text || '');
-        // A word of the outcomes of the agent (В7.54): its headline stands in the band, the words under it start after it.
         const kind = ['attached', 'guess', 'question', 'reply', 'undone'].includes(w.kind) ? w.kind : null;
-        const headline = typeof w.headline === 'string' ? w.headline.trim() : '';
-        if (headline && words.trimStart().startsWith(headline)) words = words.trimStart().slice(headline.length).replace(/^\s+/, '');
         if (by === 'system' || kind === 'undone') {
           row.classList.add('is-notice');
           row.appendChild(M.notice({ text: words, at: t.authoredAt }));
@@ -1146,38 +1158,97 @@
           }
           return row;
         }
+        // The conclusion stands bold on top and what the agent waits for under a line: the words between are the reason.
+        const headline = typeof w.headline === 'string' ? w.headline.trim() : '';
+        const ask = typeof w.ask === 'string' ? w.ask.trim() : '';
+        words = words.trim();
+        if (headline && words.startsWith(headline)) words = words.slice(headline.length).trim();
+        if (ask && words.endsWith(ask)) words = words.slice(0, words.length - ask.length).trim();
         const body = make('div', '', '');
         const md = global.WcMarkdown;
         if (md && typeof md.into === 'function') md.into(body, words, { lex: true }); else body.textContent = words;
-        // The buttons stand on the last word of the model in an open question only — and not on a question the server
-        // closed at a press of «Подтвердить» a moment ago: it says «Подтверждено» at once, the chat is read after. A task
-        // chat of an agent has none.
-        const done = closedBy(uid);
-        // An attach the agent made by itself asks nothing: its only button is the undo (В7.54), whatever `open` says.
-        const last = !agent() && !done && !!w.open && kind !== 'attached' && lastWhois() === Number(w.turn);
-        // The undo of an attach the agent made by itself: on the word that carries it, while the server has not undone it.
-        const undone = whoisUndone.get(uid) || null;
-        const undo = w.undo === true && !undone && typeof deps.whoisUndo === 'function' ? { label: self.undoLabel() } : null;
+        const onGo = (place) => { if (typeof deps.go === 'function') deps.go(place); };
+        // A task chat of an agent: its word as a question of Lex, no lines and no mark.
+        if (agent()) {
+          const part = M.whois({ body, at: t.authoredAt, onGo });
+          row.appendChild(part);
+          row.dataset.in = '1';
+          if (!still) self.attachWhoisMenu(row, part, t, null, false);
+          return row;
+        }
+        const wait = whoisWaits(uid);
+        const rows = self.whoisRows(w);
+        const tied = (w.writer && w.writer.kind === 'group') || (Array.isArray(w.rows) && w.rows.some((r) => r && r.kind === 'deal'));
+        const mark = wait ? 'нужен твой ответ' : kind === 'attached' ? (tied ? 'привязал сам' : 'присоединил сам') : '';
         const part = M.whois({
-          body, at: t.authoredAt, kind, headline, undo,
-          onUndo: () => self.whoisUndo(uid),
-          confirm: last && w.confirm && typeof deps.whoisConfirm === 'function' ? { say: String(w.confirm.say || '') } : null,
-          reply: last && typeof deps.reply === 'function',
-          pending: whoisBusy.get(uid) || null,
-          onReply: () => self.whoisReply(uid),
-          onConfirm: () => self.whoisConfirm(uid),
-          onGo: (place) => { if (typeof deps.go === 'function') deps.go(place); },
+          message: true, mark, wait, headline, rows, body, ask, at: t.authoredAt, onGo,
+          note: whoisNote.get(uid) || null,
         });
         row.appendChild(part);
-        if (done) row.appendChild(M.notice({ text: `Подтверждено: ${done.say}`.trim(), at: done.at }));
-        if (undone) row.appendChild(M.notice({ text: undone.text, at: undone.at }));
-        // The question comes without the person: it can be new (the «Новые» line, the unread of the chat).
+        // The message comes without the person: it can be new (the «Новые» line, the unread of the chat).
         row.dataset.in = '1';
-        if (!still) self.attachWhoisMenu(row, part, t, null, last);
+        // Reply in its menu: on a word that waits and on an attach (a word about it goes to the agent with its turn).
+        if (!still) self.attachWhoisMenu(row, part, t, null, wait || kind === 'attached' || !!w.open);
         return row;
       },
 
-      // The menu of a turn of the branch: Copy and Select as of every message; Reply on the word that has the buttons.
+      // The lines of the message (В7.54): who writes (`writer`: a person or a group, the channel and the address or the
+      // members), then whom the agent takes him for (`rows`: «Это», «Дело», «Думаю, это»). A line opens what Lex can open:
+      // the person's chat (`chat/p:<id>`), the order chat (`order/<n>`), the card of the person when it is this order
+      // chat; a writer with a site (`url`) opens it in a new tab. The chat on the screen itself is no link.
+      whoisRows(w) {
+        const out = [];
+        const M = global.LexMessage;
+        // The channel comes as a word («Telegram», «WhatsApp», «Max»); an id of a channel is named by its part.
+        const channelName = (c) => {
+          const word = String(c || '').trim();
+          const known = M.CHANNELS && M.CHANNELS[word.toLowerCase()];
+          return (known && known.name) || word;
+        };
+        const wr = w.writer && typeof w.writer === 'object' ? w.writer : null;
+        if (wr && String(wr.name || '').trim()) {
+          const group = wr.kind === 'group';
+          const n = Number(wr.members);
+          const members = Number.isFinite(n) && n > 0 ? `${n} ${plural(n, 'участник', 'участника', 'участников')}`
+            : (typeof wr.members === 'string' ? wr.members.trim() : '');
+          const sub = [channelName(wr.channel), group ? members : String(wr.address || '').trim()].filter(Boolean).join(' · ');
+          const url = typeof wr.url === 'string' && /^https:\/\/\S+$/.test(wr.url) ? wr.url : '';
+          out.push({ caption: group ? 'Группа' : 'Пишет', name: String(wr.name).trim(), sub,
+            face: { name: String(wr.name).trim() }, ...(url ? { href: url } : {}) });
+        }
+        for (const r of Array.isArray(w.rows) ? w.rows : []) {
+          if (!r || typeof r !== 'object' || !String(r.name || '').trim()) continue;
+          const deal = r.kind === 'deal';
+          const caption = r.role === 'maybe' ? 'Думаю, это' : deal ? 'Дело' : 'Это';
+          const press = self.whoisPress(r.go);
+          out.push({ caption, name: String(r.name).trim(), sub: String(r.sub || '').trim(),
+            face: { name: String(r.name).trim(), deal }, ...(press ? { onPress: press } : {}) });
+        }
+        return out;
+      },
+
+      // What a press on a line opens: null — nothing, the line is no link.
+      whoisPress(go) {
+        const place = String(go || '');
+        const p = /^chat\/(p:[0-9a-f-]{36})$/.exec(place);
+        if (p) {
+          if (folder && data && data.ref === p[1]) return null;
+          return typeof deps.go === 'function' ? () => deps.go(place) : null;
+        }
+        const n = /^order\/([A-Za-z0-9_-]{1,40})$/.exec(place);
+        if (!n) return null;
+        if (!folder && String(deps.order || '') === n[1]) {
+          // This very order chat: the line opens the card of the person, as the bar over the chat does (В7.41).
+          return global.LexPerson && deps.person && data && data.chatKey
+            ? () => global.LexPerson.open({ chatKey: data.chatKey, name: (data && data.client) || 'Client', call: deps.person,
+              onGone: deps.onPersonGone, io: fileIo })
+            : null;
+        }
+        return typeof deps.go === 'function' ? () => deps.go(place) : null;
+      },
+
+      // The menu of a turn of the branch: Copy and Select as of every message; Reply on a word the agent waits an answer to
+      // or on an attach of it.
       attachWhoisMenu(row, face, t, side, canReply) {
         const M = global.LexMessage;
         if (!M || !M.attachMenu) return;
@@ -1188,73 +1259,47 @@
           who: () => (side === 'out' ? '' : 'Lex'),
           at: () => t.authoredAt || null,
           host: () => row.parentElement,
-          reply: canReply ? () => self.whoisReply(uid) : null,
+          reply: canReply && typeof deps.reply === 'function' ? () => self.whoisReply(uid) : null,
         });
       },
 
-      // «Ответить»: the line «Reply to Lex» over the field with the first words of the question; the next word of the
-      // field goes to the model of this question (the page: send() in wc-app.js), not to the person, not to the assistant.
-      whoisReply(uid) {
+      // The line «Reply to Lex» over the field with the first words of the message; the next word of the field goes to the
+      // agent of this case (the page: send() in wc-app.js), not to the person, not to the assistant.
+      whoisLine(uid) {
         const t = drawn.get(uid);
-        if (!t || typeof deps.reply !== 'function') return;
-        deps.reply({ quoteUid: uid, head: 'Reply to Lex', text: plainLine(t.text, 160) });
+        if (!t) return null;
+        const w = whoisOf(uid) || {};
+        return { quoteUid: uid, head: 'Reply to Lex', text: plainLine(String(w.headline || '').trim() || t.text, 160) };
+      },
+      whoisReply(uid) {
+        const line = self.whoisLine(uid);
+        if (line && typeof deps.reply === 'function') deps.reply(line);
       },
 
-      // The turn `uid` of the branch drawn again in its place (the ring, a refusal, a closed question).
+      // The word of the agent that waits for Gennady puts the line «Reply to Lex» over the field by itself, once per word:
+      // never over a line that stands (a Reply, an edit), and × keeps it off until a newer word waits. The line it put goes
+      // when that word stops waiting (Gennady answered it, the case closed).
+      whoisArm() {
+        if (agent() || !data) return;
+        const quote = typeof deps.replyQuote === 'function' ? deps.replyQuote() : null;
+        const armedQuote = quote && [...whoisArmed].some((k) => k.split('@')[0] === quote);
+        if (armedQuote && !whoisWaits(quote) && typeof deps.replyDone === 'function') deps.replyDone();
+        if (typeof deps.armReply !== 'function') return;
+        const uid = Object.keys(data.looks || {}).find((u) => WHOIS_UID.test(u) && whoisWaits(u));
+        if (!uid || !drawn.has(uid)) return;
+        // Once per wait: the word and the last turn of its case (a failed «да» makes the same word wait anew).
+        const w = whoisOf(uid) || {};
+        const key = `${uid}@${lastOfCase(w.case)}`;
+        if (whoisArmed.has(key)) return;
+        whoisArmed.add(key);
+        const line = self.whoisLine(uid);
+        if (line) deps.armReply(line);
+      },
+
+      // The turn `uid` of the branch drawn again in its place (a refused word under it).
       redrawWhois(uid) {
         const n = lane ? [...lane.querySelectorAll(':scope > .lex-profi-msg[data-uid]')].find((x) => x.dataset.uid === uid) : null;
         if (n && drawn.has(uid)) n.replaceWith(self.whoisNode(drawn.get(uid)));
-      },
-
-      // «Подтвердить»: the ring on the button while the server applies the answer; a refusal stands under the buttons. The
-      // moment the server says «accepted» the question closes here — the buttons go and «Подтверждено» stands — without
-      // waiting for the chat to be read again (19.11.2026: the buttons stood for seconds after the server had them done).
-      async whoisConfirm(uid) {
-        const t = drawn.get(uid);
-        const cur = whoisBusy.get(uid);
-        if (!t || typeof deps.whoisConfirm !== 'function' || (cur && !cur.error)) return;
-        whoisBusy.set(uid, {});
-        self.redrawWhois(uid);
-        let out;
-        try { out = await deps.whoisConfirm(uid); } catch (e) { out = { error: (e && e.message) || 'Try again.' }; }
-        if (out && out.error) whoisBusy.set(uid, { error: String(out.error) });
-        else {
-          whoisBusy.delete(uid);
-          const w = whoisOf(uid) || {};
-          whoisDone.set(uid, { say: String((out && out.say) || (w.confirm && w.confirm.say) || ''), at: new Date().toISOString() });
-        }
-        self.redrawWhois(uid);
-      },
-
-      // The words of the undo (В7.54): a group — «Не это дело»; the chat of a person and the order chat — «Это не <имя>», by
-      // the first name of the chat (Lex never guesses «он» or «она» from a name); the chat of the new person, where the
-      // name the agent took is not the chat's, — «Это не тот человек».
-      undoLabel() {
-        if (data && data.kind === 'group') return 'Не это дело';
-        const ref = String((data && data.ref) || '');
-        const name = String((data && (folder ? (ref.startsWith('p:') ? data.title : '') : data.client)) || '')
-          .replace(/\(.*?\)/g, ' ').trim().split(/\s+/)[0] || '';
-        return name ? `Это не ${name}` : 'Это не тот человек';
-      },
-
-      // The undo: the ring on the button while the server undoes the attach (folder-whois, the base's door undo); a
-      // refusal stands under the buttons «Не отменено: …»; done — «Отменено» at once, the chat is read after.
-      async whoisUndo(uid) {
-        const t = drawn.get(uid);
-        const cur = whoisBusy.get(uid);
-        if (!t || typeof deps.whoisUndo !== 'function' || (cur && !cur.error)) return;
-        whoisBusy.set(uid, { undo: true });
-        self.redrawWhois(uid);
-        let out;
-        try { out = await deps.whoisUndo(uid); } catch (e) { out = { error: (e && e.message) || 'Try again.' }; }
-        if (out && out.error) whoisBusy.set(uid, { undo: true, error: String(out.error) });
-        else {
-          whoisBusy.delete(uid);
-          const group = !!(data && data.kind === 'group');
-          whoisUndone.set(uid, { text: group ? 'Отменено: группа больше не привязана к этому делу.'
-            : 'Отменено. Сообщения вернулись в отдельный чат.', at: new Date().toISOString() });
-        }
-        self.redrawWhois(uid);
       },
 
       // The word of Gennady to Lex: the bubble «To Lex» of the person's word, the same in the chat and at its end.
@@ -1277,11 +1322,10 @@
 
       // A press of Send with the line «Reply to Lex» over the field (the page: wc-app.js sendWhois). false — a word of this
       // chat is on its way: the second press does nothing, the caller keeps the words in the field. Otherwise the word
-      // stands at the end of the chat at once, «Sending…», and an earlier refusal under the buttons goes.
+      // stands at the end of the chat at once, «Sending…», and an earlier refusal under a message goes.
       whoisSending(text, quoteUid) {
         if (whoisWord) return false;
-        const old = quoteUid ? whoisBusy.get(quoteUid) : null;
-        if (old && old.word) { whoisBusy.delete(quoteUid); self.redrawWhois(quoteUid); }
+        for (const u of [...whoisNote.keys()]) { whoisNote.delete(u); self.redrawWhois(u); }
         whoisWord = { text: String(text || ''), at: new Date().toISOString(), state: 'sending', before: whoisHisWords(), quoteUid: quoteUid || null };
         self.repaintOutbox();
         return true;
@@ -1296,7 +1340,7 @@
         self.repaintOutbox();
       },
 
-      // The server refused the word: it leaves the end of the chat, and the refusal stands in red under the buttons of the
+      // The server refused the word: it leaves the end of the chat, and the refusal stands in red under the message of the
       // question it answered. false — the chat has drawn the word already: it went, nothing to take back.
       whoisRefused(why) {
         const w = whoisWord;
@@ -1304,7 +1348,7 @@
         whoisWord = null;
         clearTimeout(whoisWordTimer);
         if (w.quoteUid) {
-          whoisBusy.set(w.quoteUid, { error: String(why || 'Try again.'), word: true });
+          whoisNote.set(w.quoteUid, { error: String(why || 'Try again.') });
           self.redrawWhois(w.quoteUid);
         }
         self.repaintOutbox();
@@ -1834,6 +1878,8 @@
           if (!t) continue;
           if (n.dataset.look !== sigOf(n.dataset.uid)) n.replaceWith(self.messageNode(t));
         }
+        // The word of the agent «Кто это» that waits for Gennady puts the line «Reply to Lex» over the field (В7.54).
+        self.whoisArm();
       },
 
       // The bar over the chat: the client's photo or letter (В7.12), name and channel, and on the right the

@@ -1855,8 +1855,10 @@
       // a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
       onPersonGone: () => newConversation(),
-      // The message of the agent «Кто это» that attached the client's messenger (В7.54): its undo.
-      whoisUndo: (uid) => whoisUndo(chat, uid, () => refreshProfiChat()),
+      // The message of the agent «Кто это» that attached the client's messenger (В7.54): a line of it opens a chat of
+      // Lex; the line «Reply to Lex» over the field takes a word to the agent (send(), sendWhois).
+      go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
+      armReply: (r) => armReply(r),
     });
     chat.data = data;
     chat.keep = keep || null;
@@ -1993,12 +1995,10 @@
       reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
       sendBox: (win) => sendFolderBox(chat, win),
-      // The branch «who is this» in the chat of a new person (В7.50): a link of Lex in the words of the question, and the
-      // press of «Подтвердить»; «Ответить» is the line over the field (reply above), its word goes by send().
+      // The agent «Кто это» (В7.50, В7.54): a link of Lex in its words or a line of its message opens that chat; the
+      // word that waits for Gennady puts the line «Reply to Lex» over the field (armReply), its word goes by send().
       go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
-      whoisConfirm: (uid) => whoisConfirm(chat, uid),
-      // The outcomes of the agent (В7.54): the undo of an attach it made by itself.
-      whoisUndo: (uid) => whoisUndo(chat, uid, () => refreshFolderChat()),
+      armReply: (r) => armReply(r),
     });
     chat.folder = true;
     chat.sectionId = sectionId;
@@ -2137,12 +2137,20 @@
     return out && out.send ? out.send : { state: 'queued' };
   }
 
-  // ── The branch «who is this» in the chat of a new person (19.11.2026, В7.50) ─────────────────────────
-  // The question of Lex stands in the chat of the new person; «Ответить» puts the line «Reply to Lex» over the field with
-  // the uid of that question (the same line as a Reply on a message, В7.26, and kept in the draft the same way), and the
-  // next word of the field goes here — to the model of this one question (the edge function folder-whois), never to
-  // the person and never to the assistant. «Подтвердить» applies the proposal of the model.
+  // ── The agent «Кто это» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54) ─────────────────────────
+  // Gennady answers the agent in words. The line «Reply to Lex» over the field (the same line as a Reply on a message,
+  // В7.26, kept in the draft the same way) carries the uid of the agent's message, and the next word of the field goes
+  // here — to the agent of that case (the edge function folder-whois), never to the person and never to the assistant.
+  // The chat of a new person or of a group: the word goes by the chat (the base finds its case); a chat of a person or an
+  // order chat, where an attach of the agent stands: the word goes with the turn it answers (`replyTo`).
   const WHOIS_TURN = /^profi:whois:[0-9]{1,18}$/;
+  // The line the chat puts over the field by itself (a word of the agent waits): only where no line stands now, quiet —
+  // the field gets no focus and the draft is not told.
+  function armReply(r) {
+    if (reply || !r || !WHOIS_TURN.test(String(r.quoteUid || ''))) return false;
+    setReply(r, { quiet: true });
+    return true;
+  }
   async function sendWhois(chat, key, text, r) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return;
@@ -2150,11 +2158,12 @@
     // (the press emptied it), the server never gets the same word twice from here.
     if (!chat.whoisSending(words, r && r.quoteUid)) { giveBack(key, text, r); return; }
     // The word stands at the end of the chat now, «Sending…», and the line over the field goes with it; a refusal brings
-    // both back (takeWordBack) and says why under the buttons of the question.
+    // both back (takeWordBack) and says why under the message it answered.
     if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
     WcThread.scrollToEnd();
     try {
-      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId() } });
+      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, replyTo: (r && r.quoteUid) || null,
+        opId: global.LexFolders.newOpId() } });
     } catch (err) {
       const why = (err && err.message) || 'Try again.';
       // false — the chat drew the word already: it went, there is nothing to take back.
@@ -2164,7 +2173,8 @@
     }
     // The server has the word: Lex thinks under it until the chat draws it.
     chat.whoisTaken();
-    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    const again = chat.folder ? refreshFolderChat() : refreshProfiChat();
+    Promise.resolve(again).catch((e) => console.warn('[wc] chat after a word to Lex:', e && e.message));
   }
   // The word the server refused goes back where it was typed: into the field of its chat with the line «Reply to Lex» over
   // it, or into the draft of its chat when another one is on the screen now.
@@ -2173,38 +2183,6 @@
     const cur = WcComposer.text();
     WcComposer.setText(cur.trim() ? `${text}\n${cur}` : text);
     if (r && !reply) setReply(r);
-  }
-  async function whoisConfirm(chat, uid) {
-    if (!chat || !chat.data || !WHOIS_TURN.test(String(uid || ''))) return { error: 'This question is not open.' };
-    let out;
-    try {
-      out = await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, confirm: uid, opId: global.LexFolders.newOpId() } });
-    } catch (err) {
-      return { error: (err && err.message) || 'Try again.' };
-    }
-    if (reply && WHOIS_TURN.test(reply.quoteUid || '')) setReply(null);
-    // The question closes on the screen the moment the server says «accepted» (lex-profi.js whoisConfirm); the chat is read
-    // after, in its own time, and what it brings (the chat of the person) comes as it comes.
-    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
-    return { say: out && typeof out.say === 'string' ? out.say : '' };
-  }
-  // The undo of an attach of the agent «Кто это» (В7.54, 21.11.2026): the edge function folder-whois with `undo` — the
-  // database undoes it, the server of Lex moves the messages back into the chat of the new person. The chat is read again
-  // (the message goes from a chat of a person and from an order chat), the toast says where the messages are.
-  async function whoisUndo(chat, uid, again) {
-    if (!chat || !chat.data || !WHOIS_TURN.test(String(uid || ''))) return { error: 'This message attached nothing.' };
-    let out;
-    try {
-      out = await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, undo: uid, opId: global.LexFolders.newOpId() } });
-    } catch (err) {
-      return { error: (err && err.message) || 'Try again.' };
-    }
-    if (out && out.again !== true) {
-      toast(chat.data.kind === 'group' ? 'Undone: the group is no longer with this deal.'
-        : 'Undone: the messages are back in a chat of their own.');
-    }
-    Promise.resolve(again && again()).catch((e) => console.warn('[wc] chat after the undo:', e && e.message));
-    return { undone: true };
   }
   // A press on a link of Lex in the words of the question: lex://chat/<ref of a person> — his chat among the chats of a
   // folder; lex://order/<number> — the order chat of Profi.ru. The screen opens them as the press on a notification does.
@@ -2436,9 +2414,9 @@
       await sendToAgent(chat0, key0, text, opts);
       return;
     }
-    // The branch «who is this»: with the line «Reply to Lex» of a question over the field the words go to the model of
-    // that question, nowhere else (a picture or a file of the field stays in it).
-    if (chat0 && chat0.folder && reply0 && WHOIS_TURN.test(reply0.quoteUid || '')) {
+    // The agent «Кто это»: with the line «Reply to Lex» of its message over the field the words go to the agent of that
+    // case, nowhere else (a picture or a file of the field stays in it) — in a chat of a folder and in an order chat.
+    if (chat0 && reply0 && WHOIS_TURN.test(reply0.quoteUid || '') && typeof chat0.whoisSending === 'function') {
       await sendWhois(chat0, key0, text, reply0);
       return;
     }
