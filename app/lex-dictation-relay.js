@@ -110,11 +110,25 @@
       try { token = await h.token(); } catch (_) { token = null; }
       if (entry.cancelled) { forget(); return { ok: false, error: 'cancelled' }; }
       if (!token) { forget(); return { ok: false, __gate: 'login' }; }
-      let ws;
-      try {
+      // Direct mode (lex-direct-mode.js): the surface may hand a socket that
+      // talks to the provider itself, by a held recipe, and speaks the same
+      // protocol as the server's dictation-live. One try; refused before
+      // «ready» — the same start goes to our server, and the failure is
+      // reported (h.direct(...).failed).
+      let direct = null;
+      if (typeof h.direct === 'function') {
+        try { direct = await h.direct(config, entry.ctx); } catch (e) { direct = null; log('[lex-dictation-relay] direct hook threw: ' + (e && e.message)); }
+        log('[lex-dictation-relay] start: ' + (direct && direct.socket ? 'direct' : 'through the server'));
+        if (entry.cancelled) { forget(); return { ok: false, error: 'cancelled' }; }
+      }
+      const serverSocket = () => {
         const Ctor = h.WebSocket || global.WebSocket;
         const base = String(h.baseUrl() || '').replace(/^http/, 'ws');
-        ws = new Ctor(base + '/functions/v1/dictation-live');
+        return new Ctor(base + '/functions/v1/dictation-live');
+      };
+      let ws;
+      try {
+        ws = direct && direct.socket ? direct.socket : serverSocket();
       } catch (e) {
         forget();
         return { ok: false, error: String((e && e.message) || e) };
@@ -128,7 +142,7 @@
         emit({ type: 'LEX_DICTATION_LIVE_ENDED', text: entry.ended.text, reason: entry.ended.reason, maxDurationMs: entry.maxDurationMs });
       };
 
-      const opened = await new Promise((resolve) => {
+      const dial = (ws) => new Promise((resolve) => {
         let giveUp = setTimeout(() => resolve({ ok: false, error: 'timeout' }), START_TIMEOUT_MS);
         ws.onopen = () => {
           if (entry.cancelled) { try { ws.close(); } catch (_) {} return; }
@@ -166,9 +180,10 @@
           if (m.type === 'error') {
             clearTimeout(giveUp);
             // До «готов» отказ — это ответ на старт; после — беда посреди речи,
-            // и вкладке о ней говорят отдельным сообщением.
-            resolve({ ok: false, error: m.message || m.stage, status: m.status });
-            emit({ type: 'LEX_DICTATION_LIVE_ERROR', message: m.message, status: m.status });
+            // и вкладке о ней говорят отдельным сообщением. Отказ прямого
+            // сокета до «готов» вкладке не говорится: старт уходит серверу.
+            resolve({ ok: false, error: m.message || m.stage, status: m.status, direct: m.direct === true && !entry.live });
+            if (!(m.direct === true && !entry.live)) emit({ type: 'LEX_DICTATION_LIVE_ERROR', message: m.message, status: m.status });
             return;
           }
           if (m.type === 'final') {
@@ -205,6 +220,16 @@
           resolve({ ok: false, error: 'closed' });
         };
       });
+      let opened = await dial(ws);
+      if (!opened.ok && opened.direct && !entry.cancelled) {
+        // Прямой сокет не встал: тот же старт — серверу.
+        try { ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null; ws.close(); } catch (_) {}
+        try { direct.failed && direct.failed(String(opened.error || 'direct start failed')); } catch (_) {}
+        log('[lex-dictation-relay] direct start failed (' + opened.error + ') — through the server');
+        try { ws = serverSocket(); } catch (e) { forget(); return { ok: false, error: String((e && e.message) || e) }; }
+        entry.ws = ws;
+        opened = await dial(ws);
+      }
       // Старт не удался — прибрать за собой: закрыть сокет (иначе сервер держал
       // бы открытую оплачиваемую сессию, пока её не закроет сторож) и забыть
       // запись.

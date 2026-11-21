@@ -214,6 +214,10 @@
     //   • связь с сервером оборвалась не по нашей воле — разговор кончается
     //     сразу, той же строкой, что «сервер перестал подтверждать».
     let viaServer = false;
+    // Прямой режим: {callId, at} — разговор идёт по рецепту настоящим ключом,
+    // сервера между устройством и Google нет (docs/spec/30-voice.md).
+    let directCall = null;
+    let callToken = null;          // одноразовый ключ Google на прямом пути через сервер
     let relayAuth = null;          // { url, secret }
     let nextShift = null;          // сокет следующей смены до переезда
     let audioHold = null;          // кадры, накопленные за переезд
@@ -471,37 +475,31 @@
       // или для «нажми и держи» (страница глушит дорожку).
       try { cb.onLocalStream && cb.onLocalStream(localStream); } catch (_) {}
 
-      // Пожелания устройства — значения ручек, голос и «нажми и говори». В
-      // настройку разговора их переводит сервер — одно правило на все
-      // поверхности, включая айфон (_shared/gemini-live-setup.ts), — и
-      // зашивает её в ключ вместе со своими инструкциями и моделью.
-      const resp = await requestGoogleCall(cfg, lastPromptRefs, {
-        linkId: server.linkId, knobs: geminiKnobsOf(lastKnobs), voiceName, ptt: isPtt,
-      }, host);
-      // Остановили, пока сервер заводил разговор: окно уже снесло себя, а
-      // разговор, если сервер его завёл, закроет воркер — разрыв связи без done.
-      // Ответ сервера (в том числе отказ «окна нет» от воркера) здесь уже ничего
-      // не значит и надписи не даёт.
-      if (closed) {
-        releaseMedia();
-        // Сервер разговор всё-таки завёл — закрыть его строку сразу. В
-        // расширении это сделает и воркер (разрыв связи без done); у страницы
-        // воркера нет, и строка висела бы до замены или уборщика.
-        if (resp && resp.ok && resp.callId) {
-          try { host.post({ type: 'VOICE_CMD', callId: resp.callId, end: true }); } catch (_) {}
+      // Прямой режим (docs/spec/30-voice.md, «Прямой режим на устройстве»):
+      // рецепт разговора — из памяти воркера, сокет к Google — настоящим
+      // ключом (в расширении его держит воркер, host.directSocket), сервер о
+      // разговоре узнаёт после — началом, парами и отбоем в очереди. Одна
+      // попытка: не встал до setupComplete — тот же разговор прежним путём.
+      if (lastPromptRefs && typeof host.directSocket === 'function' && cfg.direct !== false) {
+        const prep = await host.send(Object.assign({ type: 'LEX_DIRECT_VOICE_PREP' },
+          prepBodyOf(cfg, lastPromptRefs, lastKnobs, voiceName, isPtt)));
+        if (closed) { releaseMedia(); return; }
+        if (prep && prep.direct === true && prep.provider === 'google' && prep.callId) {
+          directCall = { callId: prep.callId, at: performance.now() };
+          callId = prep.callId;
+          if (prep.apiModel) voiceApiModel = prep.apiModel;
+          viaServer = false;
+          relayAuth = null;
+          server.setCallId(callId, { direct: true });
+          log('direct: recipe held, call', callId, 'prep', prep.prepMs, 'ms');
+        } else if (prep && prep.why) {
+          log('direct: not this time —', prep.why);
         }
-        return;
       }
-      const auth = googleCallOf(resp, cb);
-      callId = auth.callId;
-      if (auth.apiModel) voiceApiModel = auth.apiModel;
-      viaServer = auth.route === 'server';
-      relayAuth = viaServer ? { url: auth.relayUrl, secret: auth.secret } : null;
-      // Первый кадр сокета обязан быть настройкой, но всё, кроме модели, Google
-      // берёт из ключа, а присланное здесь игнорирует (проверено 2026-09-25).
-      const clientSetup = { model: `models/${voiceApiModel}` };
-      // Номер разговора — в связь с воркером и в пульс (он заводится сразу).
-      server.setCallId(callId);
+      if (!directCall) {
+        await askServerForCall();
+        if (closed) return;
+      }
 
       // v1.15.x B: первый сегмент открываем сразу ТОЛЬКО в живом режиме.
       if (!isPtt && segmentRecorder) { segmentRecorder.beginSegment(); segStartTs = Date.now(); }
@@ -518,28 +516,99 @@
       } catch (err) { warn('mic analyser failed:', err && err.message); }
       playbackAnalyser = null;
 
+      openCallSocket();
+
+      // Пожелания устройства — значения ручек, голос и «нажми и говори». В
+      // настройку разговора их переводит сервер — одно правило на все
+      // поверхности, включая айфон (_shared/gemini-live-setup.ts), — и
+      // зашивает её в ключ вместе со своими инструкциями и моделью.
+      async function askServerForCall() {
+        const resp = await requestGoogleCall(cfg, lastPromptRefs, {
+          linkId: server.linkId, knobs: geminiKnobsOf(lastKnobs), voiceName, ptt: isPtt,
+        }, host);
+        // Остановили, пока сервер заводил разговор: окно уже снесло себя, а
+        // разговор, если сервер его завёл, закроет воркер — разрыв связи без done.
+        // Ответ сервера (в том числе отказ «окна нет» от воркера) здесь уже ничего
+        // не значит и надписи не даёт.
+        if (closed) {
+          releaseMedia();
+          // Сервер разговор всё-таки завёл — закрыть его строку сразу. В
+          // расширении это сделает и воркер (разрыв связи без done); у страницы
+          // воркера нет, и строка висела бы до замены или уборщика.
+          if (resp && resp.ok && resp.callId) {
+            try { host.post({ type: 'VOICE_CMD', callId: resp.callId, end: true }); } catch (_) {}
+          }
+          return;
+        }
+        const auth = googleCallOf(resp, cb);
+        callId = auth.callId;
+        if (auth.apiModel) voiceApiModel = auth.apiModel;
+        viaServer = auth.route === 'server';
+        relayAuth = viaServer ? { url: auth.relayUrl, secret: auth.secret } : null;
+        callToken = viaServer ? null : auth.token;
+        // Номер разговора — в связь с воркером и в пульс (он заводится сразу).
+        server.setCallId(callId);
+      }
+
+      // Прямая попытка не встала до setupComplete: след сбоя серверу и тот же
+      // разговор прежним путём. Микрофон, звук и счётчики остаются — меняется
+      // только сокет.
+      async function fallBackFromDirect(why) {
+        const failed = directCall;
+        directCall = null;
+        warn('direct: Google did not take the call (' + why + ') — through the server');
+        try {
+          host.post({ type: 'LEX_DIRECT_VOICE_FAILED', callId: failed && failed.callId, provider: 'google', model: cfg.voiceModelId,
+            error: String(why || 'no answer'), totalMs: failed ? Math.round(performance.now() - failed.at) : null });
+        } catch (_) {}
+        try { server.setCallId(null); } catch (_) {}
+        callId = null;
+        try {
+          await askServerForCall();
+          if (closed) return;
+          openCallSocket();
+        } catch (err) {
+          if (closed) return;
+          try { teardown(); } catch (_) {}
+          if (!/^__LEX_VOICE_/.test(String(err && err.message))) {
+            try { cb.onError && cb.onError(err); } catch (_) {}
+          }
+          try { cb.onDisconnected && cb.onDisconnected({ reason: 'ws-closed' }); } catch (_) {}
+        }
+      }
+
+      function openCallSocket() {
       if (viaServer) {
         ws = openRelay(false, priorTurns);
         // Сигнал «на линии» по самому сокету: в «нажми и говори» между
         // репликами звука нет, и без него функция на сервере простаивала бы.
         relayPing = setInterval(() => relaySend({ type: 'ping' }), RELAY_PING_MS);
-      } else {
-      // WS handshake: the v1alpha *Constrained* method with ?access_token=
-      // (NOT plain BidiGenerateContent + ?key= — that 404s the token). The
-      // token carries the whole setup; the frame below is ignored by Google
-      // (verified live 2026-09-25) and is sent only because the protocol
-      // requires a first setup message.
-      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(auth.token)}`;
-      ws = new WebSocket(wsUrl);
+        return;
+      }
+      // Прямой режим: сокет по рецепту (первый кадр — настройка из рецепта —
+      // уходит сам). Иначе WS handshake: the v1alpha *Constrained* method with
+      // ?access_token= (NOT plain BidiGenerateContent + ?key= — that 404s the
+      // token). The token carries the whole setup; the frame below is ignored
+      // by Google (verified live 2026-09-25) and is sent only because the
+      // protocol requires a first setup message.
+      const sock = directCall
+        ? host.directSocket(directCall.callId)
+        : new WebSocket(`wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(callToken)}`);
+      ws = sock;
+      // Первый кадр сокета обязан быть настройкой, но всё, кроме модели, Google
+      // берёт из ключа, а присланное здесь игнорирует (проверено 2026-09-25).
+      const clientSetup = { model: `models/${voiceApiModel}` };
 
-      ws.onopen = () => {
+      sock.onopen = () => {
+        if (directCall) { log('direct: socket open', Math.round(performance.now() - directCall.at), 'ms after the press'); return; }
         try {
-          ws.send(JSON.stringify({ setup: clientSetup }));
+          sock.send(JSON.stringify({ setup: clientSetup }));
           log('setup sent, model =', voiceApiModel, ', voice =', voiceName, ', call =', callId);
         } catch (err) { warn('setup send failed:', err); }
       };
 
-      ws.onmessage = async (event) => {
+      sock.onmessage = async (event) => {
+        if (ws !== sock) return;
         let raw = event.data;
         if (raw instanceof Blob) {
           try { raw = await raw.text(); }
@@ -551,14 +620,21 @@
         handleServerMessage(data, priorTurns);
       };
 
-      ws.onerror = (err) => {
+      sock.onerror = (err) => {
         warn('ws error:', err);
-        if (closed) return;
+        if (closed || ws !== sock) return;
+        if (directCall && !setupComplete) return;   // onclose decides: fall back
         try { cb.onError && cb.onError(new Error('Gemini Live WS error')); } catch (_) {}
       };
 
-      ws.onclose = (event) => {
+      sock.onclose = (event) => {
         log('ws closed, code =', event.code, ', reason =', event.reason);
+        if (ws !== sock) return;
+        if (directCall && !setupComplete && !closed) {
+          ws = null;
+          fallBackFromDirect(`code ${event.code}${event.reason ? ': ' + event.reason : ''}`);
+          return;
+        }
         if (settleResolve) endSettle();
         if (!closed) {
           // A close before setupComplete means the server never accepted our
@@ -808,6 +884,12 @@
       if (data.setupComplete) {
         log('setupComplete received');
         setupComplete = true;
+        // Прямой разговор встал: начало — серверу, очередью (воркер или
+        // очередь страницы); дальше пары и отбой — за ним.
+        if (directCall) {
+          log('direct: setupComplete', Math.round(performance.now() - directCall.at), 'ms after the press');
+          try { host.post({ type: 'LEX_DIRECT_VOICE_STARTED', callId: directCall.callId }); } catch (_) {}
+        }
         opened = true;
         connecting = false;
         // Drain queued sends.
@@ -1748,5 +1830,36 @@
     return out;
   }
 
-  global.LexVoiceGeminiLive = { create, heardText };
+  // The body of LEX_DIRECT_VOICE_PREP — one builder for the press (start
+  // above) and for the recipe fetched ahead (directPrepBody): the recipe is
+  // held per exact body, so the two must not drift apart.
+  function prepBodyOf(cfg, refs, knobs, voiceName, ptt) {
+    return {
+      model: cfg.voiceModelId,
+      meta: {
+        videoId: resolveVideoId(cfg), surface: cfg.surface || null,
+        ...(cfg.newsChatProvider && cfg.newsChatProvider() ? { newsChat: true } : {}),
+      },
+      promptRefs: refs,
+      knobs: geminiKnobsOf(knobs), voiceName, ptt: ptt === true,
+    };
+  }
+  // What a press with this cfg will send — the same steps start() takes
+  // before the socket (refs, knobs, voice), without the microphone. null —
+  // no direct press with this cfg (no prompt refs: the window's own prompt).
+  async function directPrepBody(config) {
+    const cfg = config || {};
+    if (cfg.direct === false || !cfg.voiceModelId) return null;
+    let refs = null;
+    if (typeof cfg.instructionRefsProvider === 'function') {
+      try { refs = await cfg.instructionRefsProvider(); } catch (_) { refs = null; }
+    }
+    if (!refs || !refs.base) return null;
+    const knobs = await resolveKnobs(cfg);
+    let voiceName = GEMINI_LIVE_VOICES.has(cfg.voiceName) ? cfg.voiceName : DEFAULT_VOICE;
+    if (knobs && typeof knobs.voiceName === 'string' && GEMINI_LIVE_VOICES.has(knobs.voiceName)) voiceName = knobs.voiceName;
+    return prepBodyOf(cfg, refs, knobs, voiceName, cfg.mode === 'ptt');
+  }
+
+  global.LexVoiceGeminiLive = { create, heardText, directPrepBody };
 })(typeof self !== 'undefined' ? self : globalThis);

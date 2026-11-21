@@ -867,6 +867,12 @@
         if (voicePress.didFire()) return;
         hooks.onVoice({ mode: voiceMode });
       });
+      // Прямой режим: рука на кнопке голоса — рецепт разговора берётся
+      // сейчас, если его ещё нет (wc-voice.js warmDirect; без прямого режима
+      // ничего не спрашивается).
+      elVoice.addEventListener('pointerenter', () => {
+        try { if (global.WcVoice && typeof global.WcVoice.warmDirect === 'function') global.WcVoice.warmDirect(null, 0); } catch (_) {}
+      });
 
       autoGrow();
       syncButton();

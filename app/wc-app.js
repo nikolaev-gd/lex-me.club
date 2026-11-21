@@ -3153,6 +3153,10 @@
     // $0.0176 billed in balance_ledger, zero turns saved). The extension has a
     // settle window for the same reason.
     const said = new Map();   // itemId → { role, text, saved }
+    // Прямой разговор OpenAI (docs/spec/30-voice.md, «Прямой режим на
+    // устройстве»): реплики в таблицу пишет сервер по паре от страницы, под
+    // уидами из номера пары, — память беседы берёт те же (onVoiceUid).
+    const uidOf = new Map();  // itemId → 'voice:<pairId>-u|-a'
 
     function note(itemId, role, text) {
       const prev = said.get(itemId);
@@ -3168,7 +3172,7 @@
         // правило применяет серверный слушатель (он видит ровно эти события),
         // поэтому реплика в памяти беседы и строка, которую записал сервер, —
         // одна и та же, а не две при следующей загрузке беседы.
-        turns.push({ role: v.role, text: v.text, uid: 'voice:' + k });
+        turns.push({ role: v.role, text: v.text, uid: uidOf.get(k) || ('voice:' + k) });
         flushed.push(k);
       });
       if (!turns.length) return;
@@ -3230,6 +3234,7 @@
 
           // response.done — весь ход завершён, можно записывать. Строку хода
           // слушатель сервера пишет вслед за ответом — деньги перечитываются.
+          onVoiceUid: (id, uid) => { uidOf.set(id, uid); },
           onTurnDone: () => { flushExchange(); requestMoney({ settleMs: 10000 }); },
 
           // Toasted directly — same path as every other voice-start failure

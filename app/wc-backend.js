@@ -903,12 +903,106 @@
   // (lex-dictation-relay.js): открыть, переложить, закрыть, прибрать за
   // неудачным стартом. Здесь только своё: пропуск, адрес и доставка кадров по
   // шине страницы.
+  // ── Прямой режим (docs/spec/30-voice.md, «Прямой режим на устройстве») ──
+  //
+  // Тот же модуль, что в воркере расширения (lex-direct-mode.js): дверь
+  // ключей, рецепты, очередь отчётов. Воркера здесь нет, поэтому ключи
+  // поставщиков живут в памяти и хранилище страницы, а вызовы поставщиков
+  // идут из неё же (CORS: что поставщик странице не отдаёт, идёт путём через
+  // сервер — список в спецификации). Очередь — в хранилище страницы, вкладки
+  // делят её под замком (navigator.locks).
+  // Один запрос к серверу — не дольше 15 с (повисший сервер не держит
+  // очередь); нет пропуска — сбой связи, повтор позже, а не отказ сервера.
+  // Пропуск — не дольше 10 с (аренда записи очереди длиннее суммы).
+  const DIRECT_DOOR_TIMEOUT_MS = 15000;
+  const DIRECT_PASS_TIMEOUT_MS = 10000;
+  async function directDoor(url, body) {
+    let passTimer = null;
+    const token = await Promise.race([
+      A.validToken().catch(() => null),
+      new Promise((res) => { passTimer = setTimeout(() => res(null), DIRECT_PASS_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(passTimer));
+    if (!token) throw new Error('no pass yet');
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), DIRECT_DOOR_TIMEOUT_MS);
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { apikey: A.anonKey(), Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+        signal: ctl.signal,
+      });
+      return { status: resp.status, json: await resp.json().catch(() => ({})) };
+    } finally { clearTimeout(timer); }
+  }
+  // The account of the stored session — its owner, not «a valid pass now»:
+  // while the pass is being renewed after a network failure it is the same
+  // person, and the queue must not take that for a sign-out. The held
+  // key-door answer is this account's only.
+  async function directAccount() {
+    const s = A.session();
+    if (!s || !s.access_token) return null;
+    if (s.user && s.user.id) return s.user.id;
+    try { return JSON.parse(atob(s.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub || null; } catch (_) { return null; }
+  }
+  const directStore = {
+    get: (k) => WcStore.one(k, undefined),
+    set: (k, v) => WcStore.set({ [k]: v }),
+    remove: (k) => WcStore.remove([k]),
+  };
+  const directMode = global.LexDirectMode.create({
+    store: directStore,
+    call: (door, body) => directDoor(`${A.supabaseUrl()}/functions/v1/llm-proxy/${door}`, body),
+    voiceCmd: (body) => directDoor(`${A.supabaseUrl()}/functions/v1/voice-cmd`, body),
+    signedIn: async () => !!(await directAccount()),
+    account: directAccount,
+    lock: (global.navigator && navigator.locks && typeof navigator.locks.request === 'function')
+      ? (fn) => navigator.locks.request('lex-direct-queue', fn) : null,
+    // The recipes of this page's presses, fetched ahead (lex-direct-mode.js
+    // warm): the dictation — the same model and knobs the mic sends
+    // (wc-composer.js startRecording: readDictationKnobs, the model through
+    // the recognizer catalog, live or file by its row). Video audio is not
+    // transcribed on the page.
+    warm: async () => {
+      const dict = await readDictationKnobs().catch(() => ({ model: null, knobs: {} }));
+      const route = await global.LexDictationCatalog.route(dict.model, global.LexModelRegistry.defaultDictationModel);
+      const out = route.ok ? [{ kind: route.live ? 'dictation-live' : 'dictation', body: { model: route.model, knobs: dict.knobs || {} } }] : [];
+      // The voice: the bodies the page announced and pressed lately
+      // (wc-voice.js warmDirect, LexDirectMode.createVoiceCalls).
+      try { if (global.WcVoice && typeof global.WcVoice.directWarmList === 'function') out.push(...(await global.WcVoice.directWarmList())); } catch (_) {}
+      return out;
+    },
+    log: (l) => console.log(TAG, l),
+  });
+  // Другой человек вошёл или вышел (хранилище прошлого стёрто, wc-wipe.js) —
+  // память модуля читается заново. Узнаём его по владельцу сохранённой
+  // сессии; тот же человек с пропуском на обновлении — не смена.
+  async function directReady() {
+    directMode.seeAccount(await directAccount());
+    return directMode;
+  }
+  const directKick = () => { directReady().then((d) => d.ensure()).then(() => directMode.warm()).then(() => directMode.flush()).catch(() => {}); };
+  directKick();
+  try { document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') directKick(); }); } catch (_) {}
+  // A dictation setting changed (the owner's published set arrived, another
+  // tab wrote it) — the next press sends another body: its recipe now.
+  let directWarmTimer = null;
+  WcStore.subscribe((changes) => {
+    if (!changes || !Object.keys(changes).some((k) => /^knobDictation/.test(k))) return;
+    clearTimeout(directWarmTimer);
+    directWarmTimer = setTimeout(() => { directReady().then((d) => d.warm()).catch(() => {}); }, 300);
+  });
+  global.WcDirect = { ready: directReady, mode: directMode, store: directStore };
+
   const liveRelay = global.LexDictationRelay.create({
     token: () => A.validToken(),
     baseUrl: () => A.supabaseUrl(),
+    // Прямой режим: сокет к поставщику по рецепту; null — путь через сервер.
+    direct: async (config) => global.LexDirectProviders.liveDictation(await directReady(), config, { log: (l) => console.log(TAG, l) }),
     emit: (_ctx, msg) => WcBus.broadcast(msg),
     // Диктовка стоит денег — баланс на экране устарел.
     onFinal: () => WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' }),
+    log: (line) => console.log(TAG, line),
   });
   global.LexDictationRelay.TYPES.forEach((type) => {
     WcBus.on(type, async (m) => {
@@ -1019,6 +1113,18 @@
       durationMs: m.durationMs,
     }));
 
+    // Прямой режим: распознавалка — напрямую по рецепту, отчёт — очередью.
+    // Одна попытка; не вышло — тот же вызов путём через сервер ниже.
+    {
+      const d = await global.LexDirectProviders.dictateFile(await directReady(), {
+        model: apiModel, knobs: dict.knobs, blob: new Blob([bytes], { type: base }), base64: m.base64 || '', mime: base,
+        fileName: 'recording.' + ext, durationMs: m.durationMs,
+        tag: { sessionId, surface: 'standalone', pageType: 'text', videoId: convKey || null, chatKey: convKey || null },
+      });
+      // The provider's answer broke off after it began: no second job.
+      if (d && d.failed) throw new Error('Dictation failed: ' + (d.error || 'the answer broke off') + '. Try again.');
+      if (d) return { ok: true, text: d.text, direct: true };
+    }
     // Под-путь назван по действию человека: за ним и OpenAI, и Google, а
     // выбирает между ними сервер по имени модели.
     const resp = await core.proxyFetchMultipart('dictation', form, token);
@@ -1843,6 +1949,8 @@
   // выхода.
   WcBus.on('WC_SIGN_OUT', async () => {
     await A.signOut();
+    // Прямой режим: ключи поставщиков, рецепты и очередь отчётов — прочь.
+    try { await directMode.wipe(); } catch (_) {}
     try { await WcWipe.run('sign out'); } catch (err) { console.warn(TAG, 'wipe:', err && err.message); }
     sessionId = null;
     setOpen(null, []);

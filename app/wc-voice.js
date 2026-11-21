@@ -71,6 +71,13 @@
   let eventsSeen = null;
   let callId = null;
   let startedAt = 0;
+  // Прямой режим (docs/spec/30-voice.md, «Прямой режим на устройстве»):
+  // разговор OpenAI по рецепту настоящим ключом — SDP прямо в OpenAI, события
+  // и команды каналом данных, пары с расходом и отбой — серверу очередью.
+  // {callId, apiModel, maxOutputTokens, transcriptionModel, at, seq, turn,
+  //  doneIds, idleTimer, capTimer}
+  let direct = null;
+  let dc = null;
   let closed = true;
   let connecting = false;
   // Номер попытки старта. teardown() его сдвигает, и старт, который ждал
@@ -337,6 +344,11 @@
 
   function sendServerCmd(commands) {
     if (!callId) return Promise.resolve(null);
+    if (direct) {
+      if (!dc || dc.readyState !== 'open') return Promise.resolve({ ok: false, status: 0 });
+      try { for (const c of commands || []) dc.send(JSON.stringify(c)); } catch (e) { warn('dc send failed:', e && e.message); return Promise.resolve({ ok: false }); }
+      return Promise.resolve({ ok: true });
+    }
     return post('/functions/v1/voice-cmd', { callId, commands })
       .then((r) => {
         if (!r.ok) warn('voice-cmd relay failed:', r.status, r.json && r.json.error);
@@ -673,6 +685,187 @@
   // A news chat: the server adds the text of the item to the voice's instructions.
   let newsChat = false;
 
+  // ── Прямой режим: очередь звонка, канал данных, пары ───────────────────────
+  // Правила очереди звонка (начало → пары → отбой) — общие с воркером
+  // расширения (LexDirectMode.createVoiceCalls); сеанс — этого разговора.
+  let directCallsObj = null;
+  async function directCalls() {
+    const mode = global.WcDirect ? await global.WcDirect.ready() : null;
+    if (!mode || !global.LexDirectMode) return null;
+    if (!directCallsObj) {
+      directCallsObj = global.LexDirectMode.createVoiceCalls({
+        direct: mode, promptMeta, sessionFor: (ctx) => Promise.resolve(ctx && ctx.sessionId != null ? ctx.sessionId : null),
+        store: (global.WcDirect && global.WcDirect.store) || null, log,
+      });
+    }
+    return directCallsObj;
+  }
+
+  // Прямой режим: рецепт голоса — заранее (docs/spec/30-voice.md, «Прямой
+  // режим на устройстве»): страница открылась, сменились модель голоса,
+  // ручки, голос или промпт, рука на кнопке голоса. Тела — те же, что пошлёт
+  // нажатие (start ниже и startGemini строят их теми же шагами). Беседа
+  // рецепт не меняет (рецепт держится на виде чата), поэтому вместо ещё не
+  // заведённой беседы — ключ беседы с номером; и ещё тело беседы без номера
+  // (новая беседа: у нажатия videoId пуст) и тела чата новости — у каждого
+  // свой вид чата, промах по ним ждал бы двери до 2,5 с.
+  const WARM_CONV = '__lex_standalone__0';
+  async function directPrepBodies(opts) {
+    const o = opts || {};
+    const out = [];
+    // Первым — тело новой беседы без номера: его шлёт первое нажатие на
+    // только что открытой странице.
+    for (const convId of [null, o.conversationId || WARM_CONV]) {
+      for (const news of [false, true]) {
+        out.push(...(await directPrepBodiesOf(convId, news)));
+      }
+    }
+    return out;
+  }
+  async function directPrepBodiesOf(convId, news) {
+    const o = { newsChat: news };
+    const voiceModelId = await WcStore.one('activeVoiceModelId_' + SCOPE, defaultVoiceModel());
+    if (!voiceModelId) return [];
+    const knobs = await global.WcBackend.readKnobs();
+    const promptRefs = {
+      base: { scope: SCOPE, cell: 'chatPrompts', slot: await activeSlot('activeChatPromptId', 'chatB1') },
+      content: { scope: SCOPE, cell: 'contentTypePrompts', slot: 'text' },
+      voice: { scope: SCOPE, cell: 'voicePrompts', slot: await activeSlot('activeVoicePromptId', 'voice1') },
+    };
+    const provider = voiceProviderOf(voiceModelId);
+    if (provider === 'openai') {
+      const apiModel = resolveVoiceApiModel(voiceModelId);
+      if (/^gpt-live-/.test(String(apiModel || ''))) return [];
+      return [{
+        model: voiceModelId,
+        meta: { videoId: convId, surface: 'standalone', ...(o.newsChat ? { newsChat: true } : {}) },
+        promptRefs,
+        session: buildSessionConfig(apiModel, knobs.voiceName || 'marin', knobs),
+      }];
+    }
+    const Gemini = global.LexVoiceGeminiLive;
+    // Нажатие голоса Google на странице признака новости не шлёт (startGemini
+    // ниже) — и тела новости у него нет.
+    if (provider !== 'google' || news || !Gemini || typeof Gemini.directPrepBody !== 'function') return [];
+    const voiceMap = (await WcStore.one('voiceNamesByProvider_' + SCOPE, null)) || {};
+    const gemKnobs = Object.assign({}, knobs, { voiceName: voiceMap.google || 'Kore' });
+    const out = [];
+    for (const mode of ['voice', 'ptt']) {
+      const b = await Gemini.directPrepBody({
+        mode, voiceModelId, voiceApiModel: resolveVoiceApiModel(voiceModelId), surface: 'standalone',
+        videoIdProvider: () => convId, instructionRefsProvider: async () => promptRefs, knobsProvider: async () => gemKnobs,
+      });
+      if (b) out.push(b);
+    }
+    return out;
+  }
+  let directWarmTimer = null;
+  let directWarmAt = 0;
+  function warmDirect(opts, ms) {
+    if (ms === 0 && Date.now() - directWarmAt < 30000) return;
+    clearTimeout(directWarmTimer);
+    directWarmTimer = setTimeout(async () => {
+      directWarmAt = Date.now();
+      try {
+        const mode = global.WcDirect ? await global.WcDirect.ready() : null;
+        if (!mode) return;
+        await mode.ensure();
+        if (!mode.isDirect()) return;
+        const calls = await directCalls();
+        if (!calls) return;
+        for (const b of await directPrepBodies(opts)) await calls.warmVoice(b);
+      } catch (e) { log('direct warm: ' + (e && e.message)); }
+    }, ms == null ? 400 : ms);
+  }
+  async function directWarmList() {
+    const calls = await directCalls();
+    return calls ? calls.warmList() : [];
+  }
+  setTimeout(() => warmDirect(null, 400), 1500);
+  try {
+    WcStore.subscribe((changes) => {
+      if (changes && Object.keys(changes).some((k) => /voice|Voice|^knob|PromptId|Prompts/.test(k) && !/^lexDirect/.test(k))) warmDirect(null);
+    });
+  } catch (_) {}
+  function directTurnReset() {
+    if (direct) direct.turn = { userText: '', userItem: null, userEndedAt: null, asstText: '', asstItem: null };
+  }
+  function bumpDirectIdle() {
+    if (!direct) return;
+    if (direct.idleTimer) clearTimeout(direct.idleTimer);
+    direct.idleTimer = setTimeout(() => { log('direct: silence'); stop({ reason: 'silence' }); }, direct.idleMs);
+  }
+  function clearDirectTimers() {
+    if (!direct) return;
+    if (direct.idleTimer) clearTimeout(direct.idleTimer);
+    if (direct.capTimer) clearTimeout(direct.capTimer);
+    direct.idleTimer = direct.capTimer = null;
+  }
+  // Кадр канала данных: то, что у пути через сервер слушает и пишет
+  // слушатель на сервере, здесь копит страница — пара реплик хода с расходом.
+  function directNote(ev, dd) {
+    const d = dd || direct;
+    if (!d || !ev) return;
+    const t = d.turn;
+    switch (ev.type) {
+      case 'response.created':
+        if (ev.response && ev.response.id) d.open.add(ev.response.id);
+        break;
+      case 'input_audio_buffer.speech_started':
+        bumpDirectIdle();
+        break;
+      case 'input_audio_buffer.committed':
+        if (!t.userItem && ev.item_id) t.userItem = ev.item_id;
+        t.userEndedAt = performance.now();
+        bumpDirectIdle();
+        break;
+      case 'conversation.item.input_audio_transcription.completed':
+        if (ev.transcript) t.userText += (t.userText ? ' ' : '') + ev.transcript;
+        if (!t.userItem && ev.item_id) t.userItem = ev.item_id;
+        // Встроенная расшифровка — отдельный отчёт (у OpenAI она оплачивается
+        // отдельно от разговора).
+        if (ev.usage && ev.item_id && d.mode) {
+          d.mode.report({
+            kind: 'transcription', provider: 'openai', model: d.transcriptionModel || 'gpt-transcribe',
+            usage: ev.usage, callId: d.callId, itemId: ev.item_id, text: ev.transcript || null,
+            surface: 'standalone', chatKey: d.convId || null, videoId: d.convId || null, sessionId: d.sessionId,
+          });
+        }
+        break;
+      case 'response.output_audio_transcript.done':
+        if (ev.transcript) t.asstText += (t.asstText ? ' ' : '') + ev.transcript;
+        if (!t.asstItem && ev.item_id) t.asstItem = ev.item_id;
+        break;
+      case 'response.done': {
+        const rid = ev.response && ev.response.id;
+        if (rid) { d.open.delete(rid); if (d.doneIds.has(rid)) return; d.doneIds.add(rid); }
+        bumpDirectIdle();
+        const usage = ev.response && ev.response.usage ? global.LexDirectProviders.realtimeUsage(ev.response.usage) : null;
+        const userText = t.userText.trim();
+        const asstText = t.asstText.trim();
+        if (!userText && !asstText && !usage) break;
+        d.seq += 1;
+        const pairId = `${d.callId}-${d.seq}`;
+        // Уиды реплик в памяти беседы — те, что сервер чеканит из номера пары.
+        if (t.userItem && hooks.onVoiceUid) hooks.onVoiceUid(t.userItem, `voice:${pairId}-u`);
+        if (t.asstItem && hooks.onVoiceUid) hooks.onVoiceUid(t.asstItem, `voice:${pairId}-a`);
+        const now = performance.now();
+        const calls = d.calls;
+        if (calls) {
+          calls.enqueue(d.callId, { turn: {
+            id: pairId,
+            user: userText ? { text: userText, agoMs: t.userEndedAt != null ? Math.max(0, Math.round(now - t.userEndedAt)) : 0 } : null,
+            teacher: asstText ? { text: asstText, agoMs: 0 } : null,
+            usage, answered: !!usage,
+          } });
+        }
+        directTurnReset();
+        break;
+      }
+      default: break;
+    }
+  }
+
   async function start(opts) {
     newsChat = !!(opts && opts.newsChat);
     if (!closed || connecting) return;
@@ -779,13 +972,6 @@
         log,
       });
 
-      // NO createDataChannel — see the header. An m=application line in the
-      // offer is refused by the broker.
-      const offer = await pc.createOffer();
-      if (stale()) return;
-      await pc.setLocalDescription(offer);
-      if (stale()) return;
-
       const promptRefs = {
         base: { scope: SCOPE, cell: 'chatPrompts', slot: await activeSlot('activeChatPromptId', 'chatB1') },
         content: { scope: SCOPE, cell: 'contentTypePrompts', slot: 'text' },
@@ -805,6 +991,101 @@
         ...(knobs.voiceThinkingModel ? { thinkingModel: knobs.voiceThinkingModel } : {}),
         ...(Number.isFinite(knobs.voiceLiveTurnGapMs) ? { liveTurnGapMs: knobs.voiceLiveTurnGapMs } : {}),
       } : {};
+
+      // Прямой режим: рецепт разговора из памяти страницы (сервер не
+      // спрашивается, если рецепт есть). Не у gpt-live — у него счёт и
+      // думающая модель сервера.
+      let dcall = null;
+      if (!live && !(opts && opts.noDirect)) {
+        const calls = await directCalls();
+        const prep = calls ? await calls.prep({
+          model: voiceModelId,
+          meta: { videoId: (opts && opts.conversationId) || null, surface: 'standalone', ...(newsChat ? { newsChat: true } : {}) },
+          promptRefs,
+          session: buildSessionConfig(apiModel, voiceName, knobs),
+        }, { sessionId }).catch(() => null) : null;
+        if (stale()) return;
+        if (prep && prep.direct === true && prep.provider === 'openai') {
+          dcall = Object.assign({}, prep, { at: performance.now(), calls, sessionId, convId: (opts && opts.conversationId) || null });
+          log('direct: recipe held, call', prep.callId, 'prep', prep.prepMs, 'ms');
+        } else if (prep && prep.why) {
+          log('direct: not this time —', prep.why);
+        }
+      }
+      // Путь через сервер — NO createDataChannel, see the header: an
+      // m=application line in the offer is refused by the broker. Прямой путь
+      // — канал данных: события и команды идут по нему.
+      if (dcall) {
+        dc = pc.createDataChannel('oai-events');
+        dc.onmessage = (e) => {
+          let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
+          if (!ev) return;
+          directNote(ev);
+          handleServerEvent(ev);
+        };
+        dc.onopen = async () => {
+          const events = [];
+          // Переписка до разговора — из памяти открытой беседы (на пути через
+          // сервер её кладёт сервер).
+          try {
+            const r = await WcBus.call('WC_OPEN_TURNS', { conversationId: (opts && opts.conversationId) || null });
+            for (const t of (r && Array.isArray(r.turns)) ? r.turns : []) {
+              const text = t && (t.content || t.text);
+              if (!text || (t.role !== 'user' && t.role !== 'assistant')) continue;
+              const item = { type: 'message', role: t.role, content: [{ type: t.role === 'assistant' ? 'output_text' : 'input_text', text }] };
+              if (t.role === 'assistant') item.status = 'completed';
+              events.push({ type: 'conversation.item.create', item });
+            }
+          } catch (_) {}
+          if (Number(dcall.maxOutputTokens) > 0) {
+            events.push({ type: 'session.update', session: { type: 'realtime', max_output_tokens: Math.floor(Number(dcall.maxOutputTokens)) } });
+          }
+          for (const ev of events) { try { dc.send(JSON.stringify(ev)); } catch (_) {} }
+          log('direct: data channel open,', events.length, 'start event(s);', Math.round(performance.now() - dcall.at), 'ms after the press');
+        };
+      }
+      const offer = await pc.createOffer();
+      if (stale()) return;
+      await pc.setLocalDescription(offer);
+      if (stale()) return;
+
+      if (dcall) {
+        const held = dcall.calls.of(dcall.callId);
+        const res = held ? await global.LexDirectProviders.openaiCall(held.recipe, held.slots, offer.sdp) : { ok: false, error: 'no direct call' };
+        if (stale()) return;
+        if (res.ok) {
+          callId = dcall.callId;
+          startedAt = Date.now();
+          closed = false;
+          direct = {
+            callId, apiModel: dcall.apiModel, transcriptionModel: dcall.transcriptionModel, at: dcall.at,
+            seq: 0, turn: null, doneIds: new Set(), open: new Set(), idleTimer: null, capTimer: null,
+            idleMs: (Number(knobs.voiceIdleTimeoutSec) || 60) * 1000,
+            mode: global.WcDirect.mode, calls: dcall.calls, sessionId, convId: dcall.convId,
+          };
+          directTurnReset();
+          if (hooks.onStage) hooks.onStage('negotiating');
+          await pc.setRemoteDescription({ type: 'answer', sdp: res.answerSdp });
+          if (stale()) return;
+          dcall.calls.started(callId, { sessionId });
+          bumpDirectIdle();
+          direct.capTimer = setTimeout(() => { log('direct: time cap'); stop({ reason: 'time_cap' }); }, 5 * 60 * 1000);
+          connecting = false;
+          startGreetingWait();
+          if (hooks.onConnected) hooks.onConnected({ callId, apiModel: dcall.apiModel });
+          sessionUp = true;
+          announceReady();
+          log('direct: connected', callId, 'answer in', res.ms, 'ms;', Math.round(performance.now() - dcall.at), 'ms after the press');
+          return { callId };
+        }
+        // Одна попытка: след сбоя — серверу, тот же разговор — прежним путём,
+        // с новым соединением без канала данных.
+        warn('direct: OpenAI did not take the call (' + (res.status || res.error) + ') — through the server');
+        dcall.calls.failed({ callId: dcall.callId, provider: 'openai', model: voiceModelId, error: res.error || 'no answer',
+          httpStatus: res.status, totalMs: Math.round(performance.now() - dcall.at) });
+        await teardown();
+        return start(Object.assign({}, opts, { noDirect: true }));
+      }
       const открыть = (sid) => post('/functions/v1/llm-proxy/voice-sdp-openai', {
         model: voiceModelId,
         sdp: offer.sdp,
@@ -1006,6 +1287,16 @@
     kind: 'page',
     async send(msg) {
       try {
+        // Прямой режим (голос Google по рецепту): те же правила, что у
+        // воркера расширения.
+        if (msg.type === 'LEX_DIRECT_VOICE_PREP') {
+          const calls = await directCalls();
+          return calls ? await calls.prep(msg, gemSession) : { direct: false, why: 'no_direct_module' };
+        }
+        if (msg.type === 'VOICE_CMD' && global.LexDirectMode && global.LexDirectMode.isDirectCallId(msg.callId)) {
+          const calls = await directCalls();
+          return calls ? calls.voiceCmd(msg) : { ok: false };
+        }
         if (msg.type === 'VOICE_TOKEN_GEMINI') {
           const meta0 = msg.meta || {};
           const r = await post('/functions/v1/llm-proxy/voice-token-gemini', {
@@ -1052,6 +1343,10 @@
       return null;
     },
     post(msg) {
+      if (msg.type === 'LEX_DIRECT_VOICE_STARTED') { directCalls().then((c) => c && c.started(msg.callId, gemSession)); return; }
+      if (msg.type === 'LEX_DIRECT_VOICE_FAILED') { directCalls().then((c) => c && c.failed(msg)); return; }
+      // Прямой разговор отчитывается парами и отбоем — отчёта о сеансе нет.
+      if (msg.type === 'VOICE_SESSION_END' && global.LexDirectMode && global.LexDirectMode.isDirectCallId(msg.callId)) return;
       if (msg.type === 'VOICE_CMD') { this.send(msg); return; }
       if (msg.type === 'VOICE_SESSION_END' && msg.callId) {
         // Отчёт о конце: закрывает строку разговора, если отбой не дошёл, и
@@ -1075,6 +1370,28 @@
       // сервер по парам.
     },
     connect() { return null; },
+    // Сокет голоса Google в прямом режиме: настоящий ключ — в адресе, первый
+    // кадр (настройка разговора) — из рецепта, без изменений. Воркера у
+    // страницы нет, сокет держит она сама.
+    directSocket(id) {
+      const c = directCallsObj && directCallsObj.of(id);
+      const url = c ? global.LexDirectMode.fill(c.recipe.connect.url, c.slots) : 'wss://invalid.invalid/';
+      const ws = new WebSocket(url);
+      const sock = {
+        get readyState() { return ws.readyState; },
+        onopen: null, onmessage: null, onerror: null, onclose: null,
+        send: (t) => ws.send(t),
+        close: (code) => ws.close(code || 1000),
+      };
+      ws.onopen = (e) => {
+        try { if (c && c.recipe.connect.firstFrame) ws.send(JSON.stringify(c.recipe.connect.firstFrame)); } catch (_) {}
+        if (sock.onopen) sock.onopen(e);
+      };
+      ws.onmessage = (e) => { if (sock.onmessage) sock.onmessage(e); };
+      ws.onerror = (e) => { if (sock.onerror) sock.onerror(e); };
+      ws.onclose = (e) => { if (sock.onclose) sock.onclose(e); };
+      return sock;
+    },
     };
   }
 
@@ -1330,9 +1647,45 @@
     // разговора, а не нового.
     const endingHooks = hooks;
     const endingTurns = state.turns;
+    const endingDirect = direct;
+    // A direct call hung up while a reply is still being spoken: nobody on
+    // the server hears that reply, and its usage comes only over the data
+    // channel. OpenAI is told to stop it (response.cancel — its response.done
+    // with the usage so far follows quickly); the connection is taken out of
+    // teardown's hands and kept, mute (microphone and sound go now), until
+    // that response.done is noted as this call's pair — or 4 s pass. The end
+    // goes to the queue after it.
+    let lingering = null;
+    if (endingDirect && dc && dc.readyState === 'open' && endingDirect.open.size > 0) {
+      const keptDc = dc, keptPc = pc;
+      try { keptDc.send(JSON.stringify({ type: 'response.cancel' })); } catch (_) {}
+      dc = null; pc = null;
+      lingering = new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(cap);
+          try { keptDc.close(); } catch (_) {}
+          try { keptPc.close(); } catch (_) {}
+          resolve();
+        };
+        const cap = setTimeout(done, 4000);
+        keptDc.onmessage = (e) => {
+          let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
+          directNote(ev, endingDirect);
+          if (ev && ev.type === 'response.done' && endingDirect.open.size === 0) done();
+        };
+      });
+      log('direct: hang-up mid-reply — the connection waits for its response.done');
+    }
     await teardown();
     const myEnd = attempt;
-    if (SERVER_GONE.has(reason)) {
+    if (endingDirect && endingCallId) {
+      // Прямой разговор: отбой — в очередь, за парами этого звонка.
+      const named = ['silence', 'time_cap'].indexOf(reason) >= 0 ? reason : null;
+      if (endingDirect.calls) {
+        if (lingering) lingering.then(() => endingDirect.calls.end(endingCallId, named));
+        else endingDirect.calls.end(endingCallId, named);
+      }
+    } else if (SERVER_GONE.has(reason)) {
       // Разговор кончился, потому что сервер перестал его подтверждать. Ждать
       // его ответа на отбой нельзя: запрос к повисшему серверу не отвечает
       // вовсе, и надпись «сервер перестал подтверждать» человек увидел бы
@@ -1365,6 +1718,10 @@
   async function teardown() {
     closed = true;
     stopPresenceBeat();
+    clearDirectTimers();
+    direct = null;
+    try { if (dc) dc.close(); } catch (_) {}
+    dc = null;
     // Слежку — до того, как дорожки гасятся здесь же: свой stop() события
     // 'ended' не даёт, но и ловить после сноса нечего.
     if (micWatch) { micWatch.stop(); micWatch = null; }
@@ -1399,6 +1756,9 @@
   }
 
   const WcVoice = {
+    // Прямой режим: рецепт голоса заранее (см. warmDirect выше).
+    warmDirect,
+    directWarmList,
     // The capability answer for THIS surface. Deliberately not the flag in
     // web/lex-platform-web.js: that one gates the older web build's buttons,
     // and flipping it would light up controls there that have no handlers

@@ -170,9 +170,17 @@
     // Номер звонка пришёл от сервера: связь его запоминает, пульс заводится
     // СРАЗУ — срок на сервере взводится первым ударом, и дыра между ним и
     // вторым не должна быть длиннее порога.
-    function setCallId(id) {
+    // Прямой разговор (opts.direct, номер dv-<uuid>, docs/spec/30-voice.md,
+    // «Прямой режим на устройстве»): сервер не стоит между устройством и
+    // поставщиком, пульса и правила «сервер молчит — разговор кончается» у
+    // него нет. Пары и отбой уходят тем же путём (VOICE_CMD), а розетка кладёт
+    // их в очередь отчётов и отвечает сразу.
+    let direct = false;
+    function setCallId(id, opts) {
       callId = id || null;
+      direct = !!(opts && opts.direct);
       if (link && callId) { try { link.postMessage({ callId }); } catch (_) {} }
+      if (direct) return;
       if (callId) startPresence();
     }
 
@@ -322,6 +330,7 @@
       sendCommands, sendSaid, sendTurn, drained, endedByServer,
       get linkId() { return linkId; },
       get callId() { return callId; },
+      get direct() { return direct; },
       get linkOpen() { return !!link; },
     };
   }
