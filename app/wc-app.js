@@ -1646,8 +1646,8 @@
       && JSON.stringify((d && d.reply) || null) === JSON.stringify(replyOfField());
     if (!same) fillField(d);
   }
-  // The empty field has no words (LexComposerBox.hint), except where it takes no text: a group and a chat
-  // in no folder say so and take no typing.
+  // The empty field has no words (LexComposerBox.hint), except where it takes no text: a chat in no folder
+  // says so and takes no typing (a group in a folder takes text, 21.11.2026).
   function paintAddressee() {
     const B = global.LexComposerBox;
     if (!B || typeof WcComposer.setHint !== 'function') return;
@@ -1957,9 +1957,10 @@
   // ── Folders of chats: Kolya, Other ────────────────────────────────────────
   // The list of a folder is lex-folders.js; a chat of it is drawn by the order chat object of
   // lex-profi.js (createChat with folder): the person's messages from every messenger, Gennady's,
-  // the marks of the messengers, files. There is no model in it: Send gives the text to the
+  // the marks of the messengers, files, and the assistant in correspondence: Send gives the text to the
   // database, which sends it where the person wrote last (the edge function folder-send). A group
-  // has Send by a hold of the arrow where the database sends to the groups of its messenger. The chat lives in the same place as an order chat (profiChat).
+  // talks with the model as a person's chat (21.11.2026); its boxes and a hold of the arrow send into it where the
+  // database sends to the groups of its messenger. The chat lives in the same place as an order chat (profiChat).
   function buildFolder(id) {
     return global.LexFolders.createSection({
       folder: SECTIONS[id].folder,
@@ -1980,9 +1981,9 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      // The chat of a person talks with the assistant in correspondence: it opens clean, as an order chat.
+      // The chat of a person or a group talks with the assistant in correspondence: it opens clean, as an order chat.
       onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
-      clean: data && data.kind === 'person',
+      clean: data && (data.kind === 'person' || data.kind === 'group'),
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
       showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
@@ -2086,11 +2087,12 @@
   // Send in a chat of a folder: the text goes to the database for the person (folder-send), which
   // sends it where he wrote last, or to the messenger of the message it answers; it stands under the
   // last message until it went. true — the server took it.
+  const GROUP_REFUSAL = 'Lex does not write to groups: answer in the messenger.';
   async function sendToFolder(chat, text, quoteUid) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return false;
     if (!chat.data.send) {
-      toast(chat.data.kind === 'group' ? 'Lex does not write to groups: answer in the messenger.' : 'This chat takes no messages now.', { error: true });
+      toast(chat.data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.', { error: true });
       return false;
     }
     let out;
@@ -2113,6 +2115,11 @@
   // state of its send (lex_folder_windows_json). Word for word what the box holds. → { state, channel } | null.
   async function sendFolderBox(chat, win) {
     if (!chat || !chat.data || !win || !win.id || !String(win.text || '').trim()) return null;
+    // A group the database does not send into (2026-11-21): the box stands, its Send says why and sends nothing.
+    if (!chat.data.send) {
+      toast(chat.data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.', { error: true });
+      return null;
+    }
     const tries = win.press ? (Number(String(win.press).split(':')[2]) || 1) + 1 : 1;
     let out;
     try {
@@ -2436,22 +2443,18 @@
       await sendWhois(chat0, key0, text, reply0);
       return;
     }
-    // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the
-    // text to the person goes by a hold of the arrow, sendMenu, or from a box). A group the database does not send
-    // to and a chat in no folder take no text (the field is locked); a preset has no place here. A group it sends
-    // to has no model: a tap sends nothing, the words stay in the field and say to hold the arrow.
+    // A chat of a folder: the chat of a person or of a group talks with the assistant in correspondence, as an order
+    // chat (the text to the person or the group goes by a hold of the arrow, sendMenu, or from a box; Gennady,
+    // 21.11.2026: a group too). A chat in no folder takes no text (the field is locked); a preset has no place here.
     if (profiChat && profiChat.folder && (opts && opts.mode)) {
       toast('Presets are not in the chats of folders.', { error: true });
       return;
     }
-    if (profiChat && profiChat.folder && (!profiChat.data || !profiChat.data.send)) {
+    // A group in a folder talks with the model even where the database does not send into it.
+    if (profiChat && profiChat.folder && (!profiChat.data
+        || (!profiChat.data.send && !(profiChat.data.kind === 'group' && profiChat.data.folder)))) {
       giveBack(key0, text || '', reply0);
-      toast(profiChat.data && profiChat.data.kind === 'group' ? 'Lex does not write to groups: answer in the messenger.' : 'This chat takes no messages now.', { error: true });
-      return;
-    }
-    if (profiChat && profiChat.folder && profiChat.data.kind === 'group') {
-      giveBack(key0, text || '', reply0);
-      toast(`Hold the arrow to send to the group ${profiChat.data.title || ''}`.trim() + '.', { error: true });
+      toast(profiChat.data && profiChat.data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.', { error: true });
       return;
     }
     // The chat on the screen came from this device's copy: the turn goes once the server's answer

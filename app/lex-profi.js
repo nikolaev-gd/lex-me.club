@@ -357,12 +357,16 @@
 
   // What a box says under it about where it stands: the server's state of the box in words.
   // who — whom the text went to: the client of an order, the person of a folder chat.
-  function stateLine(win, who = 'the client') {
+  // group — the title of the group of a folder chat: the lines name it («Sent to the group <title> in Telegram.»).
+  function stateLine(win, who = 'the client', group = null) {
+    const g = group != null ? `the group ${group}`.trim() : null;
     switch (win.state) {
       case 'scheduled': return global.LexSendLater.scheduledLine(win.sendAt);
-      case 'queued': return sendingLine(win.channel);
+      case 'queued': return sendingLine(win.channel, group);
       case 'sent': return win.channel ? `Sent to ${who} in ${placeName(win.channel)}.` : `Sent to ${who}.`;
-      case 'failed': return `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`.trim();
+      case 'failed': return g
+        ? `Not sent to ${g}${win.channel ? ` in ${placeName(win.channel)}` : ''}. ${win.error || ''}`.trim()
+        : `Not sent${win.channel ? ` to ${placeName(win.channel)}` : ''}. ${win.error || ''}`.trim();
       case 'unknown':
         return win.channel
           ? `${placeName(win.channel)} did not confirm it. Look at the chat there: Lex will not send it again. ${win.error || ''}`
@@ -413,8 +417,10 @@
       const to = win.to || deps.replyTo || null;
       const name = firstName(deps.client);
       const again = open && win.state === 'failed';
-      const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : name ? `Hold to send to ${name}` : 'Hold to send';
-      const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${name || (deps.folder ? 'the person' : 'the client')} on ${placeName(to)}. Hold to send`;
+      // The chat of a group names the whole group, the same words as the menu of the held arrow (2026-11-21).
+      const group = deps.group != null ? `the group ${deps.group}`.trim() : null;
+      const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : group ? `Hold to send to ${group}` : name ? `Hold to send to ${name}` : 'Hold to send';
+      const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${group || name || (deps.folder ? 'the person' : 'the client')} on ${placeName(to)}. Hold to send`;
       // «⋯» of a box of the model: the same box at a time, or its words changed in the box (Edit). A box of a
       // folder chat goes at once (the queue of the database sends at once): Edit only.
       const editItem = onEdit ? { label: 'Edit', icon: 'pencil', run: () => onEdit() } : null;
@@ -436,9 +442,9 @@
       const sendFolderBox = async (send) => {
         note.textContent = 'Sending…';
         const r = typeof deps.sendBox === 'function' ? await deps.sendBox(win) : null;
-        if (!r) { send.disabled = false; note.textContent = stateLine(win, 'the person'); return; }
+        if (!r) { send.disabled = false; note.textContent = stateLine(win, boxWho(deps), deps.group); return; }
         deps.refresh();
-        note.textContent = r.state === 'queued' || r.state === 'sending' ? sendingLine(r.channel) : '';
+        note.textContent = r.state === 'queued' || r.state === 'sending' ? sendingLine(r.channel, deps.group) : '';
       };
       const { send, more } = global.LexMessage.sendHold({
         channel: to || 'profi', words, label, fit: !!win.direct, items,
@@ -458,7 +464,7 @@
       if (more) foot.appendChild(more);
     }
     if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
-    note.textContent = stateLine(win, deps.folder ? 'the person' : 'the client');
+    note.textContent = stateLine(win, boxWho(deps), deps.group);
     if (!foot.childElementCount) foot.hidden = true;
     return { foot, note };
   }
@@ -686,8 +692,15 @@
     return root;
   }
 
-  function sendingLine(ch) {
+  function sendingLine(ch, group = null) {
+    if (group != null) return `Sending to the group ${group}`.trim() + (ch ? ` in ${placeName(ch)}` : '') + '…';
     return ch ? `Sending to ${placeName(ch)}…` : 'The monitor is sending it.';
+  }
+
+  // Whom a box of a chat sends to, as its lines name it: the client of an order, the person or the group of a folder.
+  function boxWho(deps) {
+    if (deps.group != null) return `the group ${deps.group}`.trim();
+    return deps.folder ? 'the person' : 'the client';
   }
 
   function strokeIcon(paths, size) {
@@ -784,10 +797,11 @@
   // messages, with no order over them. The person's chat has the model, the assistant in correspondence
   // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by sendBox(win) → { state,
   // channel } | null; holding the arrow, sendText(text, quoteUid) → true once the server took the text for the
-  // person (the edge function folder-send). A group has no model: a tap sends nothing there; holding the arrow
-  // sends the text to the group itself, where the database of Gennady sends to the groups of that messenger
-  // (data.send, folder_group_send.sql) — the menu and the line under the text name the group, for every member
-  // of it reads the text (Gennady, 20.11.2026).
+  // person (the edge function folder-send). The chat of a group is the same (Gennady, 21.11.2026): a tap goes to
+  // the model, its boxes and holding the arrow send into the group itself, where the database of Gennady sends to
+  // the groups of that messenger (data.send, folder_group_send.sql) — the menu, the box and the lines under the text
+  // name the group, for every member of it reads the text (Gennady, 20.11.2026). Where it does not send, the model
+  // still works and a send into the group answers why (webchat/wc-app.js, sendToFolder, sendFolderBox).
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
@@ -802,7 +816,9 @@
     const edits = new Map();
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, notify: deps.notify,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
-      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits });
+      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits,
+      // the chat of a group: its whole title names where a box goes (every member reads it)
+      group: folder && data && data.kind === 'group' ? String(data.title || data.client || '').trim() : null });
     // The runs of the hidden discussion the person brought back with Show, while the chat is open.
     const revealed = new Set();
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
@@ -1613,14 +1629,16 @@
         host.hidden = !nodes.length;
       },
 
-      // Does the field of this chat take text (LexComposerBox.hint, .locked). An order chat and the chat of a
-      // person in a folder do (a tap goes to Lex, a hold to the client or the person — the rule of sendMenu
-      // below); a group the database sends to does too (a hold only: no model there). A group it does not send
-      // to and a chat in no folder do not.
+      // Does the field of this chat take text (LexComposerBox.hint, .locked). An order chat, the chat of a person
+      // and the chat of a group in a folder do (a tap goes to Lex, a hold to the client, the person or the group —
+      // the rule of sendMenu below). A chat in no folder does not.
       addressee() {
         // A task chat of an agent: no Send to a person (the server says send: false), but the field is open — its words
-        // go to the agent (wc-app.js sendToAgent).
-        if (folder && data && !data.send && data.kind !== 'agent') return { to: data.kind === 'group' ? 'group' : 'closed' };
+        // go to the agent (wc-app.js sendToAgent). A group in a folder takes text too (2026-11-21): its words go to the
+        // model, only the send into it may be closed.
+        if (folder && data && !data.send && data.kind !== 'agent' && !(data.kind === 'group' && data.folder)) {
+          return { to: data.kind === 'group' ? 'group' : 'closed' };
+        }
         return { to: 'order' };
       },
 
@@ -1653,7 +1671,8 @@
         // group the database does not send to — none. A group it sends to: the head and the item name the group,
         // every member of it reads the text.
         if (folder) {
-          if (!data.send || typeof deps.sendText !== 'function') return null;
+          // A group Lex does not send into keeps the menu: its item answers why (sendText refuses, 2026-11-21).
+          if (typeof deps.sendText !== 'function' || (!data.send && data.kind !== 'group')) return null;
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
           const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
           if (data.kind === 'group') {
@@ -1810,8 +1829,8 @@
           return link;
         };
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
-        // wrote by last (a group: its own); the clean view for a person (the talk with the assistant), none
-        // for a group (no model there); no card yet (it opens from an order chat).
+        // wrote by last (a group: its own); the clean view (the talk with the assistant) for both; no card yet
+        // (it opens from an order chat).
         // A task chat of an agent: its title, the agent's name under it; nothing to open, no clean view.
         if (folder) {
           const name = (data && (data.client || data.title)) || 'Chat';
@@ -1823,7 +1842,7 @@
           person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);
           // «Who is this» (В7.52): the words the entry of the database brought (folder_open `brief`); no card to
           // open from a chat of a folder yet, so the line is not pressed.
-          return { person, link: data && data.kind === 'person' ? cleanButton() : null, open: null, who: name,
+          return { person, link: data && (data.kind === 'person' || data.kind === 'group') ? cleanButton() : null, open: null, who: name,
             brief: M.brief(data && data.brief) };
         }
         const who = (data && data.client) || 'Client';
