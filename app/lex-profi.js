@@ -170,6 +170,35 @@
     return s.replace(/\n{3,}/g, '\n\n').trim();
   }
 
+  // The digest of the file of a message (21.11.2026, the agent «Разбор вложений» of the database): `look.attachment`
+  // {state, text, kind, media, reason, main, at}. `ready` — its Markdown stands under the file instead of what the
+  // database read off the file; `merged` — the message was read together with `main` (an album): it shows only its
+  // own words; `working`, `failed`, `silent` and no field — the message as before. → { text, media } or null.
+  function digestOf(look) {
+    const a = look && typeof look.attachment === 'object' ? look.attachment : null;
+    if (!a) return null;
+    const media = typeof a.media === 'string' ? a.media : '';
+    if (a.state === 'ready' && typeof a.text === 'string' && a.text.trim()) return { text: a.text.trim(), media };
+    if (a.state === 'merged') return { text: '', media };
+    return null;
+  }
+
+  // The person's own words of a message whose file the digest reads (as `ownWords` in ProfiView.swift): what the
+  // database put there about the file goes — the marks of the file, the text read off a photo (it stands at the end,
+  // «[фото, текст на нём: …]», as the agent cuts it), the text of a document, and all of a voice message, a video note
+  // or a video (its words are what was said in it). What is left is the caption the person wrote.
+  function ownWords(text, digest, files) {
+    if (/^(voice|audio|video)$/.test(digest.media) || files.some((f) => /^(voice|audio|video)$/.test(f.kind))) return '';
+    let s = String(text || '')
+      .replace(/\[фото, текст на нём: [\s\S]*$/, '')
+      .replace(/\[(текст файла|полный текст документа[^\]\n]*)\][\s\S]*$/, '')
+      .replace(/\[документ к сообщению №[^\]\n]*\][\s\S]*$/, '');
+    s = withoutFileMarks(s, files.length ? files : [{ kind: digest.media === 'image' ? 'image' : 'file' }]);
+    return s.replace(/\[фото(, текста на нём нет|, текст с картинки не прочитан)?\][ \t]*/g, '')
+      .replace(/^\[(файл|текста в файле нет|текста нет)[^\]\n]*\][ \t]*/gm, '')
+      .replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   // What the parts need to show the stored files (LexMessage.files): one for the order chats and the
   // chats of Lex — LexFileAttach.webIo (lex-file-attach.js).
   const fileIo = global.LexFileAttach.webIo;
@@ -738,6 +767,21 @@
     return words;
   }
 
+  // The words of a message with the digest of its file (digestOf): { own, digest } — the person's own words and the
+  // Markdown of the digest ('' — none); without a digest `own` is wordsOf(t). The quote and Copy take both.
+  function partsOf(t, look) {
+    const digest = digestOf(look);
+    if (!digest) return { own: wordsOf(t), digest: '' };
+    const out = t.origin === 'profi_sent' || t.origin === 'folder_out';
+    const shots = !out ? photosOf(t.attachments) : [];
+    const text = shots.length ? withoutPhotoLinks(t.text, shots) : String(t.text || '');
+    return { own: ownWords(text, digest, storedFilesOf(t.attachments)), digest: digest.text };
+  }
+  const shownWords = (t, look) => {
+    const p = partsOf(t, look);
+    return [p.own, p.digest].filter(Boolean).join('\n\n');
+  };
+
   // What a quote says of a message the screen has (В7.35), while the server has not said it yet: the
   // draft of an answer still being written names the message it answers by its short number (the
   // attribute `reply_to` of <client_text>, profi_message_looks.sql); the window of the box brings the
@@ -753,7 +797,7 @@
     const author = typeof look.author === 'string' && look.author.trim() ? look.author.trim() : null;
     return {
       uid: String(t.uid || ''), who: mine ? 'me' : 'client', name: mine ? null : (author || client || null),
-      text: look.sticker ? (look.sticker.emoji || '') : wordsOf(t), kind,
+      text: look.sticker ? (look.sticker.emoji || '') : shownWords(t, look), kind,
       seconds: (voice || video || {}).duration || null,
       photo: photo ? (photo.path ? { path: photo.path } : { url: photo.url }) : null,
     };
@@ -1016,7 +1060,10 @@
             // (chat_files.sql) stand there too: a photo, a voice message, a video, a document.
             const shots = !out ? photosOf(t.attachments) : [];
             const stored = M.files ? storedFilesOf(t.attachments) : [];
-            const words = wordsOf(t);
+            // The digest of the file (look.attachment, digestOf): under the file the person's own words, then the
+            // digest in Markdown, instead of what the database read off the file.
+            const said = partsOf(t, look);
+            const words = said.own;
             const parts = [shots.length && M.photos ? M.photos(shots) : null, stored.length ? M.files(stored, fileIo) : null]
               .filter(Boolean);
             let media = parts[0] || null;
@@ -1030,12 +1077,12 @@
             node = M.bubble({ side: out ? 'out' : 'in', media,
               // A group of a folder: the name of who wrote over his message, as Telegram has it.
               label: folder && !out && typeof look.author === 'string' && look.author.trim() ? look.author.trim() : null,
-              body: linkedText(make('div', '', ''), words),
+              body: said.digest ? M.digest(words, said.digest) : linkedText(make('div', '', ''), words),
               // «Forwarded from <name>»; `forwarded` alone — the author is not known (WhatsApp): «Forwarded».
               forwarded: typeof look.forwardedFrom === 'string' && look.forwardedFrom.trim() ? look.forwardedFrom.trim()
                 : look.forwarded === true ? true : null,
               quote,
-              big: !media && M.emojiOnly(words),
+              big: !media && !said.digest && M.emojiOnly(words),
               reactions: M.reactions(look.reactions, { client: data && data.client }),
               after: edited && earlierOpen.has(uid) ? M.earlier(look.edits) : null,
               faded: !!look.deletedAt,
@@ -1303,7 +1350,7 @@
           side: out ? 'out' : 'in',
           text: () => {
             const look = lookOf(uid);
-            return look.sticker ? (look.sticker.emoji || 'Sticker') : wordsOf(t);
+            return look.sticker ? (look.sticker.emoji || 'Sticker') : shownWords(t, look);
           },
           body: face.querySelector('.lex-bubble-text') || face,
           who: () => {
@@ -2582,5 +2629,5 @@
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
   global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode, busyNode, busyCommand,
-    storedFilesOf, withoutFileMarks, EDIT_CHANNELS };
+    storedFilesOf, withoutFileMarks, digestOf, ownWords, EDIT_CHANNELS };
 })(typeof window !== 'undefined' ? window : globalThis);

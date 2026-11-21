@@ -58,6 +58,10 @@
 //                       photos without words has no line of text
 //   bubble({ …, copy })   `copy` → Promise<bool>: a Copy mark inside, top right, the text flows
 //                       round it (В7.22); a tick for 1,5 s once it copied
+//   digest(words, markdown)   the text of a bubble whose file the database read (В7.21, 21.11.2026, the
+//                       agent «Разбор вложений»): the person's own words as any text, then the digest in
+//                       Markdown (WcMarkdown: lists, tables, bold, strikethrough); a wide table scrolls
+//                       sideways inside the bubble. → a node for `body` of bubble()
 //   bubble({ side: 'out', tone: 'draft', text, copy })   a draft for the client (В7.20): what went
 //                       to the client with a dashed edge inside; no line under the text
 //   editField({ value, label, onInput, onKey })   the words of a bubble as a field in the same bubble
@@ -2170,6 +2174,27 @@
   const EMOJI_SELF = /\p{Emoji_Presentation}/u;
   const EMOJI_ANY = /\p{Emoji}/u;
   let graphemes = null;
+  // The text of a bubble with the digest of its file (В7.21): the person's words over a hairline, the digest under it.
+  // The digest is Markdown the database wrote; it is built into nodes, never into HTML (wc-markdown.js). Without the
+  // Markdown module (the extension has no chats of people) the digest stands as plain text.
+  function digest(words, markdown) {
+    const body = make('div', 'lex-bubble-text has-digest');
+    if (words) body.appendChild(global.LexLinks.into(make('div', 'lex-digest-words'), words));
+    const md = make('div', `lex-digest${words ? ' is-after' : ''}`);
+    // The digest is written in Russian: the language lets a narrow table cell break a long word at a syllable.
+    md.lang = 'ru';
+    const W = global.WcMarkdown;
+    if (W && typeof W.into === 'function') W.into(md, markdown); else md.textContent = markdown;
+    // A table wraps its words to the width of the bubble first; what is still wider scrolls in its own box.
+    for (const table of md.querySelectorAll('table')) {
+      const box = make('div', 'lex-digest-table');
+      table.replaceWith(box);
+      box.appendChild(table);
+    }
+    body.appendChild(md);
+    return body;
+  }
+
   function emojiOnly(text) {
     const s = String(text || '').replace(/\s+/g, '');
     if (!s) return false;
@@ -2817,7 +2842,7 @@
 
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
-    CHANNELS, channel, channelName, stamp, bubble, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
+    CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };

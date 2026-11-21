@@ -347,6 +347,41 @@
   -webkit-user-select: text;
   user-select: text;
 }
+/* The digest of the file of a message (В7.21, 21.11.2026): the person's own words as any text, a hairline across the
+ * bubble as under an earlier text (В7.39), then the digest the database wrote in Markdown — paragraphs and lists 8
+ * apart, a table 14 with cells 4 8 and a hairline grid; a table wider than the bubble scrolls sideways inside it and
+ * never widens the bubble past its 86 %. Without words of the person there is no line. */
+.lex-bubble .lex-bubble-text.has-digest { white-space: normal; overflow-wrap: break-word; }
+.lex-bubble .lex-digest-words { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-bubble .lex-digest { min-width: 0; }
+.lex-bubble .lex-digest.is-after::before {
+  content: ''; display: block; height: 1px; margin: 6px -12px 6px; background: var(--line, var(--lex-plate));
+}
+.lex-bubble .lex-digest > :first-child { margin-top: 0; }
+.lex-bubble .lex-digest > :last-child { margin-bottom: 0; }
+.lex-bubble .lex-digest p { margin: 0 0 8px; }
+.lex-bubble .lex-digest ul, .lex-bubble .lex-digest ol { margin: 0 0 8px; padding-left: 20px; }
+.lex-bubble .lex-digest li { margin: 2px 0; }
+.lex-bubble .lex-digest h1, .lex-bubble .lex-digest h2, .lex-bubble .lex-digest h3 { margin: 0 0 8px; font-size: inherit; font-weight: 650; }
+.lex-bubble .lex-digest code { padding: 0 4px; border-radius: 6px; background: var(--lex-plate); font-size: 14px; overflow-wrap: anywhere; }
+.lex-bubble .lex-digest pre { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--lex-plate); overflow-x: auto; }
+.lex-bubble .lex-digest pre code { padding: 0; background: none; }
+.lex-bubble .lex-digest blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 2px solid var(--line, var(--lex-plate)); color: var(--fg-muted); }
+.lex-bubble .lex-digest-table { max-width: 100%; overflow-x: auto; margin: 0 0 8px; }
+.lex-bubble .lex-digest table { margin: 0; border-collapse: collapse; font-size: 14px; line-height: 18px; }
+.lex-bubble .lex-digest th, .lex-bubble .lex-digest td {
+  padding: 4px 8px; border: 1px solid var(--line, var(--lex-plate)); text-align: left; vertical-align: top;
+  overflow-wrap: normal;
+}
+/* A narrow screen (a phone, a narrow window): a cell may break a word of 10 letters and more at a syllable, so the table
+ * fits the bubble; shorter words stay whole (WebKit, without hyphenate-limit-chars, breaks by its own limits). A wide
+ * screen keeps every word whole: the columns share the room by their words, none is squeezed into syllables. */
+@media (max-width: 600px) {
+  .lex-bubble .lex-digest th, .lex-bubble .lex-digest td { hyphens: auto; hyphenate-limit-chars: 10 4 4; }
+}
+.lex-bubble .lex-digest th { font-weight: 600; }
+.lex-bubble .lex-digest del { color: var(--fg-muted); }
+.lex-bubble.is-out .lex-digest del { color: var(--lex-bubble-out-meta); }
 .lex-bubble .lex-bubble-label {
   display: flex;
   align-items: center;
