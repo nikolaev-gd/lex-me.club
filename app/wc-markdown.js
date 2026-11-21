@@ -102,6 +102,20 @@
   }
 
   // ── Block ────────────────────────────────────────────────────────────────
+  const FENCE = /^\s*```+\s*([\w+-]*)\s*$/;
+  const HEADING = /^(#{1,6})\s+(.*)$/;
+  const QUOTE = /^\s*>\s?/;
+  const ITEM = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+  const isRule = (line) => /^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line) && line.trim().length >= 3;
+  // Pipe table: needs its separator row to be a table at all, so a lone pipe line stays a paragraph.
+  const isTable = (lines, i) => lines[i].indexOf('|') >= 0 && i + 1 < lines.length
+    && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1]) && lines[i + 1].indexOf('-') >= 0;
+  // A line that opens a block of its own: it never continues a list item. The table counts twice — by the rule of
+  // this file (a pipe line over a separator row) and, as on the iPhone, by a leading pipe, so that a table still
+  // coming in a stream (its separator row not yet there) does not first glue onto the item above it.
+  const opensBlock = (lines, i) => FENCE.test(lines[i]) || HEADING.test(lines[i]) || isRule(lines[i])
+    || QUOTE.test(lines[i]) || ITEM.test(lines[i]) || isTable(lines, i) || /^\s*\|/.test(lines[i]);
+
   function render(src, opts) {
     // The nested renderings (a quote) keep what the first call asked: the flag is set for the whole call.
     const before = lexLinks;
@@ -127,7 +141,7 @@
 
       // Fenced code. An unclosed fence swallows the rest — correct, because
       // that is exactly what the finished document will look like.
-      const fence = /^\s*```+\s*([\w+-]*)\s*$/.exec(line);
+      const fence = FENCE.exec(line);
       if (fence) {
         flushParagraph(buf);
         const body = [];
@@ -142,7 +156,7 @@
         continue;
       }
 
-      const heading = /^(#{1,6})\s+(.*)$/.exec(line);
+      const heading = HEADING.exec(line);
       if (heading) {
         flushParagraph(buf);
         frag.append(para('h' + Math.min(3, heading[1].length), heading[2]));
@@ -150,49 +164,62 @@
         continue;
       }
 
-      if (/^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line) && line.trim().length >= 3) {
+      if (isRule(line)) {
         flushParagraph(buf);
         frag.append(el('hr'));
         i++;
         continue;
       }
 
-      if (/^\s*>\s?/.test(line)) {
+      if (QUOTE.test(line)) {
         flushParagraph(buf);
         const body = [];
-        while (i < lines.length && /^\s*>\s?/.test(lines[i])) { body.push(lines[i].replace(/^\s*>\s?/, '')); i++; }
+        while (i < lines.length && QUOTE.test(lines[i])) { body.push(lines[i].replace(QUOTE, '')); i++; }
         const q = el('blockquote');
         q.append(...Array.from(render(body.join('\n')).childNodes));
         frag.append(q);
         continue;
       }
 
-      const bullet = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+      // A list. The same two rules as the iPhone (ios/Lex/Lex/LexMarkdown.swift) and CommonMark, ported here on
+      // 22.11.2026: without them every item that had a line under it closed its own list, and each new <ol>
+      // counted from one again — «1. … 1. … 1. …» in a reply of Lex, while the iPhone showed 1, 2, 3.
+      const bullet = ITEM.exec(line);
       if (bullet) {
         flushParagraph(buf);
         const ordered = /\d/.test(bullet[2]);
         const list = el(ordered ? 'ol' : 'ul');
+        // An ordered list counts from the number of its first item: «1. …», a paragraph, «2. …» shows 1, then 2.
+        const first = ordered ? parseInt(bullet[2], 10) : 1;
+        if (first !== 1) list.setAttribute('start', String(first));
         while (i < lines.length) {
-          const m = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(lines[i]);
+          // An empty line BETWEEN items does not end the list when the very next line is an item of the same kind
+          // (models part long items with one); before an ordinary paragraph it does, as before.
+          if (!lines[i].trim()) {
+            const next = i + 1 < lines.length ? ITEM.exec(lines[i + 1]) : null;
+            if (!next || /\d/.test(next[2]) !== ordered) break;
+            i++;
+            continue;
+          }
+          const m = ITEM.exec(lines[i]);
           if (!m || (/\d/.test(m[2]) !== ordered)) break;
           const item = [m[3]];
           i++;
-          // Continuation lines: indented, and not the start of the next item.
-          while (i < lines.length && /^\s{2,}\S/.test(lines[i])
-                 && !/^(\s*)([-*+]|\d+[.)])\s+/.test(lines[i])) {
+          // Continuation lines: ANY non-empty line right under the item that opens no block of its own — indented
+          // or not (the «lazy» line of CommonMark: «1. было: …» with «стало: …» under it). A heading, a fence, a
+          // quote, a rule, a table or the next item stays its own block. The lines join as the lines of a
+          // paragraph do here, by a newline: where a paragraph breaks its lines, the item breaks them too.
+          while (i < lines.length && lines[i].trim() && !opensBlock(lines, i)) {
             item.push(lines[i].trim());
             i++;
           }
-          list.append(para('li', item.join(' ')));
+          list.append(para('li', item.join('\n')));
         }
         frag.append(list);
         continue;
       }
 
-      // Pipe table. Needs its separator row to be a table at all, so a lone
-      // pipe line stays a paragraph.
-      if (line.indexOf('|') >= 0 && i + 1 < lines.length
-          && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1]) && lines[i + 1].indexOf('-') >= 0) {
+      if (isTable(lines, i)) {
         flushParagraph(buf);
         const cells = (row) => row.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim());
         const table = el('table');
