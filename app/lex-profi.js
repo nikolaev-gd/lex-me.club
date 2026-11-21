@@ -104,24 +104,11 @@
     return parts.filter((p) => p.kind === 'box' || p.text.trim());
   }
 
-  // A link of Profi in a message (the bot writes it as «[caption](https://…)», 2026-11-11): the caption
-  // opens the same page of Profi in the browser. Everything else is plain text, as it came.
+  // The addresses in a message are links (lex-links.js, one rule for every text of Lex): a link of Profi
+  // the bot writes as «[caption](https://…)» (2026-11-11) — the caption opens the same page of Profi — and
+  // a bare address a person pasted («https://zoom.us/j/…»). Everything else is plain text, as it came.
   function linkedText(node, text) {
-    const src = String(text || '');
-    const re = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g;
-    let at = 0;
-    for (let m; (m = re.exec(src));) {
-      if (m.index > at) node.appendChild(document.createTextNode(src.slice(at, m.index)));
-      const a = document.createElement('a');
-      a.href = m[2];
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.textContent = m[1];
-      node.appendChild(a);
-      at = re.lastIndex;
-    }
-    if (at < src.length) node.appendChild(document.createTextNode(src.slice(at)));
-    return node;
+    return global.LexLinks.into(node, text);
   }
 
   // A link of Profi in a text («[фото](https://…)», «[caption](https://…)») as its caption: the line under

@@ -670,8 +670,8 @@
     if (o.media) root.appendChild(o.media);
     let body = o.body;
     if (!body) {
-      body = make('div', 'lex-bubble-text');
-      body.textContent = o.text || '';
+      // The addresses in the words are links (lex-links.js): «https://…» as a person pasted it, «[caption](https://…)».
+      body = global.LexLinks.into(make('div', 'lex-bubble-text'), o.text || '');
     } else body.classList.add('lex-bubble-text');
     if (o.big) body.classList.add('is-emoji');
     // Copy of a message (В7.22): inside, top right; the text flows round it.
@@ -1247,7 +1247,7 @@
       head.append(channel(o.channel), channelName(o.channel));
       root.append(head, document.createTextNode(' · '));
     }
-    const body = o.body || document.createTextNode(o.text || '');
+    const body = o.body || global.LexLinks.into(document.createDocumentFragment(), o.text || '');
     root.appendChild(body);
     const time = o.timeText != null ? o.timeText : timeOf(o.at);
     if (time) root.appendChild(make('span', 'lex-notice-time', ` · ${time}`));
@@ -1812,7 +1812,7 @@
     o = o || {};
     if (!v || v.state !== 'open') return doneQuestion(v || {}, o);
     const root = make('div', 'lex-q is-open');
-    const text = make('div', 'lex-q-text', v.text || '');
+    const text = global.LexLinks.into(make('div', 'lex-q-text'), v.text || '');
     root.appendChild(text);
     const { box, quiet, busy } = choices(v, o.pending, o.onChoice);
     if (box.childElementCount) root.appendChild(box);
@@ -2018,7 +2018,7 @@
       if (p.openRow === m.uid && !recording) {
         const pending = p.pending ? p.pending.get(m.uid) : null;
         const inner = make('div', 'lex-q-row-open');
-        inner.appendChild(make('div', 'lex-q-text', (m.view && m.view.text) || ''));
+        inner.appendChild(global.LexLinks.into(make('div', 'lex-q-text'), (m.view && m.view.text) || ''));
         const { box, quiet, busy } = choices(m.view || {}, pending, (k) => o.onChoice && o.onChoice(m.uid, k));
         if (box.childElementCount) inner.appendChild(box);
         const note = pendingNote(pending);

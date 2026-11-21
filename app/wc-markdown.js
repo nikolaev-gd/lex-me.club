@@ -53,6 +53,16 @@
         return a;
       },
     },
+    // A bare address («https://…», «www.site.tld»): a link shown as it is written. The rule of where it starts
+    // and ends is lex-links.js, one for every text of Lex; it stands after the code and «[caption](address)»
+    // and before the emphasis, so an underscore inside an address is no italic.
+    {
+      re: { exec: (rest) => {
+        const hit = global.LexLinks ? global.LexLinks.bare(rest) : null;
+        return hit ? Object.assign([hit.text], { index: hit.index, href: hit.href }) : null;
+      } },
+      make: (m) => global.LexLinks.anchor(m[0], m.href),
+    },
     // Bold and italic may hold each other — the teacher writes `*I **made**
     // dinner*` — so each takes the other's pair inside and renders its
     // content through inline() again. Without that the italic never matched

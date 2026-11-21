@@ -98,18 +98,8 @@
   function addLine(host, line) {
     line.split(/(?<!\\)\*\*/).forEach((piece, i) => {
       const into = i % 2 ? host.appendChild(make('strong', 'lex-news-text-bold')) : host;
-      const words = (t) => document.createTextNode(t.replace(/\\\*/g, '*'));
-      let at = 0;
-      for (const m of piece.matchAll(LINK_RE)) {
-        if (m.index > at) into.appendChild(words(piece.slice(at, m.index)));
-        const a = make('a', 'lex-link', m[1].replace(/\\\*/g, '*'));
-        a.href = m[2];
-        a.target = '_blank';
-        a.rel = 'noopener noreferrer';
-        into.appendChild(a);
-        at = m.index + m[0].length;
-      }
-      if (at < piece.length) into.appendChild(words(piece.slice(at)));
+      // Links — the one rule of Lex (lex-links.js): «[caption](address)» and a bare address.
+      global.LexLinks.into(into, piece, (t) => t.replace(/\\\*/g, '*'));
     });
   }
 
