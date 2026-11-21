@@ -885,8 +885,9 @@ button { font: inherit; color: inherit; }
 
 .wc-topbar-right { display: flex; align-items: center; gap: 4px; margin-left: auto; }
 
-/* Итог беседы — разработчику: сколько списано по этой беседе целиком. Та же
-   пилюля, что в окне расширения; наведение показывает разбивку по видам. */
+/* Цена последнего шага по ценам API — разработчику (с 21.11.2026; прежде — списанное по беседе).
+   Та же пилюля, что в окне расширения; наведение открывает окно разбивки шага (lex-step-popup.js,
+   его вид — lex-message.css, В7.54). */
 .wc-money {
   position: relative;
   height: 28px;
@@ -899,23 +900,6 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .wc-money:hover { color: var(--fg); background: var(--bg-hover); }
-.wc-money-tip {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 20;
-  min-width: 180px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--bg);
-  color: var(--fg);
-  font: 12px/20px system-ui, sans-serif;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  display: none;
-}
-.wc-money:hover .wc-money-tip:not([hidden]) { display: block; }
-.wc-money-row { display: flex; justify-content: space-between; gap: 16px; }
 
 /* During a call the gear takes the new-chat spot rather than sitting next to
  * it — starting a second chat mid-call makes no sense, and the top bar stays
@@ -1263,10 +1247,6 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .wc-prices-hidden .wc-price { display: none; }
-/* Ответ Claude Code по подписке Геннадия: вместо цены — «по подписке», и видно его
-   всегда, а не только с ценами (раздел «Claude Code по подписке», 20-chat.md). */
-.wc-price.wc-price-sub { font-family: inherit; }
-.wc-prices-hidden .wc-price.wc-price-sub { display: inline-block; }
 /* Цена пустого ответа — под вопросом, у правого края, как сам вопрос. */
 .wc-turn-foot-question { justify-content: flex-end; }
 .wc-turn-foot-question .wc-price { margin-left: 0; }

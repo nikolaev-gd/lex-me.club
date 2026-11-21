@@ -33,7 +33,8 @@
 
   const { fmtMoney } = WcUI;
 
-  let elBalance, elSettings, elTopup, elNewChat, elVoiceGear, elMoney, elMoneySum, elMoneyTip;
+  let elBalance, elSettings, elTopup, elNewChat, elVoiceGear, elMoney, elMoneySum;
+  let moneyView = null;
   let hooks = {};
   let account = { signedIn: false };
   let hasContent = false;
@@ -66,16 +67,6 @@
     elTopup.title = account.signedIn ? ('Top up balance · ' + fmtMoney(bal)) : 'Top up balance';
   }
 
-  // Подписи строк разбивки итога — те же виды, что у расширения (порядок
-  // строк отдаёт LexChatMoney.breakdown). Страница только по-английски.
-  const MONEY_KIND_LABELS = {
-    preprocess: 'Preprocess',
-    chat: 'Chat',
-    voice: 'Voice',
-    transcription: 'Transcription',
-    dictation: 'Dictation',
-    title: 'Conversation title',
-  };
   // Цены под ответами прячутся и показываются нажатием на итог — как в
   // расширении; по умолчанию спрятаны. Положение помнит этот браузер.
   const PRICES_KEY = 'lexShowPrices';
@@ -96,7 +87,6 @@
       elVoiceGear = document.getElementById('wc-voice-gear');
       elMoney = document.getElementById('wc-money');
       elMoneySum = document.getElementById('wc-money-sum');
-      elMoneyTip = document.getElementById('wc-money-tip');
       if (elMoney) {
         elMoney.addEventListener('click', () => {
           try { localStorage.setItem(PRICES_KEY, pricesShown() ? '0' : '1'); } catch (_) {}
@@ -141,26 +131,24 @@
     // а на её месте встаёт шестерёнка. Дёргается из wc-app.js рядом с
     // WcComposer.setVoiceActive — тем же событием, что открывает и закрывает
     // сам звонок.
-    // Итог беседы — только когда сервер велит показывать деньги (show). total
-    // — { usd, byKind } из LexChatMoney.normalize; null — «$0».
-    setMoney(total, show) {
+    // Число над чатом — только когда сервер велит показывать деньги (show). С 21.11.2026 это
+    // цена ПОСЛЕДНЕГО шага по ценам API (а пока Claude Code работает — растущая цена идущего
+    // шага); наведение мышью открывает окно разбивки шага (lex-step-popup.js, В7.55). Считает
+    // и решает всё wc-thread.js (paintTopMoney) из ответа двери: spec — { usd, live, view }
+    // (view() — слова окна, LexChatMoney.stepView; null у двери прежнего вида: тогда это
+    // списанное по беседе, без окна); null — «$0».
+    setMoney(spec, show) {
       if (!elMoney) return;
       elMoney.hidden = !show;
-      const usd = total ? total.usd : 0;
+      const usd = spec ? spec.usd : 0;
       elMoneySum.textContent = global.LexChatMoney.format(usd);
       elMoney.dataset.lexUsd = String(usd);
-      const rows = global.LexChatMoney.breakdown(total);
-      elMoneyTip.replaceChildren(...rows.map((r) => {
-        const row = document.createElement('span');
-        row.className = 'wc-money-row';
-        const label = document.createElement('span');
-        label.textContent = MONEY_KIND_LABELS[r.kind] || r.kind;
-        const value = document.createElement('span');
-        value.textContent = global.LexChatMoney.format(r.usd);
-        row.append(label, value);
-        return row;
-      }));
-      elMoneyTip.hidden = !rows.length;
+      elMoney.classList.toggle('is-live', !!(spec && spec.live));
+      moneyView = spec && typeof spec.view === 'function' ? spec.view : null;
+      if (global.LexStepPopup) {
+        LexStepPopup.attach(elMoney, () => (moneyView && !elMoney.hidden ? moneyView() : null));
+        LexStepPopup.refresh(elMoney);
+      }
     },
 
     setVoiceActive(on) {

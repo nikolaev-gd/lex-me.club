@@ -653,6 +653,36 @@
   }
 
   let lastMoney = null;
+  // The live step of a Claude Code turn of this chat (the stream frame lex_proxy_cost) and its final
+  // number until the door has the answer (lex-chat-money.js, createLiveStep).
+  const liveStep = global.LexChatMoney && global.LexChatMoney.createLiveStep
+    ? global.LexChatMoney.createLiveStep() : { onFrame() {}, onDone() {}, top: () => ({ usd: 0 }), reset() {}, live: () => null };
+  // A turn ended without its final frame (a break, a refusal): the last live number holds until
+  // the door has the step, as a final one would.
+  function endLiveStep(requestId, entry) {
+    if (!liveStep.live()) return;
+    liveStep.onDone({ requestId, apiUsd: null, uid: (entry && entry.turn && entry.turn.dataset.uid) || null });
+    paintTopMoney();
+  }
+  // The number on top of the chat (WcHeader.setMoney): the price of the last step, live while a
+  // turn of this chat goes; a door of before — the billed total, as it was.
+  function paintTopMoney() {
+    if (!global.WcHeader || !WcHeader.setMoney) return;
+    const money = lastMoney;
+    const show = !!(money && money.showMoney);
+    if (!show) { WcHeader.setMoney(null, false); return; }
+    const M = global.LexChatMoney;
+    if (!money.stepPriced) { WcHeader.setMoney({ usd: money.total ? money.total.usd : 0, view: null }, true); return; }
+    const top = liveStep.top(money);
+    WcHeader.setMoney({
+      usd: top.usd,
+      live: !!top.live,
+      view: () => {
+        const t = liveStep.top(lastMoney);
+        return M.stepView(t.answer || { api_usd: t.usd }, lastMoney, t.live);
+      },
+    }, true);
+  }
   let brainHooks = null;
   // Что нарисовано под каждым ответом: по этому знаку видно, что пометки не менялись и узел
   // трогать не надо (окошко под зажатым пальцем не должно заменяться при каждом обновлении денег).
@@ -813,6 +843,7 @@
         else if (msg.type === 'STREAM_DONE') WcThread.done(msg);
         else if (msg.type === 'STREAM_ERROR') WcThread.error(msg);
         else if (msg.type === 'STREAM_TOOL') WcThread.tool(msg);
+        else if (msg.type === 'STREAM_COST') WcThread.stepCost(msg);
         else if (msg.type === 'WC_TURN_MODEL') WcThread.setTurnModel(msg);
         else if (msg.type === 'WC_TURN_UIDS') WcThread.setTurnUids(msg);
         else if (msg.type === 'STREAM_USER_TEXT' && msg.bubblePick) WcThread.setLastUserPick(msg.bubblePick, msg.bubbleRest || '');
@@ -1343,18 +1374,22 @@
     // или денег не показывают: все цены снимаются.
     paintMoney(money) {
       const show = !!(money && money.showMoney);
+      const M = global.LexChatMoney;
+      // The door of after 21.11.2026: under every step its price by the API prices (api_usd),
+      // whatever way it was paid; the way of paying, the tokens and the parts — in the window of
+      // the step on hover (lex-step-popup.js). A door of before: the billed price, as it was.
+      const priced = !!(show && money.stepPriced);
+      if (!money) liveStep.reset();
       for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
         const old = t.querySelector(':scope > .wc-turn-foot > .wc-price, :scope > div > .wc-turn-foot > .wc-price');
-        // An answer of Claude Code by the owner's subscription (claude_code_chats.sql): no
-        // price, the words «по подписке» in its place — shown whether prices are or not.
-        const any = money && money.answers ? money.answers.get(t.dataset.uid) : null;
-        const sub = !!(any && any.subscription === true);
-        // «по подписке» under a question is the mark of an empty answer (stopped before the first word, no
-        // word at all): there is no answer to put it under and nothing was paid — no mark at all.
-        if (sub && t.classList.contains('wc-turn-user')) { if (old) old.remove(); continue; }
-        const a = show || sub ? any : null;
-        const usd = sub ? 0 : (a && a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
-        if (usd == null) { if (old) old.remove(); continue; }
+        const a = show && money.answers ? money.answers.get(t.dataset.uid) : null;
+        const usd = !a ? null
+          : priced ? M.stepUsd(a)
+            : (a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
+        if (usd == null) {
+          if (old) { if (global.LexStepPopup) LexStepPopup.detach(old); old.remove(); }
+          continue;
+        }
         let foot = t.classList.contains('wc-turn-user')
           ? t.querySelector(':scope > div > .wc-turn-foot')
           : t.querySelector(':scope > .wc-turn-foot');
@@ -1368,16 +1403,36 @@
           }
         }
         const node = old || el('span.wc-price');
-        // route 'api' — the owner chose API tokens in «+» (claude_route.sql).
-        node.textContent = sub ? (any.route === 'api' ? 'токены API' : 'по подписке') : global.LexChatMoney.format(usd);
-        node.classList.toggle('wc-price-sub', sub);
+        node.textContent = M.format(usd);
         node.dataset.lexUsd = String(usd);
-        node.title = [a.model, a.effort].filter(Boolean).join(' · ');
+        if (priced && global.LexStepPopup) {
+          node.removeAttribute('title');
+          const uid = t.dataset.uid;
+          LexStepPopup.attach(node, () => {
+            const m = lastMoney;
+            const ans = m && m.answers ? m.answers.get(uid) : null;
+            return ans && M.stepUsd(ans) != null ? M.stepView(ans, m, null) : null;
+          });
+        } else {
+          if (global.LexStepPopup) LexStepPopup.detach(node);
+          node.title = [a.model, a.effort].filter(Boolean).join(' · ');
+        }
         if (!old) foot.append(node);
       }
-      if (global.WcHeader && WcHeader.setMoney) WcHeader.setMoney(show ? money.total : null, show);
       lastMoney = money;
+      paintTopMoney();
       paintBrainMarks();
+    },
+
+    // The price of a step while a Claude Code turn of this chat goes (STREAM_COST, the frame
+    // lex_proxy_cost of the stream) and its final number (final: apiUsd of lex_proxy_done). Only a
+    // turn of the open chat counts: a turn of a chat the person left is no longer in `live`.
+    stepCost(msg) {
+      const entry = live.get(msg.requestId);
+      if (!entry) return;
+      if (msg.final) liveStep.onDone({ requestId: msg.requestId, apiUsd: msg.apiUsd, uid: entry.turn.dataset.uid || null });
+      else liveStep.onFrame({ requestId: msg.requestId, usd: msg.usd, calls: msg.calls });
+      paintTopMoney();
     },
 
     // Пометки под ответами в чатах с базой (lex-answer-row.js, brainMarksNode): «Да» под
@@ -1402,6 +1457,7 @@
     done(msg) {
       const entry = live.get(msg.requestId);
       if (!entry) return;
+      endLiveStep(msg.requestId, entry);
       live.delete(msg.requestId);
       clearBrainWork(entry);
       // Переспрос, который не дал ни слова, — прежний ответ остаётся.
@@ -1516,6 +1572,7 @@
       };
 
       if (entry) {
+        endLiveStep(msg.requestId, entry);
         live.delete(msg.requestId);
         entry.turn.classList.remove('is-streaming');
         if (entry.retry && !entry.text) {

@@ -1355,3 +1355,74 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-draft-box > .lex-draft-box-note { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
 .lex-draft-box > .lex-draft-box-note.is-error { color: var(--danger); }
 .lex-draft-box > .lex-draft-box-note:empty { display: none; }
+
+/* ── The window of the price of a step (В7.55, 2026-11-21) ────────────────────────────────────────
+ * lex-step-popup.js: opens on the number on top of a chat and on the price under a step, for a
+ * mouse. A floating card like a menu (В7.8): radius 12, 1 px --line, --bg-raised, --shadow-lg; inside
+ * 10 on top and bottom, 12 on the sides. On top the price 15/600 (a live step: «идёт шаг…» by it,
+ * 13 --fg-muted), the model and the way of paying 13, the tokens and requests 12 --fg-muted; the
+ * parts — rows 13: the name on the left, tokens 12 --fg-muted and dollars on the right, digits of
+ * one width; the parts of the tools under the heading 12/600 --fg-muted; at the bottom over a line
+ * the whole chat 13 and the week 12 --fg-muted. The page takes the tokens of its theme; the
+ * extension's windows are dark only (.is-dark: the palette straight). */
+.lex-step-popup-host {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483647;
+}
+.lex-step-popup-host[hidden] { display: none; }
+.lex-step-popup {
+  box-sizing: border-box;
+  min-width: 264px;
+  max-width: min(360px, calc(100vw - 16px));
+  padding: 10px 12px;
+  border: 1px solid var(--line, var(--lex-dark-line));
+  border-radius: 12px;
+  background: var(--bg-raised, var(--lex-dark-raised));
+  color: var(--fg, var(--lex-dark-fg));
+  box-shadow: var(--shadow-lg, 0 10px 40px var(--lex-dark-shadow-strong));
+  font-family: var(--font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+  text-align: left;
+  letter-spacing: normal;
+  white-space: normal;
+  font-variant-numeric: tabular-nums;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.lex-step-popup.is-dark {
+  border-color: var(--lex-dark-line);
+  background: var(--lex-dark-raised);
+  color: var(--lex-dark-fg);
+  box-shadow: 0 10px 40px var(--lex-dark-shadow-strong), 0 2px 8px var(--lex-dark-shadow);
+}
+.lex-step-popup-top { display: flex; align-items: baseline; gap: 8px; }
+.lex-step-popup-price { font-size: 15px; line-height: 20px; font-weight: 600; }
+.lex-step-popup-live,
+.lex-step-popup-stats,
+.lex-step-popup-tokens,
+.lex-step-popup-note,
+.lex-step-popup-group,
+.lex-step-popup-week,
+.lex-step-popup-empty { color: var(--fg-muted, var(--lex-dark-fg-muted)); }
+.lex-step-popup.is-dark :is(.lex-step-popup-live, .lex-step-popup-stats, .lex-step-popup-tokens,
+  .lex-step-popup-note, .lex-step-popup-group, .lex-step-popup-week, .lex-step-popup-empty) { color: var(--lex-dark-fg-muted); }
+.lex-step-popup-model { margin-top: 2px; overflow-wrap: anywhere; }
+.lex-step-popup-pay { margin-top: 2px; }
+.lex-step-popup-stats { margin-top: 4px; font-size: 12px; line-height: 16px; }
+.lex-step-popup-parts { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.lex-step-popup-row { display: flex; align-items: baseline; gap: 8px; }
+.lex-step-popup-label { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; }
+.lex-step-popup-name { overflow-wrap: anywhere; }
+.lex-step-popup-note { font-size: 12px; line-height: 16px; }
+.lex-step-popup-tokens { flex: 0 0 auto; font-size: 12px; white-space: nowrap; }
+.lex-step-popup-usd { flex: 0 0 auto; min-width: 48px; text-align: right; white-space: nowrap; }
+.lex-step-popup-group { margin-top: 6px; font-size: 12px; line-height: 16px; font-weight: 600; }
+.lex-step-popup-row.is-tool { padding-left: 8px; }
+.lex-step-popup-empty { margin-top: 8px; }
+.lex-step-popup-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line, var(--lex-dark-line)); }
+.lex-step-popup.is-dark .lex-step-popup-foot { border-top-color: var(--lex-dark-line); }
+.lex-step-popup-week { margin-top: 2px; font-size: 12px; line-height: 16px; }

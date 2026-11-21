@@ -173,6 +173,20 @@
             if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
             continue;
           }
+          // Свой кадр сервера: цена шага Claude Code по ценам API, пока он идёт
+          // ({ usd, calls }, растёт). Адаптерам не отдаётся: это не слова ответа.
+          if (eventName === 'lex_proxy_cost') {
+            const cb = response && response.__lexOnServerCost;
+            if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
+            continue;
+          }
+          // Завершающий кадр сервера нужен и адаптерам (цена, часы), поэтому он
+          // идёт дальше; здесь из него только берётся цена шага по ценам API
+          // (apiUsd) — число над чатом встаёт сразу, до перечитывания денег.
+          if (eventName === 'lex_proxy_done') {
+            const cb = response && response.__lexOnServerDone;
+            if (typeof cb === 'function') { try { cb(JSON.parse(dataStr)); } catch (e) {} }
+          }
           onEvent({ event: eventName, data: dataStr });
         }
       }
@@ -218,6 +232,8 @@
         if (proxy && typeof proxy.onServerTurn === 'function') resp.__lexOnServerTurn = proxy.onServerTurn;
         if (proxy && typeof proxy.onServerRequest === 'function') resp.__lexOnServerRequest = proxy.onServerRequest;
         if (proxy && typeof proxy.onServerTool === 'function') resp.__lexOnServerTool = proxy.onServerTool;
+        if (proxy && typeof proxy.onServerCost === 'function') resp.__lexOnServerCost = proxy.onServerCost;
+        if (proxy && typeof proxy.onServerDone === 'function') resp.__lexOnServerDone = proxy.onServerDone;
         return resp;
       });
     }
@@ -2405,6 +2421,20 @@
             // the line stays under the growing answer until the turn ends.
             line: typeof d.line === 'string' ? d.line : '', cc: d.cc === true,
           });
+        };
+        // Цена шага по ценам API, пока Claude Code работает (кадр lex_proxy_cost), и
+        // итог шага из завершающего кадра (apiUsd) — наверх одним событием
+        // STREAM_COST: число над чатом растёт вживую (lex-chat-money.js,
+        // createLiveStep). Незнакомое событие окна пропускают.
+        proxy.onServerCost = (d) => {
+          const usd = d && Number(d.usd);
+          if (!Number.isFinite(usd)) return;
+          emit(tabId, { type: 'STREAM_COST', requestId, usd, calls: Number(d.calls) || 0 });
+        };
+        proxy.onServerDone = (d) => {
+          if (!d || !Object.prototype.hasOwnProperty.call(d, 'apiUsd')) return;
+          const apiUsd = (d.apiUsd == null || !Number.isFinite(Number(d.apiUsd))) ? null : Number(d.apiUsd);
+          emit(tabId, { type: 'STREAM_COST', requestId, final: true, apiUsd });
         };
         proxy.onHeaders = (h) => {
           let led = false;
