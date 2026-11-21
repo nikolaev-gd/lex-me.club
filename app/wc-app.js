@@ -260,9 +260,9 @@
     followRunning();
     // Деньги беседы пришли тем же заходом — цены под ответами и итог.
     if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
-    // A message on its way: its state as the queue of the database has it now, once.
-    brainAsked = state.conversationId;
-    brainLook();
+    // A message on its way: its state as the queue of the database has it now, once — when the marks are known (they
+    // come with the money: without it here, the first money of the chat asks, moneyRefresher above).
+    if (r.money) { brainAsked = state.conversationId; brainLook.now(); }
     // Messages Lex did not take stand at the end of the chat again.
     restoreUnsent(r).catch((err) => console.warn('[wc] unsent:', err && err.message));
   }
@@ -434,9 +434,8 @@
     apply: (_key, money) => {
       WcThread.paintMoney(money);
       // Once per open chat the queue of the database itself is asked about a message on its
-      // way; after that it is asked every 3 s while something is on its way (brainWatch below),
-      // and its state also comes with the signal «marks».
-      if (brainAsked !== state.conversationId) { brainAsked = state.conversationId; brainLook(); } else brainWatch.kick();
+      // way; after that its state comes with the signal «marks» (brainLook below), never by a timer.
+      if (brainAsked !== state.conversationId) { brainAsked = state.conversationId; brainLook.now(); }
     },
     currentKey: () => 'open:' + moneyEpoch,
     signals,
@@ -455,37 +454,38 @@
   // (lex-draft-box.js, В7.51): долгое нажатие отправляет, Edit меняет текст, Cancel снимает
   // ждущее. Каждое действие — один вызов brain-action с видом пометки окошка; ответ несёт список
   // пометок беседы целиком и ложится на экран сразу. Пока окошко в пути (отправляется, ждёт, идёт;
-  // и старая пометка send в ждёт и идёт), очередь базы переспрашивается раз в 3 секунды, не дольше
-  // 10 минут; сигнал «marks» идёт рядом, как шёл. Черновик, который ждёт долгого нажатия, не опрашивается.
+  // и старая пометка send в ждёт и идёт), каждая смена его задачи приходит сигналом «marks»; по
+  // таймеру очередь базы не спрашивается (решение Геннадия 21.11.2026). Сама очередь — один раз при
+  // открытии беседы и после обрыва канала (LexDraftBox.look); неудавшееся чтение повторяется по
+  // лесенке разделов (LexSection.AGAIN_MS). Черновик, который ждёт долгого нажатия, не спрашивается.
   function applyBrainMarks(list) {
     if (!Array.isArray(list)) return;
     if (global.LexDraftBox && global.LexDraftBox.sameMarks(WcThread.brainMarks(), list)) return;
     WcThread.setBrainMarks(list);
-    brainWatch.kick();
   }
-  const brainWatch = global.LexDraftBox ? global.LexDraftBox.watch({
+  const brainLook = global.LexDraftBox ? global.LexDraftBox.look({
     open: () => !!state.conversationId,
     alive: () => global.LexDraftBox.aliveIn(WcThread.brainMarks()),
     ask: async () => {
       const key = state.conversationId;
       if (!key) return;
-      try {
-        const r = await newsPost('brain-action', { op: 'status', chatKey: key });
-        if (state.conversationId === key && r) applyBrainMarks(r.marks);
-      } catch (e) {
-        console.warn('[wc] brain status:', e && e.message);
-      }
+      const r = await newsPost('brain-action', { op: 'status', chatKey: key });
+      if (state.conversationId === key && r) applyBrainMarks(r.marks);
     },
-  }) : { kick() {}, stop() {} };
-  // Очередь базы — один раз при открытии беседы и после обрыва канала; дальше опрос идёт, пока что-то в пути.
-  function brainLook() { brainWatch.kick({ now: true }); }
-  signals.follow(['marks'], async (signal) => {
+  }) : { now() {}, stop() {} };
+  // The marks of the open chat, read when the signal «marks» names it.
+  async function readBrainMarks() {
     const key = state.conversationId;
     if (!key) return;
-    if (!signal) { brainLook(); return; }
-    if (!signal.payload || signal.payload.chat !== key) return;
     const marks = await newsRpc('lex_chat_marks', { p_chat_key: key });
     if (state.conversationId === key) applyBrainMarks(marks);
+  }
+  signals.follow(['marks'], (signal) => {
+    const key = state.conversationId;
+    if (!key) return;
+    if (!signal) { brainLook.now(); return; }
+    if (!signal.payload || signal.payload.chat !== key) return;
+    brainLook.now(readBrainMarks);
   });
   // Один вызов окошка: тот же brain-action, что у «Отменить», с видом пометки окошка. Ответ сервера —
   // как есть ({ ok, state, text, busy, marks }); не дошли до сервера — Error с причиной. Список пометок
@@ -501,7 +501,6 @@
     text: (m, text) => draftCall({ op: 'text', turnUid: m.uid, kind: m.kind, text }),
     cancel: (m) => draftCall({ op: 'cancel', turnUid: m.uid, kind: m.kind }),
     apply: applyBrainMarks,
-    follow: (o) => brainWatch.kick(o),
     copy: (text) => copyText(text),
   }) : null;
   let draftChat = null;
@@ -519,7 +518,7 @@
   function resetMoney() {
     brainAsked = null;
     moneyEpoch++;
-    brainWatch.stop();
+    brainLook.stop();
     // Слова, набранные в окошке, и его строки живут, пока открыта та же беседа: перерисовка ленты их не трогает.
     if (draftBoxes && draftChat !== state.conversationId) { draftBoxes.reset(); draftChat = state.conversationId; }
     if (moneyRefresher) moneyRefresher.cancel();

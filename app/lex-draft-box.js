@@ -34,7 +34,6 @@
 //         cancel(mark)       «Cancel» of a task that waits    → the same
 //         apply(marks)       the whole list of marks the server gave: the caller replaces what the chat holds and
 //                            draws it again (here, once — nobody else applies the answer of these three calls)
-//         follow(opts)       the window asks to follow the task: opts { fresh, once } of watch().kick
 //         copy(text)         Copy of the bubble → Promise<bool> (default: LexAnswerRow.copyText)
 //         layer              a class the menu of «⋯» gets in the <body> (the windows of the extension: ytvocab-sl-portal)
 //       }
@@ -44,11 +43,11 @@
 //   isBox(mark), boxesOf(list) → the windows of an answer, by data.seq
 //   aliveIn(marks) → is a window on its way (отправляется, ждёт, идёт) or an old mark «send» (ждёт, идёт);
 //       marks — an array, or a Map of uid → array
-//   sameMarks(a, b) → the two lists say the same: a poll that brought nothing new must not draw the answer again
+//   sameMarks(a, b) → the two lists say the same: a reading that brought nothing new must not draw the answer again
 //       (a button under a held finger would be replaced)
-//   watch({ open, alive, ask }) → { kick(opts), stop() } — the follow-up: while a window is on its way, ask the
-//       queue (`status`) every 3 s, one call at a time; stop when none is alive, after 10 minutes, or when the chat is
-//       closed (open() false). The realtime signal «marks» goes on beside it. A draft that waits for a hold is not asked.
+//   look({ open, alive, ask }) → { now(read), stop() } — the readings of a chat with windows, one at a time, and the
+//       repeat of a reading that failed (below, «the look at the queue»). No timer asks anything while a window is on
+//       its way: every change of its task comes by the signal «marks» (Gennady, 21.11.2026).
 //
 // The hooks of the check pages and the live checks: the root of a window has data-kind (box:<n>) and data-state;
 // the buttons have data-role: hold (the button that sends), more («⋯»), cancel (the task that waits), edit-save,
@@ -68,8 +67,6 @@
   const BOX_KIND = /^box:\d+$/;
   const ALIVE_BOX = new Set([SENDING, WAITS, RUNNING]);
   const ALIVE_OLD = new Set([WAITS, RUNNING]);
-  const EVERY_MS = 3000;
-  const LIMIT_MS = 10 * 60 * 1000;
 
   function make(tag, cls, text) {
     const n = document.createElement(tag);
@@ -206,7 +203,9 @@
       // The caller draws the answer again when the marks changed; when they did not (a refusal, the same list) the
       // window is still the old node: drawn again here with what the press left in `ui`.
       if (!before || drawn.get(k) === before) repaint(k);
-      if (typeof d0.follow === 'function') d0.follow({ fresh: true, once: !!(r && r.busy) });
+      // Nothing more is asked after a press: what the task does next — and the end of the other press when the answer
+      // was `busy` — comes by the signal «marks» (every step on a window, lex_box_update, and every entry of the feed
+      // of sends of the database, lex_em_feed_send, is one).
     }
 
     function build(m) {
@@ -408,51 +407,82 @@
     };
   }
 
-  // ── following the task ──────────────────────────────────────────────────────
-  // While a window is on its way the queue of the database is asked every 3 s (`status`), one call at a time (the
-  // next round is armed when the answer came), for 10 minutes at most from the start; none alive — it stops by
-  // itself; the chat closed — it stops at the next round. Nothing is asked for a draft that waits for the hold.
-  //   open()   the chat of the window is still the open one
-  //   alive()  a window of it is on its way
-  //   ask()    one `status` call, applying the marks it brings → Promise
-  //   kick({ now, once, fresh })  something was drawn or answered: follow if a window is alive.
-  //       once — ask one time even when none is alive (another device pressed: `busy`); now — ask at once (the
-  //       chat was just opened); fresh — a press of this person: the ten minutes count from now.
-  function watch(o) {
+  // ── the look at the queue ───────────────────────────────────────────────────
+  // What a window on its way does is told by the database itself: every change of its task — the hold of this or of
+  // another device, the executor that took it, the message that went or did not, the time of a scheduled one, a
+  // cancel — is a signal «marks», and the chat reads its marks then (now(read)). The queue of the database (`status`)
+  // is asked only to catch up, once: when the chat opens and when the channel of signals is open again after a break
+  // and its journal could not say what was missed (the follower of the signal gets null) — never on a timer (Gennady,
+  // 21.11.2026: «по часам идут только сроки, где время и есть событие; новость приходит сигналом»).
+  //   open()   the chat is still the open one
+  //   alive()  a window of it is on its way (отправляется, ждёт, идёт; an old mark send in ждёт, идёт): only then is
+  //            the queue asked; a draft that waits for the hold never is
+  //   ask()    one `status` call, applying the marks it brings → Promise; rejects when it did not get through
+  //   now()      the queue, once, now
+  //   now(read)  a reading of the caller's own, now (the marks a signal names) → Promise, rejects when it failed;
+  //              pass the same function every time: asked again while it runs, it runs once more after it
+  //   stop()     the chat closed or changed: nothing waits, nothing is tried again
+  // Never two readings at once. A reading that did not get through is tried again after the pauses of a failed read
+  // of the sections (LexSection.AGAIN_MS: 1, 2, 5, 10, 20, 30 s, then 30 s again) while the chat is open — the repeat
+  // of a failure, not a poll for news; any now() starts the ladder over.
+  function look(o) {
+    let gen = 0;
+    let busy = -1;
     let timer = 0;
-    let since = 0;
-    let asking = false;
-    let want = false;
+    let fails = 0;
+    const queue = new Set();
+    const failed = new Set();
     const open = () => (typeof o.open === 'function' ? !!o.open() : true);
-    const within = () => Date.now() - since <= LIMIT_MS;
-    const arm = (ms) => { clearTimeout(timer); timer = setTimeout(tick, ms); };
-    async function tick() {
+    const status = () => o.ask();
+    const pauses = () => (global.LexSection && Array.isArray(global.LexSection.AGAIN_MS) ? global.LexSection.AGAIN_MS : []);
+    const unwait = () => {
+      if (!timer) return;
+      clearTimeout(timer);
       timer = 0;
-      if (asking) return;
-      const once = want;
-      want = false;
-      if (!open()) { since = 0; return; }
-      if (!once && (!o.alive() || !within())) return;
-      asking = true;
-      try { await o.ask(); } catch (_) { /* the next round tries again */ } finally { asking = false; }
-      if (!open()) { since = 0; return; }
-      if (!timer && (want || (o.alive() && within()))) arm(want ? 0 : EVERY_MS);
+      for (const r of failed) queue.add(r);
+      failed.clear();
+    };
+    function again() {
+      const list = pauses();
+      if (timer || !list.length) return;
+      fails += 1;
+      timer = setTimeout(() => { timer = 0; for (const r of failed) queue.add(r); failed.clear(); pump(); },
+        list[Math.min(fails - 1, list.length - 1)]);
+    }
+    function pump() {
+      if (busy === gen) return;
+      const read = queue.values().next().value;
+      if (!read) { if (failed.size) again(); else fails = 0; return; }
+      queue.delete(read);
+      if (!open() || (read === status && !o.alive())) { pump(); return; }
+      const g = gen;
+      busy = g;
+      Promise.resolve()
+        .then(read)
+        .then(() => { if (g === gen) failed.delete(read); }, () => { if (g === gen) failed.add(read); })
+        .then(() => {
+          if (busy === g) busy = -1;
+          if (g === gen) pump();
+        });
     }
     return {
-      kick(x) {
-        const opts = x || {};
-        if (!open()) return;
-        if (opts.once) want = true;
-        else if (!o.alive()) return;
-        if (opts.fresh || !since) since = Date.now();
-        else if (!within() && !opts.once) return;
-        if (asking) return;
-        if (timer) { if (opts.now || opts.once) arm(0); return; }
-        arm(opts.now || opts.once ? 0 : EVERY_MS);
+      now(read) {
+        unwait();
+        fails = 0;
+        queue.add(typeof read === 'function' ? read : status);
+        pump();
       },
-      stop() { clearTimeout(timer); timer = 0; since = 0; want = false; },
+      stop() {
+        gen += 1;
+        busy = -1;
+        clearTimeout(timer);
+        timer = 0;
+        fails = 0;
+        queue.clear();
+        failed.clear();
+      },
     };
   }
 
-  global.LexDraftBox = { create, isBox, boxesOf, aliveIn, sameMarks, watch, EVERY_MS, LIMIT_MS };
+  global.LexDraftBox = { create, isBox, boxesOf, aliveIn, sameMarks, look };
 })(typeof window !== 'undefined' ? window : globalThis);
