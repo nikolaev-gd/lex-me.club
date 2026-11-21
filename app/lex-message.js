@@ -99,7 +99,9 @@
 //                       bubble with its variants inside and the quiet «Пропустить» under them;
 //                       answered or withdrawn — one line, a press unfolds it. o = { at, pending,
 //                       open, onChoice(i), onToggle() }
-//   whois(o)            the question of Lex in the chat of a new person (В7.50, 19.11.2026): a message of the
+//   whois(o)            the question of Lex in the chat of a new person (В7.50, 19.11.2026) and the outcomes of the agent
+//                       (В7.54, 21.11.2026: o.kind attached | guess | question with o.headline — the band of the decision
+//                       on top, the whole width; o.undo { label } + onUndo — the button that undoes an attach): a message of the
 //                       agent «Кто это» — the mark of Lex over its words (Markdown the caller drew into `body`,
 //                       the links of it in Lex go to onGo), under them «Подтвердить» (the main button, the
 //                       words of the proposal under its name) and «Ответить» in a column, the time at the right
@@ -1867,19 +1869,52 @@
   // In the chat of an agent (the editor of instructions, 20.11.2026) a word of Lex is a turn of one branch of many: over
   // its words the quote of the turn it answers (`quote`, a node of quote(), В7.35), at its foot before the time the name
   // of its branch (`caption`), the way a message names its channel there (В7.2).
-  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word } | null, onReply, onConfirm, onGo,
-  //           quote, caption })
+  // The outcomes of the agent (В7.54, 21.11.2026, variant Б «Полоса решения»): a word with `kind` attached | guess |
+  // question and its `headline` is the bright message of the agent — the whole width of the chat, the band of the
+  // decision on top (the icon 18 and the headline 16/650: attached — `--bg-active`, a tick; guess — `--attention-wash`
+  // with the words in `--attention`, a question mark; question — `--attention` with the words in `--bg`), under it the
+  // words, the buttons and at the foot the sparkle 12, «Lex · time». `undo: { label }` — the button that undoes what the
+  // agent did by itself («Это не Елизавета», «Не это дело»), the second button of the column; its press — onUndo, its
+  // way — `pending.undo` (the ring, «Не отменено: …»). Without a headline (an old turn, a reply) — the look of В7.50.
+  //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word, undo } | null, onReply, onConfirm,
+  //           onGo, quote, caption, kind, headline, undo: { label } | null, onUndo })
+  const WHOIS_BAND = { attached: 'tick', guess: 'ask', question: 'ask' };
+  function whoisMark(kind) {
+    const n = svg('0 0 24 24', 18);
+    n.setAttribute('class', 'lex-whois-mark');
+    n.appendChild(shape('circle', { cx: 12, cy: 12, r: 10, fill: 'none', stroke: 'currentColor', 'stroke-width': 2 }));
+    const ds = WHOIS_BAND[kind] === 'tick' ? ['M8 12.5l2.7 2.7L16 9.8'] : ['M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3', 'M12 17h.01'];
+    for (const d of ds) {
+      n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    }
+    return n;
+  }
   function whois(o) {
     o = o || {};
-    const root = make('div', 'lex-q lex-whois is-open');
-    const head = make('div', 'lex-whois-head');
-    head.append(sparkle(14), make('span', 'lex-whois-name', 'Lex'));
-    root.appendChild(head);
-    if (o.quote) root.appendChild(o.quote);
+    const band = WHOIS_BAND[o.kind] && String(o.headline || '').trim() ? o.kind : null;
+    const root = make('div', `lex-q lex-whois is-open${band ? ` is-band is-${band}` : ''}`);
+    // the words, the buttons and the foot: under the band in a block of their own, or in the bubble itself
+    let main = root;
+    if (band) {
+      const top = make('div', 'lex-whois-band');
+      top.setAttribute('role', 'heading');
+      top.setAttribute('aria-level', '3');
+      top.append(whoisMark(band), make('div', 'lex-whois-headline', String(o.headline).trim()));
+      root.appendChild(top);
+      main = make('div', 'lex-whois-main');
+      root.appendChild(main);
+    } else {
+      const head = make('div', 'lex-whois-head');
+      head.append(sparkle(14), make('span', 'lex-whois-name', 'Lex'));
+      root.appendChild(head);
+    }
+    if (o.quote) main.appendChild(o.quote);
     let text = o.body;
     if (!text) { text = make('div', '', ''); text.textContent = o.text || ''; }
     text.classList.add('lex-q-text');
-    root.appendChild(text);
+    // the words of a band may be empty: the headline said it all
+    if (!band || String(text.textContent || '').trim()) main.appendChild(text);
+    else text.classList.add('is-empty');
     // A place of Lex in the words (a link lex://…, the caller drew it with data-lex-go): the screen opens it, the
     // browser does not leave.
     if (typeof o.onGo === 'function') {
@@ -1891,7 +1926,7 @@
       });
     }
     const busy = !!(o.pending && !o.pending.error);
-    const acts = make('div', 'lex-q-choices lex-whois-acts');
+    const acts = make('div', `lex-q-choices lex-whois-acts${main.contains(text) ? '' : ' is-first'}`);
     if (o.confirm) {
       const yes = button({ label: 'Подтвердить', note: o.confirm.say || null, main: true, left: true });
       if (busy) yes.classList.add('is-busy');
@@ -1905,17 +1940,27 @@
       say.addEventListener('click', () => { if (!busy && typeof o.onReply === 'function') o.onReply(); });
       acts.appendChild(say);
     }
-    if (acts.childElementCount) root.appendChild(acts);
+    if (o.undo) {
+      const back = button({ label: String(o.undo.label || 'Отменить'), left: true });
+      if (busy && o.pending.undo) back.classList.add('is-busy');
+      back.disabled = busy;
+      back.addEventListener('click', () => { if (!busy && typeof o.onUndo === 'function') o.onUndo(); });
+      acts.appendChild(back);
+    }
+    if (acts.childElementCount) main.appendChild(acts);
     if (o.pending) {
+      const what = o.pending.undo ? 'Не отменено' : o.pending.word ? 'Не отправлено' : 'Не подтверждено';
       const note = make('div', `lex-q-note${o.pending.error ? ' is-error' : ''}`,
-        o.pending.error ? `${o.pending.word ? 'Не отправлено' : 'Не подтверждено'}: ${o.pending.error}` : 'Подтверждаю…');
+        o.pending.error ? `${what}: ${o.pending.error}` : o.pending.undo ? 'Отменяю…' : 'Подтверждаю…');
       note.setAttribute('role', 'status');
-      root.appendChild(note);
+      main.appendChild(note);
     }
     const foot = questionFoot(o.at, null, false, null, null);
     // the name of the branch, «·», the time — as the stamp of a message names its channel (В7.2)
     if (o.caption) foot.prepend(make('span', 'lex-q-caption', String(o.caption)), make('span', 'lex-q-dot', '·'));
-    root.appendChild(foot);
+    // under a band the foot names who wrote: the sparkle 12, «Lex», «·», the time
+    else if (band) foot.prepend(sparkle(12), make('span', 'lex-q-caption lex-whois-by', 'Lex'), make('span', 'lex-q-dot', '·'));
+    main.appendChild(foot);
     return root;
   }
 

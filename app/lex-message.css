@@ -829,6 +829,27 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 .lex-q.lex-whois .lex-q-text p { margin: 0 0 .75em; }
 .lex-q.lex-whois .lex-q-text ul, .lex-q.lex-whois .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
 .lex-q.lex-whois .lex-q-text li { margin: .2em 0; }
+/* ── The outcomes of the agent «Кто это» (В7.54, 21.11.2026, variant Б «Полоса решения») ─────────────────────────
+ * The bright message of the agent: the whole width of the chat, the bubble of the person's word (`--lex-bubble-in`,
+ * 18 18 18 6) with the band of the decision on top — the icon 18 and the headline 16/650 through 8, 10 12 — and under it
+ * the words (10 12 8), the buttons (a column through 6 at 10), the foot «✦ Lex · time». The band says what happened:
+ * attached — `--bg-active`, the words `--fg`; guess — `--attention-wash`, the words `--attention`; question —
+ * `--attention`, the words `--bg`. The band of an order card (`.lex-order-ask`) is the same band. */
+.lex-q.lex-whois.is-band { padding: 0; overflow: hidden; }
+.lex-q.lex-whois .lex-whois-band {
+  display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px;
+  background: var(--bg-active); color: var(--fg, var(--lex-plain-fg));
+}
+.lex-q.lex-whois.is-guess .lex-whois-band { background: var(--attention-wash); color: var(--attention); }
+.lex-q.lex-whois.is-question .lex-whois-band { background: var(--attention); color: var(--bg); }
+.lex-q.lex-whois .lex-whois-mark { flex: 0 0 auto; display: block; width: 18px; height: 18px; margin-top: 1px; }
+.lex-q.lex-whois .lex-whois-headline {
+  flex: 1 1 auto; min-width: 0; font-size: 16px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere;
+}
+.lex-q.lex-whois .lex-whois-main { padding: 10px 12px 8px; }
+.lex-q.lex-whois .lex-whois-acts.is-first { margin-top: 0; }
+.lex-q.lex-whois .lex-q-foot .lex-sparkle { flex: 0 0 auto; width: 12px; height: 12px; color: var(--fg-muted); }
+.lex-q.lex-whois .lex-q-foot .lex-whois-by { flex: 0 0 auto; font-weight: 600; }
 /* Answered or withdrawn: one line of the question and the time, under it at 4 a tick 14 and what
  * was answered, 13, the chevron 16 at the right. The press unfolds it: the whole question. */
 .lex-q.is-done { padding: 10px 12px; color: var(--lex-plate-fg); cursor: pointer; }

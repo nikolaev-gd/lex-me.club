@@ -137,6 +137,9 @@
   // or { section: id }; it stands at the right end of the sub line, and with a number the dot does not.
   // draft — the key of the chat of the line: while the chat has a draft (lex-drafts.js) the sub line says
   // «Draft:» in red and its first words, as in Telegram, in place of the last message (draftSub below).
+  // lex — what the agent «Кто это» waits for in this chat (В7.54, the mark `whois.wait`: { kind, text }): the sub line
+  // says «Lex:» and the headline of the agent's word in place of the last message, as «Draft:» does — «Lex:» in
+  // `--attention` when it waits for a word of Gennady (a guess, a question), in `--fg` for an attach done by itself.
   function row(o) {
     const el = make('div', 'lex-section-row');
     el.classList.toggle('is-unread', !!o.dot);
@@ -171,13 +174,16 @@
     words.appendChild(top);
     const sub = () => {
       const n = make('span', 'lex-section-row-sub');
-      const own = () => [...(o.bot ? [make('span', 'lex-section-row-bot', 'Bot:'), ' '] : []), o.sub || ''];
+      const lex = o.lex && typeof o.lex === 'object' && String(o.lex.text || '').trim() ? o.lex : null;
+      const own = () => (lex
+        ? [make('span', `lex-section-row-lex${lex.kind === 'attached' ? '' : ' is-ask'}`, 'Lex:'), ' ', String(lex.text).trim()]
+        : [...(o.bot ? [make('span', 'lex-section-row-bot', 'Bot:'), ' '] : []), o.sub || '']);
       if (o.draft) draftSub(n, o.draft, own);
       else n.append(...own());
       return n;
     };
     const num = o.unread ? count(o.unread) : null;
-    const hasSub = !!(o.sub || o.draft);
+    const hasSub = !!(o.sub || o.draft || (o.lex && o.lex.text));
     if (o.end || (num && hasSub)) {
       const line = make('span', 'lex-section-row-subline');
       line.appendChild(sub());

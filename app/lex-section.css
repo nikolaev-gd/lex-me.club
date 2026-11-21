@@ -191,6 +191,10 @@
   font-variant-numeric: tabular-nums;
 }
 .lex-section .lex-section-row-bot { color: var(--lex-section-soft, var(--lex-section-fg, #1d1d1f)); }
+/* What the agent «Кто это» waits for in the chat (В7.54): «Lex:» before the headline of its word, as «Bot:» stands; in
+   the colour of attention when it waits for a word of Gennady, in the colour of the words for an attach done by itself. */
+.lex-section .lex-section-row-lex { color: var(--lex-section-fg, var(--fg, #1d1d1f)); }
+.lex-section .lex-section-row-lex.is-ask { color: var(--attention, #9a6a00); }
 /* The draft of a chat (lex-drafts.js), in every list of chats of the page — the sections and Chats: «Draft:»
    in the red of errors, as in Telegram; the words keep the grey of the sub line. Not under .lex-section: the
    list Chats of the side panel has the same slot (LexSection.draft). */

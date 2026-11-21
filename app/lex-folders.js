@@ -78,6 +78,8 @@
       const line = global.LexSection.row({
         lead: M.avatar(c.title || '?', { size: 48, photo: c.photo, io }),
         title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey, o),
+        // what the agent «Кто это» waits for here (В7.54): «Lex: <its headline>» in place of the last message
+        lex: c.whois && c.whois.wait ? c.whois.wait : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
         unread: { chat: c.chatKey },
         // The draft of the chat, while it has one: «Draft: …» in place of the last message.

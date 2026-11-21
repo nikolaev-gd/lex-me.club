@@ -869,6 +869,10 @@
     // «Подтверждено» stands at once, before the chat is read again; the plate goes when the line of the system itself is
     // drawn. By the uid of the question: { say }.
     const whoisDone = new Map();
+    // The attaches the server undid at a press of the undo (21.11.2026, В7.54): the button goes and «Отменено» stands at
+    // once; the chat read after takes the message away (a chat of a person, an order chat) or keeps it without the
+    // button (the chat of the new person, a group). By the uid of the turn: { text, at }.
+    const whoisUndone = new Map();
     // The word of Gennady to Lex that the database has not shown yet (a press of Send in the chat of the branch, the page:
     // wc-app.js sendWhois). At the press it stands at the end of the chat «Sending…»; once the server took it Lex
     // «thinks» under it; it goes the moment the chat draws the word itself, or in 8 s if that does not come.
@@ -891,7 +895,8 @@
     // also from the state of its case: the last word of the model, the last turn, Confirm, a closed question.
     const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid),
       WHOIS_UID.test(uid)
-        ? [lastFor(whoisOf(uid) || {}), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid)] : null]);
+        ? [lastFor(whoisOf(uid) || {}), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid),
+          whoisUndone.get(uid) || null] : null]);
     // The uids of the words of Gennady to Lex the chat has (his turns of the branch), to know which one is new.
     const whoisHisWords = () => Object.entries((data && data.looks) || {})
       .filter(([, l]) => l && typeof l === 'object' && l.whois && l.whois.by === 'gennady').map(([u]) => u);
@@ -1079,8 +1084,12 @@
         if (uid) row.dataset.uid = uid;
         if (t.authoredAt) row.dataset.at = t.authoredAt;
         row.dataset.look = sigOf(uid);
-        const words = String(t.text || '');
-        if (by === 'system') {
+        let words = String(t.text || '');
+        // A word of the outcomes of the agent (В7.54): its headline stands in the band, the words under it start after it.
+        const kind = ['attached', 'guess', 'question', 'reply', 'undone'].includes(w.kind) ? w.kind : null;
+        const headline = typeof w.headline === 'string' ? w.headline.trim() : '';
+        if (headline && words.trimStart().startsWith(headline)) words = words.trimStart().slice(headline.length).replace(/^\s+/, '');
+        if (by === 'system' || kind === 'undone') {
           row.classList.add('is-notice');
           row.appendChild(M.notice({ text: words, at: t.authoredAt }));
           return row;
@@ -1111,9 +1120,14 @@
         // The buttons stand on the last word of the model in an open question only — and not on a question the server
         // closed at a press of «Подтвердить» a moment ago: it says «Подтверждено» at once, the chat is read after.
         const done = closedBy(uid);
-        const last = !done && !!w.open && lastFor(w) === Number(w.turn);
+        // An attach the agent made by itself asks nothing: its only button is the undo (В7.54), whatever `open` says.
+        const last = !done && !!w.open && kind !== 'attached' && lastFor(w) === Number(w.turn);
+        // The undo of an attach the agent made by itself: on the word that carries it, while the server has not undone it.
+        const undone = whoisUndone.get(uid) || null;
+        const undo = w.undo === true && !undone && typeof deps.whoisUndo === 'function' ? { label: self.undoLabel() } : null;
         const part = M.whois({
-          body, at: t.authoredAt, quote, caption,
+          body, at: t.authoredAt, quote, caption, kind, headline, undo,
+          onUndo: () => self.whoisUndo(uid),
           confirm: last && w.confirm && typeof deps.whoisConfirm === 'function' ? { say: String(w.confirm.say || '') } : null,
           reply: last && typeof deps.reply === 'function',
           pending: whoisBusy.get(uid) || null,
@@ -1123,6 +1137,7 @@
         });
         row.appendChild(part);
         if (done) row.appendChild(M.notice({ text: `Подтверждено: ${done.say}`.trim(), at: done.at }));
+        if (undone) row.appendChild(M.notice({ text: undone.text, at: undone.at }));
         // The question comes without the person: it can be new (the «Новые» line, the unread of the chat).
         row.dataset.in = '1';
         if (!still) self.attachWhoisMenu(row, part, t, null, last);
@@ -1174,6 +1189,37 @@
           whoisBusy.delete(uid);
           const w = whoisOf(uid) || {};
           whoisDone.set(uid, { say: String((out && out.say) || (w.confirm && w.confirm.say) || ''), at: new Date().toISOString() });
+        }
+        self.redrawWhois(uid);
+      },
+
+      // The words of the undo (В7.54): a group — «Не это дело»; the chat of a person and the order chat — «Это не <имя>», by
+      // the first name of the chat (Lex never guesses «он» or «она» from a name); the chat of the new person, where the
+      // name the agent took is not the chat's, — «Это не тот человек».
+      undoLabel() {
+        if (data && data.kind === 'group') return 'Не это дело';
+        const ref = String((data && data.ref) || '');
+        const name = String((data && (folder ? (ref.startsWith('p:') ? data.title : '') : data.client)) || '')
+          .replace(/\(.*?\)/g, ' ').trim().split(/\s+/)[0] || '';
+        return name ? `Это не ${name}` : 'Это не тот человек';
+      },
+
+      // The undo: the ring on the button while the server undoes the attach (folder-whois, the base's door undo); a
+      // refusal stands under the buttons «Не отменено: …»; done — «Отменено» at once, the chat is read after.
+      async whoisUndo(uid) {
+        const t = drawn.get(uid);
+        const cur = whoisBusy.get(uid);
+        if (!t || typeof deps.whoisUndo !== 'function' || (cur && !cur.error)) return;
+        whoisBusy.set(uid, { undo: true });
+        self.redrawWhois(uid);
+        let out;
+        try { out = await deps.whoisUndo(uid); } catch (e) { out = { error: (e && e.message) || 'Try again.' }; }
+        if (out && out.error) whoisBusy.set(uid, { undo: true, error: String(out.error) });
+        else {
+          whoisBusy.delete(uid);
+          const group = !!(data && data.kind === 'group');
+          whoisUndone.set(uid, { text: group ? 'Отменено: группа больше не привязана к этому делу.'
+            : 'Отменено. Сообщения вернулись в отдельный чат.', at: new Date().toISOString() });
         }
         self.redrawWhois(uid);
       },
@@ -1606,6 +1652,16 @@
       // where it goes is the server's rule, the same as for Send of a box. run → true once the
       // server took the text (the field is cleared then). The composer draws it with
       // LexSendLater.menu: a grey line on top, the mark of the place by the first item.
+      // The address of a chat the agent «Кто это» attached without a «yes» (В7.54, the mark `whois.attached` of the chat):
+      // while it stands, the menu of the arrow names where the text goes — «Telegram @ник» — not only the messenger.
+      attachedAddress(place) {
+        const list = data && data.whois && Array.isArray(data.whois.attached) ? data.whois.attached : [];
+        const name = place ? String(placeName(place) || '').toLowerCase() : '';
+        const hit = list.find((a) => a && a.address && (a.channel ? a.channel === place
+          : name && String(a.address).toLowerCase().startsWith(name)));
+        return hit ? String(hit.address) : '';
+      },
+
       sendMenu(text, opts) {
         if (!data || !data.chatKey || !String(text || '').trim()) return null;
         // The line of a reply over the field (В7.26): the text goes as the answer to that message, and
@@ -1630,9 +1686,10 @@
               items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
             };
           }
+          const at = self.attachedAddress(where);
           return {
             head: `To ${data.client || data.title || 'the person'}, without Lex`,
-            items: [{ label: `Send to ${where ? placeName(where) : 'the person'} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
+            items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
           };
         }
         const send = async (at) => {
@@ -1651,7 +1708,7 @@
         return {
           head: `To ${data.client || 'the client'}, without Lex`,
           items: [
-            { label: `Send to ${placeName(place)} now`, icon: mark || 'send', run: () => send(null) },
+            { label: `Send to ${self.attachedAddress(place) || placeName(place)} now`, icon: mark || 'send', run: () => send(null) },
             {
               label: 'Schedule…',
               icon: 'clock',
@@ -1994,6 +2051,8 @@
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
         unread: { order: c.order },
+        // the agent «Кто это» attached the client's messenger (В7.54): «Lex: <its headline>» in place of the last message
+        lex: c.whois && c.whois.wait ? c.whois.wait : null,
         // The draft of the order chat, while it has one: «Draft: …» in place of the last message.
         draft: c.chatKey && !c.feed ? c.chatKey : null,
       });

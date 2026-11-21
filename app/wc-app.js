@@ -1848,6 +1848,8 @@
       // a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
       onPersonGone: () => newConversation(),
+      // The message of the agent «Кто это» that attached the client's messenger (В7.54): its undo.
+      whoisUndo: (uid) => whoisUndo(chat, uid, () => refreshProfiChat()),
     });
     chat.data = data;
     chat.keep = keep || null;
@@ -1987,6 +1989,8 @@
       // press of «Подтвердить»; «Ответить» is the line over the field (reply above), its word goes by send().
       go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
       whoisConfirm: (uid) => whoisConfirm(chat, uid),
+      // The outcomes of the agent (В7.54): the undo of an attach it made by itself.
+      whoisUndo: (uid) => whoisUndo(chat, uid, () => refreshFolderChat()),
     });
     chat.folder = true;
     chat.sectionId = sectionId;
@@ -2177,6 +2181,24 @@
     // after, in its own time, and what it brings (the chat of the person) comes as it comes.
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
     return { say: out && typeof out.say === 'string' ? out.say : '' };
+  }
+  // The undo of an attach of the agent «Кто это» (В7.54, 21.11.2026): the edge function folder-whois with `undo` — the
+  // database undoes it, the server of Lex moves the messages back into the chat of the new person. The chat is read again
+  // (the message goes from a chat of a person and from an order chat), the toast says where the messages are.
+  async function whoisUndo(chat, uid, again) {
+    if (!chat || !chat.data || !WHOIS_TURN.test(String(uid || ''))) return { error: 'This message attached nothing.' };
+    let out;
+    try {
+      out = await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, undo: uid, opId: global.LexFolders.newOpId() } });
+    } catch (err) {
+      return { error: (err && err.message) || 'Try again.' };
+    }
+    if (out && out.again !== true) {
+      toast(chat.data.kind === 'group' ? 'Undone: the group is no longer with this deal.'
+        : 'Undone: the messages are back in a chat of their own.');
+    }
+    Promise.resolve(again && again()).catch((e) => console.warn('[wc] chat after the undo:', e && e.message));
+    return { undone: true };
   }
   // A press on a link of Lex in the words of the question: lex://chat/<ref of a person> — his chat among the chats of a
   // folder; lex://order/<number> — the order chat of Profi.ru. The screen opens them as the press on a notification does.
