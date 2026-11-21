@@ -1743,6 +1743,8 @@
   WcBus.on('WC_FOLDER_SEND', (m) => WcHistory.folderSend(m.body));
   // The branch «who is this» of a new person: a word to the model of that question, or Confirm (folder-whois).
   WcBus.on('WC_FOLDER_WHOIS', (m) => WcHistory.folderWhois(m.body));
+  // The section «Agents»: the list (no body), a new task chat, a word, «read», the agent's model (folder-agents).
+  WcBus.on('WC_FOLDER_AGENTS', (m) => WcHistory.folderAgents((m && m.body) || null));
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
   // Edit of a message that went to a person (message-edit).
   WcBus.on('WC_MESSAGE_EDIT', (m) => WcHistory.messageEdit(m.body));

@@ -373,7 +373,6 @@
   white-space: nowrap;
 }
 .lex-bubble.is-out .lex-stamp { color: var(--lex-bubble-out-meta); }
-.lex-stamp .lex-stamp-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* An icon of a channel is filled shapes only. The page lex-me.club/app strokes every svg
  * (`svg { stroke: currentColor; stroke-width: 1.9 }` in wc-app.css), and that outline turned the
  * marks into white contours (2026-11-13): here the stroke is off, the faint rim of a dark square
@@ -801,8 +800,6 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 }
 .lex-q .lex-q-foot.has-quiet { justify-content: space-between; margin-top: 0; }
 .lex-q .lex-q-time { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
-/* The name of the branch at the foot of a word of Lex in the chat of an agent (20.11.2026): the line of the stamp (В7.2),
- * cut with an ellipsis; the time keeps its place at the right. */
 .lex-q .lex-q-caption {
   flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--fg-muted); font-size: 12px; line-height: 16px;

@@ -86,6 +86,8 @@
     'lex_chat_seen',
     // what became of a message after a broken connection (chat_turn_fate.sql): asked live, never kept
     'lex_op_state',
+    // the folder of an agent (the section «Agents», agents_section.sql): asked live when the folder opens and on a signal
+    'lex_agent_chats',
     // the draft of every chat: lex-drafts.js keeps its own copy on the device, with its own rule
     'lex_draft_put', 'lex_drafts',
     // stamps and changes: is there something new, what changed since

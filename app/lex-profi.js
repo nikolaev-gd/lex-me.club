@@ -823,9 +823,8 @@
     };
     // The branch «who is this» (19.11.2026, В7.50): a turn of it is drawn from its look {case, turn, by, open, confirm}
     // and from which word of the model is the last of an open question — only that word carries the buttons.
-    // The chat of an agent of the database (a:, the editor of instructions, 20.11.2026, instruction_editor_chat.sql) is
-    // made of such turns alone (`editor:<n>`), in many branches at once: the buttons stand on the last word of the
-    // model of EACH open branch, a turn has the quote of the turn it answers and the name of its branch at its foot.
+    // A task chat of an agent of the base (a:, the section «Agents», 21.11.2026) is made of such turns alone
+    // (`editor:<n>`): the agent's words, Gennady's, the system's — and no buttons at all: Gennady just writes words.
     const WHOIS_UID = /^profi:(?:whois|editor):[0-9]{1,18}$/;
     const agent = () => !!(data && data.kind === 'agent');
     const whoisOf = (uid) => {
@@ -840,18 +839,6 @@
       }
       return last;
     };
-    // The last word of the model in an open case: in the chat of an agent the buttons of a branch stand on it.
-    const lastModelOf = (id) => {
-      let last = 0;
-      for (const l of Object.values((data && data.looks) || {})) {
-        const w = l && typeof l === 'object' ? l.whois : null;
-        if (w && w.case === id && w.by === 'model' && w.open && Number(w.turn) > last) last = Number(w.turn);
-      }
-      return last;
-    };
-    // Which word of the model carries the buttons of the turn's question: the last of the chat (a new person: one
-    // question), the last of its branch (an agent).
-    const lastFor = (w) => (agent() ? lastModelOf(w && w.case) : lastWhois());
     // The last turn of a case, whoever wrote it: what Lex has not answered yet is a word of Gennady that is the last.
     const lastOfCase = (id) => {
       let last = 0;
@@ -895,7 +882,7 @@
     // also from the state of its case: the last word of the model, the last turn, Confirm, a closed question.
     const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid),
       WHOIS_UID.test(uid)
-        ? [lastFor(whoisOf(uid) || {}), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid),
+        ? [lastWhois(), lastOfCase((whoisOf(uid) || {}).case), whoisBusy.get(uid) || null, closedBy(uid),
           whoisUndone.get(uid) || null] : null]);
     // The uids of the words of Gennady to Lex the chat has (his turns of the branch), to know which one is new.
     const whoisHisWords = () => Object.entries((data && data.looks) || {})
@@ -1094,14 +1081,9 @@
           row.appendChild(M.notice({ text: words, at: t.authoredAt }));
           return row;
         }
-        // The chat of an agent: the turn this one answers (a quote, В7.35) and the name of the branch (at the foot).
-        const look = lookOf(uid);
-        const quote = look.quote && typeof look.quote === 'object'
-          ? M.quote(look.quote, { io: fileIo, onPress: still ? null : (q) => self.openQuote(q) }) : null;
-        const caption = agent() && w.title ? String(w.title) : '';
         if (by === 'gennady') {
           // His word to the model about this question: the bubble of the person's word to Lex, «To Lex» over it.
-          const bubble = self.whoisWordBubble(words, t.authoredAt, { quote, caption });
+          const bubble = self.whoisWordBubble(words, t.authoredAt);
           row.appendChild(bubble);
           if (!still) self.attachWhoisMenu(row, bubble, t, 'out', false);
           // Lex has not answered yet: Lex «thinks» under the word (the dots of the assistant), for a minute and a half
@@ -1118,15 +1100,16 @@
         const md = global.WcMarkdown;
         if (md && typeof md.into === 'function') md.into(body, words, { lex: true }); else body.textContent = words;
         // The buttons stand on the last word of the model in an open question only — and not on a question the server
-        // closed at a press of «Подтвердить» a moment ago: it says «Подтверждено» at once, the chat is read after.
+        // closed at a press of «Подтвердить» a moment ago: it says «Подтверждено» at once, the chat is read after. A task
+        // chat of an agent has none.
         const done = closedBy(uid);
         // An attach the agent made by itself asks nothing: its only button is the undo (В7.54), whatever `open` says.
-        const last = !done && !!w.open && kind !== 'attached' && lastFor(w) === Number(w.turn);
+        const last = !agent() && !done && !!w.open && kind !== 'attached' && lastWhois() === Number(w.turn);
         // The undo of an attach the agent made by itself: on the word that carries it, while the server has not undone it.
         const undone = whoisUndone.get(uid) || null;
         const undo = w.undo === true && !undone && typeof deps.whoisUndo === 'function' ? { label: self.undoLabel() } : null;
         const part = M.whois({
-          body, at: t.authoredAt, quote, caption, kind, headline, undo,
+          body, at: t.authoredAt, kind, headline, undo,
           onUndo: () => self.whoisUndo(uid),
           confirm: last && w.confirm && typeof deps.whoisConfirm === 'function' ? { say: String(w.confirm.say || '') } : null,
           reply: last && typeof deps.reply === 'function',
@@ -1225,13 +1208,11 @@
       },
 
       // The word of Gennady to Lex: the bubble «To Lex» of the person's word, the same in the chat and at its end.
-      // o = { quote, caption } — in the chat of an agent: the turn it answers, the name of its branch.
-      whoisWordBubble(words, at, o) {
+      whoisWordBubble(words, at) {
         const M = global.LexMessage;
         const label = make('div', 'lex-bubble-label', '');
         label.append(M.sparkle(12), document.createTextNode('To Lex'));
-        return M.bubble({ side: 'out', tone: 'self', label, text: words, quote: (o && o.quote) || null,
-          stamp: M.stamp({ at, label: (o && o.caption) || '' }) });
+        return M.bubble({ side: 'out', tone: 'self', label, text: words, stamp: M.stamp({ at }) });
       },
 
       // Lex «thinks»: the assistant waiting for its first word — its head and the three dots, drawn by the rule of the
@@ -1292,12 +1273,7 @@
       whoisWordItem() {
         const w = whoisWord;
         const root = make('div', 'wc-turn lex-profi-msg is-whois is-gennady is-pending');
-        // In the chat of an agent the word stands with the quote of the turn it answers, as the chat will draw it.
-        const to = agent() && w.quoteUid ? drawn.get(w.quoteUid) : null;
-        const tw = to ? whoisOf(w.quoteUid) || {} : {};
-        const quote = to ? global.LexMessage.quote({ uid: w.quoteUid, who: tw.by === 'gennady' ? 'me' : 'bot',
-          name: tw.by === 'gennady' ? undefined : 'Lex', text: plainLine(to.text, 300), kind: 'text' }, {}) : null;
-        root.appendChild(self.whoisWordBubble(w.text, w.at, { quote, caption: to && tw.title ? String(tw.title) : '' }));
+        root.appendChild(self.whoisWordBubble(w.text, w.at));
         if (w.state === 'sending') {
           const note = make('div', 'lex-profi-box-note', 'Sending…');
           note.setAttribute('role', 'status');
@@ -1642,7 +1618,8 @@
       // below); a group the database sends to does too (a hold only: no model there). A group it does not send
       // to and a chat in no folder do not.
       addressee() {
-        // The chat of an agent: no Send to a person, but the field is open — its words go to the agent (wc-app.js send).
+        // A task chat of an agent: no Send to a person (the server says send: false), but the field is open — its words
+        // go to the agent (wc-app.js sendToAgent).
         if (folder && data && !data.send && data.kind !== 'agent') return { to: data.kind === 'group' ? 'group' : 'closed' };
         return { to: 'order' };
       },
@@ -1835,10 +1812,12 @@
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
         // wrote by last (a group: its own); the clean view for a person (the talk with the assistant), none
         // for a group (no model there); no card yet (it opens from an order chat).
+        // A task chat of an agent: its title, the agent's name under it; nothing to open, no clean view.
         if (folder) {
           const name = (data && (data.client || data.title)) || 'Chat';
           const where = data && data.replyTo && M.CHANNELS[data.replyTo] ? M.CHANNELS[data.replyTo].name : '';
-          const line = data && data.kind === 'group' ? (where ? `Group · ${where}` : 'Group') : where;
+          const line = agent() ? ((data.agent && data.agent.name) || '')
+            : data && data.kind === 'group' ? (where ? `Group · ${where}` : 'Group') : where;
           const words = make('div', 'lex-profi-person-words', '');
           words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
           person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);

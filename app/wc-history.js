@@ -458,50 +458,37 @@
   const isFolderKey = (key) => typeof key === 'string' && FOLDER_KEY.test(key);
   const folderLimit = (key) => folderLimits.get(key) || FOLDER_PAGE;
   function folderEarlier(key) { folderLimits.set(key, folderLimit(key) + FOLDER_PAGE); }
-  // Send of a chat of a folder: the text for the person, through the edge function folder-send.
-  async function folderSend(body) {
+  // A call of an edge function of the folders with the person's pass: the answer's JSON, or the error with the words of
+  // the server (`status` — its HTTP code, none when the call itself failed). GET has no body.
+  async function edge(name, body, method) {
     const token = await A().validToken();
     if (!token) throw new Error('Sign in again.');
-    const resp = await fetch(A().supabaseUrl() + '/functions/v1/folder-send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
-      body: JSON.stringify(body || {}),
+    const get = method === 'GET';
+    const resp = await fetch(A().supabaseUrl() + '/functions/v1/' + name, {
+      method: get ? 'GET' : 'POST',
+      headers: { ...(get ? {} : { 'Content-Type': 'application/json' }), apikey: A().anonKey(), Authorization: 'Bearer ' + token },
+      ...(get ? {} : { body: JSON.stringify(body || {}) }),
     });
     const out = await resp.json().catch(() => null);
-    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    if (!resp.ok) {
+      const err = new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+      err.status = resp.status;
+      throw err;
+    }
     return out;
   }
-
+  // Send of a chat of a folder: the text for the person, through the edge function folder-send.
+  const folderSend = (body) => edge('folder-send', body);
   // The branch «who is this» in the chat of a new person (19.11.2026, В7.50): a word of Gennady to the model of that one
   // question { chatKey, opId, text }, or the press of Confirm { chatKey, opId, confirm: 'profi:whois:<n>' }, through the
   // edge function folder-whois. Nothing of it goes to the person.
-  async function folderWhois(body) {
-    const token = await A().validToken();
-    if (!token) throw new Error('Sign in again.');
-    const resp = await fetch(A().supabaseUrl() + '/functions/v1/folder-whois', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
-      body: JSON.stringify(body || {}),
-    });
-    const out = await resp.json().catch(() => null);
-    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
-    return out;
-  }
-
+  const folderWhois = (body) => edge('folder-whois', body);
+  // The section «Agents» (21.11.2026, supabase/functions/folder-agents): GET — the agents of the base with this account's
+  // numbers; POST { op: chat | say | read | settings, … } — a new task chat, a word into one, «read», the agent's model.
+  const folderAgents = (body) => edge('folder-agents', body, body ? 'POST' : 'GET');
   // Edit of a message that went to a person (19.11.2026): the new words for it, through the edge function message-edit.
   // → { edit: { state } }; a refusal (too late, not a text) comes as the error with the words of the database.
-  async function messageEdit(body) {
-    const token = await A().validToken();
-    if (!token) throw new Error('Sign in again.');
-    const resp = await fetch(A().supabaseUrl() + '/functions/v1/message-edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: A().anonKey(), Authorization: 'Bearer ' + token },
-      body: JSON.stringify(body || {}),
-    });
-    const out = await resp.json().catch(() => null);
-    if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
-    return out;
-  }
+  const messageEdit = (body) => edge('message-edit', body);
 
   // ── One conversation ─────────────────────────────────────────────────────
   //
@@ -720,6 +707,7 @@
     folderEarlier,
     folderSend,
     folderWhois,
+    folderAgents,
     messageEdit,
     emEarlier,
     emLimit,

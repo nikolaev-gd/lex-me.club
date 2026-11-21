@@ -637,9 +637,6 @@
     if (o.channel && CHANNELS[o.channel]) {
       root.append(channel(o.channel), channelName(o.channel), make('span', 'lex-stamp-dot', '·'));
     }
-    // A label in the place of the channel (a branch of the chat of an agent: the short name of its correction,
-    // 20.11.2026): plain words, cut with an ellipsis, so the time always stays.
-    if (o.label) root.append(make('span', 'lex-stamp-label', String(o.label)), make('span', 'lex-stamp-dot', '·'));
     // В7.39: a message the person deleted at his side — a bin 12 and «deleted»; an edited one — «edited»;
     // both before the time.
     if (o.deleted) {
@@ -1866,9 +1863,7 @@
   // question, or a word of the model that is not the last of its branch, has no buttons: a message of Lex, the time
   // at its right foot. While Confirm is on its way the ring turns on it and Reply is off; a refusal stands under the
   // buttons in red «Не подтверждено: <причина>»; the word to Lex the server refused (`pending.word`) — «Не отправлено: <причина>».
-  // In the chat of an agent (the editor of instructions, 20.11.2026) a word of Lex is a turn of one branch of many: over
-  // its words the quote of the turn it answers (`quote`, a node of quote(), В7.35), at its foot before the time the name
-  // of its branch (`caption`), the way a message names its channel there (В7.2).
+  // In a task chat of an agent (the section «Agents», 21.11.2026) a word of the agent is the same part without buttons.
   // The outcomes of the agent (В7.54, 21.11.2026, variant Б «Полоса решения»): a word with `kind` attached | guess |
   // question and its `headline` is the bright message of the agent — the whole width of the chat, the band of the
   // decision on top (the icon 18 and the headline 16/650: attached — `--bg-active`, a tick; guess — `--attention-wash`
@@ -1877,7 +1872,7 @@
   // agent did by itself («Это не Елизавета», «Не это дело»), the second button of the column; its press — onUndo, its
   // way — `pending.undo` (the ring, «Не отменено: …»). Without a headline (an old turn, a reply) — the look of В7.50.
   //   whois({ body | text, at, confirm: { say } | null, reply, pending: { error, word, undo } | null, onReply, onConfirm,
-  //           onGo, quote, caption, kind, headline, undo: { label } | null, onUndo })
+  //           onGo, kind, headline, undo: { label } | null, onUndo })
   const WHOIS_BAND = { attached: 'tick', guess: 'ask', question: 'ask' };
   function whoisMark(kind) {
     const n = svg('0 0 24 24', 18);
@@ -1908,7 +1903,6 @@
       head.append(sparkle(14), make('span', 'lex-whois-name', 'Lex'));
       root.appendChild(head);
     }
-    if (o.quote) main.appendChild(o.quote);
     let text = o.body;
     if (!text) { text = make('div', '', ''); text.textContent = o.text || ''; }
     text.classList.add('lex-q-text');
@@ -1956,10 +1950,8 @@
       main.appendChild(note);
     }
     const foot = questionFoot(o.at, null, false, null, null);
-    // the name of the branch, «·», the time — as the stamp of a message names its channel (В7.2)
-    if (o.caption) foot.prepend(make('span', 'lex-q-caption', String(o.caption)), make('span', 'lex-q-dot', '·'));
     // under a band the foot names who wrote: the sparkle 12, «Lex», «·», the time
-    else if (band) foot.prepend(sparkle(12), make('span', 'lex-q-caption lex-whois-by', 'Lex'), make('span', 'lex-q-dot', '·'));
+    if (band) foot.prepend(sparkle(12), make('span', 'lex-q-caption lex-whois-by', 'Lex'), make('span', 'lex-q-dot', '·'));
     main.appendChild(foot);
     return root;
   }

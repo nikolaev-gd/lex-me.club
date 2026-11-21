@@ -556,6 +556,9 @@
     // Questions: a button of its own (2026-11-17), it opens the feed of questions of the database
     // itself, the one Extended Mind held before; no list of its own.
     questions: { title: 'Questions', opens: () => openQuestions() },
+    // Agents (21.11.2026): the agents of the base, a folder of task chats for each (wc-agents.js). A task chat of it
+    // follows the signals through this section while it is open; left, it stops.
+    agents: { title: 'Agents', build: buildAgents, leave: () => { if (SECTIONS.agents.live) SECTIONS.agents.live.unwatch(); } },
   };
   // A folder of chats (Kolya, Other; lex-folders.js) is a section the server names 'folder:<id>' with
   // its title (lex_home_sections): its entry here is made when the server names it. It has no screen of its own: its
@@ -722,7 +725,7 @@
     // The sections this page knows: the server names no other. The copy this device kept in the
     // first frame, the server's answer after it (lex-reads.js).
     try {
-      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news', 'folders', 'questions'] }, (list, fresh, same) => {
+      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news', 'folders', 'questions', 'agents'] }, (list, fresh, same) => {
         if (!Array.isArray(list) || same) return;
         drawn = list;
         draw(list);
@@ -967,6 +970,11 @@
       if (!wanted()) return;
       if (item) await openEmFeed('question', wanted, ref || `em:${item}`, back);
       else await openEmFeed(feed, wanted, ref, back);
+      return;
+    }
+    // A word of an agent (lex.agent, a task chat of the section «Agents»): the folder of that agent, the chat over it.
+    if (lex.agent && WcHistory.isFolderKey(key)) {
+      await openAgentFrom(String(lex.agent), key, wanted);
       return;
     }
     // The chat of a person not recognized yet (`whois`, push-decide.ts) may have gone out of the folders since: the person
@@ -2002,8 +2010,10 @@
   // and the press then reads it and takes the moment of the visit; nothing held — one answer.
   // The section of the folder chat opened last (placeNow: the place the window comes back to).
   let folderOfChat = null;
-  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt) {
+  // back — the way back from the chat: the main page, or the folder of its agent (the section «Agents»).
+  async function openFolderChat(sectionId, key, wanted, heldNow, keepIt, backTo) {
     folderOfChat = { key, sectionId };
+    const back = backTo || mainTarget();
     let held = heldNow;
     if (!(held && held.chatKey && held.chat)) {
       const copy = await kept('folder_item', { p_chat_key: key });
@@ -2016,7 +2026,7 @@
     if (held && held.chatKey && held.chat) {
       const chat = makeFolderChat(sectionId, held, keepIt);
       await WcBus.call('WC_PROFI_CHAT', { key: held.chatKey, modelId: held.modelId || null });
-      await openConversation(held.chatKey, { profi: chat, back: mainTarget(), wanted, loaded: held.chat });
+      await openConversation(held.chatKey, { profi: chat, back, wanted, loaded: held.chat });
       if (profiChat === chat) await refreshFolderChat({ take: true }).catch((e) => console.warn('[wc] folder chat:', e && e.message));
       return;
     }
@@ -2026,14 +2036,14 @@
     if (keepIt) keepIt(data);
     const chat = makeFolderChat(sectionId, data, keepIt);
     await WcBus.call('WC_PROFI_CHAT', { key: data.chatKey, modelId: data.modelId || null });
-    await openConversation(data.chatKey, { profi: chat, back: mainTarget(), wanted, loaded: data.chat });
+    await openConversation(data.chatKey, { profi: chat, back, wanted, loaded: data.chat });
   }
   // The database changed something: a message came, one changed (a reaction, an edit, its file), a
   // text went or did not. A signal about another chat is not read. take — the press that showed the
   // chat from what was held: it is read and the visit's moment taken.
   async function refreshFolderChat(opts) {
     const chat = profiChat;
-    if (!chat || !chat.folder || !chat.data) return;
+    if (!chat || !chat.folder || !chat.data || !chat.data.chatKey) return;
     const told = opts && opts.payload && opts.payload.chatKey;
     if (told && told !== chat.data.chatKey) return;
     const take = !!(opts && opts.take);
@@ -2126,11 +2136,7 @@
   // the uid of that question (the same line as a Reply on a message, В7.26, and kept in the draft the same way), and the
   // next word of the field goes here — to the model of this one question (the edge function folder-whois), never to
   // the person and never to the assistant. «Подтвердить» applies the proposal of the model.
-  // The chat of an agent of the database (a:, the editor of instructions, 20.11.2026): every word of its field goes to the
-  // agent by the same way — with the line «Reply to Lex» into the branch of that turn (`turn`), without it as a NEW
-  // correction; nothing of it goes to a person or to the assistant.
-  const WHOIS_TURN = /^profi:(?:whois|editor):[0-9]{1,18}$/;
-  const isAgentChat = (chat) => !!(chat && chat.folder && chat.data && chat.data.kind === 'agent');
+  const WHOIS_TURN = /^profi:whois:[0-9]{1,18}$/;
   async function sendWhois(chat, key, text, r) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return;
@@ -2142,18 +2148,12 @@
     if (reply && r && reply.quoteUid === r.quoteUid) setReply(null);
     WcThread.scrollToEnd();
     try {
-      await WcBus.call('WC_FOLDER_WHOIS', { body: {
-        chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId(),
-        ...(isAgentChat(chat) && r && WHOIS_TURN.test(r.quoteUid || '') ? { turn: r.quoteUid } : {}),
-      } });
+      await WcBus.call('WC_FOLDER_WHOIS', { body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId() } });
     } catch (err) {
       const why = (err && err.message) || 'Try again.';
       // false — the chat drew the word already: it went, there is nothing to take back.
-      if (chat.whoisRefused(why)) {
-        takeWordBack(key, text, r);
-        // A new correction answers no turn: there are no buttons to say it under, the toast says it.
-        if (!r) toast('Not sent. ' + why, { error: true });
-      } else console.warn('[wc] word to Lex:', why);
+      if (chat.whoisRefused(why)) takeWordBack(key, text, r);
+      else console.warn('[wc] word to Lex:', why);
       return;
     }
     // The server has the word: Lex thinks under it until the chat draws it.
@@ -2209,9 +2209,139 @@
       await openFromNotification({ kind: 'profi_message', chatKey: `__lex_profi__${m[2]}`, order: m[2] });
       return;
     }
+    // A task chat of an agent (a:<agent>-<n>): found among the chats of that agent, opened over its folder.
+    const task = /^a:([a-z0-9-]{1,40})-[0-9]{1,18}$/.exec(m[2]);
+    if (task) {
+      const chats = await newsRpc('lex_agent_chats', { p_agent: task[1] });
+      const c = (Array.isArray(chats) ? chats : []).find((x) => x && x.ref === m[2]);
+      if (!c || !c.chatKey) { toast('This chat is not in Lex.', { error: true }); return; }
+      await openFromNotification({ kind: 'folder_message', chatKey: c.chatKey, agent: task[1] });
+      return;
+    }
     const found = await newsRpc('folder_chat_by_ref', { p_ref: m[2] });
     if (!found || !found.chatKey) { toast('This person has no chat in Lex.', { error: true }); return; }
     await openFromNotification({ kind: 'folder_message', chatKey: found.chatKey, folder: found.folder || '' });
+  }
+
+  // ── The section «Agents» (21.11.2026, wc-agents.js) ───────────────────────────────────────────────────
+  // A folder for every agent of the base, a chat for every task of the agent. A task chat is a chat of a folder
+  // (folder_item, kind 'agent'): its words are the turns of the branch (origin folder_whois) — the agent's words as the
+  // word of Lex (В7.50) without buttons, Gennady's as his word «To Lex», the system's as a plate. Every word of the
+  // field goes to the agent (folder-agents, op say), nothing to a person or to the assistant; no files, presets or voice.
+  // The arrow of the chat leads to the folder of its agent, the arrow of the folder to the list of the agents.
+  const isAgentChat = (chat) => !!(chat && chat.folder && chat.data && chat.data.kind === 'agent');
+  // The agent of a task chat (folder_open `agent`: { key, name, state, opened_by, n }).
+  const agentKeyOf = (chat) => (isAgentChat(chat) && chat.data.agent && chat.data.agent.key) || '';
+  const ONLY_WORDS = 'Agents take only words.';
+  const agentsCall = (body) => WcBus.call('WC_FOLDER_AGENTS', { body: body || null });
+  function buildAgents() {
+    return global.WcAgents.createSection({
+      back: sectionBack,
+      signals,
+      rpc: newsRpc,
+      call: agentsCall,
+      openChat: (agent, chatKey, wanted) => openAgentChat(agent, chatKey, wanted),
+      newChat: (agent) => { newAgentChat(agent).catch((e) => console.warn('[wc] new agent chat:', e && e.message)); },
+      pickModel: (anchor, agent) => pickAgentModel(anchor, agent.key),
+      chatOpen: () => !!(profiChat && profiChat.sectionId === 'agents'),
+      onChange: (payload) => refreshFolderChat({ payload }),
+    });
+  }
+  const agentTarget = (agent) => ({ title: agent.name || 'Agents', go: () => showSection('agents', { back: true }) });
+  // A task chat opened: as a chat of a folder, the arrow to the folder of the agent; the base hears it was read.
+  async function openAgentChat(agent, chatKey, wanted) {
+    await openFolderChat('agents', chatKey, wanted || (() => true), null, null, agentTarget(agent));
+    if (profiChat && profiChat.data && profiChat.data.chatKey === chatKey) {
+      agentsCall({ op: 'read', chatKey }).catch((e) => console.warn('[wc] agent read:', e && e.message));
+    }
+  }
+  // A notification, a link, the place the Mac app comes back to: the section stands on the folder of the agent (not on
+  // the screen), the chat opens over it.
+  async function openAgentFrom(agentKey, chatKey, wanted) {
+    const agent = await ensureSection('agents').enter(agentKey);
+    if (wanted && !wanted()) return;
+    await openAgentChat(agent, chatKey, wanted);
+  }
+  // «New chat» in the folder of an agent: an empty chat of that agent («New chat», the agent's name under it) with the
+  // field; the first word makes the chat (op chat), and this screen becomes it. Its words wait in a draft of their own.
+  const agentDraftKey = (key) => `__lex_agent_new__${key}`;
+  async function newAgentChat(agent) {
+    if (WcThread.isStreaming()) leaveStream();
+    await endVoiceOnLeave('open-chat');
+    stopSectionOpening();
+    const chat = makeFolderChat('agents', {
+      kind: 'agent', chatKey: null, title: 'New chat', client: 'New chat', send: false,
+      agent: { key: agent.key, name: agent.name || agent.key }, looks: {}, sends: [], channels: {},
+    }, null);
+    takeField(agentDraftKey(agent.key));
+    leaveSection();
+    endVisit();
+    state.conversationId = null;
+    WcThread.clear();
+    resetMoney();
+    paintNewsBar(null);
+    WcSidebar.setActive(null);
+    WcHeader.setTitle('');
+    sectionBack.cameFrom(agentTarget(agent));
+    enterProfiChat(chat);
+    syncAttachment();
+    paintAddressee();
+    paintHome();
+    WcSidebar.close();
+    WcComposer.focus({ raiseKeyboard: true });
+  }
+  // A word to the agent: it stands at the end of the chat at once, «Sending…», and Lex «thinks» under it once the base
+  // took it; a refusal brings it back into the field and says why. One word at a time, a fresh number every press.
+  async function sendToAgent(chat, key, text, opts) {
+    const words = String(text || '').trim();
+    if ((opts && opts.mode) || WcAttach.count()) {
+      giveBack(key, text || '', null);
+      toast(ONLY_WORDS, { error: true });
+      return;
+    }
+    if (!words) return;
+    if (!chat.whoisSending(words, null)) { giveBack(key, text, null); return; }
+    WcThread.scrollToEnd();
+    const fresh = !chat.data.chatKey;
+    const opId = global.LexFolders.newOpId();
+    let out;
+    try {
+      out = await agentsCall(fresh
+        ? { op: 'chat', agent: chat.data.agent.key, text: words, opId }
+        : { op: 'say', chatKey: chat.data.chatKey, text: words, opId });
+    } catch (err) {
+      const why = (err && err.message) || 'Try again.';
+      if (chat.whoisRefused(why)) takeWordBack(key, text, null);
+      toast('Not sent. ' + why, { error: true });
+      return;
+    }
+    chat.whoisTaken();
+    if (!fresh) { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); return; }
+    // The new chat has its key: its draft goes, and the screen becomes the chat (the arrow still to the folder).
+    if (global.LexDrafts) global.LexDrafts.clear(key);
+    if (out && out.chatKey && profiChat === chat) await openAgentChat(chat.data.agent, out.chatKey, () => profiChat === chat);
+  }
+  // The model of an agent (its folder, «+ → Text model» in its chats): the common menu of the models, Anthropic only;
+  // the choice goes to the base (op settings), the list is read again and shows the new value.
+  function pickAgentModel(anchor, agentKey) {
+    const live = ensureSection('agents');
+    const agent = live.agent(agentKey);
+    if (!agent) {
+      toast('The agents are not read yet. Try again.', { error: true });
+      live.readList().catch(() => {});
+      return;
+    }
+    openModelMenu(anchor, global.WcAgents.modelId(agent), {}, async (modelId) => {
+      const [, model, effort] = modelId.split(':');
+      try {
+        await agentsCall({ op: 'settings', agent: agentKey, model, effort });
+      } catch (err) {
+        toast('Not saved. ' + ((err && err.message) || ''), { error: true });
+        return;
+      }
+      await live.readList().catch((e) => console.warn('[wc] agents:', e && e.message));
+      toast(`${agent.name || agentKey}: ${global.WcAgents.modelLabel(live.agent(agentKey) || { model, effort })}`);
+    }, null, 'anthropic');
   }
 
   // A chat left open behind other windows gets read when the person comes back to it.
@@ -2295,15 +2425,15 @@
       toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
       return;
     }
+    // A task chat of an agent (the section «Agents»): every word of its field goes to the agent, and nothing else does.
+    if (isAgentChat(chat0)) {
+      await sendToAgent(chat0, key0, text, opts);
+      return;
+    }
     // The branch «who is this»: with the line «Reply to Lex» of a question over the field the words go to the model of
     // that question, nowhere else (a picture or a file of the field stays in it).
     if (chat0 && chat0.folder && reply0 && WHOIS_TURN.test(reply0.quoteUid || '')) {
       await sendWhois(chat0, key0, text, reply0);
-      return;
-    }
-    // The chat of an agent: a word without the line goes to the agent as a new correction.
-    if (isAgentChat(chat0)) {
-      await sendWhois(chat0, key0, text, null);
       return;
     }
     // A chat of a folder: the person's chat talks with the assistant in correspondence, as an order chat (the
@@ -2529,8 +2659,9 @@
   // текстовые модели по поставщикам, у каждой подменю уровней размышления.
   // Отмечена модель, которую передали (модель ответа или модель по умолчанию).
   // choiceRow — строка под моделями с подменю выбора (у меню «Text model» — «Подписка или
-  // токены API»), формат — model-picker-dropdown.js.
-  function openModelMenu(anchor, selectedId, efforts, onPick, choiceRow) {
+  // токены API»), формат — model-picker-dropdown.js. provider — the models of one provider only (the model of an
+  // agent of the base: Anthropic).
+  function openModelMenu(anchor, selectedId, efforts, onPick, choiceRow, provider) {
     const D = global.LexModelPickerDropdown;
     if (!D) return;
     const parts = String(selectedId || '').split(':');
@@ -2544,6 +2675,7 @@
       },
       onPick: (provider, apiModel, effort) => onPick(provider + ':' + apiModel + ':' + effort),
       choiceRow: choiceRow || null,
+      provider: provider || null,
     });
   }
 
@@ -2561,6 +2693,8 @@
   // умолчанию модель монитора), в остальных — модель чатов Lex. Какая из двух, решает
   // открытый чат; хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
+    // A task chat of an agent: the model of that agent, not the model of the chats of orders.
+    if (isAgentChat(profiChat)) { pickAgentModel(anchor, agentKeyOf(profiChat)); return; }
     const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
@@ -2579,6 +2713,13 @@
   // заказов своя. Меню «+» открывается синхронно, поэтому обе подписи держатся наготове.
   let textModelLabel = '';
   let profiModelLabel = '';
+  // The label of this chat: a task chat of an agent names the agent's model (the list of the section holds it).
+  function textModelLabelNow() {
+    if (!isAgentChat(profiChat)) return profiChat ? profiModelLabel : textModelLabel;
+    const live = SECTIONS.agents.live;
+    const agent = live && live.agent(agentKeyOf(profiChat));
+    return agent ? global.WcAgents.modelLabel(agent) : '';
+  }
   // Whether those models read pictures: a picture picked as «File» goes the picture's way only
   // then (WcAttach.accept). Not known yet — it does, as before.
   let textModelSees = true;
@@ -2945,9 +3086,9 @@
 
   async function toggleVoice(opts) {
     await settingsReady;
-    // A chat of a folder is the conversation with a person: Lex does not talk in it.
+    // A chat of a folder is the conversation with a person: Lex does not talk in it; an agent takes only words.
     if (profiChat && profiChat.folder && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
-      toast('Voice talk with Lex is not in the chats of folders.');
+      toast(isAgentChat(profiChat) ? ONLY_WORDS : 'Voice talk with Lex is not in the chats of folders.');
       return;
     }
     // Push-to-talk is not a different transport — it is the same live session
@@ -3884,6 +4025,10 @@
     const key = state.conversationId;
     if (!key) return null;
     if (key.startsWith('__lex_profi__')) return { kind: 'profi_message', chatKey: key, order: key.slice('__lex_profi__'.length) };
+    // A task chat of an agent comes back over the folder of its agent.
+    if (WcHistory.isFolderKey(key) && agentKeyOf(profiChat) && profiChat.data.chatKey === key) {
+      return { kind: 'folder_message', chatKey: key, agent: agentKeyOf(profiChat) };
+    }
     if (WcHistory.isFolderKey(key)) {
       const sec = folderOfChat && folderOfChat.key === key ? String(folderOfChat.sectionId || '') : '';
       return { kind: 'folder_message', chatKey: key, folder: sec.replace(/^folder:/, '') };
@@ -3981,14 +4126,15 @@
       onFieldChange: () => saveField(),
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
-      onAttach: () => WcAttach.pick(),
-      onAttachFile: () => WcAttach.pickFile(),
+      // A task chat of an agent takes only words (a file pasted into the field stops at the send).
+      onAttach: () => (isAgentChat(profiChat) ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
+      onAttachFile: () => (isAgentChat(profiChat) ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
       // Пункт «Text model» меню «+»: подпись — модель по умолчанию этого чата, нажатие
       // открывает меню моделей. Видят все, в каждом чате.
-      textModel: () => ({ label: profiChat ? profiModelLabel : textModelLabel, open: pickDefaultModel }),
+      textModel: () => ({ label: textModelLabelNow(), open: pickDefaultModel }),
       // Holding the arrow: in an order chat the text goes to the client at once, without the
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat && !(reply && reply.editUid) ? profiChat.sendMenu(text) : null),
