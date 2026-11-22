@@ -30,8 +30,9 @@
 //   store: { get(key) → Promise<value|undefined>, set(key, value) → Promise, remove(key) → Promise }
 //   keyStore        (optional) the same shape, for the key-door answer alone (it holds the keys):
 //                   the extension keeps it out of chrome.storage.local, which content scripts read
-//   call(door, body) → Promise<{ status, json }>   a door of llm-proxy (direct-config, …); throws on a
-//                                                   network failure, a timeout or no pass yet
+//   call(door, body, opts?) → Promise<{ status, json }>   a door of llm-proxy (direct-config, …); throws on a
+//                                                   network failure, a timeout or no pass yet; opts.timeoutMs —
+//                                                   a longer wait than the host's own (voice-ask)
 //   voiceCmd(body)  → Promise<{ status, json }>    the voice-cmd door; throws like call()
 //   signedIn()      → Promise<boolean>             (optional) nothing is asked while signed out — a
 //                                                   stored session, not a valid pass (a pass being renewed
@@ -809,9 +810,13 @@
       if (changed) reload();
       return changed;
     }
+    // The door voice-ask (a call of ask_lex from the direct voice): a request of its own, not the queue — a person
+    // waits for it — with a long wait (the strong model answers in tens of seconds; the iPhone waits 75 s too).
+    const ASK_TIMEOUT_MS = 75000;
+    function askLex(body) { return h.call('voice-ask', body, { timeoutMs: ASK_TIMEOUT_MS }); }
     return Object.freeze({
       reload, seeAccount, refresh, ensure, isDirect, prefetch, warm, recipe, slotsFor,
-      voice, report, failure, flush, pending, wipe,
+      voice, report, failure, flush, pending, wipe, askLex,
       config: () => cfg,
       speech: () => (cfg && cfg.speech) || null,
     });
@@ -837,6 +842,29 @@
     if (/^[A-Za-z0-9_-]{11}(__[0-9]+)?$/.test(k)) return 'video';
     if (/^__lex_standalone__[0-9]+$/.test(k)) return 'standalone';
     return k;
+  }
+  // The functions a voice recipe declares → {names, nonBlocking} or null. The server names them in `recipe.tools`
+  // (the main chat's ask_lex, 2026-11-22); a recipe without it — read from Google's setup or OpenAI's session.
+  function toolsOf(rc) {
+    if (!rc || typeof rc !== 'object') return null;
+    const names = [];
+    let nonBlocking = false;
+    const add = (n) => { if (typeof n === 'string' && n && !names.includes(n)) names.push(n); };
+    if (rc.tools && Array.isArray(rc.tools.names)) {
+      rc.tools.names.forEach(add);
+      nonBlocking = rc.tools.nonBlocking === true;
+    } else {
+      const setup = rc.connect && rc.connect.firstFrame && rc.connect.firstFrame.setup;
+      for (const t of (setup && Array.isArray(setup.tools)) ? setup.tools : []) {
+        for (const fd of (t && Array.isArray(t.functionDeclarations)) ? t.functionDeclarations : []) {
+          add(fd && fd.name);
+          if (fd && fd.behavior === 'NON_BLOCKING') nonBlocking = true;
+        }
+      }
+      const sess = rc.session || (rc.connect && rc.connect.session) || null;
+      for (const t of (sess && Array.isArray(sess.tools)) ? sess.tools : []) if (t && t.type === 'function') add(t.name);
+    }
+    return names.length ? { names, nonBlocking } : null;
   }
   const PREP_WAIT_MS = 2500;
   const FORGET_MS = 5 * 60 * 1000;
@@ -914,8 +942,9 @@
       if (!r) return { direct: false, why: d.isDirect() ? 'no_recipe' : 'server_route' };
       const rc = r.recipe;
       const callId = newCallId();
+      const tools = toolsOf(rc);
       calls.set(callId, {
-        recipe: rc, slots: r.slots, surface, provider: rc.provider, ctx: ctx || null,
+        recipe: rc, slots: r.slots, surface, provider: rc.provider, ctx: ctx || null, tools,
         start: { model: m.model, surface, chatKey: meta.videoId || null, transcriptionModel: rc.transcriptionModel || null, startedAt: at },
         startQueued: null,
       });
@@ -924,6 +953,7 @@
         direct: true, callId, provider: rc.provider, transport: rc.transport, apiModel: rc.apiModel,
         maxOutputTokens: Number.isFinite(sessionCap) && sessionCap > 0 ? sessionCap : (rc.maxOutputTokens || null),
         transcriptionModel: rc.transcriptionModel || null,
+        tools,
         prepMs: Date.now() - at,
       };
     }
@@ -975,10 +1005,38 @@
       if (m.turn) { enqueue(m.callId, { turn: m.turn }); return { ok: true, queued: true }; }
       return { ok: true, direct: true };
     }
-    return { of, prep, started, failed, enqueue, end, voiceCmd, forgetLater, warmVoice, warmList, log };
+    // A call of ask_lex (LEX_DIRECT_VOICE_ASK {callId, question, id}): the door voice-ask with the chat of this
+    // call → {text, isError}. A refusal or a broken line is an error output — the voice says so and does not hang
+    // (askLexDoor on the iPhone, word for word).
+    async function ask(m, ctx) {
+      const c = of(m && m.callId);
+      const question = String((m && m.question) || '').trim();
+      if (!c || !c.tools) return { text: 'Lex cannot be asked from this conversation.', isError: true };
+      if (!question) return { text: 'The question is empty: ask again with the question in words.', isError: true };
+      const body = { question, callId: m.callId, id: (typeof m.id === 'string' && m.id) ? m.id : uuid(), chatKey: c.start.chatKey || '' };
+      try {
+        const sid = await o.sessionFor(ctx || c.ctx, c.surface);
+        if (Number.isSafeInteger(Number(sid)) && Number(sid) > 0) body.sessionId = Number(sid);
+      } catch (_) {}
+      const at = Date.now();
+      let r;
+      try { r = await d.askLex(body); } catch (e) {
+        log('voice-ask: broke ' + ((e && e.message) || e));
+        return { text: 'Lex did not answer: the line broke.', isError: true };
+      }
+      const j = (r && r.json) || {};
+      const ms = Date.now() - at;
+      if (r && r.status >= 200 && r.status < 300 && typeof j.text === 'string' && j.text) {
+        log('voice-ask: ' + (j.route || '?') + ' ' + (j.model || '?') + ' in ' + ms + ' ms (server ' + (j.ms != null ? j.ms : '-') + ' ms, router ' + (j.routerMs != null ? j.routerMs : '-') + ' ms), ' + j.text.length + ' chars');
+        return { text: j.text, isError: false };
+      }
+      log('voice-ask: refused HTTP ' + (r && r.status) + ' ' + (j.stage || '') + ' in ' + ms + ' ms');
+      return { text: 'Lex did not answer (HTTP ' + (r && r.status) + ').', isError: true };
+    }
+    return { of, prep, started, failed, enqueue, end, voiceCmd, forgetLater, warmVoice, warmList, ask, log };
   }
 
   global.LexDirectMode = Object.freeze({
-    create, createVoiceCalls, chatClass, fill, buildRequest, recipeKey, stableStringify, uuid, newCallId, isDirectCallId, scrub, STORE_KEYS,
+    create, createVoiceCalls, toolsOf, chatClass, fill, buildRequest, recipeKey, stableStringify, uuid, newCallId, isDirectCallId, scrub, STORE_KEYS,
   });
 })(typeof self !== 'undefined' ? self : globalThis);

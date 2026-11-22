@@ -793,7 +793,32 @@
   function bumpDirectIdle() {
     if (!direct) return;
     if (direct.idleTimer) clearTimeout(direct.idleTimer);
-    direct.idleTimer = setTimeout(() => { log('direct: silence'); stop({ reason: 'silence' }); }, direct.idleMs);
+    direct.idleTimer = setTimeout(() => {
+      // Lex is answering a call: the wait is not silence.
+      if (direct && direct.tools && direct.tools.inFlight() > 0) { bumpDirectIdle(); return; }
+      log('direct: silence'); stop({ reason: 'silence' });
+    }, direct.idleMs);
+  }
+  // The calls of functions of the direct voice (voice/voice-tools.js; the main chat: ask_lex): answered once (by
+  // call_id) through the door of Lex, a failure answers with an error output, then a new response — the model
+  // reads the answer out. No function declared — no runner, nothing is looked at.
+  function directFunctionCall(ev, channel) {
+    const d = direct;
+    const T = global.LexVoiceTools;
+    if (!d || !d.tools || !T) return;
+    const call = T.openaiCall(ev);
+    if (!call) return;
+    const fresh = d.tools.take([call]);
+    if (!fresh.length) return;
+    const at = performance.now();
+    log('tools: function_call', call.name, 'id', call.id, ', question', String((call.args && call.args.question) || '').length, 'chars');
+    d.tools.run(fresh).then((answers) => {
+      const ms = Math.round(performance.now() - at);
+      if (direct !== d || !channel || channel.readyState !== 'open') { log('tools: the answer did not go — the conversation is closed (+' + ms + ' ms)'); return; }
+      for (const a of answers) for (const e of T.openaiAnswerEvents(a)) { try { channel.send(JSON.stringify(e)); } catch (_) {} }
+      bumpDirectIdle();
+      log('tools: function_call_output sent +' + ms + ' ms:', answers.map((a) => a.name + (a.isError ? ' (error)' : '') + ' ' + a.text.length + ' chars').join(', '));
+    });
   }
   function clearDirectTimers() {
     if (!direct) return;
@@ -840,7 +865,15 @@
         const rid = ev.response && ev.response.id;
         if (rid) { d.open.delete(rid); if (d.doneIds.has(rid)) return; d.doneIds.add(rid); }
         bumpDirectIdle();
-        const usage = ev.response && ev.response.usage ? global.LexDirectProviders.realtimeUsage(ev.response.usage) : null;
+        // The filler's response ended with a function call: the pair waits for the answer's, its usage goes in
+        // with the answer's.
+        if (d.tools && global.LexVoiceTools.responseHasCall(ev)) {
+          d.heldUsage = global.LexVoiceTools.sumUsage(d.heldUsage || null, (ev.response && ev.response.usage) || null);
+          break;
+        }
+        const rawUsage = d.heldUsage ? global.LexVoiceTools.sumUsage(d.heldUsage, (ev.response && ev.response.usage) || null) : (ev.response && ev.response.usage) || null;
+        d.heldUsage = null;
+        const usage = rawUsage ? global.LexDirectProviders.realtimeUsage(rawUsage) : null;
         const userText = t.userText.trim();
         const asstText = t.asstText.trim();
         if (!userText && !asstText && !usage) break;
@@ -1021,6 +1054,7 @@
           let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
           if (!ev) return;
           directNote(ev);
+          if (ev.type === 'response.function_call_arguments.done' || ev.type === 'response.output_item.done') directFunctionCall(ev, dc);
           handleServerEvent(ev);
         };
         dc.onopen = async () => {
@@ -1029,7 +1063,10 @@
           // сервер её кладёт сервер).
           try {
             const r = await WcBus.call('WC_OPEN_TURNS', { conversationId: (opts && opts.conversationId) || null });
-            for (const t of (r && Array.isArray(r.turns)) ? r.turns : []) {
+            let turns = (r && Array.isArray(r.turns)) ? r.turns : [];
+            // The main chat with functions lives for months: its voice reads the newest turns (voiceTail).
+            if (dcall.tools && global.LexVoiceTools) turns = global.LexVoiceTools.voiceTail(turns.map((t) => Object.assign({}, t, { content: (t && (t.content || t.text)) || '' })));
+            for (const t of turns) {
               const text = t && (t.content || t.text);
               if (!text || (t.role !== 'user' && t.role !== 'assistant')) continue;
               const item = { type: 'message', role: t.role, content: [{ type: t.role === 'assistant' ? 'output_text' : 'input_text', text }] };
@@ -1062,6 +1099,11 @@
             seq: 0, turn: null, doneIds: new Set(), open: new Set(), idleTimer: null, capTimer: null,
             idleMs: (Number(knobs.voiceIdleTimeoutSec) || 60) * 1000,
             mode: global.WcDirect.mode, calls: dcall.calls, sessionId, convId: dcall.convId,
+            heldUsage: null,
+            tools: (dcall.tools && global.LexVoiceTools) ? global.LexVoiceTools.createRunner({
+              tools: dcall.tools,
+              ask: async (question, id) => (await dcall.calls.ask({ callId, question, id }, { sessionId })) || null,
+            }) : null,
           };
           directTurnReset();
           if (hooks.onStage) hooks.onStage('negotiating');
@@ -1292,6 +1334,11 @@
         if (msg.type === 'LEX_DIRECT_VOICE_PREP') {
           const calls = await directCalls();
           return calls ? await calls.prep(msg, gemSession) : { direct: false, why: 'no_direct_module' };
+        }
+        // A call of ask_lex from the direct voice of the main chat: the door voice-ask with this call's chat.
+        if (msg.type === 'LEX_DIRECT_VOICE_ASK') {
+          const calls = await directCalls();
+          return calls ? await calls.ask(msg, gemSession) : { text: 'Lex cannot be asked from this conversation.', isError: true };
         }
         if (msg.type === 'VOICE_CMD' && global.LexDirectMode && global.LexDirectMode.isDirectCallId(msg.callId)) {
           const calls = await directCalls();

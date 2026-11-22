@@ -152,6 +152,13 @@
     // сбрасывается вовсе.
     let teacherSpokeThisTurn = false;
     let interruptTimer = null;
+    // The functions of the direct voice (voice/voice-tools.js): the main chat's voice declares ask_lex, its calls are
+    // answered with what the door voice-ask of Lex says. A call is out, or answered and the model has not spoken
+    // since: the end of a piece of speech does not close the pair — the filler and the answer are one turn
+    // (toolHold of GeminiTurns.swift, rule for rule).
+    let toolRunner = null;
+    let toolHold = false;
+    let toolAnswered = false;
     // Сколько звука ответа этого хода пришло и сколько из него прозвучало до
     // обрыва. Google шлёт текст ответа быстрее, чем звук успевает проиграться:
     // замер 2026-09-26 — перебили на 5,5 с из 16,9 с пришедшего звука, а
@@ -282,6 +289,8 @@
       if (!cfg.idleTimeoutMs) return;
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
+        // Lex is answering a call: the wait is not silence.
+        if (toolRunner && toolRunner.inFlight() > 0) { bumpIdle(); return; }
         log('idle auto-close after', cfg.idleTimeoutMs, 'ms');
         // Тишину у этого разговора считает устройство (линии у сервера нет):
         // причина та же, что у сервера OpenAI, и надпись та же.
@@ -485,18 +494,30 @@
           prepBodyOf(cfg, lastPromptRefs, lastKnobs, voiceName, isPtt)));
         if (closed) { releaseMedia(); return; }
         if (prep && prep.direct === true && prep.provider === 'google' && prep.callId) {
-          directCall = { callId: prep.callId, at: performance.now() };
+          directCall = { callId: prep.callId, at: performance.now(), tools: prep.tools || null };
           callId = prep.callId;
           if (prep.apiModel) voiceApiModel = prep.apiModel;
           viaServer = false;
           relayAuth = null;
           server.setCallId(callId, { direct: true });
           log('direct: recipe held, call', callId, 'prep', prep.prepMs, 'ms');
+          // The functions of the recipe (the main chat: ask_lex), answered through the door of Lex. The main chat
+          // lives for months: its voice reads the newest turns, as on the server's way.
+          if (prep.tools && global.LexVoiceTools) {
+            const askCall = prep.callId;
+            toolRunner = global.LexVoiceTools.createRunner({
+              tools: prep.tools,
+              ask: (question, id) => host.send({ type: 'LEX_DIRECT_VOICE_ASK', callId: askCall, question, id }),
+            });
+            if (Array.isArray(priorTurns)) priorTurns = global.LexVoiceTools.voiceTail(priorTurns);
+            log('direct: functions', Array.from(toolRunner.names).join(', ') + (toolRunner.nonBlocking ? ' (in the background)' : ''));
+          }
         } else if (prep && prep.why) {
           log('direct: not this time —', prep.why);
         }
       }
       if (!directCall) {
+        toolRunner = null;
         await askServerForCall();
         if (closed) return;
       }
@@ -556,6 +577,7 @@
       async function fallBackFromDirect(why) {
         const failed = directCall;
         directCall = null;
+        toolRunner = null;
         warn('direct: Google did not take the call (' + why + ') — through the server');
         try {
           host.post({ type: 'LEX_DIRECT_VOICE_FAILED', callId: failed && failed.callId, provider: 'google', model: cfg.voiceModelId,
@@ -870,6 +892,8 @@
     }
 
     function handleServerMessage(data, priorTurns) {
+      // A call of a function, or its cancel (the direct voice of the main chat: ask_lex).
+      if (data.toolCall || data.toolCallCancellation) handleTools(data);
       // Кадр закрытого разговора, который уже досчитал свой последний ход (или
       // не ждал его): ничего не читаем — ни звука, ни расхода. Иначе расход
       // хода, который Google начал после обрыва, лёг бы на место уже
@@ -994,6 +1018,8 @@
                 modelSpokeThisTurn = true; segStartTs = 0;
               }
               if (!teacherSpokeThisTurn && turnUserEndedAt == null) turnUserEndedAt = performance.now();
+              // The answer to a call is speaking: the next end of speech closes the pair.
+              if (toolAnswered) { toolHold = false; toolAnswered = false; }
               teacherSpokeThisTurn = true;
               if (!closed) playPcmChunk(p.inlineData.data);
             }
@@ -1048,7 +1074,9 @@
         // закрывается, «нажми и говори» не возвращает микрофон — открытая в
         // это время реплика (activityStart) останавливает модель, и ответа не
         // будет вовсе (замер 2026-11-14). Перебитый ход закрывается, как всегда.
-        const piece = !!sc.turnComplete && status === 'IN_PROGRESS' && !turnInterrupted && !closed;
+        // A call of a function out or answered and not spoken yet (toolHold): the same — the answer is one turn
+        // with its filler.
+        const piece = !!sc.turnComplete && (status === 'IN_PROGRESS' || toolHold) && !turnInterrupted && !closed;
         if (piece) {
           playbackSuppressed = false;
           turnThinking = true;
@@ -1069,6 +1097,48 @@
       if (data.goAway) {
         log('goAway received, timeLeft =', data.goAway.timeLeft);
       }
+    }
+
+    // The calls of functions (voice/voice-tools.js; handleTools of GeminiVoice+Tools.swift, rule for rule): a call is
+    // answered once (by its id), a cancelled one is not answered, a failure answers with an error — the model never
+    // hangs. No runner (the voice declares no function) — a call is answered with an error.
+    function handleTools(data) {
+      const T = global.LexVoiceTools;
+      if (!T) return;
+      bumpIdle();
+      if (!toolRunner) toolRunner = T.createRunner({ tools: null, ask: null });
+      const runner = toolRunner;
+      if (data.toolCallCancellation) {
+        const ids = Array.isArray(data.toolCallCancellation.ids) ? data.toolCallCancellation.ids : [];
+        runner.cancel(ids);
+        toolHold = false;
+        log('tools: calls cancelled by Google:', ids.join(', '));
+        return;
+      }
+      const fresh = runner.take(T.geminiCalls(data));
+      if (!fresh.length) return;
+      toolHold = true;
+      toolAnswered = false;
+      const at = performance.now();
+      for (const f of fresh) log('tools: toolCall', f.name, 'id', f.id, ', question', String((f.args && f.args.question) || '').length, 'chars');
+      const sock = ws;
+      runner.run(fresh).then((answers) => {
+        const ms = Math.round(performance.now() - at);
+        const live = answers.filter((a) => !a.cancelled);
+        if (closed || !sock || ws !== sock || sock.readyState !== WebSocket.OPEN) {
+          log('tools: the answer did not go — the conversation is closed (+' + ms + ' ms)');
+          return;
+        }
+        if (live.length) {
+          try { sock.send(JSON.stringify(T.geminiResponseFrame(live, runner.nonBlocking))); } catch (err) { warn('tools: toolResponse send failed:', err); }
+          toolAnswered = true;
+        } else {
+          toolHold = false;
+        }
+        bumpIdle();
+        log('tools: toolResponse sent +' + ms + ' ms:', answers.map((a) => a.name + (a.isError ? ' (error)' : '') + ' ' + a.text.length + ' chars').join(', ')
+          + (live.length < answers.length ? ' — ' + (answers.length - live.length) + ' cancelled, not sent' : ''));
+      });
     }
 
     // Ход закончен у Google — turnComplete не на заполнителе (у модели с
@@ -1130,6 +1200,8 @@
       speechStartedEmittedThisTurn = false;
       turnThinking = false;
       pieceBreak = false;
+      toolHold = false;
+      toolAnswered = false;
       if (typed) pendingTyped = '';
       // Последний ход закрытого разговора досчитан — связь закрывается сейчас
       // же (settleAndReport): в живом режиме Google после обрыва уже начинает

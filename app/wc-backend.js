@@ -916,7 +916,7 @@
   // Пропуск — не дольше 10 с (аренда записи очереди длиннее суммы).
   const DIRECT_DOOR_TIMEOUT_MS = 15000;
   const DIRECT_PASS_TIMEOUT_MS = 10000;
-  async function directDoor(url, body) {
+  async function directDoor(url, body, timeoutMs) {
     let passTimer = null;
     const token = await Promise.race([
       A.validToken().catch(() => null),
@@ -924,7 +924,7 @@
     ]).finally(() => clearTimeout(passTimer));
     if (!token) throw new Error('no pass yet');
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), DIRECT_DOOR_TIMEOUT_MS);
+    const timer = setTimeout(() => ctl.abort(), Number(timeoutMs) > 0 ? Number(timeoutMs) : DIRECT_DOOR_TIMEOUT_MS);
     try {
       const resp = await fetch(url, {
         method: 'POST',
@@ -952,7 +952,7 @@
   };
   const directMode = global.LexDirectMode.create({
     store: directStore,
-    call: (door, body) => directDoor(`${A.supabaseUrl()}/functions/v1/llm-proxy/${door}`, body),
+    call: (door, body, opts) => directDoor(`${A.supabaseUrl()}/functions/v1/llm-proxy/${door}`, body, opts && opts.timeoutMs),
     voiceCmd: (body) => directDoor(`${A.supabaseUrl()}/functions/v1/voice-cmd`, body),
     signedIn: async () => !!(await directAccount()),
     account: directAccount,
