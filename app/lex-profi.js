@@ -841,6 +841,13 @@
   // the groups of that messenger (data.send, folder_group_send.sql) — the menu, the box and the lines under the text
   // name the group, for every member of it reads the text (Gennady, 20.11.2026). Where it does not send, the model
   // still works and a send into the group answers why (webchat/wc-app.js, sendToFolder, sendFolderBox).
+  // A task chat of an agent works now (its mirror says so; a mark without a state is a working one, as its head says
+  // «Working»): the live stage is the last line of its feed and the field's button is Stop (wc-app.js, 22.11.2026). The empty
+  // chat of «New chat» (no chatKey) never works.
+  function agentWorks(data) {
+    return !!(data && data.kind === 'agent' && data.chatKey && data.agent && (data.agent.state || 'working') === 'working');
+  }
+
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
@@ -1698,7 +1705,7 @@
           // The word to Lex of the branch «who is this» the press put here, until the chat draws it.
           if (whoisWord) items.push(self.whoisWordItem());
           // A task chat of an agent that works (board AgChat): the last line of the feed is the live stage (В7.63).
-          else if (agent() && data && data.chatKey && data.agent && data.agent.state === 'working' && global.LexSection) {
+          else if (agent() && agentWorks(data) && global.LexSection) {
             const live = make('div', 'wc-turn lex-profi-msg lex-agent-stage');
             live.appendChild(global.LexSection.liveStage({ stage: data.agent.stage || null }));
             items.push(live);
@@ -2704,5 +2711,5 @@
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
   global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode, busyNode, busyCommand,
-    storedFilesOf, withoutFileMarks, digestOf, ownWords, EDIT_CHANNELS };
+    storedFilesOf, withoutFileMarks, digestOf, ownWords, agentWorks, EDIT_CHANNELS };
 })(typeof window !== 'undefined' ? window : globalThis);
