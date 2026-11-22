@@ -1,0 +1,50 @@
+/* lex-checklist.css — the row of a checklist (ios/Lex/STANDARD.md, В7.53; lex-checklist.js). The numbers are the
+   board ShopList / ShopF1 (22.11.2026): from the edge to the circle 6, the circle 22 in a button of 44, the text 16/22,
+   no separators; the row of a new item — a dashed frame 1 of the faint colour, radius 10, a dashed circle. */
+
+.lex-check { margin-left: -10px; padding-top: 4px; }
+
+.lex-check-row { display: flex; align-items: stretch; }
+.lex-check-circle {
+  -webkit-appearance: none; appearance: none;
+  flex: 0 0 auto; align-self: center;
+  width: 44px; height: 44px; padding: 0; border: 0; border-radius: 22px;
+  background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.lex-check-circle:hover { background: var(--bg-hover); }
+.lex-check-circle:focus-visible { outline: 2px solid var(--line-focus, var(--fg-muted)); outline-offset: -2px; }
+.lex-check-circle svg, .lex-check-new-mark svg { display: block; flex: 0 0 auto; }
+
+.lex-check-ring { stroke: var(--fg-faint); stroke-width: 1.6; }
+.lex-check-ring.is-dashed { stroke-dasharray: 3 3; }
+.lex-check-fill { fill: var(--fg-muted); }
+.lex-check-tick { stroke: var(--bg); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+
+.lex-check-text {
+  flex: 1 1 auto; min-width: 0; min-height: 44px;
+  display: flex; align-items: center;
+  color: var(--fg); font-size: 16px; line-height: 22px;
+  overflow-wrap: anywhere; cursor: text;
+}
+.lex-check-row.is-done .lex-check-text { color: var(--fg-muted); text-decoration: line-through; }
+
+.lex-check-input {
+  -webkit-appearance: none; appearance: none;
+  flex: 1 1 auto; min-width: 0; width: 100%; height: 44px; padding: 0; margin: 0;
+  border: 0; outline: none; background: transparent;
+  color: var(--fg); font: inherit; font-size: 16px; line-height: 22px; caret-color: var(--fg);
+}
+.lex-check-input::placeholder { color: var(--fg-faint); opacity: 1; }
+/* The cursor is the only mark of the field: no frame of the focus (the page's :focus-visible draws one). */
+.lex-check-input:focus, .lex-check-input:focus-visible { outline: none; }
+
+.lex-check-new {
+  display: flex; align-items: center; min-height: 44px; box-sizing: border-box;
+  border: 1px dashed var(--fg-faint); border-radius: 10px; cursor: text;
+}
+.lex-check-new-mark { flex: 0 0 auto; width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; }
+
+/* The head of the done ones: the group's label (В7.58, its own padding 16 0 6) and one button of 44 on the right; the
+   words of both stand on one line, 16 under the row of a new item (the board: padding 16 0 6 10). */
+.lex-check-head { display: flex; align-items: flex-start; gap: 8px; padding: 14px 0 6px 10px; }
+.lex-check-head-label { flex: 1 1 auto; min-width: 0; }

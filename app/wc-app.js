@@ -560,9 +560,10 @@
     agents: { title: 'Agents', build: buildAgents, leave: () => { if (SECTIONS.agents.live) SECTIONS.agents.live.unwatch(); } },
     // Calendar and Shopping list have their places in the menu already (LexSection.entries, В7.62: Agents, Calendar,
     // Shopping list, Questions, Extended Mind, News). A section's entry comes on with its line here, and with the server
-    // naming the section for 'web' (lex_home_sections names calendar and shopping for 'ios' only on 21.11.2026):
+    // naming the section for 'web' (calendar_on_page.sql, 22.11.2026):
     // calendar: { title: 'Calendar', build: buildCalendar },
-    // shopping: { title: 'Shopping list', build: buildShopping },
+    // Shopping list (22.11.2026): one list of the base, a checklist (wc-shopping.js).
+    shopping: { title: 'Shopping list', build: buildShopping },
   };
   // A folder of chats (Kolya, Other; lex-folders.js) is a section the server names 'folder:<id>' with
   // its title (lex_home_sections): its entry here is made when the server names it. It has no screen of its own: its
@@ -2240,6 +2241,16 @@
       pickModel: (anchor, agent) => pickAgentModel(anchor, agent.key),
       chatOpen: () => !!(profiChat && profiChat.sectionId === 'agents'),
       onChange: (payload) => refreshFolderChat({ payload }),
+    });
+  }
+  // The section «Shopping list» (wc-shopping.js): the function shopping of the server, the common question.
+  const shoppingCall = (body) => WcBus.call('WC_SHOPPING', { body: body || null });
+  function buildShopping() {
+    return global.WcShopping.createSection({
+      back: sectionBack,
+      signals,
+      call: shoppingCall,
+      confirm: (title, text, o) => WcUI.confirm(title, text, o),
     });
   }
   const agentTarget = (agent) => ({ title: agent.name || 'Agents', go: () => showSection('agents', { back: true }) });
