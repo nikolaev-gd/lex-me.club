@@ -1,0 +1,173 @@
+/* lex-dictation-bar.css — the look of the dictation bar (lex-dictation-bar.js,
+ * STANDARD.md В7.72; Gennady's boards of 22.11.2026). One stylesheet for the page
+ * lex-me.club/app (the Mac app shows it) and the windows of the extension
+ * (manifest.json content_scripts, LexSurfaceDeps.styles). Loaded after
+ * lex-composer-box.css: the numbers are the composer's (its «Числа модуля»,
+ * «Полоса диктовки»), none is written here.
+ *
+ * Colours only by the tokens of the page (--fg, --fg-muted, --composer-icon,
+ * --bg-hover, --bg-active, --accent, --accent-fg, --accent-hover, --attention); the windows of
+ * the extension, dark on any site, give these tokens the dark palette in
+ * styles.css.
+ *
+ * While the box wears `is-dictating` (set by the bar), its own row of buttons
+ * steps aside and the bar takes it: one line — the bar over the field's row (the
+ * field stays under the wave and takes typing); several lines — the bar under
+ * the text. */
+
+.lex-dictation-bar,
+.lex-dictation-mirror { display: none; }
+
+/* The box's own buttons («+», presets, microphone, voice, send) step aside. */
+.lex-dictation-box.is-dictating > :is(.wc-composer-actions, .ytvocab-chat-input-actions) { display: none; }
+
+.lex-dictation-box.is-dictating > .lex-dictation-bar {
+  display: flex;
+  align-items: center;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+  /* The field under the wave takes a press: only the buttons catch one. */
+  pointer-events: none;
+}
+.lex-dictation-box.is-dictating.is-multiline > .lex-dictation-bar { grid-row: 2; }
+
+/* An empty field under the wave shows no caret and no words; the first key
+   pressed opens the text above the bar and its caret (LexComposerBox.fit). */
+.lex-dictation-box.is-dictating:not(.is-multiline) > .lex-dictation-field { caret-color: transparent; }
+.lex-dictation-box.is-dictating:not(.is-multiline) > .lex-dictation-field::placeholder { color: transparent; }
+
+/* ── Buttons: the cross, Stop, Send ───────────────────────────────────────
+ * The zone of 44 (--lex-composer-btn); Stop and Send are a circle of 36
+ * (--lex-composer-dot) drawn inside it, as the box's own send and voice. */
+.lex-dictation-btn {
+  flex: none;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lex-composer-btn);
+  height: var(--lex-composer-btn);
+  margin: 0;
+  padding: calc((var(--lex-composer-btn) - var(--lex-composer-dot)) / 2);
+  border: 0;
+  border-radius: 50%;
+  background-color: transparent;
+  background-clip: content-box;
+  color: var(--composer-icon);
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.lex-dictation-btn svg {
+  display: block;
+  flex: none;
+  margin: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lex-dictation-cancel svg { width: 20px; height: 20px; stroke-width: 2; }
+.lex-dictation-stop svg,
+.lex-dictation-send svg { width: 18px; height: 18px; }
+.lex-dictation-stop svg { stroke: none; fill: currentColor; }
+.lex-dictation-send svg { stroke-width: 2.4; }
+
+.lex-dictation-cancel:hover { background-color: var(--bg-hover); color: var(--fg); }
+.lex-dictation-stop { background-color: var(--bg-active); color: var(--fg); }
+.lex-dictation-send { background-color: var(--accent); color: var(--accent-fg); }
+.lex-dictation-send:hover { background-color: var(--accent-hover); }
+.lex-dictation-btn:active { opacity: .6; }
+
+/* ── The wave ─────────────────────────────────────────────────────────────
+ * Bars 2 wide every 4, 4..24 high by loudness; silence is a dot 2×2. The new
+ * bar enters at the right by Stop and the wave slides left (the script moves
+ * it, one step a tick); on the left it melts over 24. */
+.lex-dictation-wave {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--lex-composer-btn);
+  box-sizing: border-box;
+  padding: 0 var(--lex-composer-text-x);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  color: var(--fg);
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, currentColor var(--lex-composer-wave-fade));
+  mask-image: linear-gradient(to right, transparent, currentColor var(--lex-composer-wave-fade));
+}
+.lex-dictation-wave-track {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--lex-composer-wave-gap);
+}
+.lex-dictation-wave-track > i {
+  flex: none;
+  display: block;
+  width: var(--lex-composer-wave-bar);
+  height: var(--lex-composer-wave-min);
+  border-radius: calc(var(--lex-composer-wave-bar) / 2);
+  background-color: var(--fg);
+}
+.lex-dictation-wave-track > i.is-dot {
+  width: var(--lex-composer-wave-dot);
+  height: var(--lex-composer-wave-dot);
+  background-color: var(--fg-muted);
+}
+/* Reduced motion: the wave stands still; a bar only changes its height. */
+@media (prefers-reduced-motion: reduce) {
+  .lex-dictation-wave-track > i { transition: height 120ms ease; }
+}
+
+/* ── The last minute (board 9) ────────────────────────────────────────────
+ * Between the wave and Stop, only in the last countdown-lead seconds before
+ * this recording's own limit: «0:59»…«0:00», 12 semibold, figures of one width,
+ * --attention. The wave (flex 1) gives it the room. */
+.lex-dictation-countdown {
+  flex: none;
+  box-sizing: content-box;
+  padding: var(--lex-composer-countdown-pad-top) var(--lex-composer-countdown-pad-right)
+    var(--lex-composer-countdown-pad-bottom) var(--lex-composer-countdown-pad-left);
+  font-size: var(--lex-composer-countdown-size);
+  font-weight: var(--lex-composer-countdown-weight);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--attention);
+  pointer-events: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.lex-dictation-countdown[hidden] { display: none; }
+
+/* ── The words the recognizer may still rewrite ───────────────────────────
+ * A mirror of the field in its own cell, under it, with the same font, padding
+ * and wrapping (the script copies them): the settled words --fg, the tail
+ * --fg-muted. The field's own letters go see-through while the tail is painted;
+ * its caret and selection stay. */
+.lex-dictation-box.lex-dictation-tail > .lex-dictation-mirror {
+  display: block;
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: start;
+  align-self: center;
+  margin: 0;
+  overflow: hidden;
+  border-style: solid;
+  border-color: transparent;
+  color: var(--fg);
+  pointer-events: none;
+}
+.lex-dictation-box.lex-dictation-tail.is-multiline > .lex-dictation-mirror { grid-column: 1 / -1; }
+.lex-dictation-mirror .lex-dictation-soft { color: var(--fg-muted); }
+.lex-dictation-box.lex-dictation-tail > .lex-dictation-field {
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--fg);
+}

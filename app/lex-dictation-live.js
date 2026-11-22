@@ -91,7 +91,12 @@
   // options:
   //   transport  { call(type, payload) => Promise<any>, subscribe(fn) => () => void }
   //   onReady    ()               — сервер подключился, звук пошёл
-  //   onDelta    (textSoFar)      — текст на данный момент, целиком
+  //   onDelta    (textSoFar, settledLen) — текст на данный момент, целиком, и
+  //                                сколько первых его знаков (UTF-16) уже не
+  //                                перепишется; остальное — хвост, который
+  //                                распознавалка ещё может поправить. Старый
+  //                                сервер числа не шлёт — тогда settledLen равен
+  //                                длине текста: набело всё
   //   onError    (message, info)  — отказ; info.status — код, если он был
   //   onCaptureStart ()            — звук пошёл; кнопку зажигать здесь
   //   onClosing  ({reason, maxDurationMs}) — сервер заканчивает сессию САМ
@@ -115,6 +120,13 @@
   // кадром ENDED, когда сессии не стало; а пульс, на который фон отвечает
   // «такой сессии нет», ловит то, о чём фон сказать не успел (например,
   // перезапуск воркера расширения).
+  // Сколько знаков догадки встало набело: число сервера в пределах текста;
+  // числа нет (старый сервер) — весь текст.
+  function settledOf(text, n) {
+    const len = String(text || '').length;
+    return (Number.isInteger(n) && n >= 0) ? Math.min(n, len) : len;
+  }
+
   function create(options) {
     const opts = options || {};
     const TAG = opts.logTag || '[lex-dictation-live]';
@@ -333,7 +345,9 @@
       unsub = transport.subscribe((msg) => {
         if (!msg || msg.requestId !== myId) return;
         if (msg.type === 'LEX_DICTATION_LIVE_DELTA') {
-          if (typeof msg.textSoFar === 'string' && typeof opts.onDelta === 'function') opts.onDelta(msg.textSoFar);
+          if (typeof msg.textSoFar === 'string' && typeof opts.onDelta === 'function') {
+            opts.onDelta(msg.textSoFar, settledOf(msg.textSoFar, msg.settledLen));
+          }
         } else if (msg.type === 'LEX_DICTATION_LIVE_ERROR') {
           if (typeof opts.onError === 'function') opts.onError(msg.message || '', { status: msg.status });
         } else if (msg.type === 'LEX_DICTATION_LIVE_CLOSING') {
@@ -465,8 +479,9 @@
   // только сервер объявил конец сессии, следующая стартует на том же потоке:
   // звук копится в её очереди, пока она подключается, и не теряется.
   //
-  // onText(text) получает весь текст цепочки целиком: тексты сессий подряд,
-  // через пробел. Внутри сессии — ровно то, что прислала распознавалка
+  // onText(text, settledLen) получает весь текст цепочки целиком: тексты
+  // сессий подряд, через пробел, и сколько первых знаков его встало набело
+  // (прошлые сессии набело целиком, у текущей — её число). Внутри сессии — ровно то, что прислала распознавалка
   // (onDelta), а на её конце — её итог; ничего не сглаживается и не
   // задерживается.
   //
@@ -481,30 +496,40 @@
     const QUICK_END_MS = 5000;
     const QUICK_END_MAX = 3;
     const texts = [];
+    const settled = [];
     let stream = null;
     let cur = null;
     let stopped = false;
     let quickEnds = 0;
     function emit() {
       if (typeof opts.onText !== 'function') return;
-      try { opts.onText(texts.filter(Boolean).join(' ')); }
+      let n = 0;
+      const parts = [];
+      texts.forEach((t, i) => {
+        if (!t) return;
+        if (parts.length) n += 1;
+        n += (i === texts.length - 1) ? Math.min(settled[i] == null ? t.length : settled[i], t.length) : t.length;
+        parts.push(t);
+      });
+      try { opts.onText(parts.join(' '), n); }
       catch (e) { console.warn(TAG, 'onText threw:', e && e.message); }
     }
     async function next() {
       if (stopped || !stream) return;
       const idx = texts.length;
       texts.push('');
+      settled.push(null);
       const startedAt = Date.now();
       const s = create({
         transport: opts.transport,
         logTag: TAG,
-        onDelta: (soFar) => { texts[idx] = soFar || ''; emit(); },
+        onDelta: (soFar, settledLen) => { texts[idx] = soFar || ''; settled[idx] = settledLen; emit(); },
         // Сервер заканчивает сессию сам (потолок): следующая — сразу, итог
         // этой придёт следом в onEnded.
         onClosing: () => { if (cur === s) { cur = null; restart(startedAt); } },
         onEnded: (info) => {
           const t = ((info && info.text) || '').trim();
-          if (t) { texts[idx] = t; emit(); }
+          if (t) { texts[idx] = t; settled[idx] = t.length; emit(); }
           if (cur === s) { cur = null; restart(startedAt); }
         },
         onError: (msg, info) => {
@@ -553,5 +578,5 @@
 
   // sampleRateFor наружу — частота той распознавалки, которую выбрали, из
   // каталога (строка базы); своей копии числа у поверхности нет.
-  global.LexDictationLive = { create, createChain, sampleRateFor };
+  global.LexDictationLive = { create, createChain, sampleRateFor, settledOf };
 })(typeof self !== 'undefined' ? self : globalThis);

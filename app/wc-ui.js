@@ -116,7 +116,8 @@
   // One implementation for both, because the parts that are easy to get wrong
   // are the same in each: Escape closes, Enter accepts, the overlay click
   // cancels, and focus returns to whatever opened it. Resolves to the string
-  // (prompt), true (confirm) or null (cancelled).
+  // (prompt), true (confirm) or null (cancelled). opts.signal (AbortSignal)
+  // closes it from the caller's side, resolving null.
   function modal(opts) {
     const host = document.getElementById('wc-modal');
     const returnFocus = document.activeElement;
@@ -167,6 +168,12 @@
 
       host.replaceChildren(card);
       host.hidden = false;
+      // signal — the caller closes the question itself (as a cancel): the thing it
+      // asked about is gone (the dictation bar: the recording ended by itself).
+      if (opts.signal) {
+        if (opts.signal.aborted) { close(null); return; }
+        opts.signal.addEventListener('abort', () => close(null), { once: true });
+      }
       // Click on the backdrop only — a click that started inside the card and
       // ended outside (a drag-select of the input) must not cancel.
       host.onpointerdown = (e) => { if (e.target === host) close(null); };

@@ -174,7 +174,13 @@
             return;
           }
           if (m.type === 'delta') {
-            emit({ type: 'LEX_DICTATION_LIVE_DELTA', textSoFar: m.textSoFar });
+            // settledLen — сколько первых знаков (единицы UTF-16) догадки уже
+            // не перепишется; остальное — хвост, который поле красит
+            // приглушённым. Старый сервер его не шлёт — тогда поля в кадре нет,
+            // и вкладка считает встававшим набело всё.
+            const d = { type: 'LEX_DICTATION_LIVE_DELTA', textSoFar: m.textSoFar };
+            if (Number.isInteger(m.settledLen) && m.settledLen >= 0) d.settledLen = m.settledLen;
+            emit(d);
             return;
           }
           if (m.type === 'error') {

@@ -394,6 +394,7 @@
       if (live !== me) return true;
       live = null;
       micOff();
+      dictBar().stop();
       syncButton();
       if (info && info.reason === 'cap') {
         const ms = Number(info.maxDurationMs);
@@ -411,7 +412,7 @@
       grower.serverFinal(text, !!(info && Number(info.maxDurationMs) > 0));
     }
     // Итог встаёт на место выросшего куска; в конец — только если куска нет.
-    function placeFinal(text) { grower.finish(text); }
+    function placeFinal(text) { grower.finish(text); return true; }
     // Своего номера сессии здесь не чеканим: его чеканит сам модуль живой
     // диктовки и им же метит все свои сообщения. Здешний был мёртвым — уезжал
     // внутри набора настроек, где его никто не читал, и при разборе журнала
@@ -430,10 +431,14 @@
         elMic.title = 'Stop dictating';
         elMic.setAttribute('aria-label', elMic.title);
         WcHaptics.tap();
+        // Полоса диктовки — с первого кадра звука, как и кнопка.
+        dictBar().start(stream);
         // Потолка живой записи здесь нет: его ставит сервер и сам говорит
         // «закрываю» (onClosing ниже).
       },
-      onDelta: (textSoFar) => { if (textSoFar) grower.push(textSoFar); },
+      // settledLen — сколько первых знаков догадки уже не перепишется: хвост
+      // после них поле красит приглушённым (lex-dictation-bar.js).
+      onDelta: (textSoFar, settledLen) => { if (textSoFar) grower.push(textSoFar, settledLen); },
       onClosing: (info) => { endedByServer(info); },
       onEnded: (info) => {
         if (!endedByServer(info) && !closedByServer) return;
@@ -461,10 +466,15 @@
     const me = live;
     // Завершение описано ДО старта: кнопка горит с первого кадра звука, значит
     // второе нажатие может прийти, пока связь ещё встаёт.
+    // wantText: true — «стоп» (итог в поле), false — бросить молча (выросшее
+    // остаётся), 'discard' — крестик полосы: сказанное в этой записи уходит из
+    // поля. Возвращает, встал ли в поле итог (по нему отправка во время записи
+    // решает, отправлять ли).
     live.__finish = async (wantText) => {
-      if (finished) return;
+      if (finished) return false;
       finished = true;
       clearRecLimit();
+      dictBar().stop();
       // Кнопка гаснет в миг нажатия и больше не меняется: всё, что осталось
       // серверу, он доделывает молча. Никакого «занята».
       if (live === me) live = null;
@@ -473,18 +483,19 @@
       elMic.setAttribute('aria-label', elMic.title);
       // Связь ещё не встала — расшифровывать нечего и ошибки не было: человек
       // передумал. Бросаем молча; расход за уже переданное досчитает сервер.
-      const want = wantText && !!(me && me.isReady && me.isReady());
+      const want = wantText === true && !!(me && me.isReady && me.isReady());
       // stop() глушит звук сразу, до всякой сети; микрофон отдаём тут же, а не
       // после ответа, — иначе точка записи горела бы над погасшей кнопкой.
       const pending = want ? me.stop() : (me.abort(), null);
       stream.getTracks().forEach((t) => t.stop());
+      if (wantText === 'discard') grower.discard();
       const res = pending ? await pending : null;
       syncButton();
-      if (!want) { grower.forget(); return; }
-      if (!res || !res.ok) { grower.forget(); toast('Could not transcribe', { error: true }); return; }
+      if (!want) { grower.forget(); return false; }
+      if (!res || !res.ok) { grower.forget(); toast('Could not transcribe', { error: true }); return false; }
       const text = (res.text || '').trim();
-      if (!text) { grower.forget(); toast('Nothing was recognised'); return; }
-      placeFinal(text);
+      if (!text) { grower.forget(); toast('Nothing was recognised'); return false; }
+      return placeFinal(text);
     };
     // Ручки уезжают КАК ЕСТЬ: что из них примет распознавалка, решает сервер
     // (_shared/dictation-fields.ts), один на все поверхности. Раньше здесь
@@ -498,10 +509,17 @@
       surface: 'standalone',
       pageType: 'text',
     });
+    // Последняя минута (доска 9): предел живой записи называет сервер в «готов»;
+    // отсчёт — от начала звука. Останавливает запись по-прежнему сервер
+    // (onClosing → endedByServer), полоса только показывает время.
+    if (started && !finished && live === me && me.maxDurationMs && me.maxDurationMs() > 0) {
+      dictBar().deadline(recStartedAt + me.maxDurationMs());
+    }
     if (!started) {
       if (!finished) {
         if (live === me) live = null;
         stream.getTracks().forEach((t) => t.stop());
+        dictBar().stop();
         elMic.classList.remove('is-recording');
         elMic.title = 'Dictate';
         elMic.setAttribute('aria-label', elMic.title);
@@ -575,6 +593,12 @@
     const myChunks = [];
     const myStartedAt = Date.now();
     recStartedAt = myStartedAt;
+    // Чем кончилась эта запись: встал ли итог в поле. Его ждёт отправка во
+    // время записи (sendRecording); крестик отвечает «нет» сразу.
+    let doneWith;
+    rec.__done = new Promise((resolve) => { doneWith = resolve; });
+    rec.__stream = stream;
+    rec.__doneWith = (v) => doneWith(v);
     rec.ondataavailable = (e) => { if (e.data && e.data.size) myChunks.push(e.data); };
     rec.onstop = async () => {
       // Dictation cancelled (cancelRecording: the field over a dimmed screen closed, В7.64): the microphone is let go,
@@ -587,14 +611,16 @@
       const durationMs = Date.now() - myStartedAt;
       const blob = new Blob(myChunks, { type: rec.mimeType || 'audio/webm' });
       const cap = capture();
-      if (blob.size < cap.minBlobBytes || durationMs < cap.minDurationMs) { syncButton(); return; }
-      await transcribe(blob, durationMs);
+      if (blob.size < cap.minBlobBytes || durationMs < cap.minDurationMs) { syncButton(); doneWith(false); return; }
+      doneWith(await transcribe(blob, durationMs));
     };
     rec.start();
     elMic.classList.add('is-recording');
     elMic.title = 'Stop dictating';
     elMic.setAttribute('aria-label', elMic.title);
     WcHaptics.tap();
+    // Обычная распознавалка: во время записи — только волна, текст после «стоп».
+    dictBar().start(stream);
     // Потолок записи — общее правило (lex-dictation-limit.js): микрофон, забытый
     // включённым, платит за каждую минуту тишины, поэтому запись кончается
     // сама так же, как по кнопке, и человеку говорится почему.
@@ -607,27 +633,102 @@
         toast('Recording stopped: the limit is ' + Limit.label(maxMs) + '.');
       },
     });
+    // Последняя минута (доска 9): тот же предел, что у таймера выше.
+    if (recLimit && recLimit.maxMs > 0) dictBar().deadline(Date.now() + recLimit.maxMs);
   }
 
+  // Возвращает обещание: встал ли итог этой записи в поле.
   function stopRecording() {
     clearRecLimit();
     // Живая сессия заканчивается по-своему: файла нет, и «остановить запись»
     // значит «дать серверу договорить с провайдером и вернуть итог».
-    if (live && live.__finish) { live.__finish(true); return; }
+    if (live && live.__finish) return live.__finish(true);
     // Кнопка гаснет в миг нажатия, а запись отпускается сразу: следующее
     // нажатие начинает новую, пока эта ещё уходит на расшифровку.
     const r = recorder;
     recorder = null;
     elMic.classList.remove('is-recording');
+    dictBar().stop();
     if (r && r.state !== 'inactive') r.stop();
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
+    return (r && r.__done) || Promise.resolve(false);
+  }
+
+  // ── Полоса диктовки (lex-dictation-bar.js) ───────────────────────────────
+  //
+  // Крестик, волна, стоп и отправка на местах «+», поля, микрофона и круглой
+  // кнопки, пока идёт запись. Здесь — только что значат её три кнопки.
+  function dictBar() {
+    return global.LexDictationBar.attach(elInput, {
+      onCancel: cancelRecording,
+      onStop: () => { stopRecording(); },
+      onSend: sendRecording,
+      onLayout: () => { autoGrow(); },
+      // Крестик на записи от минуты (доска 8): общий диалог страницы (В7.16), запись
+      // идёт, пока он открыт; кончилась сама — полоса закрывает его (dismissAsk).
+      ask: (q) => {
+        if (askAbort) askAbort.abort();
+        const ctl = new AbortController();
+        askAbort = ctl;
+        return WcUI.confirm(q.title, q.body, { okText: q.discard, cancelText: q.keep, danger: true, signal: ctl.signal })
+          .then((v) => { if (askAbort === ctl) askAbort = null; return v === true; });
+      },
+      dismissAsk: () => { if (askAbort) { askAbort.abort(); askAbort = null; } },
+    });
+  }
+  let askAbort = null;
+
+  // Крестик: сказанное в ЭТОЙ записи выбрасывается. Обычная распознавалка —
+  // звук никуда не уходит вовсе; живая — сессия брошена, её текст уходит из
+  // поля. Набранное до записи остаётся.
+  function cancelRecording() {
+    clearRecLimit();
+    if (live && live.__finish) { live.__finish('discard'); return; }
+    const r = recorder;
+    recorder = null;
+    elMic.classList.remove('is-recording');
+    elMic.title = 'Dictate';
+    elMic.setAttribute('aria-label', elMic.title);
+    dictBar().stop();
+    if (!r) return;
+    const own = r.__stream;
+    r.ondataavailable = null;
+    r.onstop = () => { if (own) own.getTracks().forEach((t) => t.stop()); };
+    try { if (r.state !== 'inactive') r.stop(); else r.onstop(); } catch (_) { r.onstop(); }
+    if (r.__doneWith) r.__doneWith(false);
+    syncButton();
+  }
+
+  // Стрелка во время записи: остановить, дождаться итога и отправить тем же
+  // путём, что обычная стрелка (submit). Итог живой распознавалки ждём не
+  // дольше SEND_WAIT_MS (сервер сам ждёт последнее слово 6 с); обычной —
+  // сколько идёт расшифровка: без неё текста нет вовсе. Пустой итог — ничего
+  // не уходит. Пока идёт ответ, обычная стрелка — «стоп» ответа, поэтому
+  // текст тогда остаётся в поле.
+  const SEND_WAIT_MS = 10000;
+  let sendWaiting = false;
+  async function sendRecording() {
+    if (sendWaiting) return;
+    sendWaiting = true;
+    const wasLive = !!live;
+    let placed = false;
+    try {
+      const done = stopRecording();
+      placed = await (wasLive
+        ? Promise.race([done, new Promise((resolve) => setTimeout(() => resolve(false), SEND_WAIT_MS))])
+        : done);
+    } catch (_) { placed = false; }
+    sendWaiting = false;
+    if (!placed || streaming) return;
+    submit();
   }
 
   // Dictation cancelled, not finished: the live session is dropped (its grown words are the caller's to take back), the
   // file recording stops without a transcription. The quick field over a dimmed screen (wc-app.js, В7.64) calls it when
-  // it closes without sending: «nothing is kept».
-  function cancelRecording() {
+  // it closes without sending: «nothing is kept». Not the cross of the dictation bar (cancelRecording above): the cross
+  // takes this recording's words out of the field itself.
+  function dropRecording() {
     clearRecLimit();
     if (live && live.__finish) { live.__finish(false); return; }
     const r = recorder;
@@ -635,7 +736,9 @@
     elMic.classList.remove('is-recording');
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
+    dictBar().stop();
     if (r && r.state !== 'inactive') { r.__cancelled = true; r.stop(); }
+    if (r && r.__doneWith) r.__doneWith(false);
     syncButton();
   }
 
@@ -655,14 +758,28 @@
       if (focus) elInput.focus();
       // Каретка в конец, иначе следующая буква встанет посреди фразы.
       try { elInput.setSelectionRange(elInput.value.length, elInput.value.length); } catch (_) {}
+      // A field taller than its cap scrolls: the newest words are in sight, not
+      // the first lines (the caret moved by script does not scroll it).
+      elInput.scrollTop = elInput.scrollHeight;
     };
     return {
-      push(sofar) {
+      // settledLen — сколько первых знаков куска встало набело (живая
+      // распознавалка); остальное красится приглушённым, пока поле — ровно
+      // наша запись (lex-dictation-bar.js). Нет числа — набело всё.
+      push(sofar, settledLen) {
         const v = growField.push(id, sofar, elInput.value || '');
-        if (v !== null) put(v, false);
+        if (v === null) return;
+        put(v, false);
+        const settled = Number.isInteger(settledLen) ? Math.min(Math.max(settledLen, 0), sofar.length) : sofar.length;
+        dictBar().tail(v, v.endsWith(sofar) ? sofar.length - settled : 0);
       },
       // Итог «стоп»: на место выросшего куска, куска нет — в конец.
       finish(text) { put(growField.finish(id, text, elInput.value || ''), true); },
+      // Крестик: кусок этой записи уходит из поля (null — поле не трогать).
+      discard() {
+        const v = growField.discard(id, elInput.value || '');
+        if (v !== null) put(v, true);
+      },
       // Итог конца, объявленного сервером: только на место выросшего; старый
       // сервер без потолка в «готов» — не ставим (см. модуль).
       serverFinal(text, hasCap) {
@@ -694,13 +811,15 @@
       });
       const r = await WcBus.call('WC_DICTATE', { base64, mimeType: blob.type, durationMs, requestId });
       const text = (r && r.text || '').trim();
-      if (!text) { toast('Nothing was recognised'); return; }
+      if (!text) { toast('Nothing was recognised'); return false; }
       // Не затирает набранное: рос текст — итог встаёт на его место; не рос —
       // дописывается к набранному через пробел.
       grower.finish(text);
+      return true;
     } catch (err) {
       // «Сервис занят» уже сказан словами целиком — без приставки.
       toast(err && err.lexBusy ? err.message : 'Could not transcribe: ' + ((err && err.message) || err), { error: true });
+      return false;
     } finally {
       unsub();
       // Итога не было (отказ, пустота) — выросшее остаётся как есть.
@@ -988,8 +1107,8 @@
     // The microphone of the field, pressed from outside it: the capsule of a new chat (wc-app.js, В7.64) opens the field
     // and starts the dictation the field's own button starts. A dictation going on is left as it is.
     dictate() { if (!recorder && !live && !locked) startRecording(); },
-    // A dictation going on is dropped: no transcription, no words (see cancelRecording).
-    cancelDictation() { if (recorder || live) cancelRecording(); },
+    // A dictation going on is dropped: no transcription, no words (see dropRecording).
+    cancelDictation() { if (recorder || live) dropRecording(); },
     isDictating() { return !!(recorder || live); },
 
     // The words of the empty field (LexComposerBox.hint): none, except in a field that takes no text at

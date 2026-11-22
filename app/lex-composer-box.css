@@ -51,6 +51,33 @@
   --lex-composer-out-x: 12px;        /* окошко от боковых краёв окна */
   --lex-composer-out-top: 10px;      /* окошко от ленты над ним */
   --lex-composer-out-bottom: 14px;   /* окошко от нижнего края окна */
+  /* Полоса диктовки (STANDARD.md, В7.72): волна уровня на месте поля в одну
+     строку или на месте ряда заготовок в несколько строк. Громкость —
+     уровень звука в децибелах (RMS, 0 — полная шкала): от floor до ceil
+     высота палочки растёт от wave-min до wave-max чётными шагами; ниже
+     floor + 8 % этого промежутка — тишина, точка wave-dot. Новая палочка
+     встаёт справа каждые wave-tick мс и уезжает влево; слева тает на wave-fade. */
+  --lex-composer-wave-bar: 2px;      /* ширина палочки */
+  --lex-composer-wave-gap: 4px;      /* промежуток между палочками */
+  --lex-composer-wave-min: 4px;      /* самая низкая палочка */
+  --lex-composer-wave-max: 24px;     /* самая высокая палочка */
+  --lex-composer-wave-dot: 2px;      /* тишина: точка 2×2 */
+  --lex-composer-wave-fade: 24px;    /* слева волна тает на столько */
+  --lex-composer-wave-tick: 70;      /* мс между палочками: голос виден быстрее 100 мс */
+  --lex-composer-wave-floor-db: -50; /* тише — тишина */
+  --lex-composer-wave-ceil-db: -10;  /* громче — самая высокая палочка */
+  /* Последняя минута до предела (В7.72, доска 9): за countdown-lead секунд до
+     предела этой записи между волной и «стопом» встаёт обратный отсчёт «0:59»…«0:00»,
+     12, полужирный, цифры одной ширины, --attention, внутри 0 4 0 2. Крестик на записи
+     от discard-ask-after секунд сначала спрашивает (доска 8). */
+  --lex-composer-countdown-size: 12px;
+  --lex-composer-countdown-weight: 600;
+  --lex-composer-countdown-pad-top: 0px;
+  --lex-composer-countdown-pad-right: 4px;
+  --lex-composer-countdown-pad-bottom: 0px;
+  --lex-composer-countdown-pad-left: 2px;
+  --lex-composer-countdown-lead: 60;     /* секунд до предела — показать отсчёт */
+  --lex-composer-discard-ask-after: 60;  /* секунд записи — крестик сначала спрашивает */
 }
 
 /* ── Окошко: одна строка ──────────────────────────────────────────────────

@@ -49,6 +49,10 @@
 //                  последнего отрезка) не ставится вовсе. `null` — поле не
 //                  трогать.
 //
+//   discard      — крестик полосы диктовки: выбросить кусок этой записи из
+//                  поля (набранное и куски других записей остаются). `null` —
+//                  поле не трогать (куска в поле нет).
+//
 // У одной записи итог один: второй итог (или итог после «бросили») поле не
 // трогает. Пустой итог — тоже. Итог подрезается по краям от пробелов.
 //
@@ -138,6 +142,21 @@
       pieces = [];
       lastWritten = null;
       base = '';
+    }
+
+    // Вырезать кусок [at, at+len) вместе с одним пробелом, которым его
+    // пристегнула склейка: перед ним, а у куска в самом начале — после него.
+    function cutPiece(s, at, len) {
+      let a = at;
+      let b = at + len;
+      if (a > 0 && s.charCodeAt(a - 1) === 32) a -= 1;
+      else if (a === 0 && s.charCodeAt(b) === 32) b += 1;
+      return s.slice(0, a) + s.slice(b);
+    }
+    function cutNear(current, d) {
+      const at = nearestIndexOf(current, d.text, d.at);
+      if (at < 0) return null;
+      return cutPiece(current, at, d.text.length);
     }
 
     function replaceNear(current, d, text) {
@@ -261,6 +280,45 @@
         detached.delete(id);
         const p = find(id);
         if (p) { p.frozen = true; if (lastWritten !== null) recompose(); }
+      },
+
+      // Крестик полосы диктовки: выбросить сказанное в ЭТОЙ записи. Поле не
+      // тронуто — оно собирается заново без её куска (куски других записей и
+      // набранное до записи остаются как были, пробелы набранного — тоже).
+      // Тронуто — кусок убирается из поля там, где он ближе всего к своему
+      // месту, вместе с одним пробелом, которым его пристегнули; куска в поле
+      // нет — null, поле не трогать. Запись помечается законченной: её
+      // поздний итог поле уже не трогает.
+      discard(id, current) {
+        const cur = String(current == null ? '' : current);
+        if (done.has(id)) return null;
+        done.add(id);
+        const d = detached.get(id);
+        if (d) {
+          detached.delete(id);
+          if (lastWritten !== null && !touchedByHuman(cur)) {
+            const at = nearestIndexOf(base, d.text, d.at);
+            if (at < 0) return null;
+            base = cutPiece(base, at, d.text.length);
+            return recompose();
+          }
+          if (touchedByHuman(cur)) detachAll(cur);
+          return cutNear(cur, d);
+        }
+        const p = find(id);
+        if (!p) return null;
+        if (!p.text) {
+          pieces = pieces.filter((x) => x.id !== id);
+          return null;
+        }
+        if (touchedByHuman(cur)) {
+          detachAll(cur);
+          const dd = detached.get(id);
+          detached.delete(id);
+          return dd ? cutNear(cur, dd) : null;
+        }
+        pieces = pieces.filter((x) => x.id !== id);
+        return recompose();
       },
 
       // Сам выросший кусок этой записи — для хозяина, которому надо знать, росла ли.

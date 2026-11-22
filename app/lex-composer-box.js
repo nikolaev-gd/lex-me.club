@@ -45,6 +45,7 @@
   const BOX = '.ytvocab-chat-input-wrapper, .wc-composer';
   const PRESETS = '.ytvocab-chat-modesplit, .wc-mode-split';
   const MULTI = 'is-multiline';
+  const DICTATING = 'is-dictating';
 
   function num(style, name, fallback) {
     const v = parseFloat(style.getPropertyValue(name));
@@ -82,7 +83,12 @@
   //                buttons, because the presets live there; default: text;
   //   opts.room    () => px the field may take at most (the room above the
   //                keyboard less the header and the box's own chrome);
-  //                default: the extension's feed, see defaultRoom.
+  //                default: the extension's feed, see defaultRoom;
+  //   opts.recording the dictation bar is on (lex-dictation-bar.js); default:
+  //                the box wears its class `is-dictating`. While recording the
+  //                row of buttons is the bar: an empty field is one line with
+  //                the wave in the field's place, any text — the text above the
+  //                bar (Gennady's boards of 22.11.2026).
   //
   // Which layout fits is decided by laying the text out on one line and
   // measuring: everything happens in one task, before the browser paints, so
@@ -97,10 +103,11 @@
     const line = parseFloat(fs.lineHeight) || 22;
     const pad = (parseFloat(fs.paddingTop) || 0) + (parseFloat(fs.paddingBottom) || 0);
     const canSend = (typeof o.canSend === 'boolean') ? o.canSend : text.trim().length > 0;
+    const recording = (typeof o.recording === 'boolean') ? o.recording : box.classList.contains(DICTATING);
 
     // An empty field is one line whatever its hint: a long hint is cut with an
     // ellipsis (lex-composer-box.css), not wrapped into a second line of the box.
-    if (!text && !(canSend && presetsOn(box))) {
+    if (!text && (recording || !(canSend && presetsOn(box)))) {
       box.classList.remove(MULTI);
       field.style.height = 'auto';
       if (!field.scrollHeight) { field.style.height = ''; return; }   // not laid out yet
@@ -110,7 +117,8 @@
     }
 
     let multi;
-    if (canSend && presetsOn(box)) multi = true;
+    if (recording) multi = true;
+    else if (canSend && presetsOn(box)) multi = true;
     else if (!text) multi = false;
     else if (text.indexOf('\n') !== -1) multi = true;
     else {
