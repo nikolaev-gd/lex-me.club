@@ -1059,9 +1059,13 @@
         };
         dc.onopen = async () => {
           const events = [];
+          // The direct call's functions (ask_lex), first: their place is session.update, not the POST (as the iPhone).
+          if (dcall.sessionTools) events.push({ type: 'session.update', session: Object.assign({ type: 'realtime' }, dcall.sessionTools) });
           // Переписка до разговора — из памяти открытой беседы (на пути через
-          // сервер её кладёт сервер).
-          try {
+          // сервер её кладёт сервер). Чат раздела запечатан в рецепте
+          // (seedHistory: false) — своей переписки страница не шлёт.
+          if (dcall.seedHistory === false) log('direct: the chat is in the recipe — no history seeded');
+          else try {
             const r = await WcBus.call('WC_OPEN_TURNS', { conversationId: (opts && opts.conversationId) || null });
             let turns = (r && Array.isArray(r.turns)) ? r.turns : [];
             // The main chat with functions lives for months: its voice reads the newest turns (voiceTail).

@@ -224,6 +224,9 @@
     // Прямой режим: {callId, at} — разговор идёт по рецепту настоящим ключом,
     // сервера между устройством и Google нет (docs/spec/30-voice.md).
     let directCall = null;
+    // The device seeds its own history (prior turns after setupComplete, the native-audio glue of a typed turn).
+    // false — the direct recipe of a section's chat brings the chat sealed in its instructions (seedHistory: false).
+    let ownSeed = true;
     let callToken = null;          // одноразовый ключ Google на прямом пути через сервер
     let relayAuth = null;          // { url, secret }
     let nextShift = null;          // сокет следующей смены до переезда
@@ -489,12 +492,15 @@
       // ключом (в расширении его держит воркер, host.directSocket), сервер о
       // разговоре узнаёт после — началом, парами и отбоем в очереди. Одна
       // попытка: не встал до setupComplete — тот же разговор прежним путём.
+      ownSeed = true;
       if (lastPromptRefs && typeof host.directSocket === 'function' && cfg.direct !== false) {
         const prep = await host.send(Object.assign({ type: 'LEX_DIRECT_VOICE_PREP' },
           prepBodyOf(cfg, lastPromptRefs, lastKnobs, voiceName, isPtt)));
         if (closed) { releaseMedia(); return; }
         if (prep && prep.direct === true && prep.provider === 'google' && prep.callId) {
           directCall = { callId: prep.callId, at: performance.now(), tools: prep.tools || null };
+          ownSeed = prep.seedHistory !== false;
+          if (!ownSeed) log('direct: the chat is in the recipe — no history seeded');
           callId = prep.callId;
           if (prep.apiModel) voiceApiModel = prep.apiModel;
           viaServer = false;
@@ -578,6 +584,7 @@
         const failed = directCall;
         directCall = null;
         toolRunner = null;
+        ownSeed = true;
         warn('direct: Google did not take the call (' + why + ') — through the server');
         try {
           host.post({ type: 'LEX_DIRECT_VOICE_FAILED', callId: failed && failed.callId, provider: 'google', model: cfg.voiceModelId,
@@ -923,7 +930,7 @@
         }
         // Seed history if any. На пути через сервер переписку и материал урока
         // Google уже прислал сервер — до этого кадра.
-        if (!viaServer && priorTurns && priorTurns.length > 0) {
+        if (!viaServer && ownSeed && priorTurns && priorTurns.length > 0) {
           global.LexVoiceHistoryInjector.seedAfterSetupComplete(ws, voiceApiModel, priorTurns);
         }
         // text_call_io: log the session-start outgoing context — a LABEL of the
@@ -943,7 +950,7 @@
                     + (lastPromptRefs.voice ? ` + ${lastPromptRefs.voice.scope}/${lastPromptRefs.voice.cell}/${lastPromptRefs.voice.slot}` : '')
                     + `] call ${callId}`
                   : (lastInstructions || ''),
-                seeded_context: Array.isArray(priorTurns)
+                seeded_context: (ownSeed && Array.isArray(priorTurns))
                   ? priorTurns.map((t) => ({ role: t.role, content: t.content }))
                   : [],
                 transcription_mode: null,
@@ -1562,7 +1569,7 @@
         // audio-input игнорирует clientContent.turns history — prior turns
         // вклеиваются в текст этого хода.
         const videoId = resolveVideoId(cfg);
-        if (!viaServer && videoId && global.LexVoiceHistoryInjector
+        if (!viaServer && ownSeed && videoId && global.LexVoiceHistoryInjector
             && global.LexVoiceHistoryInjector.isNativeAudio(voiceApiModel)
             && typeof cfg.historyProvider === 'function') {
           try {

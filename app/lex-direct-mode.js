@@ -866,6 +866,15 @@
     }
     return names.length ? { names, nonBlocking } : null;
   }
+  // The fields of an OpenAI recipe's session that go in the first session.update once the data channel is open
+  // (tools, tool_choice) → {tools, tool_choice} or null.
+  function openaiLaterOf(rc) {
+    const sess = rc && rc.session;
+    if (!sess || typeof sess !== 'object' || !Array.isArray(sess.tools) || !sess.tools.length) return null;
+    const out = { tools: sess.tools };
+    if (sess.tool_choice != null) out.tool_choice = sess.tool_choice;
+    return out;
+  }
   const PREP_WAIT_MS = 2500;
   const FORGET_MS = 5 * 60 * 1000;
   function createVoiceCalls(o) {
@@ -886,7 +895,10 @@
       if (!refs || typeof m.model !== 'string' || !m.model) return null;
       const meta0 = m.meta || {};
       const surface = meta0.surface || null;
-      const meta = Object.assign({ videoId: meta0.videoId || null, surface },
+      // askLex: "all" — this client answers ask_lex in every chat and with both voices (2026-11-22, as the iPhone):
+      // the server then gives a section's chat and the OpenAI voice of the main chat a direct recipe too. It is a
+      // part of the key as well: a recipe held without it (the server's way) is not taken for one with it.
+      const meta = Object.assign({ videoId: meta0.videoId || null, surface, askLex: 'all' },
         meta0.newsChat === true ? { newsChat: true } : {}, o.promptMeta(refs) || {});
       const body = {
         model: m.model,
@@ -954,6 +966,12 @@
         maxOutputTokens: Number.isFinite(sessionCap) && sessionCap > 0 ? sessionCap : (rc.maxOutputTokens || null),
         transcriptionModel: rc.transcriptionModel || null,
         tools,
+        // A section's chat comes sealed in the recipe's instructions (seedHistory: false): the window seeds nothing
+        // of its own. No field (the teacher's recipe) — the window seeds as before.
+        seedHistory: rc.seedHistory !== false,
+        // OpenAI: the functions of the session go in the first session.update, not in the call's POST (as the
+        // iPhone; LexDirectProviders.openaiCall leaves them out of the POST).
+        sessionTools: openaiLaterOf(rc),
         prepMs: Date.now() - at,
       };
     }

@@ -714,7 +714,11 @@
     try {
       const conn = recipe.connect || {};
       const session = Object.assign({}, recipe.session || {});
+      // Not in the POST: the ceiling of the answer (OpenAI refuses it there) and the functions (their documented
+      // place is session.update — the window sends them first thing on the data channel, as the iPhone does).
       delete session.max_output_tokens;
+      delete session.tools;
+      delete session.tool_choice;
       const fd = new FormData();
       fd.set('sdp', String(sdp || ''));
       fd.set('session', JSON.stringify(session));
