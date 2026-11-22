@@ -44,9 +44,14 @@
   --bg:            #ffffff;
   --bg-sunken:     #f4f4f5;
   --bg-raised:     #ffffff;
+  /* A card on the background: the block of the entries of the sections (В7.62). */
+  --bg-surface:    #ffffff;
   --bg-hover:      rgba(0, 0, 0, .06);
   --bg-active:     rgba(0, 0, 0, .10);
   --bg-bubble:     #f0f0f1;
+  /* The ground of the face of an agent (В7.56): raised in the dark, the bubble grey in the light — raised is white
+     there, the colour of the page, and the face would be only its mark. */
+  --bg-face:       #f0f0f1;
 
   --fg:            #1d1d1f;
   /* Secondary text that still reads at a glance: «Bot:» in a line of a chat (В7.34). */
@@ -158,9 +163,11 @@
     --bg:          var(--lex-dark-bg);
     --bg-sunken:   var(--lex-dark-bg);
     --bg-raised:   var(--lex-dark-raised);
+    --bg-surface:  var(--lex-dark-surface);
     --bg-hover:    var(--lex-dark-hover);
     --bg-active:   var(--lex-dark-active);
     --bg-bubble:   var(--lex-dark-bubble);
+    --bg-face:     var(--lex-dark-raised);
 
     --fg:          var(--lex-dark-fg);
     --fg-soft:     var(--lex-dark-fg-soft);
@@ -196,9 +203,11 @@
   --bg:          var(--lex-dark-bg);
   --bg-sunken:   var(--lex-dark-bg);
   --bg-raised:   var(--lex-dark-raised);
+  --bg-surface:  var(--lex-dark-surface);
   --bg-hover:    var(--lex-dark-hover);
   --bg-active:   var(--lex-dark-active);
   --bg-bubble:   var(--lex-dark-bubble);
+  --bg-face:     var(--lex-dark-raised);
 
   --fg:          var(--lex-dark-fg);
   --fg-soft:     var(--lex-dark-fg-soft);
@@ -540,20 +549,23 @@ button { font: inherit; color: inherit; }
   padding: 10px 10px 6px;
 }
 
-/* The section buttons stand at the bottom, over Settings; their line parts them from the list. */
+/* The entries of the sections (В7.62, LexSection.entries) stand at the bottom, over Settings: one block of the
+   ground of a card, its look is lex-section.css; here only its place in the panel. */
 .wc-sections {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   flex: none;
-  padding: 10px 12px 0;
-  border-top: 1px solid var(--line);
+  margin: 8px 12px 0;
 }
-.wc-sections:not([hidden]) + .wc-account { border-top: 0; }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .wc-turn-news {
+.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .wc-turn-news, .wc-sheet {
   --lex-section-menu:   var(--bg-raised);
+  --lex-section-surface: var(--bg-surface);
+  --lex-section-bubble: var(--bg-bubble);
+  --lex-section-raised: var(--bg-face);
+  --lex-section-active: var(--bg-active);
+  --lex-section-faint:  var(--fg-faint);
+  --lex-section-accent: var(--accent);
+  --lex-section-accent-fg: var(--accent-fg);
   --lex-section-bg-on-fg: var(--bg);
   --lex-section-fg:     var(--fg);
   --lex-section-muted:  var(--fg-muted);
@@ -745,65 +757,24 @@ button { font: inherit; color: inherit; }
    0), поэтому она держится на любой ширине шторки. */
 .wc-account {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex: none;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  padding: 8px 12px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
 }
+.wc-sections:not([hidden]) + .wc-account { border-top: 0; }
 
-.wc-account-settings,
-.wc-account-topup {
-  display: inline-flex;
-  align-items: center;
-  height: 38px;
-  min-width: 0;
-  /* Отступы тесные нарочно: шторка 300px, из них две трети — это ~170px на
-     всю правую кнопку, и «Top up balance» вместе с суммой в неё влезает
-     только так. Резать подпись до «Top up» владелец не просил. */
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font: inherit;
-  transition: background .12s, color .12s;
-}
-
-.wc-account-settings {
-  flex: 1 1 0;
-  justify-content: center;
-  gap: 6px;
-  background: var(--bg-hover);
-  color: var(--fg-muted);
-  font-size: 13px;
-}
-.wc-account-settings svg { width: 16px; height: 16px; }
-.wc-account-settings span {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.wc-account-settings:hover { background: var(--bg-active); color: var(--fg); }
-
-.wc-account-topup {
-  flex: 2 1 0;
-  justify-content: space-between;
-  gap: 6px;
-  background: var(--bg-raised);
-  color: var(--fg);
-  font-size: 13px;
-  font-weight: 550;
-}
-.wc-account-topup > span:first-child {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.wc-account-topup:hover { background: var(--pill-hover); }
+/* The two buttons are the second button of the standard (.lex-btn, В7.7): 44 high, 15/650. Settings takes its own
+   width, Top up balance the rest: with the sum in it the row only fits 276 so (board MenuPhone, 21.11.2026). */
+.wc-account .lex-btn { flex-direction: row; white-space: nowrap; }
+.wc-account-settings { flex: 0 0 auto; gap: 4px; padding: 0 8px; }
+.wc-account-settings svg { width: 20px; height: 20px; }
+.wc-account-topup { flex: 1 1 auto; justify-content: space-between; gap: 6px; padding: 0 10px; }
+/* The words are not cut: with the sum they take the button to its edge, as on the board. */
 
 .wc-account-balance {
   flex: none;
-  color: var(--fg-muted);
-  font-size: 12.5px;
+  color: var(--fg-soft);
   font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
@@ -1593,7 +1564,8 @@ button { font: inherit; color: inherit; }
   align-items: center;
   gap: 8px;
   flex: none;
-  padding: 14px 12px 14px 18px;
+  height: 60px;
+  padding: 0 6px 0 16px;
   border-bottom: 1px solid var(--line);
   /* За шапку тянут — значит выделять в ней текст нельзя, иначе жест
      превращается в выделение заголовка. */
@@ -1601,7 +1573,7 @@ button { font: inherit; color: inherit; }
   user-select: none;
   touch-action: none;
 }
-.wc-sheet-head h2 { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+.wc-sheet-head h2 { flex: 1; min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 16px; font-weight: 650; line-height: 20px; }
 .wc-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 18px 18px; }
 
 /* Строку настроек рисует общий с расширением lex-settings-fields.css. Здесь
@@ -1652,6 +1624,16 @@ button { font: inherit; color: inherit; }
 .wc-menu-item svg { width: 16px; height: 16px; color: var(--fg-muted); }
 .wc-menu-item.is-danger { color: var(--danger); }
 .wc-menu-item.is-danger svg { color: var(--danger); }
+/* The menu with notes (В7.60): 6 inside, items with a second line, the icon 18, the check of the chosen. */
+.wc-menu.is-notes { width: 300px; max-width: calc(100vw - 16px); box-sizing: border-box; padding: 6px; }
+.wc-menu.is-notes .wc-menu-item { align-items: flex-start; min-height: 44px; }
+.wc-menu.is-notes .wc-menu-item > svg { width: 18px; height: 18px; margin-top: 0; }
+.wc-menu-words { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.wc-menu.is-notes .wc-menu-label { font-weight: 600; line-height: 18px; }
+.wc-menu-note { color: var(--fg-muted); font-size: 13px; line-height: 16px; }
+.wc-menu-item.is-checked { background: var(--bg-active); }
+.wc-menu-check { flex: 0 0 auto; display: flex; margin-top: 2px; color: var(--fg); }
+.wc-menu-item .wc-menu-check svg { color: var(--fg); }
 .wc-menu-head { padding: 8px 10px 6px; color: var(--fg-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .wc-menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 
@@ -1889,8 +1871,6 @@ button { font: inherit; color: inherit; }
      which refuses anything under 40. */
   .wc-conv-more { width: 40px; height: 40px; }
   .wc-menu-item { padding: 12px 12px; }
-  .wc-account-settings,
-  .wc-account-topup { height: 44px; }
   .wc-chip-x { width: 24px; height: 24px; }
   .wc-chip-x svg { width: 14px; height: 14px; }
 }
@@ -1923,10 +1903,10 @@ button { font: inherit; color: inherit; }
     display: block;
     flex: none;
     width: 36px;
-    height: 5px;
-    margin: 8px auto 2px;
-    border-radius: 999px;
-    background: var(--line-strong);
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 2px;
+    background: var(--fg-faint);
     touch-action: none;
   }
   .wc-modal { padding: 16px; }
@@ -2025,63 +2005,12 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 
-/* The position of a kind of notification and, under it, the switch «Break through silent mode»
-   (the screen of notifications, wc-settings.js). */
-.wc-notify-ctl { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-/* The field's select is as wide as 62% of its row (lex-settings-fields.css); in this column the row is the column itself. */
-.wc-notify-ctl select { max-width: none; }
-.wc-notify-break { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-muted); }
-.wc-notify-break[hidden] { display: none; }
-
-/* ── Переключатель в настройках ──────────────────────────────────────────────
- *
- * Родной `<input type="checkbox">` под слоем оформления: сам флажок уводится
- * с глаз, но остаётся на месте в раскладке и в порядке обхода с клавиатуры —
- * поэтому пробел его переключает, фокус видно, а скринридер называет
- * состояние сам. `display:none` отняло бы всё перечисленное. */
-.wc-switch {
-  position: relative;
-  display: inline-flex;
-  flex: none;
-  cursor: pointer;
-}
-.wc-switch input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.wc-switch-track {
-  display: block;
-  width: 44px;
-  height: 26px;
-  border-radius: 999px;
-  background: var(--pill-bg);
-  border: 1px solid var(--pill-line);
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-.wc-switch-knob {
-  display: block;
-  width: 20px;
-  height: 20px;
-  margin: 2px;
-  border-radius: 50%;
-  background: var(--fg-muted);
-  transition: transform 140ms ease, background-color 140ms ease;
-}
-.wc-switch input:checked + .wc-switch-track {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.wc-switch input:checked + .wc-switch-track .wc-switch-knob {
-  background: var(--accent-fg);
-  transform: translateX(18px);
-}
-.wc-switch input:focus-visible + .wc-switch-track {
-  outline: 2px solid var(--line-strong);
-  outline-offset: 2px;
-}
+/* The line on top of the screen of notifications (wc-settings.js, openNotifications; the board NotifSettings). */
+.wc-notify-intro { padding: 14px 0 16px; color: var(--fg-muted); font-size: 13px; line-height: 17px; }
+/* «Reading…» and the line of a choice that did not reach the server, under the intro. */
+.wc-notify-say { color: var(--fg-muted); font-size: 13px; line-height: 17px; }
+.wc-notify-say.is-error { color: var(--danger); }
+.wc-notify-say:empty { display: none; }
 
 /* «Меньше движения» — системная настройка, и она сильнее любой нашей
  * красоты. Гасим ВСЁ, что мы завели: выезд шторки, перетекание кнопки
@@ -2097,7 +2026,6 @@ button { font: inherit; color: inherit; }
   .wc-scrim { transition: none; }
   .wc-sheet-card { transition: none; }
   .vocab-word { transition: none; }
-  .wc-switch-track, .wc-switch-knob { transition: none; }
 }
 
 /* Отдельный разговор заготовки: над вопросом — строка «The teacher doesn't see

@@ -1144,8 +1144,9 @@
           return row;
         }
         if (by === 'gennady') {
-          // His word to the model about this question: the bubble of the person's word to Lex, «To Lex» over it.
-          const bubble = self.whoisWordBubble(words, t.authoredAt);
+          // His word to the model about this question: the bubble of the person's word to Lex, «To Lex» over it (in a task
+          // chat of an agent the bubble alone: every word there goes to the agent).
+          const bubble = self.whoisWordBubble(words, t.authoredAt, { plain: agent() });
           row.appendChild(bubble);
           if (!still) self.attachWhoisMenu(row, bubble, t, 'out', false);
           // Lex has not answered yet: Lex «thinks» under the word (the dots of the assistant), for a minute and a half
@@ -1303,10 +1304,14 @@
       },
 
       // The word of Gennady to Lex: the bubble «To Lex» of the person's word, the same in the chat and at its end.
-      whoisWordBubble(words, at) {
+      // o.plain — the same grey bubble without «To Lex» (a task chat of an agent, board AgChat).
+      whoisWordBubble(words, at, o) {
         const M = global.LexMessage;
-        const label = make('div', 'lex-bubble-label', '');
-        label.append(M.sparkle(12), document.createTextNode('To Lex'));
+        let label = null;
+        if (!(o && o.plain)) {
+          label = make('div', 'lex-bubble-label', '');
+          label.append(M.sparkle(12), document.createTextNode('To Lex'));
+        }
         return M.bubble({ side: 'out', tone: 'self', label, text: words, stamp: M.stamp({ at }) });
       },
 
@@ -1367,7 +1372,7 @@
       whoisWordItem() {
         const w = whoisWord;
         const root = make('div', 'wc-turn lex-profi-msg is-whois is-gennady is-pending');
-        root.appendChild(self.whoisWordBubble(w.text, w.at));
+        root.appendChild(self.whoisWordBubble(w.text, w.at, { plain: agent() }));
         if (w.state === 'sending') {
           const note = make('div', 'lex-profi-box-note', 'Sending…');
           note.setAttribute('role', 'status');

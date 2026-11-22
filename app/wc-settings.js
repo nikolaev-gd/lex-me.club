@@ -25,21 +25,50 @@
     ['dark', 'Dark'],
   ];
 
-  // The three positions of a kind of notification (notification_modes.sql, 17.11.2026), in the words of the
-  // iPhone (`NotificationSettingsView.modes`).
-  const NOTIFY_MODES = [
-    ['banner', 'Banner and count'],
-    ['count', 'Count only'],
-    ['none', 'Nothing'],
+  // The four positions of a kind of notification (the board NotifMenu, 2026-11-22), in the words of the iPhone
+  // (`NotificationSettingsView.positions`). The server keeps what it kept (notification_modes.sql, profi_bot_chat.sql):
+  // a mode — 'banner', 'count', 'none' — and the switch «breakthrough». The positions are read from the two:
+  //   Alarm      = mode 'banner' and breakthrough on — rings even in silent mode and focus;
+  //   Banner     = mode 'banner' and breakthrough off;
+  //   Count only = mode 'count';  Off = mode 'none'.
+  // A row of one switch (`switch_only`, «Important chats», alarm_loud.sql) has Alarm and Banner only: the server always
+  // banners a chat marked important, the switch decides whether it rings.
+  const NOTIFY_POSITIONS = [
+    { id: 'alarm', label: 'Alarm', note: 'Rings even in silent mode and focus', icon: 'bellRing', tone: 'attention' },
+    { id: 'banner', label: 'Banner', note: 'A notification and the count', icon: 'bell' },
+    { id: 'count', label: 'Count only', note: 'No notification, the number in Lex and on its icon', icon: 'countOne' },
+    { id: 'none', label: 'Off', note: 'Neither', icon: 'bellOff', tone: 'faint' },
   ];
-  const NOTIFY_INTRO = 'Banner and count — a notification, and the message counts as unread. Count only — no '
-    + 'notification: the number in Lex and on its icon. Nothing — neither. Break through silent mode — with «Banner '
-    + 'and count»: the notification is urgent, and on the iPhone it rings an alarm that the silent switch does not '
-    + 'stop. Off by default, on for the alarms of the calendar. A chat you marked as important rings only while '
-    + '«Important chats» is on.';
-  // The switch under the position of a kind (profi_bot_chat.sql, 19.11.2026), in the words of the iPhone
-  // (`NotificationSettingsView.breakthroughLabel`).
-  const NOTIFY_BREAK = 'Break through silent mode';
+  const notifyPositionOf = (k) => {
+    const loud = k.breakthrough === true;
+    if (k.switch_only === true) return loud ? 'alarm' : 'banner';
+    const mode = k.mode || 'banner';
+    if (mode === 'banner') return loud ? 'alarm' : 'banner';
+    return mode === 'count' || mode === 'none' ? mode : 'banner';
+  };
+  const notifyChoicesOf = (k) => (k.switch_only === true
+    ? NOTIFY_POSITIONS.filter((p) => p.id === 'alarm' || p.id === 'banner') : NOTIFY_POSITIONS);
+  // The calls that bring a kind to a position, in their order (each waits for the one before): the mode first, then the
+  // switch. A switch left on under Count only or Off is cleared too, so that a later Banner is not secretly Alarm.
+  // [] — the kind is there already.
+  function notifyPlanOf(k, to) {
+    const at = { p_kind: k.kind, p_scope: k.scope || '' };
+    const loud = k.breakthrough === true;
+    const mode = k.mode || 'banner';
+    const brk = (on) => ['lex_notification_breakthrough_set', { p_kind: at.p_kind, p_on: on, p_scope: at.p_scope }];
+    const setMode = (m) => ['lex_notification_mode_set', { p_kind: at.p_kind, p_mode: m, p_scope: at.p_scope }];
+    if (k.switch_only === true) {
+      if (to === 'alarm') return loud ? [] : [brk(true)];
+      if (to === 'banner') return loud ? [brk(false)] : [];
+      return [];
+    }
+    const plan = [];
+    const wantMode = to === 'alarm' || to === 'banner' ? 'banner' : to;
+    if (mode !== wantMode) plan.push(setMode(wantMode));
+    if (to === 'alarm' && !loud) plan.push(brk(true));
+    if (to !== 'alarm' && loud) plan.push(brk(false));
+    return plan;
+  }
 
   function applyTheme(value) {
     const root = document.documentElement;
@@ -93,21 +122,11 @@
     return b.version + ' · ' + b.commit;
   }
 
-  // ── Переключатель ────────────────────────────────────────────────────────
-  //
-  // Готового не было: в этом листе до сих пор жили только выпадающие списки и
-  // ползунок. Внутри — обычный `<input type="checkbox">`, а не div с
-  // обработчиком: он сам приходит с ролью, с фокусом, с пробелом как нажатием
-  // и с состоянием для скринридера. Вид ему задаёт CSS (`.wc-switch`), и это
-  // ровно тот случай, когда «сделать новый компонент» значит одеть родной, а
-  // не написать свой.
+  // ── The switch ────────────────────────────────────────────────────────────
+  // The common switch of the standard (В7.59, LexSection.toggle, lex-section.css): 52 × 32 in a zone of 44, the
+  // native checkbox under its look — it brings the role, the focus, the space bar and the state for a reader.
   function toggle(checked, onChange) {
-    const input = el('input', {
-      type: 'checkbox',
-      checked: !!checked || null,
-      onchange: (e) => onChange(!!e.target.checked),
-    });
-    return el('label.wc-switch', {}, [input, el('span.wc-switch-track', {}, [el('span.wc-switch-knob')])]);
+    return global.LexSection.toggle(!!checked, (on) => onChange(!!on));
   }
 
   function select(options, value, onChange) {
@@ -200,7 +219,7 @@
       // The notifications of the account, for every device: the Mac app and the iPhone show them, the page
       // shows the numbers. Their own screen in the place of this one.
       if (ctx && ctx.rpc) {
-        body.push(field('Notifications', 'For each kind: a banner, the count only, or nothing',
+        body.push(field('Notifications', 'For each kind: alarm, banner, count only or off',
           el('button.lex-field-btn', {
             type: 'button', text: 'Open',
             onclick: () => { handle.close(); WcSettings.openNotifications(ctx); },
@@ -231,66 +250,88 @@
     },
 
     // The screen of notifications: the kinds of messages by the sections of Lex (Profi.ru, each folder,
-    // Questions, Extended Mind, Chats, Calendar), each in one of three positions. The sections and kinds come
-    // from the server (`lex_notification_modes`), the same screen as the iPhone's.
+    // Questions, Extended Mind, Chats, Calendar), each a row with one menu of four positions (В7.59, В7.60; the
+    // boards NotifSettings and NotifMenu). The sections and kinds come from the server (`lex_notification_modes`),
+    // the same screen as the iPhone's.
     async openNotifications(ctx) {
-      const note = el('.lex-field-note', { text: 'Reading…' });
+      const say = el('.wc-notify-say', { text: 'Reading…' });
       const list = el('div');
-      const handle = sheet('wc-settings', 'Notifications', [el('.lex-field-note', { text: NOTIFY_INTRO }), note, list]);
-      const say = (text) => { note.textContent = text || ''; note.hidden = !text; };
-      const paint = (groups) => {
-        const rows = [];
-        (Array.isArray(groups) ? groups : []).forEach((g) => {
+      const handle = sheet('wc-settings', 'Notifications', [
+        el('.wc-notify-intro', { text: 'For each kind: how Lex tells you.' }), say, list]);
+      const tell = (text, error) => { say.textContent = text || ''; say.classList.toggle('is-error', !!error); };
+      let groups = [];
+      const paint = (fresh) => {
+        groups = Array.isArray(fresh) ? fresh : [];
+        const nodes = [];
+        groups.forEach((g) => {
           const kinds = Array.isArray(g.kinds) ? g.kinds : [];
           if (!kinds.length) return;
-          rows.push(LexSettingsFields.groupNode(g.title));
-          kinds.forEach((k) => {
-            // The switch counts with «Banner and count» only: under the other positions it is out of sight.
-            let breakRow = null;
-            // A row of one switch, no position (alarm_loud.sql, «Important chats»): its switch is always in sight.
-            const only = k.switch_only === true;
-            const s = select(NOTIFY_MODES, k.mode || 'banner', (v) => {
-              const before = k.mode || 'banner';
-              if (v === before) return;
-              k.mode = v;
-              if (breakRow) breakRow.hidden = v !== 'banner';
-              ctx.rpc('lex_notification_mode_set', { p_kind: k.kind, p_mode: v, p_scope: k.scope || '' })
-                .then((fresh) => { say(''); if (Array.isArray(fresh) && fresh.length) paint(fresh); })
-                .catch(() => {
-                  k.mode = before; s.value = before;
-                  if (breakRow) breakRow.hidden = before !== 'banner';
-                  say('The choice did not reach the server. Try again.');
-                });
-            });
-            s.setAttribute('aria-label', k.title);
-            const sw = toggle(k.breakthrough === true, (on) => {
-              const before = k.breakthrough === true;
-              if (on === before) return;
-              k.breakthrough = on;
-              ctx.rpc('lex_notification_breakthrough_set', { p_kind: k.kind, p_on: on, p_scope: k.scope || '' })
-                .then((fresh) => { say(''); if (Array.isArray(fresh) && fresh.length) paint(fresh); })
-                .catch(() => {
-                  k.breakthrough = before;
-                  sw.querySelector('input').checked = before;
-                  say('The choice did not reach the server. Try again.');
-                });
-            });
-            sw.querySelector('input').setAttribute('aria-label', `${NOTIFY_BREAK}: ${k.title}`);
-            breakRow = el('div.wc-notify-break', { hidden: (!only && (k.mode || 'banner') !== 'banner') || null },
-              [el('span', { text: NOTIFY_BREAK }), sw]);
-            rows.push(field(k.title, k.hint || '', el('div.wc-notify-ctl', {}, only ? [breakRow] : [s, breakRow])));
-          });
+          nodes.push(LexSection.groupLabel(g.title));
+          nodes.push(LexSection.settingsBlock(kinds.map((k) => notifyRow(k))));
         });
-        list.replaceChildren(...rows);
+        list.replaceChildren(...nodes);
       };
+      // A kind whose calls are on their way takes no second choice until they are back.
+      const busy = new Set();
+      const notifyRow = (k) => {
+        const pos = NOTIFY_POSITIONS.find((p) => p.id === notifyPositionOf(k));
+        const row = LexSection.settingRow({
+          title: k.title, note: k.hint || '', id: `${k.kind}|${k.scope || ''}`,
+          menu: {
+            value: pos.label, tone: pos.tone,
+            onOpen: (anchor) => WcUI.menu(anchor, notifyChoicesOf(k).map((p) => ({
+              label: p.label, note: p.note, icon: p.icon, checked: p.id === pos.id,
+              onSelect: () => choose(k, row, pos, p),
+            }))),
+          },
+        });
+        return row;
+      };
+      // The choice shows at once; the calls go one after another, and the screen is painted from the last answer.
+      // A call that fails: the position before comes back — or, when a call before it already landed, what the
+      // server holds now (its answer) — with the line about it.
+      async function choose(k, row, from, to) {
+        const key = `${k.kind}|${k.scope || ''}`;
+        const plan = notifyPlanOf(k, to.id);
+        if (!plan.length || busy.has(key)) return;
+        busy.add(key);
+        row.setValue(to.label, to.tone);
+        let fresh = null;
+        let landed = 0;
+        try {
+          for (const [fn, args] of plan) {
+            const answer = await ctx.rpc(fn, args);
+            landed++;
+            if (Array.isArray(answer) && answer.length) fresh = answer;
+          }
+          tell('');
+          if (fresh) paint(fresh);
+          else {
+            // No screen in the answer: the kind takes the position it was given.
+            if (k.switch_only !== true) k.mode = to.id === 'alarm' ? 'banner' : to.id;
+            k.breakthrough = to.id === 'alarm';
+            paint(groups);
+          }
+        } catch (_) {
+          if (!fresh && landed) fresh = await ctx.rpc('lex_notification_modes', {}).catch(() => null);
+          if (Array.isArray(fresh) && fresh.length) paint(fresh);
+          else row.setValue(from.label, from.tone);
+          tell('The choice did not reach the server. Try again.', true);
+        } finally {
+          busy.delete(key);
+        }
+      }
       try {
         paint(await ctx.rpc('lex_notification_modes', {}));
-        say('');
+        tell('');
       } catch (_) {
-        say('Could not read the settings. Close this screen and open it again.');
+        tell('Could not read the settings. Close this screen and open it again.', true);
       }
       return handle;
     },
+
+    // The positions of a kind as pure functions, for dev-tools/check-notification-positions.mjs.
+    notifyPositions: { POSITIONS: NOTIFY_POSITIONS, positionOf: notifyPositionOf, choicesOf: notifyChoicesOf, planOf: notifyPlanOf },
   };
 
   global.WcSettings = WcSettings;

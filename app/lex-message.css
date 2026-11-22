@@ -857,15 +857,34 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
   display: flex; align-items: center; gap: 6px; margin-bottom: 4px;
   color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px;
 }
-.lex-q.lex-whois .lex-whois-head .lex-sparkle { flex: 0 0 auto; }
+.lex-q.lex-whois .lex-whois-head .lex-sparkle { flex: 0 0 auto; width: 14px; height: 14px; }
 .lex-q.lex-whois .lex-q-text > :first-child,
-.lex-whois-msg .lex-q-text > :first-child { margin-top: 0; }
+.lex-whois-msg .lex-q-text > :first-child, .lex-whois-agent .lex-q-text > :first-child { margin-top: 0; }
 .lex-q.lex-whois .lex-q-text > :last-child,
-.lex-whois-msg .lex-q-text > :last-child { margin-bottom: 0; }
-.lex-q.lex-whois .lex-q-text p, .lex-whois-msg .lex-q-text p { margin: 0 0 .75em; }
+.lex-whois-msg .lex-q-text > :last-child, .lex-whois-agent .lex-q-text > :last-child { margin-bottom: 0; }
+.lex-q.lex-whois .lex-q-text p, .lex-whois-msg .lex-q-text p, .lex-whois-agent .lex-q-text p { margin: 0 0 .75em; }
 .lex-q.lex-whois .lex-q-text ul, .lex-q.lex-whois .lex-q-text ol,
-.lex-whois-msg .lex-q-text ul, .lex-whois-msg .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
-.lex-q.lex-whois .lex-q-text li, .lex-whois-msg .lex-q-text li { margin: .2em 0; }
+.lex-whois-msg .lex-q-text ul, .lex-whois-msg .lex-q-text ol,
+.lex-whois-agent .lex-q-text ul, .lex-whois-agent .lex-q-text ol { margin: 0 0 .75em; padding-left: 1.4em; }
+.lex-q.lex-whois .lex-q-text li, .lex-whois-msg .lex-q-text li, .lex-whois-agent .lex-q-text li { margin: .2em 0; }
+/* The same word under the agent's name (`whois({ task: true, author })`, boards AgChat, AgChatWaiting, 22.11.2026): no
+ * bubble and no ground, across the lane, as an answer of the model. The mark 12/600 `--fg-muted` — the sparkle 14 and
+ * the name through 6, in one line; 4 below the words 15 (Markdown); 4 below them the time 12 `--fg-muted` on the left. */
+.lex-whois-agent {
+  box-sizing: border-box; display: block; width: 100%; margin: 0;
+  color: var(--fg, var(--lex-plain-fg)); font-size: 15px; line-height: 20px; text-align: left; overflow-wrap: anywhere;
+}
+.lex-whois-agent .lex-whois-agent-head {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  color: var(--fg-muted); font-size: 12px; font-weight: 600; line-height: 16px;
+}
+/* 14 set here: the page's `svg {}` of wc-app.css makes every icon 20 over its own width. */
+.lex-whois-agent .lex-whois-agent-head .lex-sparkle { flex: 0 0 auto; width: 14px; height: 14px; stroke-width: 2; }
+.lex-whois-agent .lex-whois-agent-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.lex-whois-agent .lex-q-text { margin-top: 4px; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+.lex-whois-agent .lex-whois-agent-time {
+  margin-top: 4px; color: var(--fg-muted); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums;
+}
 /* ── The message of the agent «Кто это» (В7.54, 21.11.2026, boards WhoisW1, WhoisW2) ───────────────────────────
  * An ordinary message of the other side, as in Telegram: the bubble `--lex-bubble-in`, 18 18 18 6, inside 8 12 6,
  * 86 % of the lane, no buttons. The mark 12/600 (`--attention` while it waits for a word of Gennady), the conclusion
@@ -883,7 +902,7 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 }
 .lex-whois-msg.is-wait .lex-whois-mark { color: var(--attention); }
 .lex-whois-msg.is-plain .lex-whois-mark { color: var(--fg-muted); }
-.lex-whois-msg .lex-whois-mark .lex-sparkle { flex: 0 0 auto; }
+.lex-whois-msg .lex-whois-mark .lex-sparkle { flex: 0 0 auto; width: 14px; height: 14px; }
 .lex-whois-msg .lex-whois-headline { font-size: 16px; font-weight: 650; line-height: 22px; }
 .lex-whois-msg .lex-whois-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .lex-whois-msg .lex-whois-row {

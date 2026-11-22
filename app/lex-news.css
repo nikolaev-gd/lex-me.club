@@ -59,7 +59,6 @@
   border-radius: 50%;
   animation: lex-section-spin .8s linear infinite;
 }
-.lex-news .lex-news-empty { padding: 32px 0; text-align: center; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
 /* The feed (ios/Lex/STANDARD.md В7.31): the cards of LexMessage.newsCard 12 apart, the newest letter on
    top; between two days the day line on a plate (В7.14), the same 12 from the cards. */
 .lex-news .lex-news-blocks { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
@@ -287,6 +286,15 @@
   --lex-section-line: var(--lex-dark-line-strong);
   --lex-section-hover: var(--lex-dark-hover);
   --lex-section-danger: #ff6b6b;
+  --lex-section-soft: var(--lex-dark-fg-soft);
+  --lex-section-faint: var(--lex-dark-fg-faint);
+  --lex-section-surface: var(--lex-dark-surface);
+  --lex-section-bubble: var(--lex-dark-bubble);
+  --lex-section-raised: var(--lex-dark-raised);
+  --lex-section-active: var(--lex-dark-active);
+  --lex-section-attention: var(--lex-dark-attention);
+  --lex-section-accent: var(--lex-dark-accent);
+  --lex-section-accent-fg: var(--lex-dark-accent-fg);
 }
 /* The extension's windows are dark whatever the theme of the page under them: the parts of News from
    lex-message.css (the cards, the day plates, the source of a news, «Обсуждение с Lex») take the dark

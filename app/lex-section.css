@@ -233,6 +233,7 @@
 .lex-section .lex-section-row.has-count::before { display: none; }
 .lex-section .lex-section-row.has-count .lex-section-row-title { font-weight: 600; opacity: 1; }
 .lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
+.lex-section .lex-section-row.is-sub3 .lex-section-row-sub { display: -webkit-box; -webkit-box-orient: vertical; white-space: normal; -webkit-line-clamp: 3; }
 .lex-section .lex-section-mark {
   flex: 0 0 auto;
   padding: 2px 8px;
@@ -322,3 +323,259 @@
   cursor: pointer;
 }
 .lex-section-menu .lex-section-menu-item:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+
+/* ══ The parts of the sections of 21.11.2026 (ios/Lex/STANDARD.md, В7.56–В7.63, lex-section.js) ══════════════
+ * More colours come from the window here: --lex-section-surface (a card on the background: the block of the
+ * entries), --lex-section-bubble (the block of settings), --lex-section-raised (the face of an agent),
+ * --lex-section-active (the chosen line), --lex-section-faint (the empty state), --lex-section-soft (the stage),
+ * --lex-section-accent and --lex-section-accent-fg (the switch). Not scoped to .lex-section: the menu of chats,
+ * sheets and banners show them too. */
+.lex-mark { display: block; flex: 0 0 auto; margin: 0 !important; }
+
+/* В7.56 the face of an agent: a square, the mark by a line of 1.8, half of the side. */
+.lex-face {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--lex-section-raised, rgba(127, 127, 127, .2));
+  color: var(--lex-section-fg, inherit);
+}
+.lex-face.is-40 { width: 40px; height: 40px; border-radius: 10px; }
+.lex-face.is-48 { width: 48px; height: 48px; border-radius: 12px; }
+.lex-face.is-96 { width: 96px; height: 96px; border-radius: 18px; }
+.lex-face .lex-mark { stroke-width: 1.8; }
+/* The sizes are written here too: a host page sizes every svg (the page: 20 and a line of 1.9). */
+.lex-face.is-40 .lex-mark { width: 20px; height: 20px; }
+.lex-face.is-48 .lex-mark { width: 24px; height: 24px; }
+.lex-face.is-96 .lex-mark { width: 48px; height: 48px; }
+.lex-face.is-quiet { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-face.is-service { background: transparent; }
+.lex-face.is-service > svg { display: block; width: 100%; height: 100%; }
+
+/* The spinner of a running agent: a ring of the line with its top in the soft grey. */
+.lex-spin {
+  flex: 0 0 auto;
+  display: inline-block;
+  box-sizing: border-box;
+  border: 2px solid var(--lex-section-line, rgba(127, 127, 127, .25));
+  border-top-color: var(--lex-section-soft, currentColor);
+  border-radius: 50%;
+  animation: lex-section-spin .8s linear infinite;
+}
+.lex-spin.is-12 { width: 12px; height: 12px; }
+.lex-spin.is-14 { width: 14px; height: 14px; }
+@media (prefers-reduced-motion: reduce) { .lex-spin { animation-duration: 2.4s; } }
+
+/* В7.57 the state line of an agent: the second line of a line of the list, 14. */
+.lex-astate { display: inline; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+.lex-astate.is-working { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.lex-astate .lex-astate-stage { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--lex-section-soft, inherit); }
+.lex-astate .lex-astate-word.is-wait { color: var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-astate .lex-astate-word.is-paused { color: var(--lex-section-faint, rgba(127, 127, 127, .8)); }
+.lex-astate .lex-astate-word.is-failed { color: var(--lex-section-danger, #d93a3a); }
+.lex-section .lex-section-row.is-paused { opacity: .6; }
+
+/* В7.58 the label of a group. */
+.lex-group-label {
+  padding: 16px 0 6px;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+/* В7.59 the row of a setting, in a block of settings. */
+.lex-settings-block {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--lex-section-bubble, rgba(127, 127, 127, .1));
+  color: var(--lex-section-fg, inherit);
+}
+.lex-setting {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.lex-settings-block > .lex-setting + .lex-setting { border-top: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25)); }
+.lex-setting.is-go { cursor: pointer; transition: background-color 120ms ease; }
+.lex-setting.is-go:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-setting-words { flex: 1 1 auto; min-width: 0; }
+.lex-setting-title { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 17px; line-height: 22px; }
+.lex-setting-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+  line-height: 16px;
+}
+.lex-setting-value { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); font-size: 15px; line-height: 20px; }
+.lex-setting-menu {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 44px;
+  margin: 0 -8px 0 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lex-section-soft, inherit);
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-setting-menu:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-setting-menu.is-attention > .lex-setting-value-words { color: var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-setting-menu.is-faint > .lex-setting-value-words { color: var(--lex-section-faint, rgba(127, 127, 127, .8)); }
+.lex-setting-menu .lex-mark, .lex-setting-value .lex-mark { width: 16px; height: 16px; stroke-width: 2; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
+
+/* The switch, 52 × 32 in a zone of 44: the native checkbox under its look. */
+.lex-switch {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  width: 52px;
+  height: 44px;
+  cursor: pointer;
+}
+.lex-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.lex-switch-track {
+  /* The track and its knob lie over the invisible box: a press on the knob must reach the box. */
+  pointer-events: none;
+  display: flex;
+  width: 52px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 2px;
+  border-radius: 16px;
+  background: var(--lex-section-hover, rgba(127, 127, 127, .2));
+  transition: background-color 140ms ease;
+}
+.lex-switch-knob {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  transition: transform 140ms ease, background-color 140ms ease;
+}
+.lex-switch input:checked + .lex-switch-track { background: var(--lex-section-accent, currentColor); }
+.lex-switch input:checked + .lex-switch-track .lex-switch-knob { background: var(--lex-section-accent-fg, #fff); transform: translateX(20px); }
+.lex-switch input:focus-visible + .lex-switch-track { outline: 2px solid var(--lex-section-line, rgba(127, 127, 127, .25)); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .lex-switch-track, .lex-switch-knob { transition: none; } }
+
+/* В7.61 the empty state: in the middle of the screen. */
+.lex-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px;
+  text-align: center;
+}
+.lex-empty-title { margin-top: 12px; color: var(--lex-section-fg, inherit); font-size: 16px; font-weight: 600; line-height: 20px; }
+.lex-empty-line { margin-top: 4px; color: var(--lex-section-faint, rgba(127, 127, 127, .8)); font-size: 14px; line-height: 18px; }
+.lex-empty .lex-empty-act { margin-top: 16px; }
+.lex-empty[hidden] { display: none; }
+
+/* В7.62 the entries of the sections: lines of one block, 44 high. */
+.lex-entries {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--lex-section-surface, rgba(127, 127, 127, .08));
+}
+.lex-entries[hidden] { display: none; }
+.lex-entry {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--lex-section-fg, inherit);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-entry + .lex-entry { border-top: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25)); }
+.lex-entry:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-entry.is-active { background: var(--lex-section-active, rgba(127, 127, 127, .2)); }
+.lex-entry-icon { flex: 0 0 auto; display: flex; color: var(--lex-section-soft, inherit); }
+.lex-entry-icon .lex-mark { width: 20px; height: 20px; stroke-width: 2; }
+.lex-entry-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* В7.63 the live line of a stage: the last line of the feed while the agent works. */
+.lex-live-stage { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--lex-section-soft, inherit); font-size: 13px; line-height: 16px; }
+.lex-live-stage-words { min-width: 0; }
+
+/* ── The centred head of a screen (В7.18, board AgF2HeadA): a slot 108 on each side, the name in the middle ── */
+.lex-section .lex-section-bar.is-center { min-height: 60px; padding: 0 8px 0 2px; gap: 0; }
+.lex-section .lex-section-center { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.lex-section .lex-section-center[hidden] { display: none; }
+.lex-section .lex-section-title[hidden] { display: none; }
+.lex-section .lex-section-slot { flex: 0 0 108px; display: flex; align-items: center; }
+.lex-section .lex-section-slot.is-right { justify-content: flex-end; }
+.lex-section .lex-section-head {
+  -webkit-appearance: none; appearance: none;
+  flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 4px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--fg, var(--lex-plain-fg)); font: inherit;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+button.lex-section-head { cursor: pointer; }
+.lex-section .lex-section-head-line { max-width: 100%; display: flex; align-items: center; gap: 2px; }
+.lex-section .lex-section-head-line > svg { flex: 0 0 auto; color: var(--fg-muted, var(--lex-section-muted)); }
+.lex-section .lex-section-head-name {
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 16px; font-weight: 650; line-height: 20px;
+}
+.lex-section .lex-section-head-sub {
+  max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 13px; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted));
+}
+.lex-section .lex-section-head-sub.is-attention { color: var(--attention); }
+.lex-section .lex-section-head-action { flex-direction: row; gap: 6px; }
+.lex-section .lex-section-head-action > svg { color: var(--fg-soft, var(--fg-muted)); }
+
+/* ── The block «About» (В7.59, board AgPassport): read only, the caption over the value ── */
+.lex-about { padding: 12px 14px; border-radius: 10px; background: var(--lex-section-bubble, var(--bg-bubble)); }
+.lex-about-head { font-size: 13px; font-weight: 600; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted)); }
+.lex-about-pair { display: flex; flex-direction: column; gap: 2px; }
+.lex-about-head + .lex-about-pair { margin-top: 4px; }
+.lex-about-pair + .lex-about-pair { margin-top: 10px; }
+.lex-about-caption { font-size: 13px; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted)); }
+.lex-about-value { font-size: 15px; line-height: 1.4; color: var(--fg, var(--lex-plain-fg)); overflow-wrap: anywhere; white-space: pre-wrap; }

@@ -87,19 +87,10 @@
     return n;
   }
 
-  // The switch of the page (the same `.wc-switch` as in the settings).
+  // The common switch (В7.59, LexSection.toggle), the same as in the settings.
   function toggle(on, onChange) {
-    const input = make('input');
-    input.type = 'checkbox';
-    input.checked = !!on;
-    input.setAttribute('role', 'switch');
-    input.setAttribute('aria-label', 'Mute');
-    input.addEventListener('change', () => onChange(input.checked, input));
-    const track = make('span', 'wc-switch-track');
-    track.appendChild(make('span', 'wc-switch-knob'));
-    const label = make('span', 'wc-switch');
-    label.append(input, track);
-    return { label, input };
+    const label = global.LexSection.toggle(!!on, onChange, 'Mute');
+    return { label, input: label.input };
   }
 
   // A block of the server added later (`extra`): rows of a label and a value, a link opens its place.

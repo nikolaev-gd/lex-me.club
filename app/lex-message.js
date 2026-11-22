@@ -108,8 +108,10 @@
 //                       o.rows [{ caption, name, sub, face: { name, photo, io, deal }, href | onPress }] — the lines of
 //                       who is who (a link where it opens something), the words (Markdown the caller drew into `body`,
 //                       links of Lex go to onGo), o.ask under a line, o.note { error }, the time. Without o.message —
-//                       a word of an agent in its task chat (В7.50): the mark of Lex over the words, the time.
-//                       o = { message, mark, wait, headline, rows, body | text, ask, note, at, onGo(place) }
+//                       a word of an agent in its task chat (В7.50): the mark of Lex over the words, the time; with
+//                       o.task and o.author (the agent's name, boards AgChat, AgChatWaiting) — a word with no bubble:
+//                       the sparkle and the name, the words, the time on the left.
+//                       o = { message, task, author, mark, wait, headline, rows, body | text, ask, note, at, onGo(place) }
 //   questionPack(p, o)  the waiting questions with the same variants as one message: a title, a row
 //                       per question, one button for all and «One by one». p = { members:
 //                       [{ uid, at, view }], all, openRow, recording, errors, pending }, o = { onAll(),
@@ -1873,6 +1875,10 @@
   // An old turn (no headline, no lines) is the same bubble with «Lex» and its words. No buttons at all.
   // whois({ body | text, at, onGo }) without `message` — a word of an agent of the base in its task chat (the section
   // «Agents», 21.11.2026): the bubble of a question across the lane with the sparkle and «Lex» over the words.
+  // whois({ task: true, author, body | text, at, onGo }) — the same word under the agent's name with no bubble (boards
+  // AgChat, AgChatWaiting, 22.11.2026), as an answer of the model: no ground; the mark 12/600 `--fg-muted` — the sparkle
+  // 14 and the name through 6; 4 below the words (Markdown, 15); 4 below them the time 12 `--fg-muted` on the left. A
+  // blank `author` — the bubble with «Lex». Whether it waits for Gennady the head of the chat says, not the word.
   // onGo(place) — a press on a link of Lex inside the words (lex://…, drawn with data-lex-go): the screen opens it.
   function whoisGo(text, onGo) {
     if (typeof onGo !== 'function') return;
@@ -1921,6 +1927,17 @@
   }
   function whois(o) {
     o = o || {};
+    const author = String(o.author || '').trim();
+    if (!o.message && o.task && author) {
+      // a word of an agent in its task chat under its name: no bubble, the time on the left under the words
+      const root = make('div', 'lex-whois-agent');
+      root.setAttribute('role', 'article');
+      const head = make('div', 'lex-whois-agent-head');
+      head.append(sparkle(14), make('span', 'lex-whois-agent-name', author));
+      const time = make('div', 'lex-whois-agent-time', timeOf(o.at));
+      root.append(head, whoisWords(o), time);
+      return root;
+    }
     if (!o.message) {
       // a word of an agent in its task chat: the bubble of a question with the mark of Lex over the words
       const root = make('div', 'lex-q lex-whois is-open');

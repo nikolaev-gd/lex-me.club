@@ -51,6 +51,8 @@
     copy: 'M9 9h10v10H9zM5 15V5h10',
     retry: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5',
     check: 'M4 12l5 5L20 6',
+    // The check of the chosen item of a menu with notes (В7.60).
+    tick: 'M5 12l5 5L20 7',
     x: 'M6 6l12 12M18 6L6 18',
     logout: 'M15 17l5-5-5-5M20 12H9M12 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6',
     plus: 'M12 5v14M5 12h14',
@@ -72,6 +74,13 @@
     open: 'M7 17L17 7M8 7h9v9',
     // The pin of a pinned chat in a list (В7.34).
     pin: 'M12 17v5M8 3h8M9 3v7l-3 4h12l-3-4V3',
+    // The four positions of a kind of notification (the menu of the screen Notifications, 2026-11-22), the drawings of
+    // the board NotifMenu: the bell with waves (Alarm), the bell (Banner, the bell of lex-send-later.js), the circled 1
+    // (Count only), the bell struck through (Off, the bellOff of lex-person.js).
+    bellRing: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0M4 2C2.8 3.7 2 5.7 2 8M22 8c0-2.3-.8-4.3-2-6',
+    bell: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0',
+    countOne: 'M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0M10.5 9.5L12.5 8v8',
+    bellOff: 'M8.7 3A6 6 0 0 1 18 8a21.3 21.3 0 0 0 .6 5M17 17H3s3-2 3-9a4.67 4.67 0 0 1 .3-1.7M10.3 21a1.94 1.94 0 0 0 3.4 0M2 2l20 20',
   };
 
   function icon(name) {
@@ -200,17 +209,32 @@
     return img;
   }
 
+  // A mark drawn by the caller (an svg node or the marks of lex-section.js) in place of a named icon.
+  function itemIcon(it) {
+    if (it.svg && typeof it.svg === 'object') return it.svg.cloneNode(true);
+    return menuIcon(it);
+  }
+
+  // items: [{ label, icon | iconUrl | svg, danger, onSelect }, { separator }, { head }]. The menu with notes (В7.60,
+  // 2026-11-21): an item with `note` has a second line 13 under its title 14/600 and the icon 18; an item with
+  // `checked` (true or false) is a choice, the chosen one has the check 16 at the right and the ground of the chosen.
   function menu(anchor, items) {
     closeMenu();
     const host = document.getElementById('wc-menu');
+    const list = items.filter(Boolean);
+    host.classList.toggle('is-notes', list.some((it) => it.note));
 
-    host.replaceChildren(...items.filter(Boolean).map((it) => {
+    host.replaceChildren(...list.map((it) => {
       if (it.separator) return el('.wc-menu-sep');
       if (it.head) return el('.wc-menu-head', { text: it.head });
-      return el('button.wc-menu-item' + (it.danger ? '.is-danger' : ''), {
-        type: 'button', role: 'menuitem',
+      const choice = it.checked === true || it.checked === false;
+      const words = it.note
+        ? el('span.wc-menu-words', {}, [el('span.wc-menu-label', { text: it.label }), el('span.wc-menu-note', { text: it.note })])
+        : el('span.wc-menu-label', { text: it.label });
+      return el('button.wc-menu-item' + (it.danger ? '.is-danger' : '') + (it.checked ? '.is-checked' : ''), {
+        type: 'button', role: choice ? 'menuitemradio' : 'menuitem', 'aria-checked': choice ? String(!!it.checked) : null,
         onclick: () => { closeMenu(); it.onSelect(); },
-      }, [menuIcon(it), el('span.wc-menu-label', { text: it.label })]);
+      }, [itemIcon(it), words, it.checked ? el('span.wc-menu-check', {}, [icon('tick')]) : null]);
     }));
 
     host.hidden = false;
@@ -245,6 +269,14 @@
     if (first) first.focus();
   }
 
+  // ── The head of a sheet (В7.15, 2026-11-21) ──────────────────────────────
+  // One for the whole of Lex: the title 16/650 at the left, the cross — an icon button of 44 — at the right, 60 high,
+  // a line under it. Every sheet of the page takes it through sheet(); a window drawing a sheet of its own takes it
+  // here. The iPhone: LexSheetHead (Parts/SheetHead.swift).
+  function sheetHead(title, onClose) {
+    return el('.wc-sheet-head', {}, [el('h2', { text: title }), iconBtn('x', 'Close', onClose)]);
+  }
+
   // ── Sheet (settings and friends) ─────────────────────────────────────────
   function sheet(hostId, title, bodyNodes, onClose) {
     const host = document.getElementById(hostId);
@@ -266,7 +298,7 @@
     // Полоска-ухватка сверху. Она не украшение: это единственное, что говорит
     // «лист можно тянуть» до того, как человек попробует.
     const grip = el('.wc-sheet-grip', { 'aria-hidden': 'true' });
-    const head = el('.wc-sheet-head', {}, [el('h2', { text: title }), iconBtn('x', 'Close', close)]);
+    const head = sheetHead(title, close);
     const card = el('.wc-sheet-card', {}, [grip, head, body]);
     host.replaceChildren(card);
     host.hidden = false;
@@ -395,7 +427,7 @@
   }
 
   global.WcUI = {
-    el, icon, iconBtn, toast, modal, confirm, prompt, menu, closeMenu, sheet, fmtMoney,
+    el, icon, iconBtn, toast, modal, confirm, prompt, menu, closeMenu, sheet, sheetHead, fmtMoney,
     conversationTitle, tabs,
   };
 })(typeof self !== 'undefined' ? self : globalThis);

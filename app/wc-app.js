@@ -558,6 +558,11 @@
     // Agents (21.11.2026): the agents of the base, a folder of task chats for each (wc-agents.js). A task chat of it
     // follows the signals through this section while it is open; left, it stops.
     agents: { title: 'Agents', build: buildAgents, leave: () => { if (SECTIONS.agents.live) SECTIONS.agents.live.unwatch(); } },
+    // Calendar and Shopping list have their places in the menu already (LexSection.entries, В7.62: Agents, Calendar,
+    // Shopping list, Questions, Extended Mind, News). A section's entry comes on with its line here, and with the server
+    // naming the section for 'web' (lex_home_sections names calendar and shopping for 'ios' only on 21.11.2026):
+    // calendar: { title: 'Calendar', build: buildCalendar },
+    // shopping: { title: 'Shopping list', build: buildShopping },
   };
   // A folder of chats (Kolya, Other; lex-folders.js) is a section the server names 'folder:<id>' with
   // its title (lex_home_sections): its entry here is made when the server names it. It has no screen of its own: its
@@ -578,6 +583,8 @@
   // orders or from a report — to that screen of Profi.ru, where it stands as it was left.
   const profiBack = (opts) => (opts && opts.from === 'people' ? mainTarget() : sectionTarget('profi'));
   let sectionOn = null;
+  // The entries of the sections in the menu of chats (LexSection.entries): the open section's line stands chosen.
+  let entries = { setActive() {} };
   function sectionEls() {
     return {
       main: document.querySelector('.wc-main'),
@@ -591,6 +598,7 @@
     const { main, host } = sectionEls();
     if (sectionOn) SECTIONS[sectionOn].live.hide();
     sectionOn = null;
+    entries.setActive(null);
     host.hidden = true;
     sectionBack.clear();
     main.classList.remove('is-section', 'is-news-opening');
@@ -627,6 +635,7 @@
     if (opts && opts.enter) opts.enter(section.live);
     for (const el of host.children) el.hidden = el !== section.live.el;
     sectionOn = id;
+    entries.setActive(id);
     host.hidden = false;
     main.classList.add('is-section');
     paintHome();
@@ -713,18 +722,20 @@
       for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
       people.setSections(list);
       paintHome();
-      const buttons = (Array.isArray(list) ? list : []).filter((s) => !(s && people.isPeople(s.id)));
-      global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => {
+      // An entry only for a section this page opens: a section the server names before its screen is built here has none.
+      const buttons = (Array.isArray(list) ? list : []).filter((s) => s && !people.isPeople(s.id) && SECTIONS[s.id]);
+      entries = global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => {
         if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
         else if (SECTIONS[id]) showSection(id);
       });
+      entries.setActive(sectionOn);
     };
     let drawn = null;
     let sections = null;
     // The sections this page knows: the server names no other. The copy this device kept in the
     // first frame, the server's answer after it (lex-reads.js).
     try {
-      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news', 'folders', 'questions', 'agents'] }, (list, fresh, same) => {
+      sections = await read('lex_home_sections', { p_surface: 'web', p_known: ['em', 'profi', 'news', 'folders', 'questions', 'agents', 'calendar', 'shopping'] }, (list, fresh, same) => {
         if (!Array.isArray(list) || same) return;
         drawn = list;
         draw(list);

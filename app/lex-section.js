@@ -145,6 +145,8 @@
     el.classList.toggle('is-unread', !!o.dot);
     el.classList.toggle('is-strong', !!o.strong);
     el.classList.toggle('is-wrap', !!o.wrap);
+    // subLines: 3 — the title on one line, the sub on up to three (a block of memory of an agent, board AgMemory).
+    el.classList.toggle('is-sub3', o.subLines === 3);
     el.classList.toggle('is-chat', o.time != null || !!o.pinned);
     el.classList.toggle('has-lead', !!o.lead);
     el.classList.toggle('is-muted', !!o.muted);
@@ -431,11 +433,17 @@
     tools.append(...(opts.tools || []));
     // The gear is a button with an icon of the bar, a zone of 44 (В7.11), as every tool of the bar.
     if (opts.gear) tools.appendChild(iconButton('lex-section-gear lex-section-icon', GEAR, 'Settings', opts.gear));
-    bar.append(titleEl, tools);
+    // The centred head of a screen (В7.18, 22.11.2026, board AgF2HeadA): a slot 108 on each side, in the middle a button
+    // 44 — the name 16/650 with a chevron 16 when it opens something, under it a line 13 (`--attention` when it waits);
+    // on the right the second button 44 (В7.7) with a mark 20 and a word. The arrow back stays where it is on the page
+    // (the bar of the window, lex-back.js): the left slot only keeps the name in the middle.
+    const center = make('div', 'lex-section-center');
+    center.hidden = true;
+    bar.append(titleEl, tools, center);
     const status = make('div', 'lex-section-status');
     status.setAttribute('role', 'status');
     status.hidden = true;
-    const first = { id: 'home', title: opts.title, body: make('div', 'lex-section-body'), top: 0 };
+    const first = { id: 'home', title: opts.title, body: make('div', 'lex-section-body'), top: 0, head: opts.head || null };
     root.append(bar, status, first.body);
     const stack = [first];
     // A section entered from outside (opts.root) is never on its first screen: it stays under the others, hidden, and the
@@ -461,9 +469,40 @@
 
     // The arrow of the window leads from a screen inside the section to the one under it; from the first two
     // screens of a section entered from outside (opts.root) — out of the section, the screens starting over.
+    let headPainted = false;
+    function paintHead(h) {
+      bar.classList.toggle('is-center', !!h);
+      center.hidden = !h;
+      titleEl.hidden = !!h;
+      if (!h) { if (headPainted) { center.replaceChildren(); headPainted = false; } return; }
+      headPainted = true;
+      const name = make('span', 'lex-section-head-name', h.title || top().title || '');
+      const line = make('span', 'lex-section-head-line');
+      line.appendChild(name);
+      if (h.onTitle) line.appendChild(markSvg(['M9 6l6 6-6 6'], 16, 2));
+      const mid = make(h.onTitle ? 'button' : 'div', 'lex-section-head');
+      mid.appendChild(line);
+      if (h.sub) mid.appendChild(make('span', `lex-section-head-sub${h.subTone === 'attention' ? ' is-attention' : ''}`, h.sub));
+      if (h.onTitle) {
+        mid.type = 'button';
+        mid.setAttribute('aria-label', h.titleLabel || `${h.title || ''}: settings`);
+        mid.addEventListener('click', h.onTitle);
+      }
+      const right = make('div', 'lex-section-slot is-right');
+      const a = h.action;
+      if (a && global.LexMessage && global.LexMessage.button) {
+        const b = global.LexMessage.button({ label: a.label, icon: a.icon ? markSvg(a.icon, 20, 2) : null });
+        b.classList.add('lex-section-head-action');
+        if (a.ariaLabel) b.setAttribute('aria-label', a.ariaLabel);
+        b.addEventListener('click', a.onClick);
+        right.appendChild(b);
+      }
+      center.replaceChildren(make('div', 'lex-section-slot'), mid, right);
+    }
     function paintScreen() {
       titleEl.textContent = top().title;
-      tools.hidden = stack.length > 1;
+      paintHead(top().head);
+      tools.hidden = stack.length > 1 || !!top().head;
       root.classList.toggle('is-inner', stack.length > 1);
       if (!opts.back) return;
       const out = opts.root ? opts.root() : null;
@@ -490,7 +529,7 @@
       from.body.hidden = true;
       const body = make('div', 'lex-section-body');
       root.appendChild(body);
-      stack.push({ id: screen.id, title: screen.title, body });
+      stack.push({ id: screen.id, title: screen.title, body, head: screen.head || null });
       say('');
       paintScreen();
       return body;
@@ -569,6 +608,9 @@
       open,
       isShown,
       get screen() { return top().id; },
+      // The head of the screen on top: { title, sub, subTone: 'attention' | 'muted', onTitle, titleLabel,
+      // action: { icon: [paths], label, ariaLabel, onClick } } — the centred head (В7.18); null — the title on the left.
+      setHead(head) { top().head = head || null; paintScreen(); },
       get body() { return top().body; },
       // The section came on screen: the arrow stands as its screen needs it.
       enter: paintScreen,
@@ -589,7 +631,331 @@
     };
   }
 
+  // ══ The parts of the sections of 21.11.2026 (ios/Lex/STANDARD.md, В7.56–В7.63) ══════════════════════════════
+  // One drawing for every section that shows agents, settings, an empty screen or the menu of the sections: the
+  // canvas «Новые разделы: одна система», board Parts. The iPhone draws the same parts in ios/Lex/Lex/Parts/
+  // (AgentFace.swift, AgentState.swift, SettingRow.swift, NoteMenu.swift, SectionEmpty.swift, SectionEntries.swift,
+  // SheetHead.swift) from the same marks: dev-tools/test-ios-standard.mjs compares them path by path.
+
+  // The marks, viewBox 24, drawn by a line: one list of paths per mark. A circle and a rounded rectangle of the
+  // board are written as paths, so the iPhone parses the very same strings (LexSVGPath).
+  const MARKS = {
+    agent: {
+      'instruction-editor': ['M12 20h9', 'M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'],
+      'english-teacher': ['M2 5h6a4 4 0 0 1 4 4v11a3 3 0 0 0-3-3H2z', 'M22 5h-6a4 4 0 0 0-4 4v11a3 3 0 0 1 3-3h7z'],
+      'correspondence-assistant': ['M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z'],
+      morning: ['M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0', 'M12 2v2', 'M12 20v2', 'M4.9 4.9l1.4 1.4', 'M17.7 17.7l1.4 1.4', 'M2 12h2', 'M20 12h2', 'M4.9 19.1l1.4-1.4', 'M17.7 6.3l1.4-1.4'],
+      whois: ['M6 8a4 4 0 1 0 8 0a4 4 0 1 0 -8 0', 'M2 21c.8-4 4-6 8-6 1.2 0 2.3.2 3.3.5', 'M17 12.5a2 2 0 1 1 2.7 1.9c-.5.2-.7.6-.7 1.1v.5', 'M19 19.5h.01'],
+      deals: ['M4.5 4h2a1.5 1.5 0 0 1 1.5 1.5v13a1.5 1.5 0 0 1 -1.5 1.5h-2a1.5 1.5 0 0 1 -1.5 -1.5v-13a1.5 1.5 0 0 1 1.5 -1.5z', 'M11.5 4h2a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1 -1.5 1.5h-2a1.5 1.5 0 0 1 -1.5 -1.5v-7a1.5 1.5 0 0 1 1.5 -1.5z', 'M18.5 4h1a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1 -1.5 1.5h-1a1.5 1.5 0 0 1 -1.5 -1.5v-10a1.5 1.5 0 0 1 1.5 -1.5z'],
+      'call-stitch': ['M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7', 'M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7'],
+      'call-summary': ['M6 3h9l4 4v14H6z', 'M14 3v5h5', 'M9 13h7', 'M9 17h5'],
+      ideas: ['M9 18h6', 'M10 21h4', 'M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z'],
+      // The eleventh agent (21.11.2026), not on the board: a paper clip in the same line.
+      attachments: ['M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9'],
+      // The twelfth (22.11.2026, «Профи-маркетолог»), not on the board: a line going up.
+      'profi-marketer': ['M3 17l6-6 4 4 8-8', 'M15 7h6v6'],
+    },
+    // The marks of the buttons of a head (В7.18): Activity — a clock (board AgF2HeadA).
+    tool: {
+      activity: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M12 7v5l3 2'],
+    },
+    section: {
+      agents: ['M7 8h10a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-10a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3z', 'M12 4v4', 'M11 3a1 1 0 1 0 2 0a1 1 0 1 0 -2 0', 'M9 13v2', 'M15 13v2'],
+      calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2z', 'M3 10h18', 'M8 3v4', 'M16 3v4'],
+      shopping: ['M3 4h2l2.4 11h10.2L20 7H6.2', 'M7.5 19a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0', 'M15.5 19a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0'],
+      questions: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.4v.6', 'M12 16.8h.01'],
+      em: ['M12 4a3 3 0 0 0-5.6 1.2A3 3 0 0 0 4 10a3 3 0 0 0 .8 5.2A3.2 3.2 0 0 0 12 17z', 'M12 4a3 3 0 0 1 5.6 1.2A3 3 0 0 1 20 10a3 3 0 0 1-.8 5.2A3.2 3.2 0 0 1 12 17z', 'M12 4v16'],
+      news: ['M5 5h11v14H6a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1z', 'M16 9h3a1 1 0 0 1 1 1v7a2 2 0 0 1-4 0', 'M8 9h4', 'M8 13h4'],
+    },
+  };
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  // A mark as an svg node: the paths, a line of `stroke` in the colour of the text around it.
+  function markSvg(paths, size, stroke) {
+    const n = document.createElementNS(SVG_NS, 'svg');
+    n.setAttribute('viewBox', '0 0 24 24');
+    n.setAttribute('width', String(size));
+    n.setAttribute('height', String(size));
+    n.setAttribute('fill', 'none');
+    n.setAttribute('stroke', 'currentColor');
+    n.setAttribute('stroke-width', String(stroke));
+    n.setAttribute('stroke-linecap', 'round');
+    n.setAttribute('stroke-linejoin', 'round');
+    n.setAttribute('aria-hidden', 'true');
+    n.setAttribute('class', 'lex-mark');
+    for (const d of paths) {
+      const p = document.createElementNS(SVG_NS, 'path');
+      p.setAttribute('d', d);
+      n.appendChild(p);
+    }
+    return n;
+  }
+  const sectionMark = (id, size) => markSvg(MARKS.section[id] || MARKS.section.agents, size || 20, 2);
+
+  // ── В7.56 the face of an agent ──────────────────────────────────────────────
+  // A square with rounded corners, the mark of the agent by a line in the middle, half of the side. Sizes 40, 48, 96
+  // (radius 10, 12, 18). People are circles (В7.12), agents and services are squares. The bot of Profi.ru has the mark
+  // of Profi.ru (LexMessage.channel); an agent without a mark of its own — the mark of the section Agents.
+  // o: { size: 40 | 48 | 96, name (what a reader of the screen hears), quiet (on a ground of --bg-raised — a menu, a
+  // banner — and in the empty state: the face lies on the hover wash, the mark in grey) }.
+  const FACE_SIZES = [40, 48, 96];
+  function agentFace(key, o) {
+    o = o || {};
+    const size = FACE_SIZES.includes(o.size) ? o.size : 48;
+    const n = make('span', `lex-face is-${size}${o.quiet ? ' is-quiet' : ''}`);
+    if (o.name) { n.setAttribute('role', 'img'); n.setAttribute('aria-label', o.name); } else n.setAttribute('aria-hidden', 'true');
+    if (key === 'profi-bot' && global.LexMessage && global.LexMessage.channel) {
+      const m = global.LexMessage.channel('profi');
+      m.setAttribute('width', String(size));
+      m.setAttribute('height', String(size));
+      n.classList.add('is-service');
+      n.appendChild(m);
+      return n;
+    }
+    n.appendChild(markSvg(MARKS.agent[key] || MARKS.section.agents, size / 2, 1.8));
+    return n;
+  }
+  // The face of a section: the empty state and anything that stands for a whole section.
+  function sectionFace(id, o) {
+    const n = make('span', `lex-face is-${(o && o.size) || 48} is-quiet`);
+    n.setAttribute('aria-hidden', 'true');
+    n.appendChild(markSvg(MARKS.section[id] || MARKS.section.agents, ((o && o.size) || 48) / 2, 1.8));
+    return n;
+  }
+
+  // ── В7.63 the live line of a stage ──────────────────────────────────────────
+  // The words of the five stages of a running agent (stage of /folders/agents/chats): what the list says after the
+  // spinner and what the last line of a chat says while the agent works.
+  const STAGES = {
+    taken: 'Taking the task…',
+    gathering: 'Reading the journal…',
+    thinking: 'Thinking…',
+    acting: 'Doing it…',
+    writing: 'Writing the answer…',
+  };
+  const stageWords = (stage) => STAGES[stage] || 'Working…';
+  function spinner(size) {
+    const n = make('span', `lex-spin is-${size === 14 ? 14 : 12}`);
+    n.setAttribute('aria-hidden', 'true');
+    return n;
+  }
+  // The last line of the feed of a chat while its agent works: the spinner 14 and the stage 13. Nothing under the
+  // message box. o: { stage } or { text }. .set(o) changes the words in place.
+  function liveStage(o) {
+    const n = make('div', 'lex-live-stage');
+    n.setAttribute('role', 'status');
+    const words = make('span', 'lex-live-stage-words');
+    n.append(spinner(14), words);
+    n.set = (x) => { words.textContent = x && x.text ? String(x.text) : stageWords(x && x.stage); };
+    n.set(o);
+    return n;
+  }
+
+  // ── В7.57 the state line of an agent ────────────────────────────────────────
+  // The second line of a line of the list (В7.34), 14: the word of the state is always written, the colour is never
+  // the only sign. o: { state: waiting | working | idle | paused | failed, text (the question of the agent, the last
+  // thing it did — in Russian, as the server or the section put it), stage (working), reason (failed) }.
+  function agentState(o) {
+    o = o || {};
+    const n = make('span', `lex-astate is-${o.state || 'idle'}`);
+    const word = (cls, w) => make('span', `lex-astate-word ${cls}`, w);
+    if (o.state === 'waiting') n.append(word('is-wait', 'Waiting for you:'), ' ', String(o.text || ''));
+    else if (o.state === 'working') n.append(spinner(12), make('span', 'lex-astate-stage', o.text ? String(o.text) : stageWords(o.stage)));
+    else if (o.state === 'paused') n.append(word('is-paused', 'Paused'));
+    else if (o.state === 'failed') n.append(word('is-failed', 'Failed:'), ' ', String(o.reason || o.text || ''));
+    else n.append(String(o.text || ''));
+    return n;
+  }
+  // A number that is not a slot of the unread (В7.48 look): how many chats of an agent wait for Gennady.
+  function pill(n, label) {
+    const v = Math.max(0, Math.floor(Number(n) || 0));
+    const p = make('span', 'lex-section-count', v > 99 ? '99+' : String(v));
+    p.hidden = !v;
+    p.setAttribute('aria-label', `${v} ${label || 'waiting'}`);
+    return p;
+  }
+  // A line of the list of agents: the face 48, the name, the time, the state line, the yellow number of the waiting
+  // chats. The name is bold while the agent waits; a paused agent is dimmed as a whole. o: { key, name, time, state,
+  // text, stage, reason, waiting (number), onClick, more, id }.
+  function agentRow(o) {
+    const el = row({
+      id: o.id != null ? o.id : o.key,
+      lead: agentFace(o.key, { size: 48 }),
+      title: o.name || o.key,
+      time: o.time || '',
+      sub: agentState(o),
+      strong: o.state === 'waiting',
+      end: o.waiting ? pill(o.waiting) : null,
+      more: o.more,
+      onClick: o.onClick,
+      cls: 'lex-agent-row',
+    });
+    el.classList.toggle('is-paused', o.state === 'paused');
+    return el;
+  }
+
+  // ── В7.58 the label of a group in a list ────────────────────────────────────
+  // «Waiting for you · 4», «Working · 1», «Closed»: 13/600 in grey, 16 over it and 6 under it.
+  function groupLabel(text, n) {
+    return make('div', 'lex-group-label', n != null ? `${text} · ${n}` : String(text));
+  }
+
+  // ── the switch (В7.59) ──────────────────────────────────────────────────────
+  // 52 × 32 in a zone of 44: on — the track of the main colour and the knob of the background at the right. The native
+  // checkbox stays under it: it brings the role, the focus, the space bar and the state for a reader of the screen.
+  function toggle(on, onChange, label) {
+    const input = make('input');
+    input.type = 'checkbox';
+    input.checked = !!on;
+    input.setAttribute('role', 'switch');
+    if (label) input.setAttribute('aria-label', label);
+    input.addEventListener('change', () => onChange(input.checked, input));
+    const track = make('span', 'lex-switch-track');
+    track.appendChild(make('span', 'lex-switch-knob'));
+    // A span, not a label: the input covers the whole box, and a row that is a label itself may hold it.
+    const box = make('span', 'lex-switch');
+    box.append(input, track);
+    box.input = input;
+    return box;
+  }
+
+  // ── В7.59 the row of a setting ──────────────────────────────────────────────
+  // In a block of settings (settingsBlock): the title 17 and under it the note 13 (two lines at most) at the left, one
+  // value at the right — one of three:
+  //   menu:   { value, tone, onOpen(anchor) } — the words of the choice 15 and the up-down mark; the press opens the menu
+  //           with notes (WcUI.menu with `note` items, В7.60) at the button. `tone` colours the words: 'attention' (the
+  //           yellow: a choice that asks for care, «Alarm» of the notifications), 'faint' (a choice that turns a thing
+  //           off, «Off»); none — the soft grey
+  //   toggle: { on, onChange(on) } — the switch 52 × 32
+  //   go:     { value, onClick() } — a way inside Lex: the words 15 and the chevron; the whole row is the button
+  // o: { title, note, menu | toggle | go, id }.
+  const UPDOWN = ['M8 9l4-4 4 4', 'M8 15l4 4 4-4'];
+  const CHEVRON = ['M9 6l6 6-6 6'];
+  function settingRow(o) {
+    const words = make('span', 'lex-setting-words');
+    words.appendChild(make('span', 'lex-setting-title', o.title));
+    if (o.note) words.appendChild(make('span', 'lex-setting-note', o.note));
+    let el;
+    if (o.go) {
+      el = button('lex-setting is-go', null, () => o.go.onClick && o.go.onClick());
+      const val = make('span', 'lex-setting-value');
+      if (o.go.value != null) val.appendChild(make('span', 'lex-setting-value-words', String(o.go.value)));
+      val.appendChild(markSvg(CHEVRON, 16, 2));
+      el.append(words, val);
+    } else {
+      el = make('div', 'lex-setting');
+      el.appendChild(words);
+      if (o.menu) {
+        const b = button('lex-setting-menu', null, () => o.menu.onOpen && o.menu.onOpen(b));
+        b.setAttribute('aria-haspopup', 'menu');
+        b.setAttribute('aria-label', `${o.title}: ${o.menu.value}`);
+        b.append(make('span', 'lex-setting-value-words', String(o.menu.value || '')), markSvg(UPDOWN, 16, 2));
+        const tone = (t) => {
+          b.classList.toggle('is-attention', t === 'attention');
+          b.classList.toggle('is-faint', t === 'faint');
+        };
+        tone(o.menu.tone);
+        el.appendChild(b);
+        el.setValue = (v, t) => {
+          b.firstChild.textContent = String(v || '');
+          b.setAttribute('aria-label', `${o.title}: ${v}`);
+          tone(t);
+        };
+      } else if (o.toggle) {
+        const sw = toggle(o.toggle.on, (on, input) => o.toggle.onChange && o.toggle.onChange(on, input), o.title);
+        el.appendChild(sw);
+        el.input = sw.input;
+      }
+    }
+    if (o.id) el.dataset.setting = o.id;
+    return el;
+  }
+  // The block around rows of settings: the ground of a card (--lex-section-bubble), radius 10, a line between rows.
+  function settingsBlock(rows) {
+    const n = make('div', 'lex-settings-block');
+    for (const r of rows || []) if (r) n.appendChild(r);
+    return n;
+  }
+
+  // ── В7.59 the block «About» (22.11.2026, board AgPassport) ─────────────────────
+  // What a thing is, read only: a card of the ground of a bubble, radius 10, 12 14 inside; the head 13/600 in the
+  // muted grey, under it on 4 the pairs — the caption 13 muted over the value 15 (the iPhone 17, as the text of the
+  // card of a person, В7.41), 2 apart, pairs 10 apart. rows: [{ caption, value }]; a pair without a value is not drawn.
+  function aboutBlock(title, rows) {
+    const n = make('div', 'lex-about');
+    if (title) n.appendChild(make('div', 'lex-about-head', title));
+    for (const r of rows || []) {
+      if (!r || r.value == null || String(r.value).trim() === '') continue;
+      const pair = make('div', 'lex-about-pair');
+      if (r.caption) pair.appendChild(make('div', 'lex-about-caption', r.caption));
+      pair.appendChild(make('div', 'lex-about-value', String(r.value)));
+      n.appendChild(pair);
+    }
+    return n;
+  }
+
+  // ── В7.61 the empty state of a section ──────────────────────────────────────
+  // One for every section: in the middle of the screen the face of the section (or of an agent) 48 on the hover wash,
+  // the line 16/600, one line 14 in the faint grey under it, and when needed one second button (В7.7).
+  // o: { section (the id of its mark) | face (a node), title, line, action: { label, onClick } }.
+  function emptyState(o) {
+    const n = make('div', 'lex-empty');
+    n.appendChild(o.face || sectionFace(o.section || 'agents'));
+    n.appendChild(make('div', 'lex-empty-title', o.title || ''));
+    if (o.line) n.appendChild(make('div', 'lex-empty-line', o.line));
+    if (o.action && global.LexMessage && global.LexMessage.button) {
+      const b = global.LexMessage.button({ label: o.action.label });
+      b.classList.add('lex-empty-act');
+      b.addEventListener('click', () => o.action.onClick && o.action.onClick());
+      n.appendChild(b);
+    }
+    return n;
+  }
+
+  // ── В7.62 the entries of the sections in the menu of chats ──────────────────
+  // Lines of one block (the ground of a card, radius 10, a line between), 44 high: the mark 20, the title 15/600, the
+  // yellow number of the unread (В7.48) when the section waits. No chevrons: the whole line is the entry. The order and
+  // the titles are the part's, whatever order and words the server sends: Agents, Calendar, Shopping list, Questions,
+  // Extended Mind, News; a section the part does not know stands after them in the server's order, with its title.
+  const ENTRY_ORDER = ['agents', 'calendar', 'shopping', 'questions', 'em', 'news'];
+  const ENTRY_TITLES = { agents: 'Agents', calendar: 'Calendar', shopping: 'Shopping list', questions: 'Questions', em: 'Extended Mind', news: 'News' };
+  // entries(host, sections, onPick) → { setActive(id) }: sections — [{ id, title }] as the server named them; the line of
+  // the open section stands chosen (--lex-section-active).
+  function entries(host, sections, onPick) {
+    host.replaceChildren();
+    host.classList.add('lex-entries');
+    host.setAttribute('role', 'navigation');
+    host.setAttribute('aria-label', 'Sections');
+    const list = (Array.isArray(sections) ? sections : []).filter((s) => s && s.id);
+    const place = (s) => { const i = ENTRY_ORDER.indexOf(s.id); return i < 0 ? ENTRY_ORDER.length : i; };
+    list.map((s, i) => ({ s, i })).sort((a, b) => place(a.s) - place(b.s) || a.i - b.i).forEach(({ s }) => {
+      const b = button('lex-entry', null, () => onPick(s.id));
+      b.dataset.section = s.id;
+      const icon = make('span', 'lex-entry-icon');
+      icon.appendChild(sectionMark(s.id, 20));
+      b.append(icon, make('span', 'lex-entry-title', ENTRY_TITLES[s.id] || s.title || s.id));
+      b.dataset.unreadHost = '';
+      const num = count({ section: s.id });
+      b.appendChild(num);
+      b.classList.toggle('has-count', !num.hidden);
+      host.appendChild(b);
+    });
+    host.hidden = !host.childElementCount;
+    const api = {
+      setActive(id) {
+        host.querySelectorAll('.lex-entry').forEach((b) => {
+          const on = id != null && b.dataset.section === String(id);
+          b.classList.toggle('is-active', on);
+          if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+        });
+      },
+    };
+    host._entries = api;
+    return api;
+  }
+
   // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
-    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS };
+    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS,
+    MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, pill, STAGES, stageWords, liveStage,
+    groupLabel, toggle, settingRow, settingsBlock, aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
 })(typeof window !== 'undefined' ? window : globalThis);
