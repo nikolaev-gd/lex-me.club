@@ -38,6 +38,11 @@
 //                   rule — the migration of the replacement moves the saved
 //                   choices once, and the extension moves its own voice cells
 //                   by voiceSuccessorId below.
+//   voiceTransport  voice only — 'live' for OpenAI's Live models (gpt-live-*):
+//                   the settings window, the voice module and the iPhone
+//                   (model-catalog.json, liveVoiceModels) branch on it, never on
+//                   the id; a new Live model is one entry with this field. The
+//                   server derives the same from apiModel (voiceTransportOf).
 //   voiceDefault    voice only — the voice model a window talks with when
 //                   nothing names one (exactly one visible entry). Read by
 //                   every surface as LexModelRegistry.defaultVoiceModel; the
@@ -824,6 +829,19 @@
       label: 'gpt-live-1', voiceTransport: 'live',
     },
     {
+      // 2026-11-22: gpt-live-1.1 — the second Live model of OpenAI (released
+      // 2026-11-19): better pronunciation, a steadier accent and transcription
+      // in multilingual conversations. The same Live endpoint and body as
+      // gpt-live-1 (a live session created with the server's very body:
+      // HTTP 201, a session id and an answer SDP, hung up at once), the same
+      // price — $0.05 a minute active, audio_hour 3.00
+      // (developers.openai.com/api/docs/models/gpt-live-1.1, checked
+      // 2026-11-22). Its own concurrent-session limit at OpenAI, apart from
+      // gpt-live-1's. Not a replacement: gpt-live-1 stays as it is.
+      id: 'gpt-live-1.1', apiModel: 'gpt-live-1.1', provider: 'openai', type: 'voice',
+      label: 'gpt-live-1.1', voiceTransport: 'live',
+    },
+    {
       // Gemini 3.8 Live — the default voice of Lex since 2026-11-14 (Gennady:
       // "поставь этот Gemini 3.8"), replaces 3.1 Flash Live (hidden below).
       // aistudio.google.com/docs/pricing, checked 2026-11-14: one table for
@@ -1578,6 +1596,12 @@
   // reasoning is built in, so the server never sends the field to it
   // (_shared/gemini-live-setup.ts).
   const VOICE_PROVIDERS_ALL = ['openai', 'google'];
+  // The voice models on the Live transport (voiceTransport: 'live') — gpt-live-1
+  // and gpt-live-1.1 today. The Live-only knobs below are narrowed to this list,
+  // so a new Live model needs only its LEX_MODELS entry.
+  const LIVE_VOICE_MODEL_IDS = LEX_MODELS
+    .filter((m) => m.type === 'voice' && m.voiceTransport === 'live')
+    .map(modelId);
   const VOICE_KNOB_AVAILABILITY = {
     voiceName:                  { providers: VOICE_PROVIDERS_ALL },
     voiceSpeed:                 { providers: ['openai'] },
@@ -1605,18 +1629,18 @@
     voiceReasoningEffort:       { providers: ['openai'] },
     // gpt-live (2026-09-13): the text model the voice delegates thinking to,
     // and that model's prompt. They exist on no other voice model.
-    voiceThinkingModel:         { providers: ['openai'], models: ['gpt-live'] },
-    voiceThinkingPrompt:        { providers: ['openai'], models: ['gpt-live'] },
+    voiceThinkingModel:         { providers: ['openai'], models: LIVE_VOICE_MODEL_IDS },
+    voiceThinkingPrompt:        { providers: ['openai'], models: LIVE_VOICE_MODEL_IDS },
     // gpt-live (2026-09-14): the pause after which the next words are a new
     // bubble. Our listener cuts gpt-live's turns by it; no other model has one.
-    voiceLiveTurnGapMs:         { providers: ['openai'], models: ['gpt-live'] },
+    voiceLiveTurnGapMs:         { providers: ['openai'], models: LIVE_VOICE_MODEL_IDS },
   };
   // Voice knobs a live-transport model (gpt-live) actually takes. Every other
   // voice knob is a realtime-session field with no gpt-live equivalent (speed,
   // VAD, response length, reasoning, the recognizer), so the settings window
   // hides them while such a model is the working one.
   const VOICE_LIVE_KNOBS = ['voiceName', 'voiceThinkingModel', 'voiceThinkingPrompt', 'voiceLiveTurnGapMs'];
-  // Which transport a voice model id runs on — 'live' for gpt-live, else
+  // Which transport a voice model id runs on — 'live' for the gpt-live models, else
   // 'realtime'. Mirrors the server's voiceTransportOf (by apiModel there).
   function voiceTransportOfId(id) {
     const m = LEX_MODELS.find((x) => x.type === 'voice' && modelId(x) === id);
@@ -1727,6 +1751,7 @@
     visionSupported,
     voiceKnobAvailability: VOICE_KNOB_AVAILABILITY,
     voiceLiveKnobs: VOICE_LIVE_KNOBS,
+    liveVoiceModelIds: LIVE_VOICE_MODEL_IDS,
     voiceTransportOfId,
     voiceMaxResponseTokensCeiling: VOICE_MAX_RESPONSE_TOKENS_CEILING,
     voiceMaxResponseTokensCeilingDefault: VOICE_MAX_RESPONSE_TOKENS_CEILING_DEFAULT,
