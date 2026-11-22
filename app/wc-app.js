@@ -602,7 +602,7 @@
     entries.setActive(null);
     host.hidden = true;
     sectionBack.clear();
-    main.classList.remove('is-section', 'is-news-opening');
+    main.classList.remove('is-section', 'is-news-opening', 'is-section-field');
     paintNewsBar(null);
     for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
     paintHome();
@@ -690,6 +690,7 @@
     Promise.resolve().then(() => { homeAsked = false; applyHome(); });
   }
   function applyHome() {
+    paintSplit();
     const main = document.querySelector('.wc-main');
     const bar = document.querySelector('.wc-topbar');
     const host = document.getElementById('wc-home');
@@ -1528,8 +1529,11 @@
     const quoteUid = r && typeof r.quoteUid === 'string' && r.quoteUid ? r.quoteUid : null;
     // Edit of a message that went to a person (19.11.2026): the same line over the field, with the pencil; it is no draft.
     const editUid = r && typeof r.editUid === 'string' && r.editUid ? r.editUid : null;
-    reply = uids.length || quoteUid || editUid
-      ? { uids, quoteUid, editUid, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
+    // A question about a line of the journal of an agent (22.11.2026, board AgAskRun): «Log · HH:MM» and the line; the first
+    // word of the new chat goes with the id of the line (sendToAgent, op chat with run).
+    const run = r && typeof r.run === 'string' && r.run ? r.run : null;
+    reply = uids.length || quoteUid || editUid || run
+      ? { uids, quoteUid, editUid, run, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
     const slot = document.getElementById('wc-reply');
     if (slot) {
       slot.hidden = !reply;
@@ -1605,7 +1609,8 @@
   let restoring = 0;
   const newChatKey = () => (global.LexDrafts && global.LexDrafts.NEW_CHAT) || '__lex_new_chat__';
   function replyOfField() {
-    return reply && !reply.editUid ? { uids: reply.uids, quoteUid: reply.quoteUid, text: reply.text, head: reply.head } : null;
+    return reply && !reply.editUid ? { uids: reply.uids, quoteUid: reply.quoteUid, text: reply.text, head: reply.head,
+      ...(reply.run ? { run: reply.run } : {}) } : null;
   }
   function saveField() {
     const D = global.LexDrafts;
@@ -2011,6 +2016,8 @@
       // word that waits for Gennady puts the line «Reply to Lex» over the field (armReply), its word goes by send().
       go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
       armReply: (r) => armReply(r),
+      // A task chat of an agent (board AgChat): its head opens the passport of the agent.
+      agentPassport: (key) => openAgentPassport(key),
     });
     chat.folder = true;
     chat.sectionId = sectionId;
@@ -2237,11 +2244,110 @@
       rpc: newsRpc,
       call: agentsCall,
       openChat: (agent, chatKey, wanted) => openAgentChat(agent, chatKey, wanted),
-      newChat: (agent) => { newAgentChat(agent).catch((e) => console.warn('[wc] new agent chat:', e && e.message)); },
-      pickModel: (anchor, agent) => pickAgentModel(anchor, agent.key),
+      ask: (agent, run) => { askAboutRun(agent, run).catch((e) => console.warn('[wc] ask about a run:', e && e.message)); },
+      pickModel: (anchor, modelId, onPick) => openModelMenu(anchor, modelId, {}, onPick, null, 'anthropic'),
+      menu: (anchor, items) => WcUI.menu(anchor, items),
+      toast: (text, error) => toast(text, error ? { error: true } : undefined),
+      markdown: (host, text) => {
+        if (global.WcMarkdown && typeof global.WcMarkdown.into === 'function') global.WcMarkdown.into(host, text);
+        else host.textContent = text;
+      },
       chatOpen: () => !!(profiChat && profiChat.sectionId === 'agents'),
+      openKey: () => (isAgentChat(profiChat) && profiChat.data.chatKey) || null,
+      onScreen: (id, agent) => agentsScreen(id, agent),
+      wide: () => splitOn,
       onChange: (payload) => refreshFolderChat({ payload }),
     });
+  }
+  // ── The field under the folder, the folder beside the chat (boards AgF2HeadA, AgF2Wide, 22.11.2026) ─────────────
+  // The folder of an agent has the field of the page at its bottom: the first word begins a chat with that agent
+  // (newAgentChat, then sendToAgent). On a window from SPLIT_WIDE the folder stands on the left, 440, and the chat on the
+  // right with the field (one field on the page: an empty new chat of the agent stands there while no chat is picked);
+  // «Activity» puts the journal on the right, in the place of the chat. The arrow then leads the folder back to the list.
+  const SPLIT_WIDE = '(min-width: 1024px)';
+  const wideMq = global.matchMedia ? global.matchMedia(SPLIT_WIDE) : { matches: false, addEventListener() {} };
+  wideMq.addEventListener('change', () => paintHome());
+  let splitOn = false;
+  // The field of the folder is on the screen: the section «Agents» stands on the folder of an agent.
+  const agentFieldOn = () => sectionOn === 'agents' && !!SECTIONS.agents.live && SECTIONS.agents.live.screen === 'agent'
+    && !!SECTIONS.agents.live.currentAgent();
+  // One row on a screen of the section (В7.18, boards AgF2HeadA, AgF2Log, AgF2Wide): the centred head of the screen stands
+  // in the bar of the window, the arrow in its empty left slot; the window's own buttons (the pencil of a new chat) are
+  // not on the screens of the agents.
+  function paintAgentsBar() {
+    const main = document.querySelector('.wc-main');
+    if (!main) return;
+    const live = SECTIONS.agents && SECTIONS.agents.live;
+    const on = sectionOn === 'agents' || splitOn;
+    main.classList.toggle('is-agents-on', on);
+    main.classList.toggle('is-agents-head', on && !!live && live.screen !== 'home');
+  }
+  function agentsScreen(id, agent) {
+    const main = document.querySelector('.wc-main');
+    const live = SECTIONS.agents.live;
+    paintAgentsBar();
+    if (id === 'log-aside') {
+      main.classList.add('is-agents-log');
+      if (live && live.aside && !live.aside.isConnected) main.appendChild(live.aside);
+      if (agent && !(isAgentChat(profiChat) && !profiChat.data.chatKey && agentKeyOf(profiChat) === agent.key)) {
+        newAgentChat(agent, { keepAside: true }).catch((e) => console.warn('[wc] new agent chat:', e && e.message));
+      }
+      return;
+    }
+    if (sectionOn === 'agents') {
+      const field = id === 'agent' && !!agent;
+      // A wide window: the folder on the left, an empty new chat of the agent on the right (the field is there).
+      if (field && wideMq.matches) {
+        newAgentChat(agent).catch((e) => console.warn('[wc] new agent chat:', e && e.message));
+        return;
+      }
+      main.classList.toggle('is-section-field', field);
+      takeField(field ? agentDraftKey(agent.key) : null);
+      return;
+    }
+    // The folder beside a chat went back to the list: the section stands alone again.
+    if (splitOn && id === 'home') { showSection('agents', { back: true }).catch((e) => console.warn('[wc] agents:', e && e.message)); return; }
+    paintHome();
+  }
+  // Asked from applyHome: every change of what the screen holds paints the split again.
+  function paintSplit() {
+    const main = document.querySelector('.wc-main');
+    const host = document.getElementById('wc-section-host');
+    const live = SECTIONS.agents && SECTIONS.agents.live;
+    let a = null;
+    if (wideMq.matches && live && !sectionOn && isAgentChat(profiChat) && live.screen !== 'home') {
+      const cur = live.currentAgent();
+      if (cur && cur.key === agentKeyOf(profiChat)) a = cur;
+    }
+    const on = !!a;
+    if (!main || !host) return;
+    main.classList.toggle('is-agents-split', on);
+    if (on) {
+      host.hidden = false;
+      for (const el of host.children) el.hidden = el !== live.el;
+      entries.setActive('agents');
+      live.pick((profiChat.data && profiChat.data.chatKey) || null);
+      // The arrow acts on the folder (to the list), or on a passport over it.
+      live.arrow();
+      if (!splitOn) live.watch();
+    } else if (splitOn) {
+      if (!sectionOn) host.hidden = true;
+      if (live) { live.closeAside(); live.pick(null); }
+      main.classList.remove('is-agents-log');
+    }
+    if (!on || !live || live.aside.hidden) main.classList.remove('is-agents-log');
+    splitOn = on;
+    paintAgentsBar();
+  }
+  // The bubble at a line of the journal (board AgAskRun): a new empty chat of the agent, the quote of the line over the
+  // field (В7.26: «Log · HH:MM» and what the agent did, the cross); the first word goes with the id of the line (op chat, run).
+  async function askAboutRun(agent, run) {
+    const live = SECTIONS.agents.live;
+    if (live) live.closeAside();
+    await newAgentChat(agent);
+    const d = new Date(run.at);
+    const hhmm = Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    setReply({ run: run.id, head: `Log${hhmm ? ` · ${hhmm}` : ''}`, text: run.title || '' });
   }
   // The section «Shopping list» (wc-shopping.js): the function shopping of the server, the common question.
   const shoppingCall = (body) => WcBus.call('WC_SHOPPING', { body: body || null });
@@ -2256,10 +2362,19 @@
   const agentTarget = (agent) => ({ title: agent.name || 'Agents', go: () => showSection('agents', { back: true }) });
   // A task chat opened: as a chat of a folder, the arrow to the folder of the agent; the base hears it was read.
   async function openAgentChat(agent, chatKey, wanted) {
+    const live = SECTIONS.agents.live;
+    if (live) live.closeAside();
     await openFolderChat('agents', chatKey, wanted || (() => true), null, null, agentTarget(agent));
     if (profiChat && profiChat.data && profiChat.data.chatKey === chatKey) {
       agentsCall({ op: 'read', chatKey }).catch((e) => console.warn('[wc] agent read:', e && e.message));
     }
+  }
+  // A press on the head of a task chat: the passport of its agent, over its folder. A wide window keeps the chat on the
+  // right and puts the passport in the place of the folder; a narrow one shows the section.
+  function openAgentPassport(key) {
+    const live = ensureSection('agents');
+    if (splitOn) { live.passport(key); return; }
+    showSection('agents', { back: true, enter: (l) => l.passport(key) }).catch((e) => console.warn('[wc] passport:', e && e.message));
   }
   // A notification, a link, the place the Mac app comes back to: the section stands on the folder of the agent (not on
   // the screen), the chat opens over it.
@@ -2268,10 +2383,14 @@
     if (wanted && !wanted()) return;
     await openAgentChat(agent, chatKey, wanted);
   }
-  // «New chat» in the folder of an agent: an empty chat of that agent («New chat», the agent's name under it) with the
-  // field; the first word makes the chat (op chat), and this screen becomes it. Its words wait in a draft of their own.
+  // A new chat with an agent (22.11.2026: the first word of the field under its folder, a question about a line of its
+  // journal, the capsule «New chat» on its screens): an empty chat of that agent («New chat», the agent's name under it)
+  // with the field; the first word makes the chat (op chat), and this screen becomes it. Its words wait in a draft of
+  // their own. opts.keepAside — the journal stays on the right of a wide window (it asked for the chat under it).
   const agentDraftKey = (key) => `__lex_agent_new__${key}`;
-  async function newAgentChat(agent) {
+  async function newAgentChat(agent, opts) {
+    const live = SECTIONS.agents.live;
+    if (live && !(opts && opts.keepAside)) live.closeAside();
     if (WcThread.isStreaming()) leaveStream();
     await endVoiceOnLeave('open-chat');
     stopSectionOpening();
@@ -2298,32 +2417,36 @@
   }
   // A word to the agent: it stands at the end of the chat at once, «Sending…», and Lex «thinks» under it once the base
   // took it; a refusal brings it back into the field and says why. One word at a time, a fresh number every press.
-  async function sendToAgent(chat, key, text, opts) {
+  // rep — the line over the field at the press: a question about a line of the journal ({ run }) goes with its id.
+  async function sendToAgent(chat, key, text, opts, rep) {
     const words = String(text || '').trim();
+    const run = !chat.data.chatKey && rep && rep.run ? String(rep.run) : null;
     if ((opts && opts.mode) || WcAttach.count()) {
-      giveBack(key, text || '', null);
+      giveBack(key, text || '', rep || null);
       toast(ONLY_WORDS, { error: true });
       return;
     }
     if (!words) return;
-    if (!chat.whoisSending(words, null)) { giveBack(key, text, null); return; }
+    if (!chat.whoisSending(words, null)) { giveBack(key, text, rep || null); return; }
     WcThread.scrollToEnd();
     const fresh = !chat.data.chatKey;
     const opId = global.LexFolders.newOpId();
     let out;
     try {
       out = await agentsCall(fresh
-        ? { op: 'chat', agent: chat.data.agent.key, text: words, opId }
+        ? { op: 'chat', agent: chat.data.agent.key, text: words, opId, ...(run ? { run } : {}) }
         : { op: 'say', chatKey: chat.data.chatKey, text: words, opId });
     } catch (err) {
       const why = (err && err.message) || 'Try again.';
-      if (chat.whoisRefused(why)) takeWordBack(key, text, null);
+      if (chat.whoisRefused(why)) takeWordBack(key, text, rep || null);
       toast('Not sent. ' + why, { error: true });
       return;
     }
     chat.whoisTaken();
     if (!fresh) { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); return; }
-    // The new chat has its key: its draft goes, and the screen becomes the chat (the arrow still to the folder).
+    // The new chat has its key: its draft goes (and the quote of the line with it), and the screen becomes the chat (the
+    // arrow still to the folder).
+    if (reply && reply.run && key === fieldKey) setReply(null, { quiet: true });
     if (global.LexDrafts) global.LexDrafts.clear(key);
     if (out && out.chatKey && profiChat === chat) await openAgentChat(chat.data.agent, out.chatKey, () => profiChat === chat);
   }
@@ -2337,18 +2460,12 @@
       live.readList().catch(() => {});
       return;
     }
-    openModelMenu(anchor, global.WcAgents.modelId(agent), {}, async (modelId) => {
+    openModelMenu(anchor, global.WcAgents.modelId(agent), {}, (modelId) => {
       const [, model, effort] = modelId.split(':');
-      try {
-        await agentsCall({ op: 'settings', agent: agentKey, model, effort });
-      } catch (err) {
-        toast('Not saved. ' + ((err && err.message) || ''), { error: true });
-        return;
-      }
-      await live.readList().catch((e) => console.warn('[wc] agents:', e && e.message));
-      toast(`${agent.name || agentKey}: ${global.WcAgents.modelLabel(live.agent(agentKey) || { model, effort })}`);
+      live.saveModel(agentKey, model, effort).catch((e) => console.warn('[wc] agent model:', e && e.message));
     }, null, 'anthropic');
   }
+
 
   // A chat left open behind other windows gets read when the person comes back to it.
   document.addEventListener('visibilitychange', () => {
@@ -2431,9 +2548,18 @@
       toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
       return;
     }
+    // The field under the folder of an agent (22.11.2026, board AgF2HeadA): the first word begins a chat with that agent —
+    // the empty chat of the agent comes on the screen with the word at its end, and the word goes (op chat).
+    if (agentFieldOn() && key0 === agentDraftKey(SECTIONS.agents.live.currentAgent().key)) {
+      const agent = SECTIONS.agents.live.currentAgent();
+      await newAgentChat(agent);
+      if (!isAgentChat(profiChat) || fieldKey !== key0) { giveBack(key0, text || '', reply0); return; }
+      await sendToAgent(profiChat, key0, text, opts, reply0);
+      return;
+    }
     // A task chat of an agent (the section «Agents»): every word of its field goes to the agent, and nothing else does.
     if (isAgentChat(chat0)) {
-      await sendToAgent(chat0, key0, text, opts);
+      await sendToAgent(chat0, key0, text, opts, reply0);
       return;
     }
     // The agent «Кто это»: with the line «Reply to Lex» of its message over the field the words go to the agent of that
@@ -2697,6 +2823,8 @@
   async function pickDefaultModel(anchor) {
     // A task chat of an agent: the model of that agent, not the model of the chats of orders.
     if (isAgentChat(profiChat)) { pickAgentModel(anchor, agentKeyOf(profiChat)); return; }
+    // The field under the folder of an agent: the model of that agent.
+    if (agentFieldOn()) { pickAgentModel(anchor, SECTIONS.agents.live.currentAgent().key); return; }
     const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
@@ -2717,6 +2845,10 @@
   let profiModelLabel = '';
   // The label of this chat: a task chat of an agent names the agent's model (the list of the section holds it).
   function textModelLabelNow() {
+    if (agentFieldOn()) {
+      const a = SECTIONS.agents.live.agent(SECTIONS.agents.live.currentAgent().key);
+      return a ? global.WcAgents.modelLabel(a) : '';
+    }
     if (!isAgentChat(profiChat)) return profiChat ? profiModelLabel : textModelLabel;
     const live = SECTIONS.agents.live;
     const agent = live && live.agent(agentKeyOf(profiChat));
@@ -3088,6 +3220,8 @@
 
   async function toggleVoice(opts) {
     await settingsReady;
+    // The field under the folder of an agent: an agent takes only words.
+    if (agentFieldOn()) { toast(ONLY_WORDS); return; }
     // A chat of a folder is the conversation with a person: Lex does not talk in it; an agent takes only words.
     if (profiChat && profiChat.folder && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
       toast(isAgentChat(profiChat) ? ONLY_WORDS : 'Voice talk with Lex is not in the chats of folders.');
@@ -4134,8 +4268,8 @@
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
       // A task chat of an agent takes only words (a file pasted into the field stops at the send).
-      onAttach: () => (isAgentChat(profiChat) ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
-      onAttachFile: () => (isAgentChat(profiChat) ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
+      onAttach: () => (isAgentChat(profiChat) || agentFieldOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
+      onAttachFile: () => (isAgentChat(profiChat) || agentFieldOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
@@ -4334,5 +4468,10 @@
     toggleVoice,
     // The page's own piece for the live checks of dev-tools (check-message-edit.mjs): a chat of a person made as the page makes it.
     makeFolderChat,
+    // For the live checks of the section «Agents» (dev-tools/check-agents-section.mjs): a section shown as its button does,
+    // the screen on top of the section, the section itself.
+    showSection,
+    agentsScreen: () => (SECTIONS.agents.live ? SECTIONS.agents.live.screen : null),
+    agentsSection: () => SECTIONS.agents.live || null,
   };
 })(typeof self !== 'undefined' ? self : globalThis);

@@ -146,6 +146,8 @@
 .lex-profi-person-words { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .lex-profi-person-name { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 1.25; white-space: nowrap; text-overflow: ellipsis; }
 .lex-profi-person-channel { color: var(--fg-muted); font-size: 13px; line-height: 1.2; }
+/* The state «Waiting for you» in the head of a task chat of an agent (board AgChatWaiting). */
+.lex-profi-person-channel .lex-profi-agent-wait { color: var(--attention); }
 .wc-profi-link { display: contents; }
 /* The button of the clean view in the bar (lex-profi.js bar()): the common round button of the
  * page (.wc-icon-btn) at 44, clear with a thin frame; pressed — the accent ground, the mark dark

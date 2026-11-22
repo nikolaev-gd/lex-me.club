@@ -557,7 +557,7 @@ button { font: inherit; color: inherit; }
 }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .wc-turn-news, .wc-sheet {
+.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-surface: var(--bg-surface);
   --lex-section-bubble: var(--bg-bubble);
@@ -901,7 +901,9 @@ button { font: inherit; color: inherit; }
   padding-top: var(--wc-topbar-h, 52px);
 }
 .wc-main.is-section .wc-thread,
-.wc-main.is-section .wc-composer-wrap { display: none; }
+.wc-main.is-section:not(.is-section-field) .wc-composer-wrap { display: none; }
+/* The folder of an agent has the field of the page at its bottom (22.11.2026, board AgF2HeadA): the list ends over it. */
+.wc-main.is-section-field .wc-section-host .lex-section-body { padding-bottom: calc(var(--wc-composer-h, 88px) + 12px); }
 .wc-news-back svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .wc-turn-news .wc-bubble { max-width: 100%; }
 
@@ -2148,3 +2150,82 @@ button { font: inherit; color: inherit; }
 /* The windows of messages to people (В7.51) stand under the row of the answer as the box of an order chat does (it has
  * 2 of its own, and the foot of the turn pulls 8 up): 2 here, not the 10 of the old marks. */
 .wc-turn-assistant > .lex-brain-marks.has-boxes { margin-top: 2px; }
+
+
+/* ── The section «Agents» (wc-agents.js; boards AgList, AgF2HeadA, AgF2Log, AgF2Wide, AgPassport, AgInstruction,
+ * AgMemory, 22.11.2026). The parts are lex-section.js's; here only where they stand. ── */
+/* A line of the journal: the time 13 in grey on the left, what was done (two lines at most), under it the duration and the
+ * model, or «Failed:» / «Skipped:»; the bubble at the right (a zone of 44) begins a chat about the line. */
+.lex-agents .lex-agent-run { align-items: center; padding-right: 0; }
+.lex-agents .lex-agent-run.has-lead > .lex-section-row-main { align-items: flex-start; }
+.lex-agents .lex-agent-run-time { flex: 0 0 40px; padding-top: 2px; color: var(--fg-muted); font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }
+.lex-agents .lex-agent-run-failed { color: var(--danger); }
+.lex-agents .lex-agent-run-skipped { color: var(--fg-muted); }
+.lex-agents .lex-agent-run-ask { flex: 0 0 auto; color: var(--fg-muted); }
+.lex-agents .lex-agents-runs > .lex-msg-day { margin: 12px auto 4px; }
+.lex-agents .lex-agents-runs-end { height: 1px; }
+/* The line of the chat open beside the folder (a wide window). */
+.lex-agents .lex-agent-chat.is-picked { background: var(--bg-active); }
+/* The passport: the face 96 in the middle, the name 22/650, the state 15 in grey (yellow while it waits, red failed). */
+.lex-agents .lex-agent-passport { display: flex; flex-direction: column; gap: 16px; padding: 8px 0 24px; }
+.lex-agents .lex-agent-top { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 0 4px; text-align: center; }
+.lex-agents .lex-agent-name { margin-top: 10px; }
+.lex-agents .lex-agent-name { color: var(--fg); font-size: 22px; font-weight: 650; line-height: 28px; }
+.lex-agents .lex-agent-state { color: var(--fg-muted); font-size: 15px; line-height: 20px; }
+.lex-agents .lex-agent-state.is-wait { color: var(--attention); }
+.lex-agents .lex-agent-state.is-failed { color: var(--danger); }
+/* The instruction: text to read, the way the words of the model stand in a chat. */
+.lex-agents .lex-agent-doc { padding: 8px 0 24px; color: var(--fg); font-size: 15px; line-height: 1.45; }
+.lex-agents .lex-agent-doc :is(h1, h2, h3, h4) { margin: 16px 0 6px; font-size: 17px; font-weight: 650; line-height: 1.3; }
+.lex-agents .lex-agent-doc > :first-child { margin-top: 0; }
+.lex-agents .lex-agent-doc :is(p, ul, ol) { margin: 0 0 10px; }
+.lex-agents .lex-agent-doc :is(ul, ol) { padding-left: 22px; }
+
+/* ── One row on a screen of an agent (В7.18, boards AgF2HeadA, AgF2Log, AgF2Wide, 22.11.2026) ──
+ * The centred head of the screen stands where the bar of the window is: the arrow of the window stays in its corner and
+ * falls in the empty left slot 108 of the head; the bar of the window lets the presses through to the head. The pencil of
+ * a new chat is not on the screens of the agents (the folder begins a chat from its field). */
+.wc-main.is-agents-head .wc-section-host { padding-top: 0; }
+.wc-main.is-agents-head .lex-agents > .lex-section-bar.is-center { box-sizing: border-box; min-height: var(--wc-topbar-h, 60px); padding-top: env(safe-area-inset-top); }
+.wc-main.is-agents-head .wc-topbar { box-sizing: border-box; min-height: calc(60px + env(safe-area-inset-top)); pointer-events: none; background: none; }
+.wc-main.is-agents-head .wc-topbar > * { pointer-events: auto; }
+.wc-main.is-agents-head:not(.is-agents-split) .wc-topbar-right { display: none; }
+.wc-main.is-agents-on #wc-new-chat { display: none !important; }
+/* Wide: the bar of the window keeps its ground over the chat on the right only. */
+.wc-main.is-agents-split.is-agents-head .wc-topbar {
+  background: linear-gradient(to bottom, var(--bg) calc(100% - 10px), transparent) right top / calc(100% - 440px) 100% no-repeat;
+}
+
+/* ── A wide window: the folder on the left, 440, the chat on the right (board AgF2Wide) ── */
+.wc-main.is-agents-split .wc-section-host {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 440px;
+  z-index: 11;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+}
+.wc-main.is-agents-split .wc-section-host > .lex-agents { flex: 1 1 auto; min-height: 0; }
+.wc-main.is-agents-split .wc-thread { margin-left: 440px; }
+.wc-main.is-agents-split .wc-composer-wrap { left: 440px; }
+/* The head of the chat stands over the chat, right of the folder; the arrow of the window stays over the folder. */
+.wc-main.is-agents-split .wc-profi-person { position: absolute; left: 456px; top: 50%; transform: translateY(-50%); }
+/* The journal in the place of the chat, under its head and over the field. */
+.wc-main > .lex-agents-log {
+  position: absolute;
+  top: 0;
+  bottom: var(--wc-composer-h, 88px);
+  height: auto;
+  left: 440px;
+  right: 0;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.wc-main > .lex-agents-log[hidden], .wc-main:not(.is-agents-split) > .lex-agents-log { display: none; }

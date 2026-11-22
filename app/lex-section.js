@@ -243,7 +243,10 @@
     if (!u || typeof u !== 'object') return;
     unreadNow = { chats: u.chats || {}, orders: u.orders || {}, sections: u.sections || {} };
     if (Array.isArray(u.important)) importantNow = new Set(u.important.map(String));
-    if (typeof document !== 'undefined') document.querySelectorAll('.lex-section-count').forEach(paintCount);
+    // Only the slots of the unread: pill() wears the same look, but its number is not the unread.
+    const slots = '.lex-section-count[data-unread-chat], .lex-section-count[data-unread-order], '
+      + '.lex-section-count[data-unread-section]';
+    if (typeof document !== 'undefined') document.querySelectorAll(slots).forEach(paintCount);
   }
   const unread = () => unreadNow;
   const isImportant = (chatKey) => chatKey != null && importantNow.has(String(chatKey));

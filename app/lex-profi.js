@@ -1152,7 +1152,7 @@
           // Lex has not answered yet: Lex «thinks» under the word (the dots of the assistant), for a minute and a half
           // at most — the agent writes in seconds; dots that stayed would say what is not true.
           const waited = Date.now() - (Date.parse(t.authoredAt || '') || 0);
-          if (!still && w.open && Number(w.turn) === lastOfCase(w.case) && waited >= 0 && waited < 90000) {
+          if (!still && !agent() && w.open && Number(w.turn) === lastOfCase(w.case) && waited >= 0 && waited < 90000) {
             const thinking = self.thinking();
             row.appendChild(thinking);
             setTimeout(() => thinking.remove(), 90000 - waited);
@@ -1169,9 +1169,10 @@
         const md = global.WcMarkdown;
         if (md && typeof md.into === 'function') md.into(body, words, { lex: true }); else body.textContent = words;
         const onGo = (place) => { if (typeof deps.go === 'function') deps.go(place); };
-        // A task chat of an agent: its word as a question of Lex, no lines and no mark.
+        // A task chat of an agent: its word under the agent's name with no bubble (boards AgChat, AgChatWaiting).
         if (agent()) {
-          const part = M.whois({ body, at: t.authoredAt, onGo });
+          const ag = (data && data.agent) || {};
+          const part = M.whois({ task: true, author: ag.name || ag.key || '', body, at: t.authoredAt, onGo });
           row.appendChild(part);
           row.dataset.in = '1';
           if (!still) self.attachWhoisMenu(row, part, t, null, false);
@@ -1377,7 +1378,8 @@
           const note = make('div', 'lex-profi-box-note', 'Sending…');
           note.setAttribute('role', 'status');
           root.appendChild(note);
-        } else root.appendChild(self.thinking());
+        } else if (agent() && global.LexSection) root.appendChild(global.LexSection.liveStage({ stage: 'taken' }));
+        else root.appendChild(self.thinking());
         return root;
       },
 
@@ -1695,6 +1697,12 @@
           });
           // The word to Lex of the branch «who is this» the press put here, until the chat draws it.
           if (whoisWord) items.push(self.whoisWordItem());
+          // A task chat of an agent that works (board AgChat): the last line of the feed is the live stage (В7.63).
+          else if (agent() && data && data.chatKey && data.agent && data.agent.state === 'working' && global.LexSection) {
+            const live = make('div', 'wc-turn lex-profi-msg lex-agent-stage');
+            live.appendChild(global.LexSection.liveStage({ stage: data.agent.stage || null }));
+            items.push(live);
+          }
           host.replaceChildren(...items);
           host.hidden = !items.length;
           return;
@@ -1916,7 +1924,23 @@
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
         // wrote by last (a group: its own); the clean view (the talk with the assistant) for both; no card yet
         // (it opens from an order chat).
-        // A task chat of an agent: its title, the agent's name under it; nothing to open, no clean view.
+        // A task chat of an agent (board AgChat, 22.11.2026): the face of the agent 40 (В7.56), the title of the chat, under it
+        // «<the agent> · Working | Waiting for you | Closed» («Waiting for you» in yellow); a press opens the passport of
+        // the agent (deps.agentPassport); no clean view.
+        if (folder && agent() && global.LexSection && global.LexSection.agentFace) {
+          const ag = (data && data.agent) || {};
+          const name = (data && (data.title || data.client)) || 'Chat';
+          const STATE = { waiting: 'Waiting for you', working: 'Working', closed: 'Closed' };
+          const words = make('div', 'lex-profi-person-words', '');
+          const line = make('div', 'lex-profi-person-channel', '');
+          line.appendChild(document.createTextNode(ag.name || ag.key || ''));
+          const st = data && data.chatKey ? STATE[ag.state] || STATE.working : '';
+          if (st) line.append(' · ', make('span', ag.state === 'waiting' ? 'lex-profi-agent-wait' : '', st));
+          words.append(make('div', 'lex-profi-person-name', name), line);
+          person.append(global.LexSection.agentFace(ag.key || '', { size: 40 }), words);
+          const open = ag.key && typeof deps.agentPassport === 'function' ? () => deps.agentPassport(ag.key) : null;
+          return { person, link: null, open, who: ag.name || name, brief: null };
+        }
         if (folder) {
           const name = (data && (data.client || data.title)) || 'Chat';
           const where = data && data.replyTo && M.CHANNELS[data.replyTo] ? M.CHANNELS[data.replyTo].name : '';
