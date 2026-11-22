@@ -901,9 +901,7 @@ button { font: inherit; color: inherit; }
   padding-top: var(--wc-topbar-h, 52px);
 }
 .wc-main.is-section .wc-thread,
-.wc-main.is-section:not(.is-section-field) .wc-composer-wrap { display: none; }
-/* The folder of an agent has the field of the page at its bottom (22.11.2026, board AgF2HeadA): the list ends over it. */
-.wc-main.is-section-field .wc-section-host .lex-section-body { padding-bottom: calc(var(--wc-composer-h, 88px) + 12px); }
+.wc-main.is-section .wc-composer-wrap { display: none; }
 .wc-news-back svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .wc-turn-news .wc-bubble { max-width: 100%; }
 
@@ -2362,3 +2360,23 @@ button { font: inherit; color: inherit; }
   background: var(--bg);
 }
 .wc-main > .lex-agents-log[hidden], .wc-main:not(.is-agents-split) > .lex-agents-log { display: none; }
+/* No chat picked (22.11.2026, boards Comp2Agent, Comp2Wide): the screens of the agent on the left, on the right an empty
+ * place — the mark of Lex in its middle, no field; the capsule «New chat» stands at the bottom right of the column of the
+ * right side (720 in its middle), over the journal when that stands there, and the journal goes under the dimming. */
+.wc-agents-blank { display: none; }
+.wc-main.is-agents-blank .wc-agents-blank {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 440px;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  pointer-events: none;
+}
+.wc-main.is-agents-blank .wc-topbar-right { display: none; }
+.wc-main.is-agents-blank > .lex-agents-log { bottom: 0; }
+.wc-main.is-agents-blank .wc-quick-capsule { right: max(16px, calc((100% - 440px - 720px) / 2 + 16px)); z-index: 14; }
+.wc-main.is-quick > .lex-agents-log { z-index: 12; }

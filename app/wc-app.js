@@ -602,7 +602,7 @@
     entries.setActive(null);
     host.hidden = true;
     sectionBack.clear();
-    main.classList.remove('is-section', 'is-news-opening', 'is-section-field');
+    main.classList.remove('is-section', 'is-news-opening');
     paintNewsBar(null);
     for (const s of Object.values(SECTIONS)) if (s.leave) s.leave();
     paintHome();
@@ -718,17 +718,15 @@
   // Out of a chat — the main page, a screen of a section — the capsule stands at the bottom right: the microphone, the
   // live voice, «New chat». A press dims the screen and lifts the one field of the page over it (wc-quick.js); a new chat
   // is made only when the words are sent (send → quickCommit), by the voice — when its first words went to the model
-  // (quickLanded). A press on the dimming or Escape closes the field, and no chat is made (closeQuick). On the folder of an
-  // agent «New chat» and the microphone start a chat with that agent; the voice — with Lex (an agent takes only words).
-  // Nothing of the screen goes to the chat. In an open chat there is no capsule: its own field stands.
+  // (quickLanded). A press on the dimming or Escape closes the field, and no chat is made (closeQuick). On every screen of
+  // an agent — its folder, its journal, its passport (boards Comp2Agent, Comp2AgentOpen) — «New chat» and the microphone
+  // start a chat with that agent; the voice — with Lex (an agent takes only words). Nothing of the screen goes to the
+  // chat. In an open chat there is no capsule: its own field stands.
   let quick = null;   // { home, agent, section, before } while the field stands over a dimmed screen
-  // The folder of an agent has the field of the page at its bottom (boards AgF2HeadA): no capsule there — its other screens
-  // (the log, the passport) have it, and it starts a chat with that agent.
-  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat && !folderFieldOn());
-  function folderFieldOn() {
-    const live = sectionOn === 'agents' && SECTIONS.agents.live;
-    return !!(live && live.screen === 'agent' && typeof live.currentAgent === 'function' && live.currentAgent());
-  }
+  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat);
+  // The field over the dimming begins a chat with an agent: what the field offers is that agent's (its model in
+  // «+ → Text model», words only — no voice, no picture, no file).
+  const quickAgentOn = () => (quick && quick.agent) || null;
   function homeOnNow() {
     return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
   }
@@ -2394,18 +2392,16 @@
       onChange: (payload) => refreshFolderChat({ payload }),
     });
   }
-  // ── The field under the folder, the folder beside the chat (boards AgF2HeadA, AgF2Wide, 22.11.2026) ─────────────
-  // The folder of an agent has the field of the page at its bottom: the first word begins a chat with that agent
-  // (newAgentChat, then sendToAgent). On a window from SPLIT_WIDE the folder stands on the left, 440, and the chat on the
-  // right with the field (one field on the page: an empty new chat of the agent stands there while no chat is picked);
-  // «Activity» puts the journal on the right, in the place of the chat. The arrow then leads the folder back to the list.
+  // ── The folder beside the chat (boards AgF2Wide, Comp2Agent, Comp2Wide, 22.11.2026) ─────────────────────────────
+  // The screens of an agent have no field: the capsule «New chat» stands at the bottom right and begins a chat with that
+  // agent when the words are sent (openQuick → quickCommit → newAgentChat). On a window from SPLIT_WIDE the screens of an
+  // agent stand on the left, 440; on the right — the chat picked in the folder, with its own field, or, while none is
+  // picked, an empty place with the mark of Lex and the capsule at its bottom right (no chat is made before a word goes);
+  // «Activity» puts the journal there. The arrow leads the folder back to the list.
   const SPLIT_WIDE = '(min-width: 1024px)';
   const wideMq = global.matchMedia ? global.matchMedia(SPLIT_WIDE) : { matches: false, addEventListener() {} };
   wideMq.addEventListener('change', () => paintHome());
   let splitOn = false;
-  // The field of the folder is on the screen: the section «Agents» stands on the folder of an agent.
-  const agentFieldOn = () => sectionOn === 'agents' && !!SECTIONS.agents.live && SECTIONS.agents.live.screen === 'agent'
-    && !!SECTIONS.agents.live.currentAgent();
   // One row on a screen of the section (В7.18, boards AgF2HeadA, AgF2Log, AgF2Wide): the centred head of the screen stands
   // in the bar of the window, the arrow in its empty left slot; the window's own buttons (the pencil of a new chat) are
   // not on the screens of the agents.
@@ -2421,53 +2417,54 @@
     const main = document.querySelector('.wc-main');
     const live = SECTIONS.agents.live;
     paintAgentsBar();
-    // The capsule follows the screen: none on the folder (its own field), on the log and the passport — for this agent.
+    // The capsule follows the screen: on every screen of the section, for the agent of the screen.
     paintCapsule();
     if (id === 'log-aside') {
       main.classList.add('is-agents-log');
       if (live && live.aside && !live.aside.isConnected) main.appendChild(live.aside);
-      if (agent && !(isAgentChat(profiChat) && !profiChat.data.chatKey && agentKeyOf(profiChat) === agent.key)) {
-        newAgentChat(agent, { keepAside: true }).catch((e) => console.warn('[wc] new agent chat:', e && e.message));
-      }
+      // A chat on the right gives its place to the journal: the folder stands as the section again, with the capsule
+      // (no chat is made under the journal).
+      if (!sectionOn) showSection('agents', { back: true }).catch((e) => console.warn('[wc] agents:', e && e.message));
       return;
     }
     if (sectionOn === 'agents') {
-      const field = id === 'agent' && !!agent;
-      // A wide window: the folder on the left, an empty new chat of the agent on the right (the field is there).
-      if (field && wideMq.matches) {
-        newAgentChat(agent).catch((e) => console.warn('[wc] new agent chat:', e && e.message));
-        return;
-      }
-      main.classList.toggle('is-section-field', field);
-      takeField(field ? agentDraftKey(agent.key) : null);
+      // A screen of the section has no field; the field over the dimming keeps the agent's draft while it stands.
+      if (!quick) takeField(null);
+      paintHome();
       return;
     }
     // The folder beside a chat went back to the list: the section stands alone again.
     if (splitOn && id === 'home') { showSection('agents', { back: true }).catch((e) => console.warn('[wc] agents:', e && e.message)); return; }
     paintHome();
   }
-  // Asked from applyHome: every change of what the screen holds paints the split again.
+  // Asked from applyHome: every change of what the screen holds paints the split again. Two ways of it: a chat of the
+  // agent on the right (the section has left, the folder stays on the left), or the section itself on a screen of an
+  // agent with the right empty (the capsule stands there).
   function paintSplit() {
     const main = document.querySelector('.wc-main');
     const host = document.getElementById('wc-section-host');
     const live = SECTIONS.agents && SECTIONS.agents.live;
-    let a = null;
-    if (wideMq.matches && live && !sectionOn && isAgentChat(profiChat) && live.screen !== 'home') {
-      const cur = live.currentAgent();
-      if (cur && cur.key === agentKeyOf(profiChat)) a = cur;
+    let chat = false;
+    let blank = false;
+    if (wideMq.matches && live && live.screen !== 'home' && live.currentAgent()) {
+      if (!sectionOn && isAgentChat(profiChat)) chat = live.currentAgent().key === agentKeyOf(profiChat);
+      else if (sectionOn === 'agents') blank = true;
     }
-    const on = !!a;
+    const on = chat || blank;
     if (!main || !host) return;
     main.classList.toggle('is-agents-split', on);
-    if (on) {
+    main.classList.toggle('is-agents-blank', blank);
+    if (blank) live.pick(null);
+    if (chat) {
       host.hidden = false;
       for (const el of host.children) el.hidden = el !== live.el;
       entries.setActive('agents');
       live.pick((profiChat.data && profiChat.data.chatKey) || null);
       // The arrow acts on the folder (to the list), or on a passport over it.
       live.arrow();
-      if (!splitOn) live.watch();
-    } else if (splitOn) {
+      // The section stopped following the server when it left (leaveSection): the folder beside the chat follows it again.
+      live.watch();
+    } else if (splitOn && !on) {
       if (!sectionOn) host.hidden = true;
       if (live) { live.closeAside(); live.pick(null); }
       main.classList.remove('is-agents-log');
@@ -2520,14 +2517,13 @@
     if (wanted && !wanted()) return;
     await openAgentChat(agent, chatKey, wanted);
   }
-  // A new chat with an agent (22.11.2026: the first word of the field under its folder, a question about a line of its
-  // journal, the capsule «New chat» on its screens): an empty chat of that agent («New chat», the agent's name under it)
-  // with the field; the first word makes the chat (op chat), and this screen becomes it. Its words wait in a draft of
-  // their own. opts.keepAside — the journal stays on the right of a wide window (it asked for the chat under it).
+  // A new chat with an agent (22.11.2026: a question about a line of its journal, the words sent from the capsule «New
+  // chat» on its screens): an empty chat of that agent («New chat», the agent's name under it) with the field; the first
+  // word makes the chat (op chat), and this screen becomes it. Its words wait in a draft of their own.
   const agentDraftKey = (key) => `__lex_agent_new__${key}`;
-  async function newAgentChat(agent, opts) {
+  async function newAgentChat(agent) {
     const live = SECTIONS.agents.live;
-    if (live && !(opts && opts.keepAside)) live.closeAside();
+    if (live) live.closeAside();
     if (WcThread.isStreaming()) leaveStream();
     await endVoiceOnLeave('open-chat');
     stopSectionOpening();
@@ -2692,15 +2688,6 @@
     if (fieldKey !== key0 || profiChat !== chat0 || state.conversationId !== conv0) {
       giveBack(key0, text || '', reply0);
       toast('Not sent: another chat was opened. The words are in the draft of their chat.', { error: true });
-      return;
-    }
-    // The field under the folder of an agent (22.11.2026, board AgF2HeadA): the first word begins a chat with that agent —
-    // the empty chat of the agent comes on the screen with the word at its end, and the word goes (op chat).
-    if (agentFieldOn() && key0 === agentDraftKey(SECTIONS.agents.live.currentAgent().key)) {
-      const agent = SECTIONS.agents.live.currentAgent();
-      await newAgentChat(agent);
-      if (!isAgentChat(profiChat) || fieldKey !== key0) { giveBack(key0, text || '', reply0); return; }
-      await sendToAgent(profiChat, key0, text, opts, reply0);
       return;
     }
     // A task chat of an agent (the section «Agents»): every word of its field goes to the agent, and nothing else does.
@@ -2969,8 +2956,8 @@
   async function pickDefaultModel(anchor) {
     // A task chat of an agent: the model of that agent, not the model of the chats of orders.
     if (isAgentChat(profiChat)) { pickAgentModel(anchor, agentKeyOf(profiChat)); return; }
-    // The field under the folder of an agent: the model of that agent.
-    if (agentFieldOn()) { pickAgentModel(anchor, SECTIONS.agents.live.currentAgent().key); return; }
+    // The field over the dimming of a screen of an agent: the model of that agent.
+    if (quickAgentOn()) { pickAgentModel(anchor, quickAgentOn().key); return; }
     const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
@@ -2991,8 +2978,8 @@
   let profiModelLabel = '';
   // The label of this chat: a task chat of an agent names the agent's model (the list of the section holds it).
   function textModelLabelNow() {
-    if (agentFieldOn()) {
-      const a = SECTIONS.agents.live.agent(SECTIONS.agents.live.currentAgent().key);
+    if (quickAgentOn()) {
+      const a = SECTIONS.agents.live.agent(quickAgentOn().key);
       return a ? global.WcAgents.modelLabel(a) : '';
     }
     if (!isAgentChat(profiChat)) return profiChat ? profiModelLabel : textModelLabel;
@@ -3366,8 +3353,8 @@
 
   async function toggleVoice(opts) {
     await settingsReady;
-    // The field under the folder of an agent: an agent takes only words.
-    if (agentFieldOn()) { toast(ONLY_WORDS); return; }
+    // The field over the dimming of a screen of an agent: an agent takes only words.
+    if (quickAgentOn()) { toast(ONLY_WORDS); return; }
     // A chat of a folder is the conversation with a person: Lex does not talk in it; an agent takes only words.
     if (profiChat && profiChat.folder && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
       toast(isAgentChat(profiChat) ? ONLY_WORDS : 'Voice talk with Lex is not in the chats of folders.');
@@ -4414,8 +4401,8 @@
       onStop: stopStream,
       onVoice: (o) => toggleVoice(o),
       // A task chat of an agent takes only words (a file pasted into the field stops at the send).
-      onAttach: () => (isAgentChat(profiChat) || agentFieldOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
-      onAttachFile: () => (isAgentChat(profiChat) || agentFieldOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
+      onAttach: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
+      onAttachFile: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
@@ -4431,6 +4418,9 @@
       onClose: () => { closeQuick().catch((e) => console.warn('[wc] quick close:', e && e.message)); },
     });
     paintCapsule();
+    // The mark of Lex in the empty place beside the folder of an agent (paintSplit): the one copy of the letter.
+    const blankMark = document.getElementById('wc-agents-blank');
+    if (blankMark && global.LexBrandMark) blankMark.innerHTML = LexBrandMark.svgMarkup(48);
     // The field of the chat the page starts on: a new chat, or the one already opened. Words typed
     // before the drafts were read stay in the field, as that chat's.
     if (fieldKey === null && !sectionOn) {

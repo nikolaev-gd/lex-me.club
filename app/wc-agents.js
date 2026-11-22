@@ -9,7 +9,7 @@
 //   home         the list of the agents (agentRow): the waiting first, then the working, the rest by their last event,
 //                the paused at the bottom
 //   agent        the folder of one agent: the head in the middle, the groups «Waiting for you · N», «Working · N»,
-//                «Closed», the field of the page under it (the window shows it, deps.onScreen)
+//                «Closed»; the capsule «New chat» of the window at its bottom right begins a chat with the agent
 //   log          the journal «Activity» (op runs, by pages, by days); a bubble at a line — a new chat about it
 //   passport     the face 96, the name, the state, About, Text model, Notify me, Paused, Instruction, Memory
 //   instruction  the instruction of the agent, read only (Markdown)
@@ -32,8 +32,8 @@
 //   markdown(host, text) the text of the instruction (WcMarkdown)
 //   chatOpen()           → true while a task chat of this section is on the screen
 //   openKey()            → the key of the task chat on the screen (its line stands picked on a wide window)
-//   onScreen(id, agent)  the screen on top changed (the window shows the field under the folder, puts the folder beside
-//                        the chat on a wide window)
+//   onScreen(id, agent)  the screen on top changed (the window paints its capsule, puts the folder beside the chat on a
+//                        wide window)
 //   wide()               → true when the window puts the folder beside the chat
 //   onChange(payload)    a signal while that chat is open: it reads itself again (payload — of the signal «folders»)
 (function (global) {
@@ -149,7 +149,7 @@
       },
     });
     const { say } = frame;
-    // The window hears which screen is on top (the field under the folder, the folder beside the chat).
+    // The window hears which screen is on top (the capsule of the agent, the folder beside the chat).
     const told = () => { if (deps.onScreen) deps.onScreen(frame.screen, current); };
     const push = (screen) => {
       const body = frame.push(screen);
@@ -265,7 +265,7 @@
       }
       if (!chats.length) {
         frame.body.replaceChildren(S.emptyState({ face: S.agentFace(current.key, { size: 48, quiet: true }), title: 'No chats yet',
-          line: 'Write to the agent in the field below.' }));
+          line: 'New chat below starts one.' }));
         return;
       }
       frame.body.replaceChildren(list);
@@ -501,8 +501,8 @@
     }
     async function openInstruction(a) {
       const p0 = aboutOf(a);
-      // The middle of the head holds one short line: the time of the last edit (the name of the agent is under its folder).
-      const sub = (p) => (p.instruction && p.instruction.updated_at ? `updated ${enDate(p.instruction.updated_at, true)}` : a.name || a.key);
+      // Under «Instruction» (board AgInstruction, as the iPhone): the agent's name and the time of the last edit.
+      const sub = (p) => [a.name || a.key, p.instruction && p.instruction.updated_at ? `updated ${enDate(p.instruction.updated_at, true)}` : ''].filter(Boolean).join(' · ');
       const body = push({ id: 'instruction', title: 'Instruction', head: { title: 'Instruction', sub: sub(p0) } });
       const p = await ensureAbout(a);
       if (frame.body !== body) return;
@@ -579,7 +579,7 @@
       },
       agent: (key) => byKey.get(key) || null,
       // The agent of the screen on top: its folder, its journal, its passport, its instruction or memory; null on the list.
-      // The field of the folder and the capsule «New chat» (lex-composer) begin a chat with it (wc-app.js newAgentChat).
+      // The capsule «New chat» on these screens begins a chat with it (wc-app.js openQuick → newAgentChat).
       currentAgent: () => (current ? { key: current.key, name: current.name || current.key } : null),
       // The screen on top: home, agent, log, passport, instruction, memory.
       get screen() { return frame.screen; },
