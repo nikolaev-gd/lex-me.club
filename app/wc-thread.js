@@ -41,8 +41,9 @@
   let profiChat = null;
   // Who keeps a message Lex did not take (wc-app.js): called with the person's turn and why.
   let onUnsent = null;
-  // Requests whose chat the person left mid-answer: still read by the page, no longer shown.
-  const left = new Set();
+  // Requests whose chat the person left mid-answer: still read by the page, no longer shown. Each keeps
+  // the words its stream has brought and the step it is at, for the return to its chat (reattach).
+  const left = new Map();   // requestId → { text, cc, step }
   // The answer the server writes now that the last renderTurns drew as the stream (its follower's
   // request, number, uid, the words and the step it stood at), or null.
   let followedNow = null;
@@ -1238,11 +1239,39 @@
     // but the request goes on: the server writes the answer, and a refusal still reaches onUnsent.
     detach(requestId) {
       if (!requestId) return;
+      const entry = live.get(requestId);
       live.delete(requestId);
-      left.add(requestId);
+      left.set(requestId, { text: entry ? String(entry.text || '') : '', cc: !!(entry && entry.cc), step: null });
+      if (followedNow && followedNow.requestId === requestId) followedNow = null;
     },
     // The answer of a left chat ended without a refusal.
     settled(requestId) { left.delete(requestId); },
+    // Back in the chat of an answer this page's own stream still reads (the person left it and came back, the
+    // same tab): the bubble the server's read drew as the stream (renderTurns with follow) is that stream's again,
+    // with the words it has brought — one answer, one painter (22.11.2026: a follow of the same answer beside the
+    // own stream left the bubble cut). A follow stays for another tab, another device, a reload. true — taken.
+    reattach(requestId) {
+      const kept = left.get(requestId);
+      const f = followedNow;
+      const entry = f && live.get(f.requestId);
+      if (!kept || !entry) return false;
+      live.delete(f.requestId);
+      followedNow = null;
+      left.delete(requestId);
+      if (kept.cc) entry.cc = true;
+      // The stream's own words: everything it brought, from its first word (the read is a moment older, or the same).
+      entry.text = kept.text;
+      if (entry.text) {
+        if (!entry.cc) clearBrainWork(entry);
+        entry.turn.dataset.raw = entry.text;
+        if (profiChat) profiChat.paintAnswer(entry.turn, entry.bubble, entry.text, WcMarkdown, true);
+        else WcMarkdown.into(entry.bubble, entry.text);
+      }
+      if (kept.step && (entry.cc || !entry.text)) paintWork(entry, kept.step);
+      live.set(requestId, entry);
+      maybeStick();
+      return true;
+    },
 
     // Mark a person's turn as not sent. o — the part's options (lex-message.js, unsent).
     paintUnsent(turn, o) {
@@ -1324,6 +1353,8 @@
     // says what it asked, until the answer starts or the turn ends.
     tool(msg) {
       const entry = live.get(msg.requestId);
+      const away = !entry && left.get(msg.requestId);
+      if (away) { if (msg.phase === 'start') { away.step = msg; if (msg.cc) away.cc = true; } return; }
       if (!entry) return;
       if (msg.phase === 'start') {
         paintWork(entry, msg);
@@ -1333,6 +1364,9 @@
 
     chunk(msg) {
       const entry = live.get(msg.requestId);
+      // A stream of a chat the person left: its words are kept for the return (reattach), not shown.
+      const away = !entry && left.get(msg.requestId);
+      if (away) { if (msg.text) away.text += msg.text; return; }
       if (!entry) return;
       // A frame with no text is how the core reports the model it actually
       // used — it carries _debug_model and nothing else. Rendering it would

@@ -371,13 +371,17 @@
       // (openWait in send): its context is the server's, not the copy's.
       answer = WcBus.call('WC_LOAD_CONVERSATION', { id });
       openWait = { id, done: answer.then((x) => !!(x && x.ok), () => false) };
-      copy = await Promise.race([
+      // The chat read anew where it stands (opts.again: a signal of its answers): the screen is newer
+      // than any copy — an answer just ended stands whole on it, its copy still holds it cut — so the
+      // copy is not drawn over it; the server's answer repaints it in its place.
+      if (!(opts && opts.again)) copy = await Promise.race([
         WcBus.call('WC_LOAD_CONVERSATION', { id, kept: true }).catch(() => null),
         answer.then(() => null, () => null),
       ]);
       if (copy && copy.ok && current()) stand(copy, false, true);
       else copy = null;
     }
+    const again = !!(opts && opts.again) && state.conversationId === id;
     let r;
     try {
       r = await answer;
@@ -397,7 +401,7 @@
       if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
       return;
     }
-    stand(r, !!copy);
+    stand(r, !!copy || again);
   }
 
   // ── The database's signals (2026-11-13) ─────────────────────────────────
@@ -3193,6 +3197,12 @@
   // the database's signal «chat» of that number and its fate between signals (wc-backend.js
   // WC_FOLLOW). The same after a reload, a restart of the Mac app and on another device.
   const isFollow = (requestId) => typeof requestId === 'string' && requestId.startsWith('follow:');
+  // The request of this page whose chat the person left and whose stream still reads, by the number of its message.
+  function leftRequestOf(opId) {
+    if (!opId) return null;
+    for (const [rid, op] of opOfRequest) if (op === String(opId) && leftChats.has(rid)) return rid;
+    return null;
+  }
   function followRunning() {
     const f = WcThread.followed();
     if (!f) {
@@ -3208,6 +3218,24 @@
     // The page's own stream stands: its words come by the stream (a render drops streams, so this
     // is a guard, not a case).
     if (state.requestId && state.requestId !== f.requestId && !isFollow(state.requestId)) return;
+    // One answer, one painter (22.11.2026, «ушёл из чата, вернулся — потерялось»): sent here, left,
+    // came back while this page's own stream of it still reads (leaving never closes it) — that stream
+    // is put back on its bubble, and nothing follows the answer in this page. A follow beside it left
+    // the bubble to two sources, and the screen stood cut. A follow is for an answer this page does
+    // not read: another tab or device, a reload.
+    const own = leftRequestOf(f.opId);
+    if (own && WcThread.reattach(own)) {
+      if (isFollow(state.requestId)) {
+        WcBus.call('WC_UNFOLLOW', { requestId: state.requestId }).catch(() => {});
+        turnUids.delete(state.requestId);
+      }
+      leftChats.delete(own);
+      // Its signals are this page's own stream again (the follower of «chat» below).
+      ownOps.add(f.opId);
+      state.requestId = own;
+      WcComposer.setStreaming(true, own);
+      return;
+    }
     state.requestId = f.requestId;
     WcComposer.setStreaming(true, f.requestId);
     // The price under it when it ends (requestMoney by its uids, STREAM_DONE below).
@@ -4229,7 +4257,7 @@
       clearTimeout(ccRowTimer);
       ccRowTimer = setTimeout(() => {
         WcThread.whenFree('cc-row', () => {
-          if (state.conversationId === key && !WcThread.isStreaming()) openConversation(key).catch(() => {});
+          if (state.conversationId === key && !WcThread.isStreaming()) openConversation(key, { again: true }).catch(() => {});
         });
       }, 300);
     });
@@ -4536,6 +4564,10 @@
     WcBus.subscribe((msg) => {
       if (msg.type === 'WC_TURN_UIDS') {
         turnUids.set(msg.requestId, { userUid: msg.userUid, assistantUid: msg.assistantUid });
+      } else if (msg.type === 'STREAM_SERVER_TURN') {
+        // The number the server leads the turn by: a Retry's too (its number is minted there), for the
+        // return to its chat while its stream still reads (leftRequestOf).
+        if (msg.opId && !opOfRequest.has(msg.requestId)) opOfRequest.set(msg.requestId, String(msg.opId));
       } else if (msg.type === 'WC_TURN_LATE') {
         // A turn broken off without a word from the server turned out written there (wc-backend.js
         // followLate): the open chat is read anew — the server's answer takes the place of the cut one.
