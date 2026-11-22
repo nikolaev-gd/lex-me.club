@@ -486,6 +486,12 @@
   // The section «Agents» (21.11.2026, supabase/functions/folder-agents): GET — the agents of the base with this account's
   // numbers; POST { op: chat | say | read | settings, … } — a new task chat, a word into one, «read», the agent's model.
   const folderAgents = (body) => edge('folder-agents', body, body ? 'POST' : 'GET');
+  // The section «Calendar» (22.11.2026, supabase/functions/calendar): sub '' | '/item' | '/people' | '/settings', the query of
+  // a read; a body — a POST {op, lex: {command}, …} to the calendar itself. A refusal comes as the error with its words.
+  function calendar(sub, query, body) {
+    const q = query ? new URLSearchParams(Object.entries(query).filter(([, v]) => v != null)).toString() : '';
+    return edge(`calendar${sub || ''}${q ? `?${q}` : ''}`, body || null, body ? 'POST' : 'GET');
+  }
   // The section «Shopping list» (22.11.2026, supabase/functions/shopping): GET — the whole list; POST { op, lex, … } — a
   // change, the answer carries the whole list after it.
   const shopping = (body) => edge('shopping', body, body ? 'POST' : 'GET');
@@ -711,6 +717,7 @@
     folderSend,
     folderWhois,
     folderAgents,
+    calendar,
     shopping,
     messageEdit,
     emEarlier,

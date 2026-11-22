@@ -1,0 +1,491 @@
+/* wc-calendar.css — the section «Calendar» of the page and the Mac app (wc-calendar.js, 22.11.2026).
+ *
+ * The same look as the iPhone (ios/Lex/Lex/CalendarView.swift, CalendarForm.swift, ios/Lex/LexLive/CalendarParts.swift):
+ * the parts of the calendar (ios/Lex/STANDARD.md В7.43–В7.46) — an event on the hours (.wc-cal-event), the hours and
+ * «now» (.wc-cal-hours, .wc-cal-hour, .wc-cal-now), the head of a day (.wc-cal-day), the grid of a month (.wc-cal-grid,
+ * .wc-cal-date) — and the views, the sheet of a record and the form around them. Colours are the page's tokens only,
+ * sizes from the scale of the standard (part 1): text 12–18 and 22, spacing in steps of 2, radii 6–18 and the pill.
+ * The rows of settings, the switches, the tabs, the buttons and the sheet itself are the common parts: not styled here. */
+
+/* ── The head in the bar of the window (wc-app.js paintCalendarHead) ───────────────────────────────────────── */
+/* The head stands by the three stripes, as the head of News: the section's own bar steps aside meanwhile. */
+.wc-main.is-cal-head .wc-cal .lex-section-bar,
+.wc-main.is-cal-head .wc-topbar-right { display: none; }
+.wc-section-head.is-cal {
+  --lex-section-fg: var(--fg);
+  --lex-section-muted: var(--fg-muted);
+  --lex-section-hover: var(--bg-hover);
+}
+.wc-section-head.is-cal { gap: 8px; }
+.wc-section-head.is-cal > .wc-section-head-title { flex: 1 1 auto; }
+.wc-section-head.is-cal > .wc-cal-head-words { flex: 0 1 auto; }
+.wc-section-head.is-cal:has(> .wc-cal-head-words) > .wc-section-head-title { flex: 0 0 auto; }
+.wc-cal-head-words {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-soft);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.wc-section-head.is-cal > .wc-cal-tabs { flex: 0 1 auto; margin: 0 auto; }
+.wc-cal-head-tools { display: flex; flex: 0 0 auto; align-items: center; gap: 4px; }
+.wc-cal-head-tools > .lex-btn { padding: 0 16px; }
+.wc-cal-head-tools > .lex-btn.is-main { margin-left: 4px; }
+
+/* ── The frame of the section ──────────────────────────────────────────────────────────────────────────── */
+.wc-cal .lex-section-body { display: flex; padding: 0; overflow: hidden; }
+.wc-cal .lex-section-body > .wc-cal-root { max-width: none; margin: 0; }
+.wc-cal-root { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.wc-cal-main { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+.wc-cal-view { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.wc-cal-top { flex: 0 0 auto; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.wc-cal-top:empty { display: none; }
+
+/* The row under the views (CalViewHead): the date or the span 16/650 (the month and the year 18/650), the yellow «Today»
+   when the day shown is today, else the second button «Today»; the arrows. 60 high, a line under it. */
+.wc-cal-daterow {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 60px;
+  padding: 8px 6px 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.wc-cal-daterow[hidden] { display: none; }
+.wc-cal-daterow.is-big { border-bottom: 0; }
+.wc-cal-date-words {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.wc-cal-daterow.is-big .wc-cal-date-words { font-size: 18px; line-height: 24px; }
+.wc-cal-today { color: var(--attention); font-size: 13px; font-weight: 600; }
+.wc-cal-daterow > .lex-btn { flex: 0 0 auto; padding: 0 16px; }
+.wc-cal-daterow > .lex-btn[hidden] { display: none; }
+
+/* The Mac's left column (CalV27): «Calendars» and the month. */
+.wc-cal-side {
+  display: flex;
+  flex: 0 0 260px;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  box-sizing: border-box;
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+.wc-cal-side[hidden] { display: none; }
+
+/* ── В7.44 the hours ───────────────────────────────────────────────────────────────────────────────────── */
+/* The times 12 in grey on their lines in a column of 44 (the iPhone's week — 40); a line per hour; the days side by side
+   with a line between them. The box is 24 hours high: the scroll opens it on 08:00. */
+.wc-cal-hours {
+  --wc-cal-label: 44px;
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 8px 0 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.wc-cal-hours::-webkit-scrollbar { display: none; }
+.wc-cal-view.is-week .wc-cal-hours { padding-right: 0; }
+.wc-cal-root:not(.is-wide) .wc-cal-view.is-week { --wc-cal-label: 40px; }
+.wc-cal-root:not(.is-wide) .wc-cal-view.is-week .wc-cal-hours { --wc-cal-label: 40px; }
+.wc-cal-grid-hours { position: relative; }
+.wc-cal-hour { position: absolute; left: var(--wc-cal-label); right: 0; height: 1px; background: var(--line); }
+.wc-cal-hour-time {
+  position: absolute;
+  top: -8px;
+  left: calc(-1 * var(--wc-cal-label));
+  width: calc(var(--wc-cal-label) - 4px);
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.wc-cal-cols { position: absolute; top: 0; right: 0; bottom: 0; left: var(--wc-cal-label); }
+.wc-cal-col { position: absolute; top: 0; bottom: 0; box-sizing: border-box; }
+.wc-cal-cols:not(.is-1) > .wc-cal-col { border-left: 1px solid var(--line); }
+/* «Now»: a line 2 of `--attention` with a dot 8 at its start, 6 left of the lane. */
+.wc-cal-now { position: absolute; right: 0; left: -6px; z-index: 2; height: 2px; background: var(--attention); pointer-events: none; }
+.wc-cal-now::before {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--attention);
+}
+
+/* ── В7.43 an event on the hours ───────────────────────────────────────────────────────────────────────── */
+/* A meeting — a card of the bubble's ground, radius 8; a Google event — the same card on the ground in a frame of the line,
+   read only; a reminder or an alarm — a pill of the plate with its mark; what is over is paler. */
+.wc-cal-event {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 2px;
+  box-sizing: border-box;
+  min-width: 0;
+  margin: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-bubble);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-cal-event:hover { background: var(--bg-active); }
+.wc-cal-col > .wc-cal-event { position: absolute; }
+/* The lines of a card keep their height: the card clips what does not fit at its bottom, never squeezes a line. */
+.wc-cal-event:not(.is-pill) > * { flex: 0 0 auto; }
+.wc-cal-event.is-past { opacity: .5; }
+.wc-cal-event.is-google { border: 1px solid var(--line); background: var(--bg); color: var(--fg-soft); }
+.wc-cal-event:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 0; }
+.wc-cal-event-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wc-cal-event-spark { display: inline-flex; flex: 0 0 auto; color: var(--fg-soft); }
+.wc-cal-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.wc-cal-event-meta > .lex-mark { margin-right: -2px !important; }
+.wc-cal-event-time { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; line-height: 16px; font-variant-numeric: tabular-nums; }
+.wc-cal-event-place { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wc-cal-event-bad { flex: 0 0 auto; color: var(--danger); font-size: 12px; line-height: 16px; white-space: nowrap; }
+/* Shorter than 40: one line of 12 — the start and whom. */
+.wc-cal-event.is-short { justify-content: center; padding: 2px 8px; }
+.wc-cal-event-line { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+.wc-cal-event.is-short .wc-cal-event-name { font-size: 12px; line-height: 16px; }
+/* A column of three days, of the iPhone's week, of the Mac's week: the name 12/600, under it the start. */
+.wc-cal-event.is-mid, .wc-cal-event.is-tight { gap: 0; padding: 2px 4px; }
+.wc-cal-event.is-mid .wc-cal-event-name, .wc-cal-event.is-tight .wc-cal-event-name { display: block; font-size: 12px; line-height: 16px; }
+.wc-cal-event.is-two .wc-cal-event-name { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; }
+.wc-cal-event.is-tight .wc-cal-event-name { text-overflow: clip; }
+.wc-cal-event.is-tight.is-failed .wc-cal-event-name { color: var(--danger); }
+.wc-cal-root.is-wide .wc-cal-event.is-mid { gap: 2px; padding: 4px 8px; }
+.wc-cal-root.is-wide .wc-cal-event.is-mid .wc-cal-event-name { font-size: 13px; line-height: 18px; }
+/* A reminder or an alarm: a pill 28 as wide as its words — the mark, the time 12, the words 14/600; in a column of three
+   days or of the iPhone's week a pill 20 with the mark and the hour. Its zone of a press is 44 high (CalPressZone). */
+.wc-cal-event.is-pill {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 0 10px;
+  overflow: visible;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--fg-soft);
+}
+.wc-cal-col > .wc-cal-event.is-pill { height: 28px; }
+.wc-cal-col > .wc-cal-event.is-pill.is-bare { height: 20px; gap: 2px; padding: 0 6px; margin-top: 4px; }
+.wc-cal-event.is-pill::after { content: ''; position: absolute; top: 50%; right: 0; left: 0; height: 44px; margin-top: -22px; }
+.wc-cal-event.is-pill .wc-cal-event-name { display: block; flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--fg-soft); text-overflow: ellipsis; }
+.wc-cal-root.is-wide .wc-cal-event.is-pill:not(.is-full) .wc-cal-event-name { font-size: 13px; }
+.wc-cal-event-mark { display: inline-flex; flex: 0 0 auto; color: var(--fg-soft); }
+.wc-cal-event.is-pill > .wc-cal-event-time { color: var(--fg-muted); }
+
+/* An event of the whole day: a line 28 in a frame of the line with «all day» at its right (a day); a chip 24 in the row
+   «all day» of the columns. */
+.wc-cal-event.is-allday {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0 10px;
+  overflow: visible;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg-soft);
+}
+.wc-cal-allday-one > .wc-cal-event.is-allday { height: 28px; }
+.wc-cal-allday-cell > .wc-cal-event.is-allday { height: 24px; padding: 0 6px; }
+.wc-cal-event.is-allday::after { content: ''; position: absolute; top: 50%; right: 0; left: 0; height: 44px; margin-top: -22px; }
+.wc-cal-event.is-allday .wc-cal-event-name { display: block; flex: 1 1 auto; overflow: hidden; color: var(--fg-soft); }
+.wc-cal-event.is-compact .wc-cal-event-name { font-size: 12px; line-height: 16px; }
+.wc-cal-event-allday { flex: 0 0 auto; color: var(--fg-muted); font-size: 12px; line-height: 16px; }
+.wc-cal-allday-one { display: flex; flex: 0 0 auto; flex-direction: column; gap: 6px; padding: 8px 16px 0; }
+/* A day: the hours start 8 under what is over them (CalDayScreen). */
+.wc-cal-view[data-view="day"] > .wc-cal-hours { margin-top: 8px; }
+
+/* ── В7.45 the head of a day; the rows over the columns ────────────────────────────────────────────────── */
+.wc-cal-days, .wc-cal-allday { display: flex; flex: 0 0 auto; padding: 0 8px 0 16px; }
+.wc-cal-view.is-week .wc-cal-days, .wc-cal-view.is-week .wc-cal-allday { padding-right: 0; }
+.wc-cal-days.is-last, .wc-cal-allday { border-bottom: 1px solid var(--line); }
+.wc-cal-days-gap, .wc-cal-allday-label { flex: 0 0 var(--wc-cal-label, 44px); }
+.wc-cal-root:not(.is-wide) .wc-cal-view.is-week .wc-cal-days-gap,
+.wc-cal-root:not(.is-wide) .wc-cal-view.is-week .wc-cal-allday-label { flex-basis: 40px; }
+.wc-cal-allday { align-items: center; min-height: 32px; }
+.wc-cal-allday-label { color: var(--fg-muted); font-size: 12px; line-height: 16px; }
+.wc-cal-allday-cell { display: flex; flex: 1 1 0; flex-direction: column; gap: 2px; min-width: 0; padding: 4px 2px; }
+.wc-cal-day {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.wc-cal-day:hover { background: var(--bg-hover); }
+.wc-cal-day-name { color: var(--fg-muted); font-size: 12px; line-height: 16px; }
+.wc-cal-day-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.wc-cal-day.is-today .wc-cal-day-name { color: var(--attention); }
+.wc-cal-day.is-today .wc-cal-day-num { background: var(--accent); color: var(--accent-fg); }
+.wc-cal-day.is-chosen:not(.is-today) .wc-cal-day-num { background: var(--bg-active); }
+.wc-cal-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--fg-muted); }
+
+/* ── В7.46 the grid of a month ─────────────────────────────────────────────────────────────────────────── */
+.wc-cal-grid-head { color: var(--fg); font-size: 13px; font-weight: 600; line-height: 18px; }
+.wc-cal-grid-cells { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.wc-cal-grid-wd { color: var(--fg-muted); font-size: 12px; line-height: 20px; text-align: center; }
+.wc-cal-date {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.wc-cal-date:hover .wc-cal-date-num { background: var(--bg-hover); }
+.wc-cal-date-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-variant-numeric: tabular-nums;
+}
+.wc-cal-date.is-past { color: var(--fg-faint); }
+.wc-cal-date.is-today .wc-cal-date-num,
+.wc-cal-date.is-today:hover .wc-cal-date-num { background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.wc-cal-date > .wc-cal-dot { position: absolute; left: 50%; margin-left: -2px; }
+/* The month of the section (CalV17): numbers 15/600 in a circle 28, rows of 44, the dot 18 under the middle. */
+.wc-cal-grid.is-big { flex: 0 0 auto; padding: 0 16px 8px; border-bottom: 1px solid var(--line); }
+.wc-cal-grid.is-big .wc-cal-date { height: 44px; }
+.wc-cal-grid.is-big .wc-cal-date-num { width: 28px; height: 28px; font-size: 15px; font-weight: 600; line-height: 20px; }
+.wc-cal-grid.is-big .wc-cal-date.is-chosen .wc-cal-date-num { background: var(--bg-active); }
+.wc-cal-grid.is-big .wc-cal-date > .wc-cal-dot { top: 38px; }
+/* The Mac's left column: numbers 12 in cells of 22, the week shown on a band. */
+.wc-cal-grid.is-small .wc-cal-grid-head { margin-bottom: 2px; padding-left: 4px; }
+.wc-cal-grid.is-small .wc-cal-grid-cells { row-gap: 2px; }
+.wc-cal-grid.is-small .wc-cal-date { height: 22px; font-size: 12px; line-height: 16px; }
+.wc-cal-grid.is-small .wc-cal-date-num { width: 22px; height: 22px; }
+.wc-cal-grid.is-small .wc-cal-date.is-week { border-radius: 0; background: var(--bg-hover); }
+.wc-cal-grid.is-small .wc-cal-date > .wc-cal-dot { bottom: 0; }
+/* A month of the year (CalV21): the name 15/650 (the current one in `--attention`), numbers 12 alone in rows of 18. */
+.wc-cal-grid.is-year .wc-cal-grid-head { margin-bottom: 4px; font-size: 15px; font-weight: 650; line-height: 20px; }
+.wc-cal-grid.is-year .wc-cal-date { height: 18px; color: var(--fg-soft); font-size: 12px; line-height: 16px; cursor: inherit; }
+.wc-cal-grid.is-year .wc-cal-date-num { width: 18px; height: 18px; }
+.wc-cal-year-month.is-now .wc-cal-grid-head { color: var(--attention); }
+
+/* ── The views Month and Year ──────────────────────────────────────────────────────────────────────────── */
+.wc-cal-month { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.wc-cal-list { flex: 1 1 auto; min-height: 0; padding-bottom: 16px; overflow-y: auto; }
+.wc-cal-list-head { padding: 12px 16px 8px; color: var(--fg-muted); font-size: 13px; font-weight: 600; line-height: 18px; }
+/* A line of the day under the month: the start 13 in a column of 40, the mark of the kind, whom and what about 15/600,
+   «Not sent» 13/600 in red at the end; 44 high. */
+.wc-cal-row {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-cal-row:hover { background: var(--bg-hover); }
+.wc-cal-row.is-past { opacity: .5; }
+.wc-cal-row-time { flex: 0 0 40px; color: var(--fg-muted); font-size: 13px; line-height: 18px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.wc-cal-row-mark { display: inline-flex; flex: 0 0 auto; color: var(--fg-muted); }
+.wc-cal-row-name { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: 15px; font-weight: 600; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
+.wc-cal-row.is-plate .wc-cal-row-name { color: var(--fg-soft); }
+.wc-cal-row-bad { flex: 0 0 auto; color: var(--danger); font-size: 13px; font-weight: 600; line-height: 18px; }
+.wc-cal-nothing { color: var(--fg-faint); font-size: 14px; line-height: 20px; }
+.wc-cal-list > .wc-cal-nothing { padding: 8px 16px; }
+.wc-cal-view > .wc-cal-nothing { position: absolute; top: 16px; right: 0; left: 0; text-align: center; pointer-events: none; }
+.wc-cal-year {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 20px 12px;
+  min-height: 0;
+  padding: 8px 16px;
+  overflow-y: auto;
+}
+.wc-cal-year-month {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  align-self: start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-cal-year-month:hover { background: var(--bg-hover); }
+
+/* ── The sheet of a record (CalEvent) ──────────────────────────────────────────────────────────────────── */
+/* The decision on top: the band of `--attention-wash` the width of the sheet, the words of `--attention`. */
+.wc-cal-band { margin: -6px -18px 0; padding: 12px 18px; background: var(--attention-wash); }
+.wc-cal-band-title { display: flex; align-items: center; gap: 8px; color: var(--attention); font-size: 15px; font-weight: 600; line-height: 20px; }
+.wc-cal-band-line { padding-left: 24px; color: var(--fg); font-size: 13px; line-height: 18px; }
+.wc-cal-sheet-top { display: flex; flex-direction: column; gap: 4px; padding-top: 14px; }
+.wc-cal-placed { display: flex; align-items: center; gap: 6px; color: var(--fg-soft); font-size: 13px; font-weight: 600; line-height: 18px; }
+.wc-cal-cancelled { color: var(--danger); font-size: 13px; font-weight: 600; line-height: 18px; }
+.wc-cal-sheet-title { color: var(--fg); font-size: 17px; font-weight: 600; line-height: 22px; }
+.wc-cal-sheet-when { color: var(--fg-muted); font-size: 15px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.wc-cal-fact { display: flex; align-items: center; gap: 6px; color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.wc-cal-sheet-buttons, .wc-cal-sheet-foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.wc-cal-sheet-foot { margin-top: 24px; }
+.wc-cal-sheet-foot.is-save { grid-template-columns: minmax(0, 1fr); margin-top: 16px; }
+.wc-cal-sheet-buttons > .lex-btn, .wc-cal-sheet-foot > .lex-btn { width: 100%; }
+.wc-cal-danger { color: var(--danger); }
+.wc-cal-sheet-label { margin: 16px 0 6px; color: var(--fg-muted); font-size: 13px; font-weight: 600; line-height: 18px; }
+.wc-cal-sheet-note { margin-top: 8px; color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.wc-cal-sheet-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 10px; background: var(--bg-bubble); }
+.wc-cal-sheet-card > .lex-btn { width: 100%; margin-top: 4px; }
+.wc-cal-origin { color: var(--fg-muted); font-size: 13px; line-height: 18px; }
+.wc-cal-quote { color: var(--fg); font-size: 15px; line-height: 20px; white-space: pre-wrap; user-select: text; }
+.wc-cal-steps { border-radius: 10px; background: var(--bg-bubble); }
+.wc-cal-step { display: flex; align-items: center; gap: 10px; box-sizing: border-box; min-height: 44px; padding: 12px 14px; color: var(--fg); font-size: 15px; line-height: 20px; }
+.wc-cal-step + .wc-cal-step { border-top: 1px solid var(--line); }
+.wc-cal-step > .lex-mark { color: var(--fg-muted); }
+.wc-cal-step.is-bad { color: var(--danger); }
+.wc-cal-step.is-bad > .lex-mark { color: var(--danger); }
+.wc-cal-step.is-quiet { color: var(--fg-muted); }
+.wc-cal-error { margin-top: 12px; color: var(--danger); font-size: 14px; line-height: 20px; }
+.wc-cal-error[hidden] { display: none; }
+
+/* ── The form (CalForm) ────────────────────────────────────────────────────────────────────────────────── */
+.wc-cal-form { display: flex; flex-direction: column; gap: 10px; }
+.wc-cal-form > .wc-tabs { margin-bottom: 2px; }
+.wc-cal-form .wc-cal-error { margin-top: 2px; }
+/* A text in the place of the value of a row: the words 15 at the right, as the value of a choice. */
+.wc-cal-input {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 auto;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: right;
+  outline: none;
+}
+.wc-cal-input::placeholder { color: var(--fg-faint); }
+textarea.wc-cal-input { height: auto; min-height: 44px; padding: 12px 0; resize: none; text-align: left; }
+.wc-cal-search { width: 100%; margin-bottom: 10px; padding: 0 14px; border-radius: 10px; background: var(--bg-bubble); text-align: left; }
+.wc-cal-people { margin: 0 -10px; }
+/* The choice of the day or the hour under its row: the browser's own field, the words 15 at the right. */
+.wc-cal-pick { padding: 0 14px 6px; }
+/* The row after an open picker keeps the line between the rows of the block. */
+.wc-cal-pick:not(:last-child) { border-bottom: 1px solid var(--lex-section-line, var(--line)); }
+.wc-cal-pick-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.wc-cal-pick-label { color: var(--fg-muted); font-size: 15px; line-height: 20px; }
+.wc-cal-native { flex: 0 0 auto; color-scheme: light dark; font-variant-numeric: tabular-nums; }
+
+/* ── The Mac: the views by the side column ─────────────────────────────────────────────────────────────── */
+.wc-cal-root.is-wide .wc-cal-days-gap, .wc-cal-root.is-wide .wc-cal-allday-label { flex-basis: 44px; }

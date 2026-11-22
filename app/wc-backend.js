@@ -1838,6 +1838,9 @@
   WcBus.on('WC_FOLDER_WHOIS', (m) => WcHistory.folderWhois(m.body));
   // The section «Agents»: the list (no body), a new task chat, a word, «read», the agent's model (folder-agents).
   WcBus.on('WC_FOLDER_AGENTS', (m) => WcHistory.folderAgents((m && m.body) || null));
+  // The section «Calendar»: a read of the calendar (sub, query) or a write (body) through the edge function calendar. The
+  // section reads again on the signal «calendar» of the base (its frame follows the channel of signals), never on a timer.
+  WcBus.on('WC_CALENDAR', (m) => WcHistory.calendar((m && m.sub) || '', (m && m.query) || null, (m && m.body) || null));
   // The section «Shopping list»: the list (no body) and a change (shopping).
   WcBus.on('WC_SHOPPING', (m) => WcHistory.shopping((m && m.body) || null));
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });

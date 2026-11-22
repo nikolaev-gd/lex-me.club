@@ -558,10 +558,10 @@
     // Agents (21.11.2026): the agents of the base, a folder of task chats for each (wc-agents.js). A task chat of it
     // follows the signals through this section while it is open; left, it stops.
     agents: { title: 'Agents', build: buildAgents, leave: () => { if (SECTIONS.agents.live) SECTIONS.agents.live.unwatch(); } },
-    // Calendar and Shopping list have their places in the menu already (LexSection.entries, В7.62: Agents, Calendar,
-    // Shopping list, Questions, Extended Mind, News). A section's entry comes on with its line here, and with the server
-    // naming the section for 'web' (calendar_on_page.sql, 22.11.2026):
-    // calendar: { title: 'Calendar', build: buildCalendar },
+    // Calendar (22.11.2026): the calendar of the base, as the iPhone has it (wc-calendar.js); the server names it for 'web'
+    // (lex_home_sections, calendar_on_page.sql). Its head stands in the bar of the window, as the head of News
+    // (paintCalendarHead).
+    calendar: { title: 'Calendar', build: buildCalendar },
     // Shopping list (22.11.2026): one list of the base, a checklist (wc-shopping.js).
     shopping: { title: 'Shopping list', build: buildShopping },
   };
@@ -777,6 +777,9 @@
     if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'feed') return '__lex_profi_orders__';
     // The bot's service chat is a screen of its own for the server too: open, it reads the alerts (19.11.2026).
     if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'bot') return '__lex_profi_bot__';
+    // The calendar on the screen takes its notifications as read on every device (unread_counts.sql: the key of the
+    // calendar is the section «calendar»).
+    if (sectionOn === 'calendar') return '__lex_calendar__';
     if (sectionOn) return null;
     return state.conversationId || null;
   }
@@ -795,10 +798,9 @@
       .catch(() => {});
   }
   // The numbers of the unread from the server: the rows and the section buttons, and the number on the icon of the
-  // Mac app in the Dock — the sum of the buttons this page has (`badge_mac`): the iPhone's number counts the calendar
-  // too, and the page has no section «Календарь» to show or read it (mac_badge_no_calendar.sql). A server from
-  // before says `badge` alone.
-  const macBadgeOf = (u) => (u && u.badge_mac != null ? u.badge_mac : u && u.badge);
+  // Mac app in the Dock — the same number as the iPhone's (`badge`, the calendar counted too: the page has the section
+  // «Calendar» since 22.11.2026, calendar_on_page.sql; lex_push_badge_mac answers that number as well).
+  const macBadgeOf = (u) => (u && u.badge != null ? u.badge : null);
   function takeUnread(u) {
     if (global.LexSection) global.LexSection.setUnread(u);
     people.repaintTabs();
@@ -938,17 +940,19 @@
     const wanted = () => mine === notificationOpens;
     const kind = String(lex.kind || '');
     const key = typeof lex.chatKey === 'string' ? lex.chatKey : '';
-    // A notification of the calendar shows the window as it was (below): the main page stays on its tab.
-    if (!(key === '__lex_calendar__' || kind.startsWith('calendar'))) homeToAll();
+    homeToAll();
     const order = lex.order ? String(lex.order) : '';
-    // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the page has no
-    // section «Календарь» yet (it is the iPhone's), so a click shows the window as it was — never a chat of its key, and not
-    // a tab either.
-    if (key === '__lex_calendar__' || kind.startsWith('calendar')) return;
     // A click that launched the page comes before the sections are known: the chat opens in its section, when they are (not
     // longer than a few seconds).
     await Promise.race([sectionsKnownPromise, new Promise((resolve) => setTimeout(resolve, 6000))]);
     if (!wanted()) return;
+    // The calendar (calendar_placed, calendar_reminder, calendar_note, calendar_sent, calendar_failed): the section
+    // «Calendar» on the day of the record, its sheet open (wc-calendar.js reveal), as a tap on the iPhone — never a chat of
+    // its key.
+    if (key === '__lex_calendar__' || kind.startsWith('calendar')) {
+      await showSection('calendar', { enter: (live) => live.reveal(lex), wanted });
+      return;
+    }
     if (people.hasTabs) people.toAll();   // the sections are known now: «All» again, if a tab was pressed while they came
     const back = people.hasTabs ? mainTarget() : undefined;
     // About an order (new, reply sent, not sent): New orders at it, as on the iPhone; without the number — at its top.
@@ -1062,6 +1066,8 @@
     const main = document.querySelector('.wc-main');
     const slot = document.getElementById('wc-section-head');
     if (!main || !slot) return;
+    // The slot is shared with the head of the calendar: a «no head» of News leaves a slot it does not hold as it is.
+    if (!spec && !main.classList.contains('is-news-feed')) return;
     main.classList.toggle('is-news-feed', !!spec);
     if (!spec) { slot.replaceChildren(); slot.hidden = true; return; }
     const refresh = WcUI.iconBtn('refresh', 'Refresh', () => spec.refresh(), 'is-44');
@@ -1070,6 +1076,42 @@
       WcUI.el('.wc-section-head-title', {}, [spec.title]),
       refresh,
       WcUI.iconBtn('gear', 'Settings', () => spec.settings(), 'is-44'));
+    slot.hidden = false;
+  }
+  // ── Calendar ─────────────────────────────────────────────────────────────
+  // The section of the calendar of the base (wc-calendar.js, 22.11.2026): its reads and writes through the edge function
+  // calendar (WC_CALENDAR), its watch on the signal «calendar» of the base. Its head stands in the bar of the window.
+  const calendarCall = (sub, query, body) => WcBus.call('WC_CALENDAR', { sub, query: query || null, body: body || null });
+  function buildCalendar() {
+    return global.WcCalendar.createSection({
+      back: sectionBack,
+      signals,
+      call: calendarCall,
+      head: paintCalendarHead,
+      tabs: (o) => WcUI.tabs(o),
+    });
+  }
+  // The head of the calendar in the bar of the window, by the three stripes (В7.18, the way of News): «Calendar» 18/650 and
+  // the section's own nodes — «+» on a narrow window; the words of the period, the views, the arrows, Today and New on the
+  // Mac's (CalV27). null — the bar as it was. The section's own bar steps aside meanwhile (wc-calendar.css).
+  let calendarHead = false;
+  function paintCalendarHead(spec) {
+    const main = document.querySelector('.wc-main');
+    const slot = document.getElementById('wc-section-head');
+    if (!main || !slot) return;
+    if (!spec) {
+      if (!calendarHead) return;
+      calendarHead = false;
+      main.classList.remove('is-cal-head');
+      slot.classList.remove('is-cal');
+      slot.replaceChildren();
+      slot.hidden = true;
+      return;
+    }
+    calendarHead = true;
+    main.classList.add('is-cal-head');
+    slot.classList.add('is-cal');
+    slot.replaceChildren(WcUI.el('.wc-section-head-title', {}, [spec.title]), ...(spec.nodes || []));
     slot.hidden = false;
   }
   // The head of a news in the bar (В7.32): the source — the mark of its kind and its name, the date and
