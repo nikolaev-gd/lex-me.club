@@ -670,6 +670,9 @@
   // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
   // a person. The first message sent takes the page away (the thread is not empty then, WcThread.onEmpty).
   function homeOn() {
+    // The field over a dimmed screen (В7.64) holds the screen it was opened on: a voice or a dictation that made the new
+    // chat on the server before a word was sent does not take the main page away from under the dimming.
+    if (quick) return quick.home;
     return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
   }
   // What the main page changes on the screen: its list and its tabs show or hide, the list follows the server only while
@@ -708,6 +711,96 @@
     bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
     people.setActive(on);
     if (on && !was && listBody) listBody.scrollTop = homeScroll;
+    paintCapsule();
+  }
+
+  // ── The capsule of a new chat and the field over a dimmed screen (В7.64; Gennady 22.11.2026, boards Comp2*) ──────
+  // Out of a chat — the main page, a screen of a section — the capsule stands at the bottom right: the microphone, the
+  // live voice, «New chat». A press dims the screen and lifts the one field of the page over it (wc-quick.js); a new chat
+  // is made only when the words are sent (send → quickCommit), by the voice — when its first words went to the model
+  // (quickLanded). A press on the dimming or Escape closes the field, and no chat is made (closeQuick). On the folder of an
+  // agent «New chat» and the microphone start a chat with that agent; the voice — with Lex (an agent takes only words).
+  // Nothing of the screen goes to the chat. In an open chat there is no capsule: its own field stands.
+  let quick = null;   // { home, agent, section, before } while the field stands over a dimmed screen
+  // The folder of an agent has the field of the page at its bottom (boards AgF2HeadA): no capsule there — its other screens
+  // (the log, the passport) have it, and it starts a chat with that agent.
+  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat && !folderFieldOn());
+  function folderFieldOn() {
+    const live = sectionOn === 'agents' && SECTIONS.agents.live;
+    return !!(live && live.screen === 'agent' && typeof live.currentAgent === 'function' && live.currentAgent());
+  }
+  function homeOnNow() {
+    return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
+  }
+  function quickAgent() {
+    // The agent whose screens are open — `currentAgent()` of the section Agents ({ key, name } | null on the list).
+    const live = sectionOn === 'agents' && SECTIONS.agents.live;
+    return (live && typeof live.currentAgent === 'function' && live.currentAgent()) || null;
+  }
+  function paintCapsule() {
+    if (global.WcQuick) WcQuick.capsule(!quick && outOfChat());
+  }
+  async function openQuick(mode) {
+    if (quick || !outOfChat()) return;
+    const agent = mode === 'voice' ? null : quickAgent();
+    quick = { home: homeOnNow(), agent, section: sectionOn, before: null };
+    if (agent) {
+      takeField(agentDraftKey(agent.key));
+    } else {
+      // Under a section the page may still hold the chat left last: the new chat is made ready, the screen stays.
+      if (state.conversationId || profiChat || !WcThread.isEmpty()) await newConversation({ stay: true });
+      takeField(newChatKey());
+    }
+    if (!quick) return;
+    // The field may have taken this key before the drafts were read (the page starts on the main page, whose field is
+    // hidden): an empty field takes the draft now, so a draft kept over a reload is there.
+    const kept = fieldKey && global.LexDrafts ? global.LexDrafts.get(fieldKey) : null;
+    if (kept && (kept.text || kept.reply) && !WcComposer.text().trim()) fillField(kept);
+    WcQuick.open({ to: agent ? (agent.name || agent.key) : 'Lex', agent: !!agent });
+    paintCapsule();
+    if (mode === 'voice') { await toggleVoice(); return; }
+    if (mode === 'dictate') { quick.before = WcComposer.text(); WcComposer.dictate(); return; }
+    WcComposer.focus({ raiseKeyboard: true });
+  }
+  // The words are sent (or the voice's first words went): the screen becomes the new chat. Called before send() reads
+  // whose words these are, so they go to the new chat, not to the one left. An agent's: its empty chat (newAgentChat) —
+  // the same field, the same draft.
+  async function quickCommit() {
+    const q = quick;
+    if (!q) return;
+    quick = null;
+    WcQuick.close();
+    if (q.agent) { await newAgentChat(q.agent); return; }
+    if (sectionOn) leaveSection();
+    paintHome();
+  }
+  function quickLanded() { if (quick && !quick.agent) quickCommit().catch(() => {}); }
+  // Closed without sending: a dictation going on is dropped with its words, a voice not yet heard ends, an empty chat a
+  // voice or a dictation made on the server does not take the screen. The words typed stay the new chat's draft.
+  async function closeQuick() {
+    const q = quick;
+    if (!q) return;
+    if (WcComposer.isDictating()) {
+      WcComposer.cancelDictation();
+      if (q.before !== null) WcComposer.setText(q.before);
+    }
+    await endVoiceOnLeave('quick-closed');
+    WcComposer.blur();
+    quick = null;
+    WcQuick.close();
+    if (!q.agent && !profiChat && state.conversationId && WcThread.isEmpty()) {
+      // A live dictation or the voice made its conversation at the press, and the field's draft went over to it
+      // (`adoptFieldKey`). No chat was made: the words go back to the draft of the new chat, so the next «New chat» has
+      // them — not to a conversation nobody can open (found by a live run on the Second Mac, 22.11.2026).
+      if (fieldKey && String(fieldKey) === String(state.conversationId)) {
+        saveField();
+        if (global.LexDrafts) global.LexDrafts.rename(fieldKey, newChatKey());
+        fieldKey = newChatKey();
+      }
+      await newConversation({ stay: true });
+    }
+    if (!q.home) takeField(null);
+    paintHome();
   }
   // The buttons of the sections: from what this device kept, then as the server names them.
   // Every section the server names is then built and its list read (warm), so its first
@@ -2328,6 +2421,8 @@
     const main = document.querySelector('.wc-main');
     const live = SECTIONS.agents.live;
     paintAgentsBar();
+    // The capsule follows the screen: none on the folder (its own field), on the log and the passport — for this agent.
+    paintCapsule();
     if (id === 'log-aside') {
       main.classList.add('is-agents-log');
       if (live && live.aside && !live.aside.isConnected) main.appendChild(live.aside);
@@ -2519,7 +2614,9 @@
   // a keyboard over them. «New chat» also puts the main page on «All» at its top (Gennady, 20.11.2026); the arrow back
   // keeps the tab it left.
   async function newConversation(opts) {
-    if (opts && opts.typing) homeToAll();
+    // opts.stay — the field over a dimmed screen makes the new chat ready under it: the section on the screen stays.
+    const stay = !!(opts && opts.stay);
+    if (opts && opts.typing && !stay) homeToAll();
     if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же
@@ -2528,19 +2625,24 @@
     await endVoiceOnLeave('new-chat');
     stopSectionOpening();
     takeField(newChatKey());
-    leaveSection();
+    if (!stay) leaveSection();
     endVisit();
     state.conversationId = null;
     WcThread.clear();
     resetMoney();
-    paintNewsBar(null);
+    if (!stay) paintNewsBar(null);
     WcSidebar.setActive(null);
     WcHeader.setTitle('');
     syncAttachment();
     paintAddressee();
     paintHome();
     WcBus.call('WC_NEW_CONVERSATION').catch((err) => console.warn('[wc] new:', err && err.message));
-    if (opts && opts.typing) WcComposer.focus({ raiseKeyboard: true });
+    // «New chat» and the pencil: where the main page has no field of its own (the chats of the people stand on it), the
+    // field rises over it dimmed, as from the capsule (В7.64); elsewhere the empty chat takes the cursor.
+    if (opts && opts.typing && !stay) {
+      if (people.hasTabs) openQuick('type').catch((e) => console.warn('[wc] quick:', e && e.message));
+      else WcComposer.focus({ raiseKeyboard: true });
+    }
   }
 
   // ── Клавиатура и боковая панель ──────────────────────────────────────────
@@ -2576,6 +2678,8 @@
   async function send(text, opts) {
     // The line of Edit stands over the field: the arrow edits that message at the person (19.11.2026).
     if (reply && reply.editUid) { await submitEdit(text); return; }
+    // Sent from the field over a dimmed screen (В7.64): the screen becomes the new chat first, then the words go to it.
+    if (quick) await quickCommit();
     // Whose words these are is fixed at the press: the chat on the screen then. A turn that waits for
     // the start's settings and finds another chat on the screen does not go anywhere — its words go
     // back into the draft of their own chat (giveBack). Before, the chat was read after the wait, and
@@ -3419,12 +3523,12 @@
           onMicHeld: (held) => WcVoiceScreen.micHeld(held),
           onTeacherSpeaking: (on) => WcVoiceScreen.speaking(on),
 
-          onUserStart: (id) => WcThread.beginVoiceUser(id),
+          onUserStart: (id) => { quickLanded(); WcThread.beginVoiceUser(id); },
           onUserDelta: (id, t) => { note(id, 'user', t); WcThread.voiceUserText(id, t); WcVoiceScreen.line('user', t); },
           onUserDone: (id, t) => { note(id, 'user', t); WcThread.voiceUserText(id, t); WcVoiceScreen.line('user', t); },
           onUserFailed: (id) => { said.delete(id); WcThread.dropVoiceUser(id); },
 
-          onAssistantDelta: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
+          onAssistantDelta: (id, t) => { quickLanded(); note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
           onAssistantDone: (id, t) => { note(id, 'assistant', t); WcThread.voiceAssistantText(id, t); WcVoiceScreen.line('assistant', t); },
           // Голос Google: из ответа не прозвучало ничего — ни пузыря, ни
           // строки в памяти беседы (сервер её тоже не записал).
@@ -3786,8 +3890,8 @@
   // невставшего курсора — обмен плохого на худшее. Дальше вопрос закрывает
   // предохранитель оболочки, у него тот же срок.
   function caretThenReveal() {
-    // The main page of the people: a keyboard on the screen would cover the list, nothing waits for a caret.
-    if (homeOn() && global.LexComposerInput && global.LexComposerInput.onScreenKeyboard()) { shellPageReady(); return; }
+    // The main page of the people has no field (the capsule of a new chat stands there, В7.64): nothing waits for a caret.
+    if (homeOn()) { shellPageReady(); return; }
     let p;
     try { p = WcComposer.focusUntilCaret({ raiseKeyboard: true }); } catch (_) { p = null; }
     if (!p || typeof p.then !== 'function') { shellPageReady(); return; }
@@ -4322,6 +4426,11 @@
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat && !(reply && reply.editUid) ? profiChat.sendMenu(text) : null),
     });
+    WcQuick.init({
+      onCapsule: (mode) => { openQuick(mode).catch((e) => console.warn('[wc] quick:', e && e.message)); },
+      onClose: () => { closeQuick().catch((e) => console.warn('[wc] quick close:', e && e.message)); },
+    });
+    paintCapsule();
     // The field of the chat the page starts on: a new chat, or the one already opened. Words typed
     // before the drafts were read stay in the field, as that chat's.
     if (fieldKey === null && !sectionOn) {

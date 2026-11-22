@@ -473,7 +473,9 @@
     // The arrow of the window leads from a screen inside the section to the one under it; from the first two
     // screens of a section entered from outside (opts.root) — out of the section, the screens starting over.
     let headPainted = false;
+    let headSides = null;   // the watch of the second button's width (both slots grow to it, the name stays centred)
     function paintHead(h) {
+      if (headSides) { headSides.disconnect(); headSides = null; }
       bar.classList.toggle('is-center', !!h);
       center.hidden = !h;
       titleEl.hidden = !!h;
@@ -500,7 +502,19 @@
         b.addEventListener('click', a.onClick);
         right.appendChild(b);
       }
-      center.replaceChildren(make('div', 'lex-section-slot'), mid, right);
+      const left = make('div', 'lex-section-slot');
+      center.replaceChildren(left, mid, right);
+      // The second button shows its word whole: when it is wider than 108, both slots take its width, so the name
+      // stays in the middle and is the one to give way (its lines cut themselves).
+      const btn = right.firstChild;
+      if (btn && typeof global.ResizeObserver === 'function') {
+        headSides = new global.ResizeObserver(() => {
+          const w = `${Math.max(108, Math.ceil(btn.getBoundingClientRect().width))}px`;
+          left.style.flexBasis = w;
+          right.style.flexBasis = w;
+        });
+        headSides.observe(btn);
+      }
     }
     function paintScreen() {
       titleEl.textContent = top().title;

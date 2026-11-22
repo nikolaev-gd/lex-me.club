@@ -577,6 +577,9 @@
     recStartedAt = myStartedAt;
     rec.ondataavailable = (e) => { if (e.data && e.data.size) myChunks.push(e.data); };
     rec.onstop = async () => {
+      // Dictation cancelled (cancelRecording: the field over a dimmed screen closed, В7.64): the microphone is let go,
+      // nothing goes to the recognizer and nothing lands in the field.
+      if (rec.__cancelled) { stream.getTracks().forEach((t) => t.stop()); syncButton(); return; }
       // The tracks are released before the network call, not after: a
       // microphone that stays open shows a recording dot for as long as the
       // transcription takes, which reads as "still listening".
@@ -619,6 +622,21 @@
     if (r && r.state !== 'inactive') r.stop();
     elMic.title = 'Dictate';
     elMic.setAttribute('aria-label', elMic.title);
+  }
+
+  // Dictation cancelled, not finished: the live session is dropped (its grown words are the caller's to take back), the
+  // file recording stops without a transcription. The quick field over a dimmed screen (wc-app.js, В7.64) calls it when
+  // it closes without sending: «nothing is kept».
+  function cancelRecording() {
+    clearRecLimit();
+    if (live && live.__finish) { live.__finish(false); return; }
+    const r = recorder;
+    recorder = null;
+    elMic.classList.remove('is-recording');
+    elMic.title = 'Dictate';
+    elMic.setAttribute('aria-label', elMic.title);
+    if (r && r.state !== 'inactive') { r.__cancelled = true; r.stop(); }
+    syncButton();
   }
 
   // Растущий кусок держится ЗА СВОИМ ОТРЕЗКОМ, а не «дописывается в конец»:
@@ -966,6 +984,13 @@
     armEditSource(uid) { editSourceUid = uid ? String(uid) : null; },
 
     text() { return elInput.value; },
+
+    // The microphone of the field, pressed from outside it: the capsule of a new chat (wc-app.js, В7.64) opens the field
+    // and starts the dictation the field's own button starts. A dictation going on is left as it is.
+    dictate() { if (!recorder && !live && !locked) startRecording(); },
+    // A dictation going on is dropped: no transcription, no words (see cancelRecording).
+    cancelDictation() { if (recorder || live) cancelRecording(); },
+    isDictating() { return !!(recorder || live); },
 
     // The words of the empty field (LexComposerBox.hint): none, except in a field that takes no text at
     // all. lock — the field takes no text (a group: Lex does not write there): it says so at once, takes

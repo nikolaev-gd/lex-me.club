@@ -1272,6 +1272,139 @@ button { font: inherit; color: inherit; }
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
+/* ── The capsule of a new chat and the field over a dimmed screen (STANDARD.md В7.64) ──────────────────────
+ * Gennady, 22.11.2026 (boards Comp2*). Out of a chat — the main page, a screen of a section — there is no field: at the
+ * bottom right stands the capsule (the microphone, the live voice, «New chat»). Its press dims the whole window and lifts
+ * the one field of the page (.wc-composer-wrap, class is-quick on .wc-main) over the dimming, with «New chat · Lex» over
+ * it and the keys under it on a wide window. Look — wc-quick.js; what a press does — wc-app.js (openQuick). */
+.wc-main.is-home:not(.is-quick) .wc-composer-wrap { display: none; }
+.wc-main.is-section.is-quick .wc-composer-wrap { display: block; }
+.wc-main.is-quick .wc-composer-wrap {
+  z-index: 14;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.wc-main.is-quick .wc-jump { display: none; }
+/* The presets are the teacher's: a chat with an agent takes only words. */
+.wc-main.is-quick-agent #wc-mode-split { display: none; }
+/* The list under the capsule ends above it: 16 + 52 + 16. */
+.wc-main.is-home .wc-home .lex-section-body,
+.wc-main.is-section .lex-section-body { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
+.wc-quick-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 13;
+  padding: 0;
+  border: 0;
+  background: var(--scrim);
+  cursor: default;
+}
+.wc-quick-scrim[hidden] { display: none; }
+.wc-quick-capsule {
+  position: absolute;
+  right: max(16px, calc((100% - 720px) / 2 + 16px));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 26px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg);
+}
+.wc-quick-capsule[hidden] { display: none; }
+.wc-quick-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.wc-quick-btn[hidden] { display: none; }
+.wc-quick-btn:hover { background: var(--bg-hover); }
+.wc-quick-btn:active { background: var(--bg-active); }
+.wc-quick-voice:hover, .wc-quick-voice:active { background: transparent; }
+.wc-quick-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  background: var(--bg-hover);
+  color: var(--fg-soft);
+}
+.wc-quick-voice:hover .wc-quick-dot { background: var(--bg-active); }
+.wc-quick-new {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 20px;
+  cursor: pointer;
+}
+.wc-quick-new:hover { background: var(--accent-hover, var(--accent)); }
+.wc-quick-capsule svg, .wc-quick-to svg {
+  flex: none;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Whose chat it will be: a plate over the field, at the field's left edge. */
+.wc-quick-to { max-width: 760px; margin: 0 auto 8px; padding-left: 4px; }
+.wc-quick-to[hidden] { display: none; }
+.wc-quick-to-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: var(--bg-raised);
+  color: var(--fg-soft);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.wc-quick-to-pill > span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The keys under the field: a window with a keyboard on the desk only. */
+.wc-quick-keys {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 16px;
+}
+.wc-quick-keys[hidden] { display: none; }
+.wc-quick-keys > span + span::before { content: '·'; margin: 0 6px; }
+@media (max-width: 720px), (pointer: coarse) {
+  .wc-quick-keys { display: none; }
+}
+
 /* Wider than a phone: 20px at the sides instead of the module's 12. */
 @media (min-width: 721px) {
   .wc-composer-wrap { --lex-composer-out-x: 20px; }

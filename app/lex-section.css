@@ -543,7 +543,8 @@
 .lex-live-stage { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--lex-section-soft, inherit); font-size: 13px; line-height: 16px; }
 .lex-live-stage-words { min-width: 0; }
 
-/* ── The centred head of a screen (В7.18, board AgF2HeadA): a slot 108 on each side, the name in the middle ── */
+/* ── The centred head of a screen (В7.18, board AgF2HeadA): a slot 108 on each side (both wider when the second
+   button needs more — lex-section.js), the name in the middle ── */
 .lex-section .lex-section-bar.is-center { min-height: 60px; padding: 0 8px 0 2px; gap: 0; }
 .lex-section .lex-section-center { display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
 .lex-section .lex-section-center[hidden] { display: none; }
@@ -568,7 +569,7 @@ button.lex-section-head { cursor: pointer; }
   font-size: 13px; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted));
 }
 .lex-section .lex-section-head-sub.is-attention { color: var(--attention); }
-.lex-section .lex-section-head-action { flex-direction: row; gap: 6px; }
+.lex-section .lex-section-head-action { flex: none; flex-direction: row; gap: 6px; white-space: nowrap; }
 .lex-section .lex-section-head-action > svg { color: var(--fg-soft, var(--fg-muted)); }
 
 /* ── The block «About» (В7.59, board AgPassport): read only, the caption over the value ── */
