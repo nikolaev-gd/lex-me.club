@@ -347,6 +347,7 @@
     }
     const text = elInput.value.trim();
     elInput.value = '';
+    wasBegun = false; // cleared by code, no input event: the next chat's first letter asks again
     autoGrow();
     syncButton();
     changed();
@@ -528,7 +529,16 @@
     }
   }
 
+  // The first letter of a message or the dictation button: a new chat's session is made while the
+  // person writes (wc-backend.js WC_PREPARE). Never awaited; the backend does nothing when nothing
+  // is due.
+  let wasBegun = false;
+  function prepareSend() {
+    try { WcBus.call('WC_PREPARE', {}).catch(() => {}); } catch (_) { /* no backend on this page */ }
+  }
+
   async function startRecording() {
+    prepareSend();
     // Какая распознавалка выбрана и каким путём снимать звук, спрашивается
     // ПАРАЛЛЕЛЬНО с микрофоном, а не после него: каталог распознавалок (строки
     // базы, lex-dictation-catalog.js) обычно уже в памяти, а если нет — его
@@ -903,6 +913,7 @@
               }
               if (ok && elInput.value.trim() === text) {
                 elInput.value = '';
+                wasBegun = false;
                 autoGrow();
                 syncButton();
                 changed();
@@ -917,6 +928,10 @@
 
       elInput.addEventListener('input', () => {
         autoGrow(); syncButton(); changed();
+        // A message is begun (the field was empty): what its send needs is made ready now (WC_PREPARE).
+        const begun = !!elInput.value.trim();
+        if (begun && !wasBegun) prepareSend();
+        wasBegun = begun;
         // Поле стёрли — взведённая правкой заготовка больше ни к чему.
         if (!elInput.value.trim()) { armPreset(null); editSourceUid = null; }
       });

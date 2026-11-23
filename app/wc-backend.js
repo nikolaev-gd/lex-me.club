@@ -1220,7 +1220,11 @@
     // chat has no id for the sidebar to show.
     let convId = m.conversationId;
     if (!convId) {
-      sessionId = null;
+      // The session row made while the message was written (WC_PREPARE), when there is one.
+      const ahead = preparedSession;
+      preparedSession = null;
+      const pre = ahead ? await ahead : null;
+      sessionId = pre != null ? pre : null;
       const sid = await ensureSession();
       convId = WcHistory.keyForSession(sid);
       setOpen(convId, []);
@@ -1534,6 +1538,21 @@
   }
 
   WcBus.on('WC_SEND', runSend);
+
+  // ── Ready before the press (WC_PREPARE) ──────────────────────────────────────────────────────
+  // The person began a message in a NEW chat (the first letter, the dictation button): its session
+  // row is made now, while they write — the first message of a new chat paid it between the press
+  // and the request (100–160 ms, measured 23.11.2026). The next send of a new chat on this page takes
+  // it (runSend); made once, kept until a send takes it. An open chat has its session: nothing to do.
+  // Nothing of the model: the provider's cache is not what makes a first answer slow (docs/spec/20-chat.md,
+  // «Первый ответ чата»).
+  let preparedSession = null;
+  WcBus.on('WC_PREPARE', async () => {
+    if (!openId && sessionId == null && !preparedSession) {
+      preparedSession = WcHistory.createSession().catch(() => null);
+    }
+    return { ok: true, session: !!preparedSession };
+  });
 
   // ── The fate of a message after a break (chat_turn_fate.sql) ─────────────────────────────
   // The connection broke (the laptop slept, the network changed, not a word in 15 seconds), or the
@@ -1958,6 +1977,7 @@
     try { await directMode.wipe(); } catch (_) {}
     try { await WcWipe.run('sign out'); } catch (err) { console.warn(TAG, 'wipe:', err && err.message); }
     sessionId = null;
+    preparedSession = null; // the prepared row is this account's: another sign-in makes its own
     setOpen(null, []);
     return { ok: true };
   });
