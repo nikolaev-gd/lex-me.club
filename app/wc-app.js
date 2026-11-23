@@ -1043,8 +1043,36 @@
   // leads to the list of a section (Profi.ru, a folder, Extended Mind): the screens of Profi.ru it opens come straight over the
   // main page, and a chat opens without any section on the way. An account without chats of people has no main page: there the
   // feeds and the conversations open as they did before it.
+  // The arrow after a notification (Gennady, 24.11.2026: «стрелочка назад … возвращала меня на ту страницу, где я был до
+  // этого»): whatever the notification opens, back leads to the screen the person stood on at the click — a section, a chat
+  // (with its own arrow kept), or the main page. A chat of Profi.ru can't be stood on again from here: then the main page.
+  function hereTarget() {
+    if (sectionOn && SECTIONS[sectionOn]) return sectionTarget(sectionOn);
+    const id = state.conversationId;
+    if (id && !profiChat && !homeOn()) {
+      const titleEl = document.querySelector('#wc-chat-title .wc-chat-title-main') || document.getElementById('wc-chat-title');
+      const title = (titleEl && titleEl.textContent.trim()) || 'Chat';
+      const before = sectionBack.target;
+      const folder = folderOfChat && folderOfChat.key === id ? folderOfChat.sectionId : null;
+      return {
+        title,
+        go: () => (folder && SECTIONS[folder]
+          ? openFolderChat(folder, id, () => true, null, null, before || undefined)
+          : openConversation(id, { back: before || undefined })),
+      };
+    }
+    return people.hasTabs ? mainTarget() : null;
+  }
   async function openFromNotification(lex) {
     if (!lex) return;
+    const was = hereTarget();
+    const wasKey = state.conversationId;
+    const wasSection = sectionOn;
+    await openFromNotificationTo(lex);
+    // Opened something else than what stood: the arrow leads back there.
+    if (was && (state.conversationId !== wasKey || sectionOn !== wasSection)) sectionBack.cameFrom(was);
+  }
+  async function openFromNotificationTo(lex) {
     const mine = ++notificationOpens;
     const wanted = () => mine === notificationOpens;
     const kind = String(lex.kind || '');
@@ -1110,7 +1138,7 @@
         new Promise((resolve) => setTimeout(() => resolve(null), 2500))]);
       if (!wanted()) return;
       if (live && live.chatKey && live.folder) {
-        await openFromNotification({ kind: 'folder_message', chatKey: live.chatKey, folder: live.folder });
+        await openFromNotificationTo({ kind: 'folder_message', chatKey: live.chatKey, folder: live.folder });
         return;
       }
     }
