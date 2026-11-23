@@ -568,7 +568,39 @@
   // from the money, the session, the open conversation for the teacher. Read here
   // (WC_LOAD_CONVERSATION) or brought by the item of a section (WC_ADOPT_CONVERSATION: the
   // frame of a section holds it, or has just read it with lex_chat_open).
+  // ── Claude Code ready before the message (2026-11-23) ────────────────────────────────────
+  // The owner opened a main chat or a new one: for an account of the owner's chats with Claude Code the server starts
+  // Claude Code for the chat's next turn now (llm-proxy cc-prepare → platforma/claude-code, «Warm processes»), while he
+  // reads and writes — the first answer does not wait for Claude Code's start (1.6–4 s). For every other account the
+  // server answers that there is nothing to do. Never awaited, never an error on the page; once a minute per chat.
+  const ccPrepared = new Map();
+  function ccPrepare(chatKey) {
+    const k = chatKey || '';
+    if (k && !k.startsWith('__lex_standalone__')) return;
+    const now = Date.now();
+    if (now - (ccPrepared.get(k) || 0) < 60000) return;
+    ccPrepared.set(k, now);
+    (async () => {
+      const modelId = await WcStore.one('activeModelId_' + SCOPE, null);
+      if (!modelId || !/claude/.test(String(modelId))) return;
+      const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);
+      const api = String(modelId).split(':')[1] || '';
+      const effort = efforts && typeof efforts === 'object' && typeof efforts[api] === 'string' ? efforts[api] : null;
+      await directDoor(`${A.supabaseUrl()}/functions/v1/llm-proxy/cc-prepare`, { chat_key: k || null, model_id: modelId, effort }, 6000);
+    })().catch(() => { ccPrepared.delete(k); /* a prepare is only a head start: the next sign asks again */ });
+  }
+  // The owner comes back to the page or the app (it was hidden, or another window had it), and the page has just
+  // loaded: the open chat — or a new one, when none is open — is made ready the same way. A tab left open on a chat
+  // for an hour is the case the chat's opening does not see.
+  if (typeof document !== 'undefined' && typeof global.addEventListener === 'function') {
+    const back = () => { if (document.visibilityState !== 'hidden') ccPrepare(openId || null); };
+    document.addEventListener('visibilitychange', back);
+    global.addEventListener('focus', back);
+    setTimeout(back, 3000);
+  }
+
   WcBus.on('WC_LOAD_CONVERSATION', async (m) => {
+    if (m && !m.kept) ccPrepare(m.id);
     // The chat as this device kept it (lex-reads.js): the same way onto the page as the
     // server's answer, drawn while that answer is on its way. No copy — null.
     if (m.kept) {
@@ -678,6 +710,7 @@
   // interface keeps "which conversation am I in" in one place.
   WcBus.on('WC_NEW_CONVERSATION', async () => {
     sessionId = null;
+    ccPrepare(null);
     // Новый чат — и отдельные разговоры заготовок с нуля: они живут в чате.
     setOpen(null, [], []);
     return { ok: true };
