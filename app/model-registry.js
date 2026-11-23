@@ -938,10 +938,19 @@
       provider: 'openai', type: 'asr', label: 'GPT Transcribe',
     },
     {
-      // Умолчание диктовки — Microsoft (решение Геннадия 2026-09-30). Здесь только
-      // имя для запасного выбора: путь, частоту и ручки знает каталог распознавалок.
+      // Файловая распознавалка Microsoft: текст встаёт после «стоп». Была умолчанием
+      // диктовки с 2026-09-30 до 2026-11-23; теперь умолчание — живая ниже.
       id: 'MAI-Transcribe-2', apiModel: 'MAI-Transcribe-2',
       provider: 'microsoft', type: 'asr', label: 'MAI Transcribe 2',
+    },
+    {
+      // Умолчание диктовки — ЖИВАЯ распознавалка Microsoft: слова встают в поле по
+      // ходу речи (решение Геннадия 22.11.2026: «если у Microsoft есть живая —
+      // берём Microsoft»; 23.11.2026: микрофон в любом чате — живой текст). Здесь
+      // только имя для запасного выбора: путь, частоту и ручки знает каталог
+      // распознавалок (строка microsoft:MAI-Transcribe-2-Streaming).
+      id: 'MAI-Transcribe-2-Streaming', apiModel: 'MAI-Transcribe-2-Streaming',
+      provider: 'microsoft', type: 'asr', label: 'MAI Transcribe 2 Streaming',
       // Умолчание диктовки: имя, когда настройка его не называет или называет
       // распознавалку, которой в каталоге (строки базы) больше нет.
       dictationDefault: true,

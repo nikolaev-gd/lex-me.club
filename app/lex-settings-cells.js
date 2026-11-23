@@ -200,12 +200,12 @@
     knobVoiceTranscriptionLanguage: 'en',              // audio.input.transcription.language
     knobVoiceTranscriptionPrompt: '',                  // audio.input.transcription.prompt
     // ── Диктовка (микрофон у поля ввода) ──
-    // Не голосовая сессия: это отдельный вызов v1/audio/transcriptions через
-    // llm-proxy. Дефолт — та же строка, что отдаёт реестр (dictationDefault);
-    // здесь она записана явно, потому что ячейки читаются и там, где реестра
-    // нет, а сверять их незачем: значение чинится на чтении
-    // (каталог распознавалок, LexDictationCatalog.normalize).
-    knobDictationModel: 'MAI-Transcribe-2',
+    // Дефолт — та же строка, что отдаёт реестр (dictationDefault): живая
+    // распознавалка Microsoft, слова встают в поле по ходу речи. Здесь она
+    // записана явно, потому что ячейки читаются и там, где реестра нет; с
+    // реестром её сверяет dev-tools/check-dictation-fields-parity.mjs, а
+    // незнакомое имя чинится на чтении (LexDictationCatalog.normalize).
+    knobDictationModel: 'MAI-Transcribe-2-Streaming',
     knobDictationLanguages: '',                        // languages: ОДИН язык или 'auto' (прежнее «en,ru» сервер читает как auto)
     knobDictationPrompt: '',                           // prompt: ОПИСАНИЕ записи, не приказ
     knobDictationKeywords: '',                         // keywords у gpt-transcribe: «worktree,Lex» → повторяющееся поле
