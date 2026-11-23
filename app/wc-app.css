@@ -958,10 +958,11 @@ button { font: inherit; color: inherit; }
  * voiceAssistantText). */
 .wc-turn-voice .wc-bubble { font-style: italic; }
 
-.wc-turn-user { display: flex; justify-content: flex-end; }
+/* The bubble on the right, the row of its actions on the next line under it (wrap; В7.78). */
+.wc-turn-user { display: flex; flex-wrap: wrap; justify-content: flex-end; }
 /* ‹ 1 / 2 › under one's own message that has versions (an edit in place, wc-thread.js paintVersions): the common
- * switcher of the extension (lex-answer-row.css), a line of its own under the bubble, at its right edge. */
-.wc-turn-user.has-versions { flex-wrap: wrap; }
+ * switcher of the extension (lex-answer-row.css), in the row of actions under the bubble — or, for a message with no
+ * row, a line of its own at its right edge. */
 .wc-turn-user > .wc-user-versions { flex: 0 0 100%; justify-content: flex-end; margin-top: 2px; }
 
 /* The width cap goes on the flex ITEM, not on the bubble inside it.
@@ -1190,11 +1191,10 @@ button { font: inherit; color: inherit; }
 
 .wc-turn-foot {
   display: flex;
+  align-items: center;
   gap: 2px;
-  margin-top: 4px;
-  /* Строка под ответом — общий модуль (lex-answer-row.css), цвета и размер
-     — здесь. Видна всегда, а не по наведению: на телефоне наведения нет, и
-     кнопку модели под последним ответом человек обязан видеть сразу. */
+  /* Строка под сообщением — общий модуль (lex-answer-row.css), цвета и размер
+     — здесь. Где она видна — правила ниже (В7.78). */
   --lex-answer-row-fg:       var(--fg-muted);
   --lex-answer-row-fg-hover: var(--fg);
   --lex-answer-row-bg-hover: var(--bg-hover);
@@ -1203,11 +1203,56 @@ button { font: inherit; color: inherit; }
      text: the zone goes 13 to the left of it. */
   --lex-answer-row-size:     44px;
   --lex-answer-row-icon:     18px;
-  margin-top: 0;
+  /* The row of actions under a message (23.11.2026, as in claude.ai; ios/Lex/STANDARD.md В7.78): its own place under
+     every message of a talk with Lex, kept always — the words 4 over the zone 44, the next message 12 under it (the
+     turn's 20 less 8). So the row never stands over another message, and nothing moves when it shows. */
+  min-height: 44px;
+  margin-top: 4px;
   margin-bottom: -8px;
   margin-left: -13px;
 }
 .wc-turn-foot .lex-answer-row-btn { font-size: 13px; }
+/* Under one's own message: the next line of the turn, at the bubble's right edge; the copy mark level with it. */
+.wc-turn-user > .wc-turn-foot {
+  flex: 0 0 100%;
+  /* not the column of the bubble (.wc-turn-user > div): a line of its own across the turn */
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  max-width: none;
+  margin: 0 -13px -8px 0;
+}
+/* A message Lex did not take has its own buttons under it (LexMessage.unsent): its foot is hidden (wc-thread.js). */
+.wc-turn-foot[hidden] { display: none; }
+/* A foot without a row (a voice answer: only the developer's price, or nothing) keeps no room for one. */
+.wc-turn-foot:not(:has(> .lex-answer-row)) { min-height: 0; }
+/* Where the row shows. The last answer of the lane — always (Copy and Retry at hand, as in claude.ai). Every other
+   message — while the mouse is over it or its row, while a button of the row has the focus, while its menu is open;
+   with a finger — after a touch of the message (wc-thread.js, .is-touched). One's own message with versions (an edit
+   in place) — always: ‹ 1 / 2 › in its row says there is another one. Hidden, it keeps its place and takes no
+   press. The developer's price stays seen. */
+.wc-turn > .wc-turn-foot > .lex-answer-row {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.12s ease, visibility 0s linear 0.12s;
+}
+.wc-turn > .wc-turn-foot.is-last > .lex-answer-row,
+.wc-turn-user > .wc-turn-foot > .lex-answer-row.has-flip,
+.wc-turn.is-touched > .wc-turn-foot > .lex-answer-row,
+.wc-turn > .wc-turn-foot > .lex-answer-row:focus-within,
+.wc-turn > .wc-turn-foot > .lex-answer-row:has(> .lex-msg-more.is-open),
+.wc-turn > .wc-turn-foot > .lex-answer-row:has(> .is-copied) {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.12s ease, visibility 0s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .wc-turn:hover > .wc-turn-foot > .lex-answer-row {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity 0.12s ease, visibility 0s;
+  }
+}
 
 /* Цена хода — только разработчику (сервер отдаёт её лишь ему): одно число
    правее строки под ответом, тем же видом, что в окне расширения. Прячется и
@@ -1991,12 +2036,12 @@ button { font: inherit; color: inherit; }
  * only appears on hover — which is unreachable by touch and by keyboard — is
  * simply always visible where hovering does not exist.
  *
- * Three controls were hover-revealed: the per-conversation menu, the copy
- * button under an answer, and (through it) the whole turn footer.
+ * The per-conversation menu is hover-revealed. The row of actions under a
+ * message is not here: with a finger it shows after a touch of the message, and
+ * under the last answer always (.wc-turn-foot above, В7.78).
  */
 @media (hover: none), (pointer: coarse) {
   .wc-conv-more { opacity: 1; }
-  .wc-turn-foot { opacity: 1; }
 
   /* 44px is the smallest target a finger hits reliably; the desktop sizes are
    * built for a cursor, which is precise. */

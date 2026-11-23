@@ -1377,9 +1377,11 @@ a.lex-order-title:hover { text-decoration: underline; }
   /* A bubble on the left: «⋯» right of it; on the right: left of it; a message across the lane: in its corner. */
   [data-lex-menu][data-lex-side="in"] > .lex-msg-more { left: calc(100% - 2px); }
   [data-lex-menu][data-lex-side="out"] > .lex-msg-more { right: calc(100% - 2px); }
-  /* Over the top edge of a message across the lane, at its right: it covers no more than the top of a letter. The
-     zone stays inside the lane (a lane scrolls sideways when something stands out of it). */
-  [data-lex-menu]:not([data-lex-side]) > .lex-msg-more { right: 0; top: -28px; }
+  /* A message across the lane without a row of its own (a record of a feed, a letter of News): at its right, level with
+     its first line — the line of its name and time. Never over the edge of the message above it: it read as that
+     message's «⋯» (Gennady, 23.11.2026). The messages of a talk with Lex carry «⋯» in their row (В7.78). The zone
+     stays inside the lane (a lane scrolls sideways when something stands out of it). */
+  [data-lex-menu]:not([data-lex-side]) > .lex-msg-more { right: 0; top: -12px; }
   [data-lex-menu]:hover > .lex-msg-more, [data-lex-menu] > .lex-msg-more:focus-visible, [data-lex-menu] > .lex-msg-more.is-open {
     opacity: 1; pointer-events: auto;
   }
@@ -1388,6 +1390,34 @@ a.lex-order-title:hover { text-decoration: underline; }
   [data-lex-menu] > .lex-msg-more:focus-visible { outline: none; }
   [data-lex-menu] > .lex-msg-more:focus-visible::before { outline: 2px solid var(--line-focus, var(--line-strong)); outline-offset: 1px; }
   .lex-selecting [data-lex-menu] > .lex-msg-more { display: none; }
+}
+/* The row of actions under a message (23.11.2026, as in claude.ai; ios/Lex/STANDARD.md В7.78). Retry — a button-mark
+ * like Copy. The time of one's own message — 12 in the muted colour, digits of one width, 4 before the first button;
+ * it is not copied and not selected. «⋯» of the message menu (LexMessage.attachMenu({ row })) — the last button of the
+ * row, the dots in the row's colour. */
+
+.lex-answer-row .lex-answer-row-time {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: var(--lex-answer-row-fg, rgba(127, 127, 127, 0.9));
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.lex-answer-row > .lex-msg-more {
+  display: inline-flex;
+}
+.lex-answer-row > .lex-msg-more svg {
+  width: var(--lex-answer-row-icon, 15px);
+  height: var(--lex-answer-row-icon, 15px);
+  flex: 0 0 auto;
+}
+.lex-answer-row > .lex-msg-more.is-open {
+  background: var(--lex-answer-row-bg-hover, rgba(127, 127, 127, 0.14));
+  color: var(--lex-answer-row-fg-hover, currentColor);
 }
 /* A finger: the hold is the menu, so the words select only after «Select text». */
 @media (pointer: coarse) {

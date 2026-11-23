@@ -2512,7 +2512,10 @@
   //           stands in (Select); reply(part) — Reply, part: the words selected in it or null; edit() — Edit;
   //           earlier: { open, toggle() } — Show / Hide the earlier text; link() — Copy link; items() — the
   //           kind's own items after these (Process again); and the places the next block fills, in this
-  //           order: react, editSent, deleteSent, forward (each a function; none — no item) }
+  //           order: react, editSent, deleteSent, forward (each a function; none — no item); row — the row of
+  //           actions under the message (В7.78, an element or a function that finds it): «⋯» is its last button,
+  //           not a circle over the message }
+  //   placeMore(el)       «⋯» of `el` back to the end of its row (after the window painted or changed the row)
   //   copyText(plain, html)   onto the clipboard: both kinds when html is given → Promise<bool>
   //   plainOf(node)       the words of a formatted text without its marks: lists with «• » and «1. »
   //   selectMode(host, first)   choose several messages of a list: a ring on each, the bar «N selected · Copy ·
@@ -2521,6 +2524,8 @@
   //                       now (wc-thread.js waits for the end — a redraw would take the selection away)
   //   setSelfName(name)   the person's own name in a copy of several
   const MENU = new WeakMap();
+  // The element → its «⋯» and how to put it back in place (attachMenu, placeMore, openMenu).
+  const MORE = new WeakMap();
   // What is not the words of a message: the line of the channel and the time, Copy, reactions, the head of a
   // record, the quote of another message, «Forwarded from», «⋯» and the rings of Select, the row under an answer.
   const SKIP = '.lex-stamp, .lex-bubble-copy, .lex-reactions, .lex-bubble-foot, .lex-msg-head, .lex-msg-more, '
@@ -2684,7 +2689,8 @@
     if (!o || !global.LexSendLater || !el.isConnected) return;
     const part = selectedIn(el);
     const items = menuItems(el, o, part);
-    const more = el.querySelector(':scope > .lex-msg-more');
+    // «⋯» over the message or in its row (В7.78): it stays lit, and its row seen, while the menu is open.
+    const more = (MORE.get(el) || {}).more || el.querySelector(':scope > .lex-msg-more');
     if (more) more.classList.add('is-open');
     if (el.tabIndex < 0 && !el.hasAttribute('tabindex') && how && how.anchor === el) el.setAttribute('tabindex', '-1');
     el.classList.add('is-menu');
@@ -2742,10 +2748,24 @@
     more.appendChild(dots);
     more.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); openMenu(el, { anchor: more }); });
     more.addEventListener('pointerdown', (e) => e.stopPropagation());
-    el.appendChild(more);
+    // o.row (23.11.2026, the row of actions under a message, В7.78): «⋯» is the last button of the message's own row
+    // under it — an element or a function that finds it (null — no row yet: no «⋯» until it comes; the menu still
+    // opens by the right button, a hold and the key). Without o.row — over the message, as before.
+    const home = () => {
+      if (!o.row) return el;
+      const r = typeof o.row === 'function' ? o.row() : o.row;
+      return r && r.isConnected !== false ? r : null;
+    };
+    if (o.row) more.classList.add('lex-answer-row-btn', 'is-in-row');
     // A message drawn again in place (a frame of an answer, the slicing into words) loses «⋯»: it comes back
-    // when the mouse or the focus comes.
-    const keepMore = () => { if (more.parentNode !== el) el.appendChild(more); };
+    // when the mouse or the focus comes. In a row it stays the last button.
+    const keepMore = () => {
+      const h = home();
+      if (!h) { if (more.parentNode) more.remove(); return; }
+      if (more.parentNode !== h || h.lastElementChild !== more) h.appendChild(more);
+    };
+    keepMore();
+    MORE.set(el, { keep: keepMore, more });
     el.addEventListener('pointerenter', keepMore);
     el.addEventListener('focusin', keepMore);
     el.addEventListener('pointerdown', (e) => { finger = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
@@ -2780,6 +2800,13 @@
       }, { when: () => finger && !el.classList.contains('is-text-select') });
     }
     return { open: (how) => openMenu(el, how || { anchor: more }), more, detach: () => { if (hold) hold.detach(); MENU.delete(el); more.remove(); } };
+  }
+
+  // «⋯» of a message put in its row again (the window calls it after it painted the row: a row that came after the
+  // message, a button that joined the row after «⋯»).
+  function placeMore(el) {
+    const m = el ? MORE.get(el) : null;
+    if (m) m.keep();
   }
 
   // ── Select: several messages at once ──────────────────────────────────────────────────────
@@ -2905,5 +2932,5 @@
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
-    attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
+    attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

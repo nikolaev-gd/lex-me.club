@@ -141,3 +141,6 @@
 }
 .lex-brain-marks .lex-choice:hover:not(:disabled) { background: var(--lex-brain-hover, rgba(127, 127, 127, 0.12)); }
 .lex-brain-marks .lex-choice:disabled { cursor: default; opacity: 0.55; }
+
+/* The time and «⋯» of the row of actions under a message (В7.78) — lex-message.css: it is loaded on every
+ * surface, this file is not (the standalone chat of the extension). */

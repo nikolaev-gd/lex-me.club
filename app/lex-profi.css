@@ -64,8 +64,13 @@
 .lex-bubbles > .wc-turn { margin-bottom: 6px; }
 .lex-bubbles > .wc-turn.lex-profi-msg { display: flex; flex-direction: column; }
 
-/* What the person wrote to the model: the bubble of the thread, grey, «To Lex» over it. */
-.lex-bubbles > .wc-turn-user > .lex-bubble { align-items: stretch; max-width: 86%; padding: 7px 12px 6px; }
+/* What the person wrote to the model: the bubble of the thread, grey, «To Lex» over it. No time inside (23.11.2026):
+ * the time stands in the row of actions under it, with the mouse over it (В7.78), as under one's own message to Lex
+ * everywhere. */
+.lex-bubbles > .wc-turn-user > .lex-bubble { align-items: stretch; max-width: 86%; padding: 8px 12px; }
+/* A talk with Lex in a chat of a person: its own message and its answer keep the room of their rows of actions (В7.78)
+ * — 16 under the row to the next message; the client's bubbles stay close, as in Telegram. */
+.lex-bubbles > .wc-turn-user, .lex-bubbles > .wc-turn-assistant.lex-profi-answer { margin-bottom: 20px; }
 .lex-bubbles > .wc-turn-user > .lex-bubble > .wc-bubble { padding: 0; border-radius: 0; background: none; }
 
 /* The model's word: a message without a bubble (В7.13) across the whole lane — no ground, no frame,
@@ -79,7 +84,7 @@
 .lex-profi-answer .lex-msg-time { font-size: 12px; }
 .lex-profi-only { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 12px; font-weight: 400; }
 .lex-profi-only svg { width: 12px; height: 12px; }
-.lex-bubbles > .lex-profi-answer > .wc-turn-foot { margin-top: 0; }
+.lex-bubbles > .lex-profi-answer > .wc-turn-foot { margin-top: 4px; }
 .lex-profi-boxes { display: flex; flex-direction: column; gap: 6px; }
 .lex-profi-words > :first-child { margin-top: 0; }
 .lex-profi-words > :last-child { margin-bottom: 0; }
@@ -164,9 +169,9 @@
 
 /* One message box in every chat (2026-11-13): an order chat has «+» with a picture and
  * «Text model», the microphone and the voice conversation like any chat. It has no row of
- * presets (the teacher's actions — the server refuses them here), no new chat (one chat per
- * order) and no second version of an answer (the server refuses it). */
+ * presets (the teacher's actions — the server refuses them here) and no new chat (one chat per
+ * order). It has no second version of an answer either (the server refuses it): the row under
+ * an answer here is Copy and «⋯» (wc-thread.js syncFeet gives it no model button and no Retry). */
 .wc-main.is-profi-chat #wc-mode-split,
-.wc-main.is-profi-chat .wc-new-chat,
-.wc-main.is-profi-chat .lex-answer-row { display: none !important; }
+.wc-main.is-profi-chat .wc-new-chat { display: none !important; }
 

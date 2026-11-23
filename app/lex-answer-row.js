@@ -12,6 +12,11 @@
 //      открывает меню моделей окна, выбор переспрашивает этот ответ выбранной
 //      моделью (сам переспрос и меню — у окна, модуль их не знает).
 // Под своим сообщением впереди всех ещё карандаш правки.
+// С 23.11.2026 строка — строка действий под КАЖДЫМ сообщением чата с Lex, как в claude.ai
+// (ios/Lex/STANDARD.md В7.78): под ответом — копирование, «Retry» (последний ответ, который можно
+// переспросить), версии, модель, «⋯» меню сообщения; под своим сообщением — время, карандаш,
+// копирование, «⋯». Где строка видна (последний ответ — всегда, остальные — по наведению или касанию),
+// решает окно своими стилями; «⋯» в строку ставит LexMessage.attachMenu({ row }).
 //
 // Цены в строке нет: цена под ответом — прибор разработчика, её ставит само
 // окно правее строки (расширение, shared.js pricePill).
@@ -38,6 +43,8 @@
     pencil: 'M4 20h4L19 9l-4-4L4 16v4zM15 5l4 4',
     prev: 'M14 6l-6 6 6 6',
     next: 'M10 6l6 6-6 6',
+    // Retry: two arrows round a circle, as under an answer of claude.ai (23.11.2026).
+    retry: 'M3 12a9 9 0 0 1 15.4-6.4L21 8M21 3v5h-5M21 12a9 9 0 0 1-15.4 6.4L3 16M3 21v-5h5',
   };
   const COPIED_MS = 1400;
 
@@ -157,8 +164,8 @@
         e.stopPropagation();
         if (typeof btn._lexOnClick === 'function') btn._lexOnClick(btn);
       });
-      // Модель — последней в строке, за копированием и переключателем версий.
-      row.appendChild(btn);
+      // Модель — за копированием и переключателем версий; «⋯» меню сообщения (если он в строке) — после неё.
+      row.insertBefore(btn, row.querySelector(':scope > .lex-msg-more'));
     }
     if (spec.title) {
       btn.title = spec.title;
@@ -191,7 +198,9 @@
         e.stopPropagation();
         if (typeof btn._lexOnClick === 'function') btn._lexOnClick(btn);
       });
-      row.insertBefore(btn, row.firstChild);
+      // First of the buttons; the time of the message, when it is there, stays before it.
+      const time = row.querySelector(':scope > .lex-answer-row-time');
+      row.insertBefore(btn, time ? time.nextSibling : row.firstChild);
     }
     if (spec.title) {
       btn.title = spec.title;
@@ -199,6 +208,67 @@
     }
     btn._lexOnClick = spec.onClick;
     return btn;
+  }
+
+  /**
+   * Retry under an answer (23.11.2026, the row of claude.ai): the answer asked again by the model it was written
+   * with. Right after Copy, before the version switcher and the model button. The window decides where it stands
+   * (the last answer that can be asked again) and what the press does.
+   * @param {HTMLElement} row строка из create
+   * @param {{title?: string, onClick: (btn: HTMLElement) => void}|null} spec null — no Retry in this row
+   * @returns {HTMLElement|null}
+   */
+  function setRetry(row, spec) {
+    if (!row) return null;
+    let btn = row.querySelector(':scope > .lex-answer-row-retry');
+    if (!spec) {
+      if (btn) btn.remove();
+      return null;
+    }
+    if (!btn) {
+      btn = button('lex-answer-row-retry', spec.title || 'Retry');
+      btn.appendChild(icon('retry'));
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof btn._lexOnClick === 'function') btn._lexOnClick(btn);
+        try { btn.blur(); } catch (_) { /* noop */ }
+      });
+      const copy = row.querySelector(':scope > .lex-answer-row-copy');
+      row.insertBefore(btn, copy ? copy.nextSibling : row.firstChild);
+    }
+    if (spec.title) {
+      btn.title = spec.title;
+      btn.setAttribute('aria-label', spec.title);
+    }
+    btn._lexOnClick = spec.onClick;
+    return btn;
+  }
+
+  /**
+   * The time of one's own message at the start of its row (23.11.2026, as in claude.ai: the time shows with the
+   * row, on hover). text '' or null — no time.
+   * @param {HTMLElement} row строка из create
+   * @param {string|null} text the time as the window writes it («21:08», «Вчера, 21:08»)
+   * @param {string} [title] the whole date under the cursor
+   * @returns {HTMLElement|null}
+   */
+  function setTime(row, text, title) {
+    if (!row) return null;
+    let node = row.querySelector(':scope > .lex-answer-row-time');
+    if (!text) {
+      if (node) node.remove();
+      return null;
+    }
+    if (!node) {
+      node = document.createElement('span');
+      node.className = 'lex-answer-row-time';
+      node.setAttribute('data-lex-skip', '');
+      row.insertBefore(node, row.firstChild);
+    }
+    if (node.textContent !== text) node.textContent = text;
+    if (title) node.title = title; else node.removeAttribute('title');
+    return node;
   }
 
   /**
@@ -435,5 +505,5 @@
     return box;
   }
 
-  global.LexAnswerRow = { create, setModel, setEdit, setVersions, sync, modelLabel, modelIdOfCharge, copyText, brainMarksNode };
+  global.LexAnswerRow = { create, setModel, setEdit, setRetry, setTime, setVersions, sync, modelLabel, modelIdOfCharge, copyText, brainMarksNode };
 })(typeof window !== 'undefined' ? window : globalThis);

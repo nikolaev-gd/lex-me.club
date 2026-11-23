@@ -4546,6 +4546,9 @@
     WcThread.setUnsentHook(onUnsent);
     WcThread.init({
       onPickModel: pickModelForAnswer,
+      // Retry under the last answer (23.11.2026, as in claude.ai): the same answer asked again by the model that wrote
+      // it — no model given, the backend takes the one of that answer (wc-backend.js, WC_REGENERATE).
+      onRetry: (turn) => regenerate(turn, null),
       onEdit: editTurn,
       // ‹ 1 / 2 › under one's own message: another version of it (select_turn).
       onSwitchVersion: (uid) => { switchVersion(uid); },

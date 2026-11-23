@@ -135,28 +135,32 @@
   // сервер отправит той же заготовкой сам.
   // The menu of one's own message (block 2, 2026-11-18): the common menu of a message (LexMessage.attachMenu) —
   // Copy, Select, and Edit where it was before (an order chat has no second version of a message).
-  function userMessageMenu(bubble, opts) {
+  // Edit of one's own message — the same from its menu and from the pencil of its row.
+  // У хода заготовки правится только фраза: строку заготовки править
+  // нельзя, она встаёт сама при отправке через ту же пилюлю.
+  // In a chat of a person (19.11.2026) too: the words go back into the field and the next send is a new word to Lex or,
+  // by a hold of the arrow, to the person. A chat of a person has no presets and no chosen words: no slot, no source.
+  // Edit in place (chat_edit_in_place.sql, 23.11.2026): a message the server lists as `editable` — the arrow makes a
+  // new version of it, its answer is written anew in its place (wc-app.js editTurn → sendEdit).
+  function editUser(bubble, opts) {
+    const turn = bubble.closest('.wc-turn-user');
+    const uid = (turn && turn.dataset.uid) || null;
+    return hooks.onEdit && hooks.onEdit(
+      (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
+      profiChat ? null : ((opts && opts.presetSlot) || null),
+      profiChat ? null : uid,
+      { inPlace: !!(uid && turn && turn.dataset.editable === '1'), uid });
+  }
+  function userMessageMenu(bubble, opts, row) {
     const turnOf = () => bubble.closest('.wc-turn-user');
     global.LexMessage.attachMenu(bubble, {
       side: 'out',
       text: () => userText(bubble),
       at: () => { const t = turnOf(); return (t && t.dataset.at) || null; },
       host: elTurns,
-      // У хода заготовки правится только фраза: строку заготовки править
-      // нельзя, она встаёт сама при отправке через ту же пилюлю.
-      // In a chat of a person (19.11.2026) too: the words go back into the field and the next send is a new word to Lex or,
-      // by a hold of the arrow, to the person. A chat of a person has no presets and no chosen words: no slot, no source.
-      // Edit in place (chat_edit_in_place.sql, 23.11.2026): a message the server lists as `editable` — the arrow makes a
-      // new version of it, its answer is written anew in its place (wc-app.js editTurn → sendEdit).
-      edit: () => {
-        const turn = turnOf();
-        const uid = (turn && turn.dataset.uid) || null;
-        return hooks.onEdit && hooks.onEdit(
-          (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
-          profiChat ? null : ((opts && opts.presetSlot) || null),
-          profiChat ? null : uid,
-          { inPlace: !!(uid && turn && turn.dataset.editable === '1'), uid });
-      },
+      // «⋯» — the last button of the row under the message (В7.78), not a circle beside the bubble.
+      row: row || null,
+      edit: () => editUser(bubble, opts),
       // «Send to … now» (19.11.2026): in a chat with a person behind it (an order, a person of a folder) a word to
       // Lex that was meant for him goes to him as it stands, at once, without the model — the first item of the
       // menu of the arrow of the field (profiChat.sendNow). The answer of Lex to it, still being written, stops.
@@ -262,11 +266,17 @@
     }
     // A picture or a file without words is a message without a bubble (as in Telegram).
     if (String(text || '').trim() || !parts.length) parts.push(bubble);
+    // The row of actions under one's own message (23.11.2026, as in claude.ai; В7.78): the time, Edit, Copy, «⋯» —
+    // under the bubble at its right edge, seen with the mouse over the message (or after a touch of it); its place
+    // is always kept, so the lane never jumps. The time is put by syncFeet (the turn gets its moment after it is drawn).
+    const row = questionRow(bubble, opts);
+    const foot = el('.wc-turn-foot.wc-turn-foot-question', {}, [row]);
     // Меню висит на ПУЗЫРЕ, а не на всей строке: строка тянется во всю ширину
     // ленты, и удержание в пустоте справа от короткого «hi» открывало бы меню
     // ниоткуда.
-    userMessageMenu(bubble, opts);
-    const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts)]);
+    userMessageMenu(bubble, opts, row);
+    const turn = el('.wc-turn.wc-turn-user', {}, [el('div', {}, parts), foot]);
+    turn._lexDrawnAt = Date.now();
     if (opts && opts.presetSlot) turn.dataset.presetSlot = String(opts.presetSlot);
     return turn;
   }
@@ -278,7 +288,10 @@
   function paintVersions(node, t) {
     const v = t && t.versions;
     if (!v || v.total < 2 || t.editable !== true || !global.LexAnswerRow || !global.LexAnswerRow.setVersions) return;
-    const row = el('.lex-answer-row.wc-user-versions');
+    // In the row of actions under the message (В7.78), which then stays shown (wc-app.css, .has-flip); a line of its
+    // own only where the message has no row.
+    const own = node.querySelector(':scope > .wc-turn-foot > .lex-answer-row');
+    const row = own || el('.lex-answer-row.wc-user-versions');
     const go = (step) => {
       const uid = v.uids[v.idx - 1 + step];
       if (!uid || busyNow() || !hooks.onSwitchVersion) return;
@@ -292,7 +305,7 @@
     // On the row of the message, not in its `> div`: in a chat with a person that div is the bubble itself
     // (lex-profi.js, dress). The row takes the whole width under the bubble (wc-app.css, .has-versions).
     node.classList.add('has-versions');
-    node.append(row);
+    if (!own) node.append(row);
   }
   const busyNow = () => live.size > 0;
 
@@ -314,6 +327,28 @@
     });
   }
   const copyAnswer = (bubble) => global.LexMessage.copyText(global.LexMessage.plainOf(bubble), global.LexMessage.htmlOf(bubble));
+  // The row under one's own message: Copy — its words as they were written; Edit — the same as Edit of its menu.
+  function questionRow(bubble, opts) {
+    const row = global.LexAnswerRow.create({
+      getText: () => userText(bubble),
+      copyLabel: 'Copy',
+      onCopied: (ok) => { if (!ok) toast('The browser refused clipboard access', { error: true }); },
+    });
+    if (hooks.onEdit) global.LexAnswerRow.setEdit(row, { title: 'Edit', onClick: () => editUser(bubble, opts) });
+    return row;
+  }
+  // The time in the row of one's own message: «21:08»; another day — «Вчера, 21:08», «12 ноября, 21:08».
+  function rowTime(at) {
+    const M = global.LexMessage;
+    if (!at || !M) return { text: '', title: '' };
+    const time = M.timeOf(at);
+    const day = M.dayOf(at);
+    const d = new Date(at);
+    return {
+      text: !time ? '' : (!day || day === 'Сегодня') ? time : day + ', ' + time,
+      title: Number.isFinite(d.getTime()) ? d.toLocaleString() : '',
+    };
+  }
   // The menu of a model's answer, of a news and of a record (block 2): on the turn, the words are its bubble — a
   // bubble is drawn again on every frame of an answer, the turn stays.
   function answerMenu(turn, bubble, o) {
@@ -350,7 +385,8 @@
     const foot = el('.wc-turn-foot', {}, [answerRow(() => turn.dataset.raw || '', () => turn.querySelector('.wc-bubble'))]);
     const turn = el('.wc-turn.wc-turn-assistant', {}, [bubble, foot]);
     turn.dataset.raw = text || '';
-    answerMenu(turn, bubble);
+    // «⋯» of the answer — the last button of its row (В7.78); a voice answer has no row, so no «⋯» either.
+    answerMenu(turn, bubble, { row: () => turn.querySelector(':scope > .wc-turn-foot > .lex-answer-row') });
     // Готовый ответ (история, реплей) режется сразу; пустой — это открытый
     // поток, его режет done() по концу. Резать во время потока бессмысленно по
     // построению: WcMarkdown.into на каждом кадре делает replaceChildren, то
@@ -800,8 +836,11 @@
       }
       const row = foot ? foot.querySelector('.lex-answer-row') : null;
       entries.push({
+        turn: t,
         row,
-        eligible: !!row && lastOf.get(threadOfTurn(t)) === t
+        // A chat of a person or an order has no second version of an answer (the server refuses it): no model button
+        // and no Retry there — Copy and «⋯» only.
+        eligible: !!row && !profiChat && lastOf.get(threadOfTurn(t)) === t
           && !t.classList.contains('is-streaming')
           && !t.classList.contains('wc-turn-error')
           && !t.classList.contains('wc-turn-gate'),
@@ -815,6 +854,30 @@
     // Отбор «последний» сделан выше, по беседам; общее правило ленты — только
     // «готовый текстовый».
     global.LexAnswerRow.sync(entries, { everyAnswer: true });
+    // Retry (23.11.2026, as in claude.ai): where the model button stands — the answer asked again by its own model.
+    for (const e of entries) {
+      if (!e.row) continue;
+      global.LexAnswerRow.setRetry(e.row, e.eligible && hooks.onRetry
+        ? { title: 'Retry', onClick: () => hooks.onRetry(e.turn) } : null);
+      global.LexMessage.placeMore(e.turn);
+    }
+    // The last answer of the lane shows its row always; the earlier ones — with the mouse over them or after a touch
+    // (wc-app.css). One that is still being written has no row yet, and then none is «last».
+    const lastAnswer = turns.length ? turns[turns.length - 1] : null;
+    const lastFoot = lastAnswer && !lastAnswer.classList.contains('is-streaming')
+      ? lastAnswer.querySelector(':scope > .wc-turn-foot') : null;
+    for (const f of elTurns.querySelectorAll('.wc-turn-foot.is-last')) if (f !== lastFoot) f.classList.remove('is-last');
+    if (lastFoot) lastFoot.classList.add('is-last');
+    // The rows of one's own messages: the time of each (the moment of the turn; a turn just sent — when it was drawn).
+    for (const u of elTurns.querySelectorAll(':scope > .wc-turn-user')) paintQuestionTime(u);
+  }
+  function paintQuestionTime(u) {
+    const row = u && u.querySelector(':scope > .wc-turn-foot > .lex-answer-row');
+    if (!row) return;
+    const at = u.dataset.at || (u._lexDrawnAt ? new Date(u._lexDrawnAt).toISOString() : null);
+    const time = rowTime(at);
+    global.LexAnswerRow.setTime(row, time.text, time.title);
+    global.LexMessage.placeMore(u.querySelector('[data-lex-menu]'));
   }
 
   // Прежний ответ вернуть на место: переспрос не дал ни слова (отказ, «стоп»
@@ -922,6 +985,22 @@
         if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
         if (t && t !== document.body && t !== document.documentElement && !elThread.contains(t)) return;
         leave();
+      });
+
+      // A finger has no hover (23.11.2026, В7.78): a touch of a message of a talk with Lex shows its row of actions —
+      // one message at a time; a touch of another moves it there, a second touch of the same one hides it. The last
+      // answer shows its row anyway. A touch of a button, a link or a field is that control's own.
+      let touchDown = false;
+      elTurns.addEventListener('pointerdown', (e) => { touchDown = e.pointerType === 'touch' || e.pointerType === 'pen'; }, true);
+      elTurns.addEventListener('click', (e) => {
+        if (!touchDown) return;
+        touchDown = false;
+        const t = e.target;
+        if (t && t.closest && t.closest('button, a[href], input, textarea, select, [contenteditable="true"]')) return;
+        const turn = t && t.closest ? t.closest('#wc-turns > .wc-turn') : null;
+        const on = turn && turn.querySelector(':scope > .wc-turn-foot > .lex-answer-row') ? turn : null;
+        for (const n of elTurns.querySelectorAll(':scope > .wc-turn.is-touched')) if (n !== on) n.classList.remove('is-touched');
+        if (on) on.classList.toggle('is-touched');
       });
 
       // After a press on a quote the button «down» first brings the reader back to where he pressed it (as in
@@ -1291,8 +1370,10 @@
       const node = userTurn(global.LexWordPick.presetBubbleText(pp), imgs,
         { presetSlot: old.dataset.presetSlot, editText: pp.phrase, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
+      if (old.dataset.at) node.dataset.at = old.dataset.at;
       old.replaceWith(node);
       carryApart(old, node);
+      paintQuestionTime(node);
     },
 
     // Пузырь «translate» из выбранного материала — материалом и допечатанным:
@@ -1305,8 +1386,10 @@
       const node = userTurn(global.LexWordPick.pickBubbleText(pick, rest), imgs,
         { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
+      if (old.dataset.at) node.dataset.at = old.dataset.at;
       old.replaceWith(node);
       carryApart(old, node);
+      paintQuestionTime(node);
     },
 
     // Отдельный разговор заготовки. При нажатии пилюли (режим из списка) —
@@ -1334,6 +1417,7 @@
       const node = userTurn(text, images, opts);
       node.dataset.at = new Date().toISOString();
       elTurns.append(node);
+      paintQuestionTime(node);
       remark();
       if (profiChat) profiChat.paintHidden(elTurns);
       stickToBottom = true;
@@ -1396,6 +1480,9 @@
         ? global.LexMessage.unsent(o)
         : null;
       if (part) { part.classList.add('lex-unsent-note'); turn.append(part); }
+      // Its own buttons stand under it (Retry, Edit, Delete): no row of actions as well (В7.78).
+      const foot = turn.querySelector(':scope > .wc-turn-foot');
+      if (foot) foot.hidden = true;
       syncFeet();
     },
 
@@ -1550,7 +1637,7 @@
       const priced = !!(show && money.stepPriced);
       if (!money) liveStep.reset();
       for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
-        const old = t.querySelector(':scope > .wc-turn-foot > .wc-price, :scope > div > .wc-turn-foot > .wc-price');
+        const old = t.querySelector(':scope > .wc-turn-foot > .wc-price');
         const a = show && money.answers ? money.answers.get(t.dataset.uid) : null;
         const usd = !a ? null
           : priced ? M.stepUsd(a)
@@ -1559,17 +1646,12 @@
           if (old) { if (global.LexStepPopup) LexStepPopup.detach(old); old.remove(); }
           continue;
         }
-        let foot = t.classList.contains('wc-turn-user')
-          ? t.querySelector(':scope > div > .wc-turn-foot')
-          : t.querySelector(':scope > .wc-turn-foot');
+        // The foot of a question (its row of actions, В7.78) and of an answer — a child of the turn, under its words.
+        let foot = t.querySelector(':scope > .wc-turn-foot');
         if (!foot) {
           foot = el('.wc-turn-foot');
-          if (t.classList.contains('wc-turn-user')) {
-            foot.classList.add('wc-turn-foot-question');
-            (t.firstElementChild || t).append(foot);
-          } else {
-            t.append(foot);
-          }
+          if (t.classList.contains('wc-turn-user')) foot.classList.add('wc-turn-foot-question');
+          t.append(foot);
         }
         const node = old || el('span.wc-price');
         node.textContent = M.format(usd);

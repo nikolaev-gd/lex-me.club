@@ -754,15 +754,6 @@
   // of Profi. Messages of the client from Max, Telegram or WhatsApp come named (`channels`).
   const CHANNEL = 'profi';
 
-  // The time under a bubble the thread made: one line, made once, kept last before `before`.
-  function stampOf(host, at, before) {
-    let line = host.querySelector(':scope > .lex-stamp');
-    if (!line) {
-      line = global.LexMessage.stamp({ at });
-      if (!line.childElementCount) return;
-    }
-    if (before) host.insertBefore(line, before); else host.appendChild(line);
-  }
 
   // The words of a message of the monitor as its bubble shows them: the links to its photos and the marks
   // of its files the bubble draws itself are out (the quote of it and Copy take the same words).
@@ -1535,7 +1526,7 @@
             label.append(M.sparkle(12), document.createTextNode('To Lex'));
             box.prepend(label);
           }
-          stampOf(box, t.dataset.at);
+          // The time of the word is not in the bubble: it stands in the row of actions under it (В7.78, wc-thread.js).
         }
         // The model's word: a message without a bubble (В7.13) across the whole lane — the sparkle
         // of Lex, «Lex», the time, «only you see this»; its text under it, its drafts on the right.
