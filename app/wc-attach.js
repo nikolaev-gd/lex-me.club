@@ -684,6 +684,19 @@
       return { mime: rec.mime, data: await blobToBase64(rec.blob) };
     },
 
+    // A picture of an earlier turn for the model (wc-backend.js, carryLastPicture): the blob of this browser by its
+    // key, else the copy cached under its path, else the bucket. { mime, data } or null — never throws.
+    async pictureData(key, path) {
+      const read = async (k) => { try { return k ? await get(k) : null; } catch (_) { return null; } };
+      let rec = (await read(key)) || (await read(path));
+      let blob = rec && rec.blob;
+      if (!blob && path) { try { blob = await fetchFromBucket(path); } catch (_) { blob = null; } }
+      if (!blob) return null;
+      const mime = (rec && rec.mime) || blob.type || 'image/jpeg';
+      if (!/^image\/(png|jpeg|gif|webp)$/.test(mime)) return null;
+      try { return { mime, data: await blobToBase64(blob) }; } catch (_) { return null; }
+    },
+
     // Exposed for the scenario set, which feeds a file straight in rather than
     // driving a native file dialog.
     accept,

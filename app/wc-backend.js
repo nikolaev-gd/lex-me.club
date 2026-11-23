@@ -779,6 +779,24 @@
     return WcStore.one(TURN_IMAGES_KEY, {});
   }
 
+  // The last picture of the conversation rides on its own turn when the new message has none (2026-11-23): the
+  // server's chain does the same for the iPhone and the extension (llm-proxy fetchChatChain: one picture, the latest).
+  // Without it the model on the next turn saw no picture at all and took back what it had read on it. One picture,
+  // never more: every picture of a long conversation on every turn would multiply the bill.
+  async function carryLastPicture(turns, messages) {
+    const imgs = await turnImages();
+    for (let i = Math.min(turns.length, messages.length) - 1; i >= 0; i--) {
+      const t = turns[i];
+      if (!t || t.role !== 'user' || messages[i].role !== 'user' || typeof messages[i].content !== 'string') continue;
+      const ref = (t.uid && imgs[t.uid]) || null;
+      const path = (ref && ref.path) || t.imagePath || null;
+      if (!ref && !path) continue;
+      const pic = await WcAttach.pictureData(ref && ref.key, path);
+      if (pic) messages[i] = { role: 'user', content: [{ type: 'text', text: messages[i].content }, { type: 'image', mime: pic.mime, data: pic.data }] };
+      return;
+    }
+  }
+
   const BACKFILL_PER_OPEN = 5;
   const backfillBusy = new Set();
 
@@ -835,7 +853,11 @@
     // An answer still without a word (the server writes it, chat_turn_live.sql) is no turn of the
     // teacher yet: the list goes on as it did before the read gave such answers.
     .filter((t) => !(t.role === 'assistant' && !String(t.text || '').trim()))
-    .map((t) => ({ role: t.role, text: (t.role === 'user' && t.later) || t.text, uid: t.uid || WcHistory.newUid(), model: t.model || null }));
+    .map((t) => {
+      const pic = t.role === 'user' && (t.attachments || []).find((a) => a && a.kind === 'image' && a.path);
+      return { role: t.role, text: (t.role === 'user' && t.later) || t.text, uid: t.uid || WcHistory.newUid(), model: t.model || null,
+        ...(pic ? { imagePath: pic.path } : {}) };
+    });
 
   function setOpen(id, turns, apart) {
     openId = id;
@@ -1363,9 +1385,10 @@
     // The picture rides as a neutral block beside the text, and ONLY on the
     // turn that carries it: the text block must come first (the server writes
     // its prompt prefix into it), the data is bare base64 with no `data:`
-    // prefix, and one image per message. Older turns keep their text only —
-    // re-sending every picture of a long conversation on every turn would
-    // multiply the bill by the number of pictures in it.
+    // prefix, and one image per message. Older turns keep their text only,
+    // except the LAST picture of the conversation when this message has none
+    // (carryLastPicture) — re-sending every picture of a long conversation on
+    // every turn would multiply the bill by the number of pictures in it.
     const messages = (placed ? buf : buf.concat([question])).map((t) => ({ role: t.role, content: t.text }));
     // Обещание загрузки картинки в бакет; null, когда картинки нет.
     let uploading = null;
@@ -1381,6 +1404,8 @@
       // Загрузка в бакет идёт ПАРАЛЛЕЛЬНО с запросом к учителю: ответ модели
       // всё равно дольше. Забираем её ниже, ровно в момент записи реплики.
       uploading = WcAttach.upload(attachment.key, writeKey);
+    } else if (!isEdit && global.LexModelRegistry.visionSupported(modelId)) {
+      await carryLastPicture(placed ? buf : buf.concat([question]), messages).catch(() => {});
     }
 
     // Files of this message (lex-file-attach.js): uploaded when picked, their paths known. The
