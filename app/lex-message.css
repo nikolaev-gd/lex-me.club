@@ -784,6 +784,13 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 .lex-btn.is-left:has(> .lex-btn-note) { padding: 6px 12px; }
 .lex-btn .lex-btn-words { overflow-wrap: anywhere; }
 .lex-btn .lex-btn-note { font-size: 12px; font-weight: 400; line-height: 16px; }
+/* Stop of a development task under its row mac:<N> while it runs (В7.77): the second button of its own width, 8 under
+ * the words; the square 16 of Stop before «Stop». */
+.lex-task-stop { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin-top: 8px; }
+.lex-task-stop[hidden], .lex-task-stop-why[hidden] { display: none; }
+.lex-task-stop .lex-btn { padding: 0 16px; }
+.lex-task-stop-why { font-size: 13px; line-height: 18px; color: var(--danger, #ff6b6b); }
+
 /* A press on its way: a ring turns after the words of the pressed button. */
 .lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after {
   content: ''; display: inline-block; box-sizing: border-box; width: 12px; height: 12px; margin-left: 8px;

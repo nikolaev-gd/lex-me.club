@@ -82,6 +82,8 @@
     'lex_patch_user_settings',
     // subscription or API tokens of Claude (claude_route.sql): asked at the «+», never kept
     'lex_claude_route',
+    // Stop under a running development task of Lex (dev_tasks.sql): a press, never kept
+    'lex_dev_stop',
     // the moment a chat was last open: taken and written, never shown from a copy
     'lex_chat_seen',
     // what became of a message after a broken connection (chat_turn_fate.sql): asked live, never kept

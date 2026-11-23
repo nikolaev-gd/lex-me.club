@@ -1234,6 +1234,11 @@
           if (t.authoredAt) turn.dataset.at = t.authoredAt;
           if (t.threadKey) markApart(turn, t.threadKey);
           if (profiChat) profiChat.paintAnswer(turn, turn.querySelector('.wc-bubble'), t.text, WcMarkdown, false);
+          // A development task of Lex still running (a «mac:N» row, streaming — Claude Code in the cloud or on the
+          // Mac): Stop under it, from the server's answer only (docs/spec/20-chat.md, «Стоп задания»).
+          const devTask = opts && opts.follow && global.LexMessage && LexMessage.devTaskOf
+            ? LexMessage.devTaskOf(t.uid, t.state) : null;
+          if (devTask && hooks.onDevStop) turn.appendChild(LexMessage.taskStop({ onStop: () => hooks.onDevStop(devTask) }));
           elTurns.append(turn);
         }
       });

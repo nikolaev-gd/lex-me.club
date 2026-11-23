@@ -97,6 +97,11 @@
 //                       person's bubble when Lex did not take the message (В7.47, 2026-11-16): the red
 //                       «Not sent» and the reason, «Top up» (money only), «Retry», «⋯» with «Edit» and
 //                       «Delete»; `sending` — a retry on its way. The person's row carries `lex-unsent`.
+//   taskStop({ onStop })   Stop of a development task under its row mac:<N> while it runs (В7.77,
+//                       2026-11-23): the second button of its own width, a square and «Stop»; a press turns the
+//                       ring at once, onStop() → Promise: resolved — the button goes (the row comes back
+//                       «остановлено» by the signal), rejected — it is back and the caller says why.
+//                       devTaskOf(uid, state) — the number N of a row mac:<N> that is «streaming», else null
 //                       el.update(o) redraws it in place
 //   question(v, o)      a question of the database as one message: v is its view from the server
 //                       (lex_em_question_view: text, choices, state, answer, reason). Waiting — the
@@ -1647,6 +1652,43 @@
     return b;
   }
 
+  // ── Stop of a development task (В7.77, 2026-11-23) ───────────────────────────
+  // A row mac:<N> of a chat of Lex is the work of Claude Code on a task from this chat — in the cloud or on the Mac
+  // (supabase/migrations/dev_tasks.sql). While it runs (state «streaming») it has Stop under its words, on every
+  // surface; the press asks the database (lex_dev_stop), and the cloud or the Mac stops before its next step.
+  function devTaskOf(uid, state) {
+    const m = /^mac:(\d+)$/.exec(String(uid || ''));
+    return m && state === 'streaming' ? Number(m[1]) : null;
+  }
+  function taskStop(o) {
+    const wrap = make('div', 'lex-task-stop');
+    const mark = svg('0 0 24 24', 16);
+    mark.appendChild(shape('path', { d: 'M7 7h10v10H7z', fill: 'currentColor' }));   // the square of Stop, as in the field
+    const b = button({ label: 'Stop', icon: mark });
+    b.classList.add('lex-task-stop-btn');
+    b.setAttribute('aria-label', 'Stop the task');
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (b.disabled) return;
+      b.disabled = true;
+      b.classList.add('is-busy');
+      why.hidden = true;
+      Promise.resolve().then(() => o.onStop()).then(() => { wrap.hidden = true; }, (err) => {
+        b.disabled = false;
+        b.classList.remove('is-busy');
+        // The refusal in words under the button: the same on every surface, no toast needed.
+        const said = /"message"\s*:\s*"([^"]+)"/.exec(String((err && err.message) || ''));
+        why.textContent = 'Not stopped. ' + (said ? said[1] : ((err && err.message) || 'no answer'));
+        why.hidden = false;
+      });
+    });
+    const why = make('div', 'lex-task-stop-why');
+    why.hidden = true;
+    wrap.append(b, why);
+    return wrap;
+  }
+
   // ── «Who is this» under the bar of a chat (В7.52, 2026-11-20) ────────────────
   // One or two phrases about the person the chat is with — his post, his company, what he does, where he came
   // from. The database of Lex writes them (the cards of people kept up to date after a message and a call); the
@@ -2861,7 +2903,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

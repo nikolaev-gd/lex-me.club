@@ -4535,6 +4535,10 @@
     }).catch((err) => console.warn('[wc] the page on the device:', err && err.message));
   }
 
+  // Stop of a development task (lex_dev_stop, dev_tasks.sql): the row says «остановлено» by itself through the feed;
+  // a refusal is said under the button (LexMessage.taskStop).
+  const stopDevTask = (task) => WcHistory.rpc('lex_dev_stop', { p_task: task });
+
   async function boot() {
     keepPageOnDevice();
     await WcSettings.applyStored();
@@ -4551,6 +4555,8 @@
       onStopCurrent: stopStream,
       // The thread got its first word or was cleared: the main page gives way or comes back.
       onEmpty: paintHome,
+      // Stop under a running development task of Lex («mac:N»): the database stops it and rewrites its row.
+      onDevStop: stopDevTask,
     });
     refreshTextModelLabel();
     WcStore.subscribe((changes) => {
