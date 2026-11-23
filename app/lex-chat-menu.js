@@ -17,37 +17,52 @@
 // the line of the chat stands on --bg-hover while the menu is open. Delete chat asks first (the
 // dialog В7.16, the window's own `confirm`).
 //
+// «Open in new window» (2026-11-23, lex-chat-window.js, В7.79) stands first where the line names the place of
+// its chat (`window`) and the surface has windows; the same line opens its window by a Cmd-click (Ctrl-click
+// on Windows and Linux) and, in the Mac app and the extension, by dragging it out. A list whose lines have no
+// actions of the server (the task chats of an agent) gives only `window`: its menu is that one item.
+//
 // Gives global.LexChatMenu:
-//   items(o)            the items: o = { pinned, unread, important, act(name), rename(), remove() };
-//                       important true or false — the list has the mark, absent — it has not
-//   open(o)             the menu: o = { row, title, at: {x, y}, pinned, unread, important, act, rename, remove, onClose }
+//   items(o)            the items: o = { window, pinned, unread, important, act(name), rename(), remove() };
+//                       window — the place of the chat (lex-chat-window.js), absent — no window for it;
+//                       Pin and Read only with act; important true or false — the list has the mark,
+//                       absent — it has not; Delete chat only with remove
+//   open(o)             the menu: o = { row, title, at: {x, y}, window, pinned, unread, important, act, rename,
+//                       remove, layer, onClose }
 //   attach(row, get)    a right click, a hold on a touch screen and the key of the menu open it on
-//                       this line; get() → o of open() at the moment of the press, or null
+//                       this line, a Cmd/Ctrl-click and a drag open its window; get() → o of open() at
+//                       the moment of the press, or null
 //   remove(o)           asks «Delete this chat?» and acts: o = { confirm, text, act } → Promise<boolean>
 (function (global) {
   'use strict';
 
   function items(o) {
-    const out = [
-      o.pinned
+    const out = [];
+    const win = o.window && global.LexChatWindow ? global.LexChatWindow.item(o.window) : null;
+    if (win) out.push(win);
+    const acts = typeof o.act === 'function';
+    if (acts) {
+      out.push(o.pinned
         ? { label: 'Unpin', icon: 'pinOff', run: () => o.act('unpin') }
-        : { label: 'Pin', icon: 'pin', run: () => o.act('pin') },
-      o.unread
+        : { label: 'Pin', icon: 'pin', run: () => o.act('pin') });
+      out.push(o.unread
         ? { label: 'Mark as read', icon: 'read', run: () => o.act('read') }
-        : { label: 'Mark as unread', icon: 'unread', run: () => o.act('unread') },
-    ];
-    if (typeof o.important === 'boolean') {
+        : { label: 'Mark as unread', icon: 'unread', run: () => o.act('unread') });
+    }
+    if (acts && typeof o.important === 'boolean') {
       out.push(o.important
         ? { label: 'Unmark important', icon: 'bellOff', run: () => o.act('unimportant') }
         : { label: 'Mark as important', icon: 'bell', run: () => o.act('important') });
     }
     if (typeof o.rename === 'function') out.push({ label: 'Rename', icon: 'pencil', run: () => o.rename() });
-    out.push({ label: 'Delete chat', icon: 'trash', danger: true, run: () => o.remove() });
+    if (typeof o.remove === 'function') out.push({ label: 'Delete chat', icon: 'trash', danger: true, run: () => o.remove() });
     return out;
   }
 
   function open(o) {
     if (!o || !o.row || !global.LexSendLater) return null;
+    const list = items(o);
+    if (!list.length) return null;
     const r = o.row.getBoundingClientRect();
     return global.LexSendLater.menu({
       plain: true,
@@ -57,7 +72,9 @@
       // A hold or the key of the menu: under the line, at its start.
       at: o.at || { x: r.left + 16, y: r.bottom - 6 },
       head: o.title || '',
-      items: items(o),
+      items: list,
+      // The windows of the extension stand over the page: the menu goes into their layer.
+      layer: o.layer || null,
       onClose: o.onClose,
     });
   }
@@ -87,6 +104,7 @@
         show(null);
       }
     });
+    if (global.LexChatWindow) global.LexChatWindow.wire(row, () => { const o = get(); return (o && o.window) || null; });
   }
 
   // Delete chat asks first; the text says what goes and what stays.

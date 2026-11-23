@@ -89,6 +89,8 @@
         const act = (name) => chatAct(c, name, o);
         global.LexChatMenu.attach(line, () => ({
           title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
+          // Open in new window (В7.79): the chat as a notification of the folder names it.
+          window: c.chatKey ? { kind: 'folder_message', chatKey: c.chatKey, folder: deps.folder || '' } : null,
           important: global.LexSection.isImportant(c.chatKey),
           remove: () => global.LexChatMenu.remove({ confirm: deps.confirm, text: DELETE_TEXT, act }),
         }));

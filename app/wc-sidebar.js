@@ -74,6 +74,8 @@
     const act = (name) => (name === 'delete' ? hooks.onDelete(it.id) : hooks.onAct(it.id, name));
     return {
       title: t.untitled ? 'Chat' : t.text,
+      // Open in new window (В7.79): the conversation by its key.
+      window: { chatKey: it.id },
       pinned: !!it.pinned,
       unread: !!it.unread,
       act,
@@ -326,6 +328,8 @@
     toggle(open) {
       const collapsed = elRoot.classList.contains('is-sidebar-collapsed');
       const want = open === undefined ? collapsed : open;
+      // A window of one chat (?window=chat, lex-chat-window.js, В7.79) has no panel: neither ☰ nor the swipe opens it.
+      if (want && document.documentElement.dataset.lexWindow === 'chat') return;
       elRoot.classList.toggle('is-sidebar-collapsed', !want);
       // Щелчок под пальцем на ЗАЩЁЛКИВАНИИ — в тот кадр, где меняется класс и
       // начинается доводка. Не во время протяжки: `pointermove` приходит на

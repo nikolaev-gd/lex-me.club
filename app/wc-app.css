@@ -509,6 +509,17 @@ button { font: inherit; color: inherit; }
 }
 .wc-scrim[hidden] { display: none; }
 
+/* A window of one chat (?window=chat, lex-chat-window.js, ios/Lex/STANDARD.md В7.79): the head of the chat, the feed
+   and the field, nothing else — no panel, no main page with its tabs, no pencil of a new chat. The three lines and
+   the arrow back go by the one rule of the solo view (data-lex-solo="1", lex-section.css, В7.76). Both marks are put
+   by the head of index.html from the address, so the first frame is already so. */
+html[data-lex-window="chat"] .wc-sidebar,
+html[data-lex-window="chat"] .wc-scrim,
+html[data-lex-window="chat"] .wc-home,
+html[data-lex-window="chat"] .wc-people-tabs,
+html[data-lex-window="chat"] .wc-people-gear,
+html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
+
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
 /* The history is a DRAWER at every width, not a column that turns into one

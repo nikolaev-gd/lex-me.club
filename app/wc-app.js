@@ -25,6 +25,18 @@
   // differently replaces one line rather than every call site.
   const WcAuth = global.LexWebAuth;
 
+  // ── A window of one chat (2026-11-23, lex-chat-window.js, STANDARD.md В7.79) ──────────────────────
+  // ?window=chat&key=… — this page is a window of that chat alone: its head, the feed, the field, alive as
+  // every chat of the page. No panel, no main page, no ☰, no arrow back (wc-app.css, html[data-lex-window]);
+  // the chat opens by the path of a notification (openFromNotification) instead of the place the Mac app keeps,
+  // and this window keeps no place of its own: the main window of the Mac app does.
+  const soloChat = global.LexChatWindow ? global.LexChatWindow.solo() : null;
+  if (soloChat) {
+    document.documentElement.dataset.lexWindow = 'chat';
+    // The solo view of the corner of the bar (В7.76): neither the three lines nor the arrow back.
+    document.documentElement.dataset.lexSolo = '1';
+  }
+
   const state = {
     conversationId: null,    // null = a new, not yet sent conversation
     conversations: [],
@@ -2483,7 +2495,8 @@
   // picked, an empty place with the mark of Lex and the capsule at its bottom right (no chat is made before a word goes);
   // «Activity» puts the journal there. The arrow leads the folder back to the list.
   const SPLIT_WIDE = '(min-width: 1024px)';
-  const wideMq = global.matchMedia ? global.matchMedia(SPLIT_WIDE) : { matches: false, addEventListener() {} };
+  // A window of one chat has no folder beside it, however wide.
+  const wideMq = global.matchMedia && !soloChat ? global.matchMedia(SPLIT_WIDE) : { matches: false, addEventListener() {} };
   wideMq.addEventListener('change', () => paintHome());
   let splitOn = false;
   // One row on a screen of the section (В7.18, boards AgF2HeadA, AgF2Log, AgF2Wide): the centred head of the screen stands
@@ -4476,7 +4489,7 @@
   // page. A press on a notification that started the app comes after and wins. The browser page
   // starts at the main page as before.
   const PLACE_KEY = 'lexPlaceKept';
-  const keepsPlace = () => !!global.__lexShell;
+  const keepsPlace = () => !!global.__lexShell && !soloChat;
   const placeAccount = () => { try { const x = WcAuth.session(); return (x && x.user && x.user.id) || ''; } catch (_) { return ''; } };
   function placeNow() {
     const live = sectionOn === 'profi' && SECTIONS.profi.live;
@@ -4510,6 +4523,11 @@
     } catch (_) { /* no storage: the main page */ }
   }
   function restoreScreenPlace() {
+    // A window of one chat: that chat, and nothing kept.
+    if (soloChat) {
+      openFromNotification(soloChat).catch((e) => console.warn('[wc] the chat of the window:', e && e.message));
+      return;
+    }
     let kept = null;
     try { kept = JSON.parse(global.localStorage.getItem(PLACE_KEY) || 'null'); } catch (_) { kept = null; }
     if (!keepsPlace() || !kept || !kept.place || kept.account !== placeAccount()) { placeReady = true; keepScreenPlace(); return; }

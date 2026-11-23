@@ -250,6 +250,15 @@
         onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
       });
       row.classList.add('lex-agent-chat');
+      // The menu of a chat (В7.33) with its one item here, Open in new window (В7.79), and the Cmd-click and the drag
+      // of the same part: a task chat has no actions of the list. The agent itself and its folder give no window.
+      if (global.LexChatMenu && c.chatKey && current) {
+        const agent = current.key;
+        global.LexChatMenu.attach(row, () => ({
+          title: c.title || 'Chat',
+          window: { kind: 'folder_message', chatKey: c.chatKey, agent },
+        }));
+      }
       return row;
     }
     // The order of the folder (В7.73): Group by Date | Status | None, Sort by Last updated | Date created | Name, both

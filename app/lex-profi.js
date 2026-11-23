@@ -2165,6 +2165,8 @@
         const act = (name) => chatAct(c, name, o);
         global.LexChatMenu.attach(line, () => ({
           title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
+          // Open in new window (В7.79): the order chat itself, also when a reply waits for it in New orders.
+          window: c.order ? { kind: 'profi_message', chatKey: c.chatKey, order: String(c.order) } : null,
           important: global.LexSection.isImportant(c.chatKey),
           remove: () => global.LexChatMenu.remove({ confirm: deps.confirm, text: DELETE_TEXT, act }),
         }));
