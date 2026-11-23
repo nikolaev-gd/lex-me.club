@@ -427,19 +427,18 @@
       // встала связь: между ними секунда-две, и всё это время человек говорит
       // в погашенную кнопку.
       onCaptureStart: () => {
+        clockMark('capture');
         recStartedAt = Date.now();
-        elMic.classList.add('is-recording');
-        elMic.title = 'Stop dictating';
-        elMic.setAttribute('aria-label', elMic.title);
-        WcHaptics.tap();
-        // Полоса диктовки — с первого кадра звука, как и кнопка.
-        dictBar().start(stream);
+        micRecording();
+        // Полоса стоит с нажатия (armIntent); с первого кадра звука в ней волна.
+        dictBar().listen(stream);
         // Потолка живой записи здесь нет: его ставит сервер и сам говорит
         // «закрываю» (onClosing ниже).
       },
       // settledLen — сколько первых знаков догадки уже не перепишется: хвост
       // после них поле красит приглушённым (lex-dictation-bar.js).
-      onDelta: (textSoFar, settledLen) => { if (textSoFar) grower.push(textSoFar, settledLen); },
+      onDelta: (textSoFar, settledLen) => { if (textSoFar) { clockMark('first word'); grower.push(textSoFar, settledLen); } },
+      onReady: () => clockMark('ready'),
       onClosing: (info) => { endedByServer(info); },
       onEnded: (info) => {
         if (!endedByServer(info) && !closedByServer) return;
@@ -529,6 +528,64 @@
     }
   }
 
+  // ── Нажатие раньше микрофона ─────────────────────────────────────────────
+  //
+  // Геннадий 23.11.2026: «запись должна начинаться моментально везде, всегда».
+  // Кнопка и полоса встают В МИГ НАЖАТИЯ — это намерение человека; микрофон
+  // (getUserMedia: десятые доли секунды, первый раз дольше) и выбор
+  // распознавалки приходят следом, и волна встаёт в полосу, когда пошёл звук.
+  // Второе нажатие, крестик или стрелка в это время заканчивают запись молча:
+  // записано ещё ничего не было.
+  let arming = null;
+  function micRecording() {
+    elMic.classList.add('is-recording');
+    elMic.title = 'Stop dictating';
+    elMic.setAttribute('aria-label', elMic.title);
+  }
+  function micIdle() {
+    elMic.classList.remove('is-recording');
+    elMic.title = 'Dictate';
+    elMic.setAttribute('aria-label', elMic.title);
+  }
+  function armIntent() {
+    const a = { cancelled: false };
+    arming = a;
+    clockPress();
+    micRecording();
+    WcHaptics.tap();
+    dictBar().start(null);
+    requestAnimationFrame(() => clockMark('bar'));
+    return a;
+  }
+  // How soon the microphone answers a press, in the console: one line per step, counted from the
+  // press (`[Lex] dict start: <step> +<ms> ms`) — the steps of the iPhone's DictationPressClock.
+  let clockT0 = 0;
+  let clockSeen = null;
+  function clockPress() { clockT0 = performance.now(); clockSeen = new Set(); console.debug('[Lex] dict start: press'); }
+  function clockMark(step) {
+    if (!clockSeen || clockSeen.has(step)) return;
+    clockSeen.add(step);
+    console.debug(`[Lex] dict start: ${step} +${Math.round(performance.now() - clockT0)} ms`);
+  }
+  // Запись так и не началась (отказ микрофона, нет каталога): намерение снимается.
+  function dropIntent(a) {
+    if (arming === a) arming = null;
+    if (a.cancelled) return;
+    micIdle();
+    dictBar().stop();
+    syncButton();
+  }
+  function cancelArming() {
+    const a = arming;
+    if (!a) return false;
+    a.cancelled = true;
+    arming = null;
+    micIdle();
+    dictBar().stop();
+    syncButton();
+    return true;
+  }
+
   // The first letter of a message or the dictation button: a new chat's session is made while the
   // person writes (wc-backend.js WC_PREPARE). Never awaited; the backend does nothing when nothing
   // is due.
@@ -538,6 +595,7 @@
   }
 
   async function startRecording() {
+    const intent = armIntent();
     prepareSend();
     // Какая распознавалка выбрана и каким путём снимать звук, спрашивается
     // ПАРАЛЛЕЛЬНО с микрофоном, а не после него: каталог распознавалок (строки
@@ -546,24 +604,32 @@
     const choiceP = (async () => {
       let dict = { model: null, knobs: {} };
       try { dict = await global.WcBackend.readDictationKnobs(); } catch (_) { /* умолчания сервера рабочие */ }
+      clockMark('settings');
       const route = await global.LexDictationCatalog.route(dict.model, global.LexModelRegistry.defaultDictationModel);
       return { dict, route };
     })();
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      clockMark('microphone open');
     } catch (err) {
-      toast('No microphone: ' + ((err && err.message) || err), { error: true });
+      const quiet = intent.cancelled;
+      dropIntent(intent);
+      if (!quiet) toast('No microphone: ' + ((err && err.message) || err), { error: true });
       return;
     }
     // Какая распознавалка выбрана — решает та же ручка, что и в расширении.
     // Живая не пишет файл вовсе, поэтому MediaRecorder ниже ей не нужен.
     const choice = await choiceP;
+    clockMark('route');
+    // Передумал, пока открывался микрофон: микрофон отдаём, больше ничего.
+    if (intent.cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
     const route = choice.route;
     if (!route.ok) {
       // Без каталога путь угадывать нельзя: живую распознавалку файлом не
       // расшифровать, а файловую — сокетом.
       stream.getTracks().forEach((t) => t.stop());
+      dropIntent(intent);
       toast(route.gate === 'login' ? 'Sign in to dictate.' : 'Could not load the list of recognizers. Please try again.', { error: true });
       return;
     }
@@ -576,9 +642,12 @@
       // откат отправлял бы заведомо мёртвый запрос на каждое нажатие.
       if (!global.LexDictationLive) {
         stream.getTracks().forEach((t) => t.stop());
+        dropIntent(intent);
         toast('Live dictation is not loaded here — reload the page', { error: true });
         return;
       }
+      // С этого мига запись — живой сессии (live), её и останавливают.
+      arming = null;
       await startLive(stream, dict);
       return;
     }
@@ -594,9 +663,11 @@
         : new MediaRecorder(stream, { audioBitsPerSecond: 64000 });
     } catch (err) {
       stream.getTracks().forEach((t) => t.stop());
+      dropIntent(intent);
       toast('This browser cannot record audio', { error: true });
       return;
     }
+    arming = null;
     recorder = rec;
     // Куски и начало — свои у каждой записи: пока одна отправляется на
     // расшифровку, следующая уже может писаться, и общий массив они бы делили.
@@ -625,12 +696,10 @@
       doneWith(await transcribe(blob, durationMs));
     };
     rec.start();
-    elMic.classList.add('is-recording');
-    elMic.title = 'Stop dictating';
-    elMic.setAttribute('aria-label', elMic.title);
-    WcHaptics.tap();
+    micRecording();
     // Обычная распознавалка: во время записи — только волна, текст после «стоп».
-    dictBar().start(stream);
+    // Полоса стоит с нажатия (armIntent); с этого мига в ней волна.
+    dictBar().listen(stream);
     // Потолок записи — общее правило (lex-dictation-limit.js): микрофон, забытый
     // включённым, платит за каждую минуту тишины, поэтому запись кончается
     // сама так же, как по кнопке, и человеку говорится почему.
@@ -649,6 +718,7 @@
 
   // Возвращает обещание: встал ли итог этой записи в поле.
   function stopRecording() {
+    if (cancelArming()) return Promise.resolve(false);
     clearRecLimit();
     // Живая сессия заканчивается по-своему: файла нет, и «остановить запись»
     // значит «дать серверу договорить с провайдером и вернуть итог».
@@ -693,6 +763,7 @@
   // звук никуда не уходит вовсе; живая — сессия брошена, её текст уходит из
   // поля. Набранное до записи остаётся.
   function cancelRecording() {
+    if (cancelArming()) return;
     clearRecLimit();
     if (live && live.__finish) { live.__finish('discard'); return; }
     const r = recorder;
@@ -739,6 +810,7 @@
   // it closes without sending: «nothing is kept». Not the cross of the dictation bar (cancelRecording above): the cross
   // takes this recording's words out of the field itself.
   function dropRecording() {
+    if (cancelArming()) return;
     clearRecLimit();
     if (live && live.__finish) { live.__finish(false); return; }
     const r = recorder;
@@ -1008,7 +1080,7 @@
       // нет, и расшифровка, которая ещё доезжает с прошлого нажатия, новое
       // нажатие не блокирует — она доделывается сама и дописывает свой текст.
       elMic.addEventListener('click', () => {
-        if (recorder || live) stopRecording();
+        if (recorder || live || arming) stopRecording();
         else startRecording();
       });
 
@@ -1121,10 +1193,10 @@
 
     // The microphone of the field, pressed from outside it: the capsule of a new chat (wc-app.js, В7.64) opens the field
     // and starts the dictation the field's own button starts. A dictation going on is left as it is.
-    dictate() { if (!recorder && !live && !locked) startRecording(); },
+    dictate() { if (!recorder && !live && !arming && !locked) startRecording(); },
     // A dictation going on is dropped: no transcription, no words (see dropRecording).
-    cancelDictation() { if (recorder || live) dropRecording(); },
-    isDictating() { return !!(recorder || live); },
+    cancelDictation() { if (recorder || live || arming) dropRecording(); },
+    isDictating() { return !!(recorder || live || arming); },
 
     // The words of the empty field (LexComposerBox.hint): none, except in a field that takes no text at
     // all. lock — the field takes no text (a group: Lex does not write there): it says so at once, takes

@@ -448,8 +448,17 @@
       call('onLayout');
     }
 
+    // listen(stream): the bar stands already (from the press, before the microphone answered) — the wave
+    // takes this stream's level from now on, nothing else restarts. A bar that is off starts.
+    function listenTo(stream) {
+      if (!on) { start(stream); return; }
+      unlisten();
+      listen(stream);
+    }
+
     return {
       start,
+      listen: listenTo,
       stop,
       tail,
       deadline,

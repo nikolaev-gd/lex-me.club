@@ -1044,6 +1044,12 @@
   global.LexDictationCatalog.setSource(async () => global.LexDictationCatalog.fetchRows({
     baseUrl: A.supabaseUrl(), apikey: A.anonKey(), token: await A.validToken(),
   }));
+  // The last catalog read stays in this browser: the first press after opening the page has it at
+  // once instead of waiting for the base (lex-dictation-catalog.js, setKeep).
+  global.LexDictationCatalog.setKeep({
+    read: () => { try { return JSON.parse(global.localStorage.getItem('lexDictationCatalog') || 'null'); } catch (_) { return null; } },
+    write: (v) => { try { global.localStorage.setItem('lexDictationCatalog', JSON.stringify(v)); } catch (_) { /* storage off */ } },
+  });
   // Заранее, при загрузке страницы: на нажатии микрофона каталог тогда уже в
   // памяти. Не вошёл ещё — не страшно, нажатие прочитает его само.
   global.LexDictationCatalog.load();

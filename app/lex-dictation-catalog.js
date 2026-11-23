@@ -140,6 +140,22 @@
 
   function setSource(fn) { source = typeof fn === 'function' ? fn : null; }
 
+  // The last catalog read, kept by the host across openings of the window (the page: localStorage).
+  // Gennady 23.11.2026: «recording starts at once, always» — the first press after opening the window
+  // used to wait for the catalog's first read (half a second), and the microphone's sound waited with
+  // it: the first words were lost. A kept catalog is good AT ONCE, like an old one in memory, and is read
+  // again in the background (`load`). Its numbers are still the base's rows, only from the last read.
+  //   keep = { read() → { rows, at } | null, write({ rows, at }) }
+  let keep = null;
+  function setKeep(k) {
+    keep = k && typeof k.read === 'function' && typeof k.write === 'function' ? k : null;
+    if (snap || !keep) return;
+    let kept = null;
+    try { kept = keep.read(); } catch (_) { kept = null; }
+    const parsed = kept ? parseRows(kept.rows) : null;
+    if (parsed && parsed.ok && Number(kept.at) > 0) snap = Object.freeze({ list: parsed.list, at: Math.min(Number(kept.at), Date.now()) });
+  }
+
   // Каталог в памяти есть — он отдаётся СРАЗУ, даже устаревший, а перечитывание
   // идёт в фоне: нажатие микрофона и окно настроек не ждут сеть из-за того, что
   // прошло десять минут. Ждёт только тот, у кого каталога нет вовсе (или кто
@@ -172,6 +188,7 @@
         const at = r && Number(r.at) > 0 ? Math.min(Number(r.at), Date.now()) : Date.now();
         snap = Object.freeze({ list: parsed.list, at });
         lastFailure = null;
+        if (keep) { try { keep.write({ rows: r.rows, at }); } catch (_) { /* the next opening reads the base */ } }
       } else {
         lastFailure = parsed ? { error: parsed.error } : {
           gate: r && (r.gate || r.__gate) || undefined,
@@ -243,8 +260,8 @@
   global.LexDictationCatalog = Object.freeze({
     FIELD_NAMES, SELECT, PATH, TTL_MS,
     parseRows, fetchRows,
-    setSource, load, known, options, entry, isLive, sampleRate, fields, priceEstimated, normalize, route,
+    setSource, setKeep, load, known, options, entry, isLive, sampleRate, fields, priceEstimated, normalize, route,
     // Только для проверок (dev-tools/test-dictation-catalog.mjs).
-    _reset() { snap = null; inflight = null; lastFailure = null; source = null; },
+    _reset() { snap = null; inflight = null; lastFailure = null; source = null; keep = null; },
   });
 })(typeof self !== 'undefined' ? self : globalThis);
