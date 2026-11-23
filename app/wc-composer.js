@@ -373,7 +373,9 @@
   // ставит сервер и сам заканчивает сессию (endedByServer ниже). Отличие ровно одно: звук уходит во время речи, и текст растёт по
   // ходу. Всё, что решает (модель, поля запроса, цена, строка расхода), живёт
   // на сервере — здесь только микрофон и поле.
-  async function startLive(stream, dict) {
+  // cap — the press's capture (LexDictationLive.capture): the sound is in its queue from the moment the
+  // microphone opened; the session takes it over (and closes it).
+  async function startLive(stream, dict, cap) {
     const grower = makeGrower();
     let finished = false;
     // Сессию закончил сервер, а не человек: потолок (он на сервере), сторож «на
@@ -481,9 +483,11 @@
       elMic.classList.remove('is-recording');
       elMic.title = 'Dictate';
       elMic.setAttribute('aria-label', elMic.title);
-      // Связь ещё не встала — расшифровывать нечего и ошибки не было: человек
-      // передумал. Бросаем молча; расход за уже переданное досчитает сервер.
-      const want = wantText === true && !!(me && me.isReady && me.isReady());
+      // «Договорил» — расшифровать сказанное, даже если связь ещё встаёт: звук
+      // с нажатия ждёт в очереди и уйдёт, как только она встанет (Геннадий
+      // 23.11.2026: короткая фраза не должна пропадать). Звука не было вовсе —
+      // бросаем молча.
+      const want = wantText === true && !!(me && (me.heard ? me.heard() : me.isReady()));
       // stop() глушит звук сразу, до всякой сети; микрофон отдаём тут же, а не
       // после ответа, — иначе точка записи горела бы над погасшей кнопкой.
       const pending = want ? me.stop() : (me.abort(), null);
@@ -503,7 +507,7 @@
     // уходили одни умолчания — языки, точные слова, описание, режим терялись.
     // Имя модели уже проверено каталогом на нажатии (startRecording).
     const apiModel = dict && dict.model;
-    const started = await live.start(stream, {
+    const started = await live.start(cap || stream, {
       model: apiModel,
       knobs: (dict && dict.knobs) || {},
       surface: 'standalone',
@@ -597,6 +601,14 @@
   async function startRecording() {
     const intent = armIntent();
     prepareSend();
+    // The sound from the press (Gennady 23.11.2026: «the start of the phrase is lost»): the audio graph rises
+    // now, while the browser opens the microphone, and the microphone goes into it the moment it is open —
+    // before the recognizer is chosen. A live session then takes the whole queue
+    // (lex-dictation-live.js, «The sound from the press»). A recognizer of files does not need it.
+    let cap = null;
+    try { cap = global.LexDictationLive && global.LexDictationLive.capture ? global.LexDictationLive.capture() : null; }
+    catch (err) { console.warn('[wc-composer] no capture at the press:', err && err.message); cap = null; }
+    const dropCap = () => { if (cap) { try { cap.close(); } catch (_) { /* noop */ } cap = null; } };
     // Какая распознавалка выбрана и каким путём снимать звук, спрашивается
     // ПАРАЛЛЕЛЬНО с микрофоном, а не после него: каталог распознавалок (строки
     // базы, lex-dictation-catalog.js) обычно уже в памяти, а если нет — его
@@ -612,7 +624,12 @@
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       clockMark('microphone open');
+      if (cap && !intent.cancelled) {
+        try { cap.attach(stream); clockMark('capture'); }
+        catch (err) { console.warn('[wc-composer] capture refused the microphone:', err && err.message); dropCap(); }
+      }
     } catch (err) {
+      dropCap();
       const quiet = intent.cancelled;
       dropIntent(intent);
       if (!quiet) toast('No microphone: ' + ((err && err.message) || err), { error: true });
@@ -623,8 +640,9 @@
     const choice = await choiceP;
     clockMark('route');
     // Передумал, пока открывался микрофон: микрофон отдаём, больше ничего.
-    if (intent.cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+    if (intent.cancelled) { dropCap(); stream.getTracks().forEach((t) => t.stop()); return; }
     const route = choice.route;
+    if (!route.ok || !route.live) dropCap();
     if (!route.ok) {
       // Без каталога путь угадывать нельзя: живую распознавалку файлом не
       // расшифровать, а файловую — сокетом.
@@ -648,7 +666,9 @@
       }
       // С этого мига запись — живой сессии (live), её и останавливают.
       arming = null;
-      await startLive(stream, dict);
+      const taken = cap;
+      cap = null;
+      await startLive(stream, dict, taken);
       return;
     }
     let rec;

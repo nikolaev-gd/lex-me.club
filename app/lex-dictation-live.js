@@ -57,8 +57,157 @@
   // замеренных. Сверху память держит срок старта в реле — не дождались
   // «готов», запись кончается. Считается от частоты той распознавалки,
   // которую выбрали.
-  function prebufferMaxFrames(rate) {
-    return Math.ceil((45 * rate) / FRAME_SAMPLES);
+  const PREBUFFER_MAX_SEC = 45;
+
+  // ── The sound from the press ────────────────────────────────────────────
+  //
+  // Gennady, 23.11.2026: «I press and speak at once, and the start of the phrase is lost». A MediaStream keeps
+  // nothing: what the microphone hears before an audio graph is connected to it is gone. The surfaces used
+  // to connect the graph only after the microphone had opened, the recognizer had been chosen and the
+  // sign-in checked, and the graph itself then took a moment to start. Whatever was said in that time was
+  // lost. So the graph rises AT THE PRESS (`capture()`), in parallel with getUserMedia, and the stream is
+  // attached to it the moment it comes. Every frame from then on waits in the capture's queue until a
+  // live session takes it: first the queue, in order, then each frame as it comes.
+  //
+  // The rate of the capture is guessed at the press: the recognizer is often not chosen yet. The guess is
+  // the rate of the last live session in this window, or of the default recognizer, from the catalog. When
+  // the chosen recognizer wants another rate, the session converts every frame (`resampler`), so a wrong
+  // guess costs nothing but a little arithmetic.
+  let lastRate = null;
+  function guessRate() {
+    if (lastRate) return lastRate;
+    const R = global.LexModelRegistry;
+    return sampleRateFor(R && R.defaultDictationModel) || null;
+  }
+
+  // A streaming converter of the rate for frames of Float32: linear interpolation, with a low-pass filter
+  // (two Butterworth biquads, cut-off at 45% of the new rate) before it when the rate goes down, so the
+  // speech above the new Nyquist frequency does not fold back into the band. The state is kept across
+  // frames: the output is one continuous signal, whatever the sizes of the frames.
+  function resampler(from, to) {
+    const step = from / to;
+    const stages = [];
+    let filter = null;
+    if (to < from) {
+      const w = (2 * Math.PI * 0.45 * to) / from;
+      const cos = Math.cos(w);
+      const alpha = Math.sin(w) / (2 * Math.SQRT1_2);
+      const a0 = 1 + alpha;
+      const b0 = ((1 - cos) / 2) / a0;
+      const b1 = (1 - cos) / a0;
+      const a1 = (-2 * cos) / a0;
+      const a2 = (1 - alpha) / a0;
+      for (let k = 0; k < 2; k++) stages.push({ x1: 0, x2: 0, y1: 0, y2: 0 });
+      filter = (x) => {
+        for (const s of stages) {
+          const y = b0 * x + b1 * s.x1 + b0 * s.x2 - a1 * s.y1 - a2 * s.y2;
+          s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y;
+          x = y;
+        }
+        return x;
+      };
+    }
+    let prev = 0;   // the last sample of the previous frame — index -1 of the next one
+    let t = 0;      // where the next output sample stands, in samples of the current frame (−1 ≤ t)
+    return (input) => {
+      const n = input.length;
+      if (!n) return new Float32Array(0);
+      const x = filter ? Float32Array.from(input, filter) : input;
+      const out = new Float32Array(Math.max(0, Math.ceil((n - 1 - t) / step) + 1));
+      let k = 0;
+      while (t < n - 1 && k < out.length) {
+        const i = Math.floor(t);
+        const f = t - i;
+        const a = i < 0 ? prev : x[i];
+        out[k++] = a + (x[i + 1] - a) * f;
+        t += step;
+      }
+      t -= n;
+      prev = x[n - 1];
+      return k === out.length ? out : out.subarray(0, k);
+    };
+  }
+
+  // The audio graph of one press: it rises now; `attach(stream)` connects the microphone the moment it is
+  // open; from that frame on the sound waits in the queue until a session `take`s it. Owned by the press
+  // until a session starts on it (start() closes it on every way out from then); a press that does not get
+  // there (the microphone refused, the cross, a recognizer of files) calls `close()`.
+  //   options: { rate } — the rate wanted (default: the guess above)
+  function capture(options) {
+    const AC = global.AudioContext || global.webkitAudioContext;
+    if (!AC) throw new Error('no AudioContext here');
+    const want = (options && Number(options.rate) > 0) ? Number(options.rate) : guessRate();
+    let ctx;
+    try { ctx = want ? new AC({ sampleRate: want }) : new AC(); }
+    catch (_) { ctx = new AC(); }
+    // Created inside the press, the context may still be held (a web view): asked to run at once.
+    try { if (ctx.state === 'suspended' && typeof ctx.resume === 'function') ctx.resume().catch(() => {}); } catch (_) { /* noop */ }
+    const rate = ctx.sampleRate;
+    const maxSamples = PREBUFFER_MAX_SEC * rate;
+    let source = null, processor = null, sink = null, closed = false;
+    let queue = [], queued = 0, dropped = 0, taker = null;
+    let attachedAt = null;
+    const cap = {
+      rate,
+      context: ctx,
+      // The microphone is open: the sound goes into the queue from its first frame.
+      attach(stream) {
+        if (closed) return false;
+        if (source) return true;
+        source = ctx.createMediaStreamSource(stream);
+        // ScriptProcessorNode, not AudioWorklet, on purpose: a worklet is loaded from a SEPARATE file by
+        // address, and in a content script on someone else's page that address is checked by THE PAGE'S
+        // CSP — on a strict site the microphone would silently not start. The node is marked deprecated
+        // but works in Chrome and in WKWebView (the macOS shell) and loads nothing.
+        processor = ctx.createScriptProcessor(FRAME_SAMPLES, 1, 1);
+        processor.onaudioprocess = (e) => {
+          if (closed) return;
+          // A copy: the browser reuses the buffer of the event.
+          const f = new Float32Array(e.inputBuffer.getChannelData(0));
+          if (taker) { taker(f); return; }
+          if (queued + f.length > maxSamples) { dropped++; return; }
+          queue.push(f);
+          queued += f.length;
+        };
+        source.connect(processor);
+        // The node must be connected to the output or Chrome does not call it. Nothing is written into
+        // its output buffer, and it is muted on the way: the person must not hear their own voice.
+        sink = ctx.createGain();
+        sink.gain.value = 0;
+        processor.connect(sink);
+        sink.connect(ctx.destination);
+        attachedAt = Date.now();
+        return true;
+      },
+      attached: () => !!source && !closed,
+      attachedAt: () => attachedAt,
+      // A session takes the sound: what waited, in order, then each frame as it comes. → frames dropped
+      // over the ceiling of the queue.
+      take(fn) {
+        const q = queue;
+        queue = [];
+        queued = 0;
+        taker = null;
+        q.forEach(fn);
+        taker = fn;
+        return dropped;
+      },
+      // The microphone goes quiet at once (stop pressed); the context closes with close().
+      silence() {
+        try { if (processor) { processor.onaudioprocess = null; processor.disconnect(); } } catch (_) {}
+        try { if (source) source.disconnect(); } catch (_) {}
+        processor = null; source = null; taker = null;
+      },
+      close() {
+        if (closed) return;
+        cap.silence();
+        closed = true;
+        try { if (sink) sink.disconnect(); } catch (_) {}
+        try { if (ctx.state !== 'closed') ctx.close(); } catch (_) {}
+        sink = null; queue = []; queued = 0;
+      },
+    };
+    return cap;
   }
 
   // Float32 [-1, 1] → PCM16 little-endian. Обрезка по краям обязательна:
@@ -135,15 +284,14 @@
       throw new Error('LexDictationLive.create: transport with call() and subscribe() is required');
     }
 
-    let ctx = null;
-    let source = null;
-    let processor = null;
-    let sink = null;
+    // The audio graph of this session (capture() above): the press's own, or one made here.
+    let cap = null;
     let requestId = null;
     let running = false;
     let ready = false;
     let unsub = null;
     let prebuffer = [];
+    let prebufferSamples = 0;
     let prebufferDropped = 0;
     // Пульс «на связи» этой сессии — ручка общего таймера LexPulse.
     let presence = null;
@@ -156,6 +304,11 @@
     // Сервер сказал «закрываю» — звук уже снят, ждём итог.
     let closing = false;
     let ended = false;
+    // «Stop» pressed while the line still rose (Gennady 23.11.2026: a short phrase said at the press must not
+    // be lost): stop() waits for the start's outcome here — true: «ready» came and the queue went first.
+    let startDone = Promise.resolve(false);
+    // Sound taken from the microphone in this session, in samples of the recognizer's rate.
+    let heardSamples = 0;
     let backstopTimer = null;
     function clearBackstop() { if (backstopTimer) { clearTimeout(backstopTimer); backstopTimer = null; } }
 
@@ -234,12 +387,10 @@
 
     function teardownAudio() {
       stopBeat();
-      try { if (processor) { processor.onaudioprocess = null; processor.disconnect(); } } catch (_) {}
-      try { if (source) source.disconnect(); } catch (_) {}
-      try { if (sink) sink.disconnect(); } catch (_) {}
-      try { if (ctx && ctx.state !== 'closed') ctx.close(); } catch (_) {}
-      processor = null; source = null; sink = null; ctx = null;
+      try { if (cap) cap.close(); } catch (_) {}
+      cap = null;
       prebuffer = [];
+      prebufferSamples = 0;
     }
 
     function stopListening() {
@@ -250,16 +401,18 @@
     // отпустил кнопку и должен видеть, что его больше не слушают, — а сервер
     // в это время ещё дочитывает последние куски и досчитывает деньги.
     function stopCapture() {
-      try { if (processor) { processor.onaudioprocess = null; processor.disconnect(); } } catch (_) {}
-      try { if (source) source.disconnect(); } catch (_) {}
-      processor = null; source = null;
+      try { if (cap) cap.silence(); } catch (_) {}
     }
 
     // config — то, что человек выбрал в полосе «Диктовка», плюс метки для
     // строки расхода. Проверяет и применяет их сервер; здесь они только
     // перекладываются.
-    async function start(stream, config) {
-      if (running) return false;
+    // input — the press's capture (capture() above, the microphone already attached), or a MediaStream
+    // (the voice talk's chain): then the graph is made here. From this call the session owns the capture
+    // and closes it on every way out.
+    async function start(input, config) {
+      const given = input && typeof input.attach === 'function' && typeof input.take === 'function' ? input : null;
+      if (running) { if (given) { try { given.close(); } catch (_) {} } return false; }
       running = true;
       ready = false;
       stopping = false;
@@ -267,23 +420,36 @@
       ended = false;
       sessionMaxMs = null;
       prebuffer = [];
+      prebufferSamples = 0;
       prebufferDropped = 0;
+      heardSamples = 0;
       requestId = newRequestId();
       const myId = requestId;
+      let settleStart = null;
+      startDone = new Promise((r) => { settleStart = r; });
+      try {
+        return await startInner(input, config, given, myId);
+      } finally {
+        settleStart(ready && requestId === myId);
+      }
+    }
 
+    async function startInner(input, config, given, myId) {
       // ── Звук снимается ПЕРВЫМ, до всякой сети ────────────────────────────
       //
       // В этом весь смысл живой диктовки против голосового звонка: соединение
       // встаёт не мгновенно, и всё сказанное в это время должно не потеряться,
       // а подождать в очереди. Замеряли путь через WebRTC — там сказанное в
       // первые полторы-три секунды пропадает совсем, потому что буфера нет.
+      // С нажатия звук уже пишется в очередь захвата (capture()); здесь сессия
+      // забирает её целиком и дальше каждый кадр.
       // Частота — из каталога распознавалок; пульс — общий таймер. Нет того или
-      // другого — отказ до съёма звука и до сервера (микрофон к этому мигу уже
-      // открыт хозяином, он же его и отпустит по `false`), а не посреди
-      // оплачиваемой сессии.
+      // другого — отказ до сервера (микрофон к этому мигу уже открыт хозяином,
+      // он же его и отпустит по `false`), а не посреди оплачиваемой сессии.
       const rate = sampleRateFor(config && config.model);
       if (!rate || !global.LexPulse || typeof global.LexPulse.start !== 'function') {
         running = false;
+        if (given) { try { given.close(); } catch (_) {} }
         const why = !rate
           ? 'no sample rate for ' + ((config && config.model) || 'this recognizer')
           : 'presence pulse (lex-pulse.js) is not loaded';
@@ -291,38 +457,27 @@
         if (typeof opts.onError === 'function') opts.onError(why, {});
         return false;
       }
-      const prebufferMax = prebufferMaxFrames(rate);
+      lastRate = rate;
+      const prebufferMax = PREBUFFER_MAX_SEC * rate;
       try {
-        ctx = new (global.AudioContext || global.webkitAudioContext)({ sampleRate: rate });
-        // Аппаратура может не дать запрошенную частоту. Тогда пересчитывать
-        // пришлось бы нам, а этого мы не умеем — честнее отказаться сразу.
-        if (Math.abs(ctx.sampleRate - rate) > 1) {
-          throw new Error('audio context refused ' + rate + ' Hz (got ' + ctx.sampleRate + ')');
-        }
-        source = ctx.createMediaStreamSource(stream);
-        // ScriptProcessorNode, а не AudioWorklet, и это осознанно. Worklet
-        // грузится ОТДЕЛЬНЫМ файлом по адресу, и в content-script на чужой
-        // странице этот адрес проверяет CSP САМОЙ СТРАНИЦЫ — то есть на строгом
-        // сайте микрофон молча не завёлся бы. Узел ниже помечен устаревшим, но
-        // работает и в Chrome, и в WKWebView (оболочка macOS), и ничего не
-        // грузит. Менять — только когда у worklet появится путь без внешнего
-        // файла.
-        processor = ctx.createScriptProcessor(FRAME_SAMPLES, 1, 1);
-        processor.onaudioprocess = (e) => {
+        cap = given || capture({ rate });
+        if (!given) cap.attach(input);
+        if (!cap.attached()) throw new Error('the microphone is not attached to the capture');
+        // The capture's rate is the press's guess; another recognizer's rate is converted here.
+        const convert = Math.abs(cap.rate - rate) > 1 ? resampler(cap.rate, rate) : null;
+        if (convert) lexLogSafe(`${TAG} capture at ${cap.rate} Hz, recognizer at ${rate} Hz — converted`);
+        const dropped = cap.take((frame) => {
           if (!running || requestId !== myId) return;
-          const b64 = toBase64(toPcm16(e.inputBuffer.getChannelData(0)));
+          const pcm = toPcm16(convert ? convert(frame) : frame);
+          if (!pcm.length) return;
+          heardSamples += pcm.length;
+          const b64 = toBase64(pcm);
           if (ready) { sendAudio(b64); return; }
-          if (prebuffer.length >= prebufferMax) { prebufferDropped++; return; }
+          if (prebufferSamples + pcm.length > prebufferMax) { prebufferDropped++; return; }
           prebuffer.push(b64);
-        };
-        source.connect(processor);
-        // Узел обязан быть подключён к выходу, иначе Chrome его не вызывает.
-        // В его выходной буфер мы не пишем ничего, да ещё и глушим по дороге:
-        // свой голос человек слышать не должен.
-        sink = ctx.createGain();
-        sink.gain.value = 0;
-        processor.connect(sink);
-        sink.connect(ctx.destination);
+          prebufferSamples += pcm.length;
+        });
+        if (dropped > 0) prebufferDropped += dropped;
         // Звук с этого мига действительно пишется, и поверхность обязана
         // показать это ЗДЕСЬ, а не после ответа сервера: соединение встаёт
         // за секунду-две, и всё это время человек уже говорит в погашенную
@@ -335,6 +490,7 @@
       } catch (err) {
         console.error(TAG, 'audio capture failed:', err);
         running = false;
+        if (given && cap !== given) { try { given.close(); } catch (_) {} }
         teardownAudio();
         if (typeof opts.onError === 'function') opts.onError(String((err && err.message) || err), {});
         return false;
@@ -383,8 +539,9 @@
       } catch (err) {
         res = { ok: false, error: String((err && err.message) || err) };
       }
-      // Пока ждали ответа, человек мог уже отпустить кнопку.
-      if (!running || requestId !== myId) return false;
+      // Пока ждали ответа, человек мог уже отпустить кнопку: «бросил» — конец;
+      // «договорил» — stop() ждёт здесь, и очередь уходит, как только связь встала.
+      if (requestId !== myId || (!running && !stopping)) return false;
       if (!res || !res.ok) {
         running = false;
         stopListening();
@@ -397,6 +554,15 @@
 
       ready = true;
       sessionMaxMs = Number(res.maxDurationMs) > 0 ? Number(res.maxDurationMs) : null;
+      if (stopping) {
+        // «Договорил» пришёл раньше «готов»: сказанное уходит сейчас, конец — у stop().
+        const queued0 = prebuffer;
+        prebuffer = [];
+        prebufferSamples = 0;
+        queued0.forEach(sendAudio);
+        lexLogSafe(`${TAG} stop before «ready»: ${queued0.length} queued frame(s) sent, then the stop`);
+        return false;
+      }
       if (sessionMaxMs) {
         clearBackstop();
         backstopTimer = setTimeout(() => {
@@ -422,6 +588,7 @@
       }
       const queued = prebuffer;
       prebuffer = [];
+      prebufferSamples = 0;
       queued.forEach(sendAudio);
       lexLogSafe(`${TAG} live session started (${queued.length} frame(s) buffered while connecting)`);
       if (typeof opts.onReady === 'function') opts.onReady();
@@ -438,6 +605,16 @@
       clearBackstop();
       stopBeat();
       stopCapture();
+      if (!ready) {
+        // The line still rises. What was said waits in the queue and goes the moment it stands
+        // (start above); only then the stop — a short phrase is not thrown away.
+        const up = await startDone;
+        if (!up || requestId !== myId) {
+          stopListening();
+          teardownAudio();
+          return { ok: false, error: 'no live session' };
+        }
+      }
       let res = null;
       try {
         res = await transport.call('LEX_DICTATION_LIVE_STOP', { requestId: myId });
@@ -474,6 +651,8 @@
       abort,
       isRunning: () => running,
       isReady: () => ready,
+      // Sound was taken in this session: «stop» then has something to transcribe, even before «ready».
+      heard: () => heardSamples > 0,
       maxDurationMs: () => sessionMaxMs,
     };
   }
@@ -586,5 +765,5 @@
 
   // sampleRateFor наружу — частота той распознавалки, которую выбрали, из
   // каталога (строка базы); своей копии числа у поверхности нет.
-  global.LexDictationLive = { create, createChain, sampleRateFor, settledOf };
+  global.LexDictationLive = { create, createChain, capture, resampler, sampleRateFor, settledOf };
 })(typeof self !== 'undefined' ? self : globalThis);
