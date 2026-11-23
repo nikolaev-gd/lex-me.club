@@ -66,5 +66,26 @@
     return /:[ua]$/.test(s) || s.indexOf('voice:') === 0;
   }
 
-  global.LexTurnId = { newOpId, userTurnUid, assistantTurnUid, turnAuthoredAt, isServerTurnUid };
+  // «СТОП» — ПО КАКОМУ НОМЕРУ СКАЗАТЬ СЕРВЕРУ, СКОЛЬКО ЗНАКОВ ЧЕЛОВЕК УВИДЕЛ (lex_turn_stopped).
+  //
+  // Номер хода известен с нажатия: его чеканит поверхность (newOpId). Ждать заголовка ответа
+  // («ход ведёт сервер», x-lex-server-turn) нельзя: до 23.11.2026 стоп стучался только после
+  // него, и стоп, нажатый раньше, не доходил до сервера ни с одной поверхности — сервер дописывал
+  // ответ целиком (чат группы WhatsApp: стоп через 0,6 с после отправки, ответ пришёл весь).
+  // Теперь стоп уходит по номеру нажатия всегда, кроме хода, о котором заголовок прямо сказал
+  // «не сервер» (строки хода нет, стучаться некуда). Сервер помнит стоп, пришедший раньше, чем он
+  // занял номер, и тогда не зовёт модель вовсе (supabase/migrations/chat_stop_before_start.sql).
+  //
+  //   led    — что сказал заголовок: true, false или null (ещё не пришёл);
+  //   opId   — номер хода: названный сервером, а до него — номер нажатия.
+  // Возвращает номер, по которому стучаться, или null.
+  //
+  // То же правило на айфоне — ChatStore.stop (Swift): три языка, одно правило, как и у уидов выше.
+  function stopOp(led, opId) {
+    if (led === false) return null;
+    const op = typeof opId === 'string' ? opId.trim() : '';
+    return op || null;
+  }
+
+  global.LexTurnId = { newOpId, userTurnUid, assistantTurnUid, turnAuthoredAt, isServerTurnUid, stopOp };
 })(typeof self !== 'undefined' ? self : this);

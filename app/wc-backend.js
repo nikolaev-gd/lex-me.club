@@ -83,6 +83,10 @@
   // сообщает серверу, сколько знаков ответа человек успел увидеть, а адресуется
   // это номером операции. Запись живёт ровно от заголовка ответа до конца хода.
   const serverOps = new Map();
+  // Stop by the number of the press (LexTurnId.stopOp): the number this page minted for the request, and what the
+  // answer's header said of it (true — the server leads it, false — it does not; no entry — not come yet).
+  const pressOps = new Map();
+  const ledOf = new Map();
   // Turns with a number of operation, by request: the number, the chat and what of the answer
   // came. After a break the page asks the server what became of the message (followAfterBreak).
   const turnFates = new Map();
@@ -94,6 +98,11 @@
     LXT: (key) => key,
     // The stream goes straight into the page — with one translation on the way.
     emit: (_target, msg) => {
+      // A request that ended before the core registered it leaves no mark of an early Stop behind.
+      if (msg && (msg.type === 'STREAM_DONE' || msg.type === 'STREAM_ERROR')) {
+        const e = inflightStreams.get(msg.requestId);
+        if (e && e.stopBeforeStart) inflightStreams.delete(msg.requestId);
+      }
       if (msg && msg.type === 'STREAM_ERROR' && stoppedByUser.has(msg.requestId)) {
         stoppedByUser.delete(msg.requestId);
         // Everything that had arrived stays on screen: the provider produced
@@ -1231,6 +1240,8 @@
   let emFeed = null;
 
   async function runSend(m) {
+    // The number of the press, from the first moment: a Stop pressed while this turn still prepares goes by it.
+    if (m.opId) pressOps.set(m.requestId, String(m.opId));
     // Слот приезжает С ХОДОМ: имя на кнопке и то, что уходит модели, обязаны
     // относиться к одной и той же заготовке.
     //
@@ -1399,6 +1410,7 @@
       // «стопу», который докладывает число увиденных знаков по номеру
       // операции. На то, что ляжет в память и на экран, он не влияет.
       if (msg.type === 'STREAM_SERVER_TURN') {
+        ledOf.set(m.requestId, !!msg.serverTurn);
         if (msg.serverTurn && msg.opId) serverOps.set(m.requestId, String(msg.opId));
         return;
       }
@@ -1432,6 +1444,8 @@
       if (msg.type === 'STREAM_CHUNK' && msg.text) { answer += msg.text; return; }
       if (msg.type !== 'STREAM_DONE' && msg.type !== 'STREAM_ERROR') return;
       serverOps.delete(m.requestId);
+      pressOps.delete(m.requestId);
+      ledOf.delete(m.requestId);
       unsubscribe();
       // A turn refused before its first word has no row on the server: nothing to attach to.
       if (msg.type === 'STREAM_ERROR' && !answer) attachStop = true;
@@ -1919,7 +1933,8 @@
       return { ok: true };
     }
     const entry = inflightStreams.get(m.requestId);
-    if (!entry || !entry.abort) return { ok: false, error: 'nothing to stop' };
+    const early = !entry && pressOps.has(m.requestId);
+    if (!early && (!entry || !entry.abort)) return { ok: false, error: 'nothing to stop' };
     // Marked BEFORE the abort: the abort is what produces the error, and a
     // mark set afterwards would lose the race with it.
     stoppedByUser.add(m.requestId);
@@ -1928,12 +1943,22 @@
     // страницы печатающего буфера нет, поэтому увиденное — это весь пришедший
     // текст, и его длину считает лента (WcThread.seenChars).
     //
-    // Только для хода, который ведёт сервер: на обычном аккаунте строки
-    // операции нет, и вызов всё равно ничего бы не сделал.
-    const stopOpId = serverOps.get(m.requestId) || null;
+    // По номеру хода ВСЕГДА, кроме хода, о котором заголовок ответа прямо сказал
+    // «не сервер»: стоп, нажатый раньше заголовка, уходит по номеру нажатия, и
+    // сервер, ещё не занявший номер, модель не зовёт (LexTurnId.stopOp,
+    // chat_stop_before_start.sql). До 23.11.2026 такой стоп не уходил никуда.
+    const stopOpId = global.LexTurnId.stopOp(
+      ledOf.has(m.requestId) ? ledOf.get(m.requestId) : null,
+      serverOps.get(m.requestId) || pressOps.get(m.requestId) || null);
     if (stopOpId && Number.isFinite(Number(m.seenChars))) {
       WcHistory.reportStopped(stopOpId, Math.max(0, Math.round(Number(m.seenChars))))
         .catch((err) => console.warn(TAG, 'stop not reported:', err && err.message));
+    }
+    if (early) {
+      // The core has not registered the request yet (the page still prepares it): the mark makes it abort the
+      // request before the fetch (lex-teacher-core.js, stopBeforeStart), and the turn ends as stopped.
+      inflightStreams.set(m.requestId, { stopBeforeStart: true, requestId: m.requestId });
+      return { ok: true };
     }
     entry.abort(new DOMException('Stopped by user', 'AbortError'));
     return { ok: true };

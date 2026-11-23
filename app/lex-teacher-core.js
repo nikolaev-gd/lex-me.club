@@ -2577,11 +2577,19 @@
       const keepaliveTimer = setInterval(() => {
         keepAlive();
       }, 20_000);
+      // Stop pressed before this request was even registered (the surface's preparation still ran: the
+      // knobs, the prompt, the session): the host left a mark in the registry (stopBeforeStart), and the
+      // request is aborted here, before the fetch — it never leaves (23.11.2026). The count of seen
+      // characters has already gone to the server by the number of the press (LexTurnId.stopOp).
+      const stoppedBefore = inflightStreams.get(requestId);
       inflightStreams.set(requestId, {
         abort: (reason) => controller.abort(reason),
         tabId,
         requestId,
       });
+      if (stoppedBefore && stoppedBefore.stopBeforeStart) {
+        controller.abort(new DOMException('Stopped by user', 'AbortError'));
+      }
 
       const finishCall = async (status, errorMessage, httpStatus = null) => {
         const total_ms = Date.now() - requestedAt;
