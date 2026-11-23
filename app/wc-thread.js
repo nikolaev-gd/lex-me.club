@@ -62,7 +62,23 @@
     return elThread.scrollHeight - elThread.scrollTop - elThread.clientHeight < 60;
   }
 
+  // The very end of the chat: only here does a reader who left the end take the follow back.
+  // nearBottom's 60 px is for the button «down» and the repaints, not for the follow: a reader who
+  // moved the chat a few pixels up while the answer was printing stayed «near the end», the next
+  // frame pulled him back, his next wheel step moved him up again — the chat shook and went down all
+  // the same (Gennady, 23.11.2026). Now any move of his own up lets the follow go at once.
+  const END_PX = 2;
+  function atVeryEnd() {
+    return elThread.scrollHeight - elThread.scrollTop - elThread.clientHeight <= END_PX;
+  }
+
+  // The follow's own scroll: its 'scroll' event comes a frame later and is not the reader's — a move
+  // of his in between (leave) must not be taken back by it.
+  let ownScroll = false;
   function scrollToBottom(smooth) {
+    // A frame asked for while the chat followed may run after the reader let it go: it stays put.
+    if (!smooth && !stickToBottom) return;
+    if (!smooth && elThread.scrollHeight - elThread.clientHeight - elThread.scrollTop > 0.5) ownScroll = true;
     elThread.scrollTo({ top: elThread.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
   }
 
@@ -860,10 +876,53 @@
       const logo = document.getElementById('wc-empty-logo');
       if (logo && global.LexBrandMark) logo.innerHTML = LexBrandMark.svgMarkup(48);
 
+      // The follow (stickToBottom) is let go by the reader's own move up — the wheel or the trackpad,
+      // a finger, a key, the scrollbar — not by where the chat stands: the follow's own scroll lands a
+      // frame after the answer has grown, and by position it looks like a step away from the end.
+      // It is taken back only at the very end (atVeryEnd), or by a send and the button «down».
+      const leave = () => {
+        if (!stickToBottom) return;
+        stickToBottom = false;
+        if (stickRaf) { cancelAnimationFrame(stickRaf); stickRaf = 0; }
+        elJump.hidden = backTop === null && atVeryEnd();
+      };
+      let lastTop = elThread.scrollTop;
+      let pointerDown = false;
       elThread.addEventListener('scroll', () => {
-        stickToBottom = nearBottom();
+        const top = elThread.scrollTop;
+        const up = top < lastTop - 0.5;
+        lastTop = top;
+        if (ownScroll) { ownScroll = false; elJump.hidden = stickToBottom && backTop === null; return; }
+        // A drag of the scrollbar is a scroll with the pointer held on the chat.
+        if (up && pointerDown && !atVeryEnd()) leave();
+        else if (!up && !stickToBottom && atVeryEnd()) stickToBottom = true;
         elJump.hidden = stickToBottom && backTop === null;
       }, { passive: true });
+      elThread.addEventListener('wheel', (e) => {
+        if (e.deltaY < 0) leave();
+      }, { passive: true });
+      let touchY = null;
+      elThread.addEventListener('touchstart', (e) => {
+        touchY = e.touches && e.touches[0] ? e.touches[0].clientY : null;
+      }, { passive: true });
+      elThread.addEventListener('touchmove', (e) => {
+        const y = e.touches && e.touches[0] ? e.touches[0].clientY : null;
+        // The finger goes down — the chat goes up, to what was written before.
+        if (touchY !== null && y !== null && y > touchY + 1) leave();
+        touchY = y;
+      }, { passive: true });
+      elThread.addEventListener('touchend', () => { touchY = null; }, { passive: true });
+      elThread.addEventListener('pointerdown', () => { pointerDown = true; }, { passive: true });
+      window.addEventListener('pointerup', () => { pointerDown = false; }, { passive: true });
+      window.addEventListener('pointercancel', () => { pointerDown = false; }, { passive: true });
+      document.addEventListener('keydown', (e) => {
+        const k = e.key;
+        if (!(k === 'ArrowUp' || k === 'PageUp' || k === 'Home' || (k === ' ' && e.shiftKey))) return;
+        const t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName || ''))) return;
+        if (t && t !== document.body && t !== document.documentElement && !elThread.contains(t)) return;
+        leave();
+      });
 
       // After a press on a quote the button «down» first brings the reader back to where he pressed it (as in
       // Telegram), the next press — to the end.
@@ -955,7 +1014,8 @@
 
     // Turns came while the chat is open: the screen stays where the person reads.
     repaintKeepingPlace(turns, opts) {
-      const atEnd = elThread.scrollTop + elThread.clientHeight >= elThread.scrollHeight - 80;
+      // The reader who let the follow go (a move of his own up, however small) is not at the end.
+      const atEnd = stickToBottom;
       const top = elThread.scrollTop;
       WcThread.renderTurns(turns, opts);
       if (!atEnd) {
@@ -1053,11 +1113,11 @@
     // and an order chat seen for the first time stood at its top or in its middle). The «Новые»
     // line stays as a mark of what came. Two exceptions: a chat that is only the news starts at
     // its first line, and a repaint (keepPlace) keeps the place of a reader who is not at the
-    // end — a reader at the end, or on the way there, stays at the end.
+    // end — a reader who has not let the follow go (stickToBottom) stays at the end.
     renderTurns(turns, opts) {
       // Read before the old turns go: the frame that brings a chat just opened to its end may
       // not have run yet, and the place of that moment is not where the person reads.
-      const keptTop = opts && opts.keepPlace && !stickToBottom && !nearBottom() ? elThread.scrollTop : null;
+      const keptTop = opts && opts.keepPlace && !stickToBottom ? elThread.scrollTop : null;
       if (!(opts && opts.keepPlace)) backTop = null;
       incoming = (opts && opts.incoming) || null;
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
@@ -1857,7 +1917,7 @@
     },
 
     // Used when the keyboard opens: the last thing said must stay in view.
-    scrollToEnd() { scrollToBottom(false); stickToBottom = true; elJump.hidden = true; },
+    scrollToEnd() { stickToBottom = true; elJump.hidden = true; scrollToBottom(false); },
 
     // True while any stream is open — the composer asks before deciding
     // whether its button says "send" or "stop".
