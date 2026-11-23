@@ -1686,6 +1686,12 @@
     const m = /^mac:(\d+)$/.exec(String(uid || ''));
     return m && state === 'streaming' ? Number(m[1]) : null;
   }
+  // Is a development task of these turns still running? A chat whose copy on the device equals the server's read stays
+  // as the copy drew it — and a copy draws no Stop; such a chat is drawn again from the read (wc-app.js
+  // openConversation; 24.11.2026: the second opening of a chat on the same device showed its running task without Stop).
+  function devTaskRunning(turns) {
+    return (Array.isArray(turns) ? turns : []).some((t) => !!t && devTaskOf(t.uid, t.state) !== null);
+  }
   function taskStop(o) {
     const wrap = make('div', 'lex-task-stop');
     const mark = svg('0 0 24 24', 16);
@@ -2956,7 +2962,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, talk, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

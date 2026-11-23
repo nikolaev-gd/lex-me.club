@@ -418,9 +418,11 @@
     else await beginVisit(id);
     if (!current()) return;
     // The answer is the copy, unchanged: what stands is right as it is — unless it has an answer the
-    // server writes now, which the copy never draws as the stream.
+    // server writes now, which the copy never draws as the stream, or a development task still running,
+    // whose Stop the copy never draws either (LexMessage.devTaskRunning).
     if (copy && JSON.stringify(copy.turns) === JSON.stringify(r.turns) && !incomingOpts()
-      && !r.turns.some((t) => t && t.live && t.opId)) {
+      && !r.turns.some((t) => t && t.live && t.opId)
+      && !(global.LexMessage && LexMessage.devTaskRunning && LexMessage.devTaskRunning(r.turns))) {
       if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
       return;
     }
