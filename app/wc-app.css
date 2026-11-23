@@ -696,6 +696,12 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 .wc-conv.has-count .wc-conv-title { font-weight: 600; }
 .wc-conv-pin { flex: none; display: flex; width: 14px; height: 14px; color: var(--fg-muted); }
 .wc-conv-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+/* The archive of the panel (chat_archive.sql): the quiet row «Archived» at the end of the list and the row back at the
+   head of the archive — a line of the list in grey, the mark 16 before the words, the number of the archived at the right. */
+.wc-conv.is-quiet .wc-conv-title { color: var(--fg-muted); }
+.wc-conv-mark { flex: none; display: flex; width: 16px; height: 16px; color: var(--fg-muted); }
+.wc-conv-mark svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wc-conv-count { flex: none; padding: 0 10px 0 4px; color: var(--fg-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 /* Kept in the DOM rather than added on hover: an element that only exists
    while the pointer is over it is unreachable by keyboard and by touch. It is

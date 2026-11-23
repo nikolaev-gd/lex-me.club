@@ -688,6 +688,8 @@
       questions: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .8-1 1.4v.6', 'M12 16.8h.01'],
       em: ['M12 4a3 3 0 0 0-5.6 1.2A3 3 0 0 0 4 10a3 3 0 0 0 .8 5.2A3.2 3.2 0 0 0 12 17z', 'M12 4a3 3 0 0 1 5.6 1.2A3 3 0 0 1 20 10a3 3 0 0 1-.8 5.2A3.2 3.2 0 0 1 12 17z', 'M12 4v16'],
       news: ['M5 5h11v14H6a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1z', 'M16 9h3a1 1 0 0 1 1 1v7a2 2 0 0 1-4 0', 'M8 9h4', 'M8 13h4'],
+      // The archive of a list (2026-11-23, chat_archive.sql): a box with its lid — the face of the row «Archived».
+      archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
     },
   };
   const SVG_NS = 'http://www.w3.org/2000/svg';

@@ -110,6 +110,9 @@
     // Mark as important and Unmark important (part 6): a bell, a bell struck through.
     bell: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0'],
     bellOff: ['M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9', 'M10.3 21a1.94 1.94 0 0 0 3.4 0', 'M3 3l18 18'],
+    // Archive and Unarchive (2026-11-23): a box with its lid; the box with an arrow up out of it.
+    archive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M10 12h4'],
+    unarchive: ['M3 4h18v4H3z', 'M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8', 'M12 18v-6', 'M9.5 14.5L12 12l2.5 2.5'],
     // Open in new window (В7.79): a window, an arrow out of its corner.
     window: ['M10 5H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4', 'M14 4h6v6', 'M20 4l-9 9'],
   };

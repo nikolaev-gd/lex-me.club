@@ -13,6 +13,8 @@
 //                lex-list-order.js); the capsule «New chat» of the window at its bottom right begins a chat with the agent
 //   log          the journal «Activity» (op runs, by pages, by days); a bubble at a line — a new chat about it
 //   passport     the face 96, the name, the state, About, Text model, Notify me, Paused, Instruction, Memory
+//   archived     the archived task chats of the agent (2026-11-23, chat_archive.sql): the row «Archived» at the top of
+//                the folder opens it; the same lines, their menu says Unarchive; a word of the agent puts a chat back
 //   instruction  the instruction of the agent, read only (Markdown)
 //   memory       the notes of its memory, read only
 // A task chat opens as a chat of a folder does (wc-app.js openFolderChat), and the arrow leads back to the folder. On a
@@ -23,7 +25,7 @@
 // createSection(deps) — deps:
 //   back                 the arrow of the window (lex-back.js)
 //   signals              the channel of the database's signals (lex-account-events.js)
-//   rpc(name, args)      a function of the database (lex_agent_chats)
+//   rpc(name, args)      a function of the database (lex_agent_chats, lex_agent_archived, chat_act)
 //   call(body)           the edge function folder-agents: null — the list of the agents, { op, … } — the rest
 //   openChat(agent, chatKey, wanted)   a press on a task chat
 //   ask(agent, run)      a press on the bubble of a line of the journal: a new chat with the quote of the line
@@ -129,6 +131,8 @@
     const byKey = new Map();
     let current = null;
     let chats = [];
+    // The archived task chats of the open folder (lex_agent_archived); null — not read yet.
+    let archivedChats = null;
     // What the list says under a waiting agent: the last word of its waiting chat (its folder, read when it waits).
     const waitWords = new Map();
     // The passport of an agent as the base gave it (op about), by key.
@@ -145,6 +149,7 @@
       onBack: (id) => {
         if (id === 'home') { current = null; readList().catch((e) => console.warn('[agents] back:', e && e.message)); }
         if (id === 'agent') { paintHead(); readFolder().catch((e) => console.warn('[agents] folder:', e && e.message)); }
+        if (id === 'archived') readFolder().catch((e) => console.warn('[agents] archive:', e && e.message));
         if (id === 'passport') paintPassport();
         told();
       },
@@ -250,16 +255,53 @@
         onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
       });
       row.classList.add('lex-agent-chat');
-      // The menu of a chat (В7.33) with its one item here, Open in new window (В7.79), and the Cmd-click and the drag
-      // of the same part: a task chat has no actions of the list. The agent itself and its folder give no window.
+      // The menu of a chat (В7.33): Open in new window (В7.79), Mark as read or unread, Archive or Unarchive. A task
+      // chat has no pin and no Delete chat in its folder: its place is the agent's state. The Cmd-click and the drag
+      // of the same part; the agent itself and its folder give no window.
       if (global.LexChatMenu && c.chatKey && current) {
         const agent = current.key;
         global.LexChatMenu.attach(row, () => ({
           title: c.title || 'Chat',
           window: { kind: 'folder_message', chatKey: c.chatKey, agent },
+          pinned: null,
+          unread: (Number((S.unread().chats || {})[c.chatKey]) || 0) > 0,
+          // A base before the archive gives no flag, and the menu has no Archive.
+          archived: typeof c.archived === 'boolean' ? c.archived : undefined,
+          act: (name) => chatAct(c, name),
         }));
       }
       return row;
+    }
+    async function chatAct(c, act) {
+      try {
+        await deps.rpc('chat_act', { p_op_id: S.newOpId(), p_chat_key: c.chatKey, p_act: act });
+      } catch (e) {
+        if (deps.toast) deps.toast((e && e.message) || 'It did not work.', true);
+        return;
+      }
+      readFolder().catch((e) => console.warn('[agents] folder:', e && e.message));
+    }
+    // The row «Archived» at the top of the folder: the face of the archive, the gray number of the archived chats.
+    function archivedRow(n) {
+      return S.row({ lead: S.sectionFace('archive', { size: 48 }), title: 'Archived', time: String(n), onClick: () => openArchived() });
+    }
+    function openArchived() {
+      if (!current) return;
+      push({ id: 'archived', title: 'Archived', head: { title: 'Archived', sub: current.name || current.key } });
+      paintArchived();
+      readFolder().catch((e) => say(`The chats did not come. ${(e && e.message) || ''}`.trim(), true));
+    }
+    function paintArchived() {
+      if (frame.screen !== 'archived' || !current) return;
+      if (!archivedChats) { frame.body.replaceChildren(); return; }
+      if (!archivedChats.length) {
+        frame.body.replaceChildren(make('div', 'lex-section-empty', 'No archived chats.'));
+        return;
+      }
+      const list = make('div', 'lex-section-list');
+      for (const c of archivedChats) list.appendChild(chatLine(c));
+      frame.body.replaceChildren(list);
+      pick(deps.openKey ? deps.openKey() : null);
     }
     // The order of the folder (В7.73): Group by Date | Status | None, Sort by Last updated | Date created | Name, both
     // ways. One choice for the folders of every agent, kept on this device; the default is the groups of the states.
@@ -288,12 +330,13 @@
     function paintFolder() {
       if (frame.screen !== 'agent' || !current) return;
       const list = make('div', 'lex-section-list');
+      if (archivedChats && archivedChats.length) list.appendChild(archivedRow(archivedChats.length));
       for (const g of chatGroups()) {
         if (!g.items.length) continue;
         if (g.title) list.appendChild(S.groupLabel(g.title, g.count));
         for (const c of g.items) list.appendChild(chatLine(c));
       }
-      if (!chats.length) {
+      if (!chats.length && !(archivedChats && archivedChats.length)) {
         frame.body.replaceChildren(S.emptyState({ face: S.agentFace(current.key, { size: 48, quiet: true }), title: 'No chats yet',
           line: 'New chat below starts one.' }));
         return;
@@ -311,16 +354,23 @@
     async function readFolder() {
       const a = current;
       if (!a) return;
-      const got = await deps.rpc('lex_agent_chats', { p_agent: a.key });
+      // The archive of the folder beside it: a base without it answers nothing, and the folder has no row «Archived».
+      const [got, arch] = await Promise.all([
+        deps.rpc('lex_agent_chats', { p_agent: a.key }),
+        deps.rpc('lex_agent_archived', { p_agent: a.key }).catch(() => null),
+      ]);
       if (!current || current.key !== a.key) return;
       chats = Array.isArray(got) ? got.filter((c) => c && c.chatKey) : [];
+      archivedChats = Array.isArray(arch) ? arch.filter((c) => c && c.chatKey) : (archivedChats || []);
       const w = chats.find((c) => c.state === 'waiting' && c.last);
       if (w) waitWords.set(a.key, oneLine(w.last));
       paintFolder();
+      paintArchived();
     }
     function openFolder(a) {
       current = a;
       chats = [];
+      archivedChats = null;
       push({ id: 'agent', title: a.name || a.key, head: folderHead(a) });
       frame.body.replaceChildren();
       readFolder().catch((e) => say(`The chats did not come. ${(e && e.message) || ''}`.trim(), true));
@@ -567,7 +617,7 @@
 
     // The screen on top read again (a signal, the section shown again); a task chat on the screen reads itself.
     async function readScreen() {
-      if (frame.screen === 'agent') await Promise.all([readFolder(), readList()]);
+      if (frame.screen === 'agent' || frame.screen === 'archived') await Promise.all([readFolder(), readList()]);
       else await readList();
     }
     async function look(signal) {

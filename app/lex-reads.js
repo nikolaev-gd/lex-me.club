@@ -90,6 +90,9 @@
     'lex_op_state',
     // the folder of an agent (the section «Agents», agents_section.sql): asked live when the folder opens and on a signal
     'lex_agent_chats',
+    // the archives of the lists (chat_archive.sql): the archived chats of the main page, of the panel and of the folder
+    // of an agent — asked live when the archive is opened or its row counted
+    'people_archived', 'list_archived_chats', 'lex_agent_archived',
     // the draft of every chat: lex-drafts.js keeps its own copy on the device, with its own rule
     'lex_draft_put', 'lex_drafts',
     // stamps and changes: is there something new, what changed since

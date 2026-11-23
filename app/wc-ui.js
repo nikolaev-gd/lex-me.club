@@ -74,6 +74,9 @@
     open: 'M7 17L17 7M8 7h9v9',
     // The pin of a pinned chat in a list (В7.34).
     pin: 'M12 17v5M8 3h8M9 3v7l-3 4h12l-3-4V3',
+    // The archive of the panel (chat_archive.sql): the box of the row «Archived», the arrow back at the head of it.
+    archive: 'M3 4h18v4H3zM5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4',
+    back: 'M15 18l-6-6 6-6',
     // The four positions of a kind of notification (the menu of the screen Notifications, 2026-11-22), the drawings of
     // the board NotifMenu: the bell with waves (Alarm), the bell (Banner, the bell of lex-send-later.js), the circled 1
     // (Count only), the bell struck through (Off, the bellOff of lex-person.js).

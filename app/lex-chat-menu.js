@@ -10,7 +10,7 @@
 // The look is the common menu of a held button (В7.8–В7.9, lex-send-later.js `menu`, plain): a card
 // at the pointer of a right click, on a touch screen at the line after a hold of 480 ms; on top a
 // line 12/600 --fg-muted with the name of the chat; items 44 with an icon 16 — Pin or Unpin, Mark as
-// read or Mark as unread, Mark as important or Unmark important where a person writes (2026-11-17,
+// read or Mark as unread, Archive or Unarchive where the list has its archive (2026-11-23, chat_archive.sql), Mark as important or Unmark important where a person writes (2026-11-17,
 // part 6 of «Уведомления и непрочитанное»: a message there rings an alarm on the iPhone through the
 // silent switch; supabase/migrations/important_chats.sql), Rename where the list has it, Delete chat
 // in --danger. Nothing is dimmed;
@@ -23,12 +23,13 @@
 // actions of the server (the task chats of an agent) gives only `window`: its menu is that one item.
 //
 // Gives global.LexChatMenu:
-//   items(o)            the items: o = { window, pinned, unread, important, act(name), rename(), remove() };
+//   items(o)            the items: o = { window, pinned, unread, archived, important, act(name), rename(), remove() };
 //                       window — the place of the chat (lex-chat-window.js), absent — no window for it;
-//                       Pin and Read only with act; important true or false — the list has the mark,
-//                       absent — it has not; Delete chat only with remove
-//   open(o)             the menu: o = { row, title, at: {x, y}, window, pinned, unread, important, act, rename,
-//                       remove, layer, onClose }
+//                       Pin and Read only with act, Pin not with pinned null (the folder of an agent,
+//                       an archived conversation); archived, important true or false — the list has the mark, absent — it has
+//                       not; Delete chat only with remove
+//   open(o)             the menu: o = { row, title, at: {x, y}, window, pinned, unread, archived, important, act,
+//                       rename, remove, layer, onClose }
 //   attach(row, get)    a right click, a hold on a touch screen and the key of the menu open it on
 //                       this line, a Cmd/Ctrl-click and a drag open its window; get() → o of open() at
 //                       the moment of the press, or null
@@ -42,12 +43,21 @@
     if (win) out.push(win);
     const acts = typeof o.act === 'function';
     if (acts) {
-      out.push(o.pinned
-        ? { label: 'Unpin', icon: 'pinOff', run: () => o.act('unpin') }
-        : { label: 'Pin', icon: 'pin', run: () => o.act('pin') });
+      // A list without a pin of its own (the folder of an agent, an archived conversation) gives `pinned: null`.
+      if (o.pinned !== null) {
+        out.push(o.pinned
+          ? { label: 'Unpin', icon: 'pinOff', run: () => o.act('unpin') }
+          : { label: 'Pin', icon: 'pin', run: () => o.act('pin') });
+      }
       out.push(o.unread
         ? { label: 'Mark as read', icon: 'read', run: () => o.act('read') }
         : { label: 'Mark as unread', icon: 'unread', run: () => o.act('unread') });
+      // Archive (chat_archive.sql): right after the read; an archived chat — Unarchive.
+      if (typeof o.archived === 'boolean') {
+        out.push(o.archived
+          ? { label: 'Unarchive', icon: 'unarchive', run: () => o.act('unarchive') }
+          : { label: 'Archive', icon: 'archive', run: () => o.act('archive') });
+      }
     }
     if (acts && typeof o.important === 'boolean') {
       out.push(o.important

@@ -18,6 +18,12 @@
 // Mark as read or Mark as unread, Rename, Delete chat — by the three dots, a right click and a hold
 // on a touch screen. The pinned chats stand first under «Pinned», a chat marked unread has the dot:
 // both are the server's (chat_states.sql), the list draws them.
+//
+// The Archive (2026-11-23, chat_archive.sql): the menu has Archive, and the archived conversations leave the list. At
+// its very end (after «Earlier», once the last portion came) a quiet row «Archived» with their number, only while
+// there are some; a press shows them in the panel in the place of the list, under a row back «Archived»; their menu
+// says Unarchive. A new message in an archived conversation puts it back in the list (the server's rule). No swipe
+// here: a swipe closes the panel.
 (function (global) {
   'use strict';
 
@@ -30,6 +36,11 @@
   let renamingId = null;
   let listError = null;   // список не прочитался — это НЕ пустой список
   let listDone = false;   // порций больше нет (или дозагрузка остановлена отказом)
+  let archived = [];      // the archived conversations (list_archived_chats), the items of the list
+  let archiveOpen = false;
+  // The server has the archive: its list was read once. Before that (a base without chat_archive.sql) the menu has no
+  // Archive, so nothing offers what the server refuses.
+  let archiveKnown = false;
 
   const DAY = 86400e3;
   function groupOf(ts) {
@@ -76,8 +87,10 @@
       title: t.untitled ? 'Chat' : t.text,
       // Open in new window (В7.79): the conversation by its key.
       window: { chatKey: it.id },
-      pinned: !!it.pinned,
+      // An archived conversation has no pin (archiving took it off): its menu has no Pin.
+      pinned: it.archived ? null : !!it.pinned,
       unread: !!it.unread,
+      archived: archiveKnown ? !!it.archived : undefined,
       act,
       rename: () => doRename(it.id),
       remove: () => global.LexChatMenu.remove({
@@ -165,9 +178,36 @@
     ]);
   }
 
+  // A quiet line of the list: the row «Archived» at the end, the row back at the head of the archive.
+  function quietRow(mark, text, n, onclick, label) {
+    return el('.wc-conv.is-quiet', {
+      role: 'button', tabindex: '0', 'aria-label': label || text, onclick,
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onclick(); } },
+    }, [
+      el('span.wc-conv-mark', {}, [icon(mark)]),
+      el('.wc-conv-title', { text }),
+      ...(n ? [el('span.wc-conv-count', { text: String(n) })] : []),
+    ]);
+  }
+  function setArchiveOpen(on) {
+    archiveOpen = !!on;
+    render();
+    if (elList) elList.scrollTop = 0;
+  }
+
+  function renderArchive() {
+    const nodes = [quietRow('back', 'Archived', 0, () => setArchiveOpen(false), 'Back to the chats')];
+    if (!archived.length) nodes.push(el('.wc-convs-empty', { text: 'No archived chats.' }));
+    for (const it of archived) nodes.push(row(it));
+    elList.replaceChildren(...nodes);
+  }
+
   function render() {
+    if (archiveOpen) { renderArchive(); return; }
     if (!items.length) {
-      elList.replaceChildren(listError ? errorRow(false) : el('.wc-convs-empty', { text: 'No chats yet.' }));
+      elList.replaceChildren(listError ? errorRow(false) : el('.wc-convs-empty', { text: 'No chats yet.' }),
+        ...(!listError && archived.length
+          ? [quietRow('archive', 'Archived', archived.length, () => setArchiveOpen(true), `Archived: ${archived.length}`)] : []));
       return;
     }
     const nodes = [];
@@ -182,6 +222,10 @@
     // месте, а обрыв назван словами внизу — молча оборванный список выглядел
     // бы как конец списка.
     if (listError) nodes.push(errorRow(true));
+    // The archive, after the last portion only: the end of the list is its place.
+    else if (listDone && archived.length) {
+      nodes.push(quietRow('archive', 'Archived', archived.length, () => setArchiveOpen(true), `Archived: ${archived.length}`));
+    }
     elList.replaceChildren(...nodes);
   }
 
@@ -318,6 +362,13 @@
       // Порция пришла, а список всё ещё короче окна — значит прокрутке нечем
       // сработать, и следующая порция не придёт никогда. Спрашиваем сами.
       if (!listDone && elList && elList.scrollHeight <= elList.clientHeight) onScroll();
+    },
+
+    // The archived conversations (list_archived_chats): the row «Archived» counts them, the archive shows them.
+    setArchived(next) {
+      archived = (next || []).slice();
+      archiveKnown = true;
+      render();
     },
 
     setActive(id) {

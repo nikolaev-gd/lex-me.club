@@ -16,7 +16,8 @@
 //   WC_LOAD_CONVERSATION  {id} → {ok, turns:[{role, text, uid, images}]}
 //   WC_RENAME_CONVERSATION{id, title} → {ok}
 //   WC_DELETE_CONVERSATION{id} → {ok}
-//   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread (the menu of a chat, В7.33)
+//   WC_LIST_ARCHIVED      → {ok, items}   the archived conversations (chat_archive.sql), the items of WC_LIST_CONVERSATIONS
+//   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread, archive, unarchive (the menu of a chat, В7.33)
 //   WC_SEND               {requestId, conversationId, text, images} → {ok, conversationId}
 //   WC_STOP               {requestId, seenChars} → {ok}
 //   WC_MODELS             → {items, activeId}
@@ -530,6 +531,8 @@
     return { ok: true, items: r.items, cursor: r.cursor, done: r.done, kept };
   });
 
+  WcBus.on('WC_LIST_ARCHIVED', async () => ({ ok: true, items: await WcHistory.listArchivedChats() }));
+
   // The copies of the screens' answers (lex-reads.js) for the interface: one read, one write.
   // The write is for a newer state of an answer the window holds (a feed brought up to date by
   // its changes, the place in the News feed); answers of the server are kept where they come.
@@ -750,7 +753,7 @@
   // Pin, Unpin, Mark as read, Mark as unread: the server keeps the state of the chat, every device
   // draws it from the next list.
   WcBus.on('WC_CHAT_ACT', async (m) => {
-    if (!['pin', 'unpin', 'read', 'unread'].includes(m && m.act)) return { ok: false, error: 'no such act' };
+    if (!['pin', 'unpin', 'read', 'unread', 'archive', 'unarchive'].includes(m && m.act)) return { ok: false, error: 'no such act' };
     await WcHistory.chatAct(m.id, m.act);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true };

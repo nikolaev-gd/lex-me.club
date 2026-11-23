@@ -158,6 +158,8 @@
       done: state.convsDone,
     });
     syncTitle();
+    // The archive of the panel (chat_archive.sql) is read with the first portion: its row and its list.
+    if (reset) loadArchived();
 
     // Имена для безымянных доезжают ПОСЛЕ того, как список уже на экране —
     // см. врезку про два прохода в wc-backend.js. Не ждём их: шторка годна с
@@ -168,6 +170,15 @@
     if (state.convsAgain) { state.convsAgain = false; await loadConversations(true); }
   }
 
+  let archivedReading = null;
+  function loadArchived() {
+    if (archivedReading) return archivedReading;
+    archivedReading = WcBus.call('WC_LIST_ARCHIVED', {})
+      .then((r) => { if (r && r.ok && Array.isArray(r.items)) WcSidebar.setArchived(r.items); })
+      .catch((err) => console.warn('[wc] archive:', err && err.message))
+      .finally(() => { archivedReading = null; });
+    return archivedReading;
+  }
   const refreshConversations = (onFirst) => loadConversations(true, typeof onFirst === 'function' ? onFirst : null);
   const loadMoreConversations = () => loadConversations(false);
 
@@ -683,6 +694,11 @@
     showBot: () => showProfi('bot'),
     notify: (text) => toast(text, { error: true }),
     gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
+    // The archive of the main page: the arrow of the window leads back to the list (lex-people.js, chat_archive.sql).
+    back: (target) => {
+      if (target) sectionBack.cameFrom(target);
+      else if (sectionBack.target && sectionBack.target.archive) sectionBack.clear();
+    },
   });
   document.getElementById('wc-people-gear').addEventListener('click', () => { showProfi('settings'); });
   // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
@@ -2471,8 +2487,10 @@
     // A task chat of an agent (a:<agent>-<n>): found among the chats of that agent, opened over its folder.
     const task = /^a:([a-z0-9-]{1,40})-[0-9]{1,18}$/.exec(m[2]);
     if (task) {
-      const chats = await newsRpc('lex_agent_chats', { p_agent: task[1] });
-      const c = (Array.isArray(chats) ? chats : []).find((x) => x && x.ref === m[2]);
+      // its archive too (chat_archive.sql): an archived task chat opens all the same
+      const [chats, arch] = await Promise.all([newsRpc('lex_agent_chats', { p_agent: task[1] }),
+        newsRpc('lex_agent_archived', { p_agent: task[1] }).catch(() => null)]);
+      const c = [...(Array.isArray(chats) ? chats : []), ...(Array.isArray(arch) ? arch : [])].find((x) => x && x.ref === m[2]);
       if (!c || !c.chatKey) { toast('This chat is not in Lex.', { error: true }); return; }
       await openFromNotification({ kind: 'folder_message', chatKey: c.chatKey, agent: task[1] });
       return;

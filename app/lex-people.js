@@ -19,10 +19,18 @@
 //   showFeed(order)      the chat of new orders, at that order or at its top (a screen of Profi.ru)
 //   showBot()            the bot's service chat (a screen of Profi.ru), the line under the new orders
 //   notify(text)         a failure the person has to see
+//   back(target)         the arrow of the window (lex-back.js): { title, go, archive: true } while the archive stands on
+//                        the main page, null — the archive closed
 //   gear(on)             the gear of Profi.ru in the bar of the page
 //   onSelect(id)         a tab was chosen
 // create(deps) gives: setSections(list), select(id), toAll(), setActive(on), repaintTabs(), warm(), selected, hasTabs,
 // hasTabRow.
+//
+// The Archive (2026-11-23, chat_archive.sql): the chats put into it are not in the list; at its top a row «Archived» —
+// the face of the archive, the gray number of the archived chats of the tab (on «All» all of them), none — no row. A
+// press shows the archived chats of the tab in the place of the list (people_archived, the same lines, their menu says
+// Unarchive), the arrow of the window leads back; «No archived chats.» when there are none. A new message of the person
+// puts a chat back in the list by itself (the server's rule).
 //
 // The tab is «All» by default (Gennady, 20.11.2026): the start of the page, «New chat» and a notification put it there
 // (`toAll`). The tab pressed holds only while the person goes from the list into a chat and back by the arrow.
@@ -58,6 +66,10 @@
     let againTimer = null;
     // The line of the bot's service chat reads its last message itself (profi_bot_chat(1)): people_home stays as it was.
     let botHead = null;
+    // The Archive: open or not, and the archived lines as people_archived last gave them (null — not read yet).
+    let archiveOpen = false;
+    let archived = null;
+    let archiveReading = null;
 
     // The sections that have a tab; a section without one (Other) has its chats in «All» only.
     const tabbed = () => sections.filter((s) => s.tab);
@@ -92,7 +104,58 @@
       // it stands under another tab (a client's group under «Clients», client_group_chat.sql).
       const live = deps.live(c.source === 'folder' && c.folder ? `folder:${c.folder}` : c.tab);
       if (!live || !live.line) return null;
-      return live.line(c, { from: 'people', fail, after: () => { reload().catch(() => {}); }, feed: (order) => deps.showFeed(order) });
+      return live.line(c, {
+        from: 'people', fail, feed: (order) => deps.showFeed(order),
+        after: () => { reload().catch(() => {}); if (archiveOpen || archived) readArchived(); },
+      });
+    }
+
+    // ── the Archive ────────────────────────────────────────────────────────────
+    // How many archived chats the tab has: «All» — all of them (people_home → archived: { count, tabs }).
+    function archivedCount() {
+      const a = home && home.archived;
+      if (!a || typeof a !== 'object') return 0;
+      const n = selected === ALL ? a.count : (a.tabs || {})[selected];
+      return Math.max(0, Math.floor(Number(n) || 0));
+    }
+    function archivedRow(n) {
+      return global.LexSection.row({
+        lead: global.LexSection.sectionFace('archive', { size: 48 }),
+        title: 'Archived', time: String(n), onClick: () => openArchive(),
+      });
+    }
+    const arrow = { title: 'Chats', go: () => closeArchive(), archive: true };
+    function openArchive() {
+      archiveOpen = true;
+      paint();
+      if (deps.back) deps.back(arrow);
+      readArchived();
+    }
+    function closeArchive(quiet) {
+      if (!archiveOpen) return;
+      archiveOpen = false;
+      if (deps.back) deps.back(null);
+      if (!quiet) paint();
+    }
+    function readArchived() {
+      if (archiveReading) return archiveReading;
+      archiveReading = Promise.resolve(deps.read('people_archived', {}, (v) => {
+        if (!v || typeof v !== 'object') return;
+        archived = Array.isArray(v.chats) ? v.chats : [];
+        if (archiveOpen) paint();
+      })).catch((e) => console.warn('[people] archive:', e && e.message))
+        .finally(() => { archiveReading = null; });
+      return archiveReading;
+    }
+    function paintArchive() {
+      const list = make('div', 'lex-section-list');
+      const rows = (archived || []).filter((c) => selected === ALL || c.tab === selected);
+      for (const c of rows) {
+        const line = lineOf(c);
+        if (line) list.appendChild(line);
+      }
+      if (list.children.length) body.appendChild(list);
+      else if (archived) body.appendChild(make('div', 'lex-section-empty', 'No archived chats.'));
     }
 
     // There is no red line over this list (Gennady, 20.11.2026): a monitor that stopped or went silent is told
@@ -101,7 +164,10 @@
     function paint() {
       body.replaceChildren();
       if (!selected || !home) return;
+      if (archiveOpen) { paintArchive(); return; }
       const list = make('div', 'lex-section-list');
+      const nArchived = archivedCount();
+      if (nArchived) list.appendChild(archivedRow(nArchived));
       if (selected === 'profi' && home.feed) {
         const feed = home.feed;
         list.appendChild(global.LexSection.row({
@@ -156,6 +222,8 @@
         home = v;
         drawn = text;
         paint();
+        // The archive on the screen follows the same signals: what came back leaves it, what went in comes.
+        if (archiveOpen) readArchived();
       }).then(() => {
         fails = 0;
         stopAgain();
@@ -206,6 +274,8 @@
       paint();
       sync(false);
       if (changed && deps.onSelect) deps.onSelect(id);
+      // The arrow of the archive stands as long as the archive is on the main page on the screen.
+      if (archiveOpen && active && deps.back) deps.back(arrow);
     }
 
     return {
@@ -227,13 +297,19 @@
       // «New chat» and a notification: the main page behind them is «All», whatever tab was pressed before.
       toAll() {
         chosen = null;
+        closeArchive(true);
         select(ALL, true);
       },
       setActive(on) {
         if (active === !!on) return;
         active = !!on;
         sync(true);
+        // Back from a chat opened in the archive: the archive again, with its arrow.
+        if (active && archiveOpen && deps.back) deps.back(arrow);
       },
+      // The archive of the main page stands on the screen.
+      get archiveOpen() { return archiveOpen; },
+      closeArchive() { closeArchive(); },
       repaintTabs() { if (tabbed().length) paintTabs(); },
       // The list is read at the start, so that the first showing of the main page has it.
       warm() { return reload(); },

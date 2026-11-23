@@ -346,7 +346,21 @@
     } else {
       rows = (await post('/rest/v1/rpc/list_chats', body)) || [];
     }
-    const items = rows.map((r) => ({
+    const items = rows.map(itemOf);
+    const tail = rows.filter((r) => !r.pinned).pop() || rows[rows.length - 1];
+    return {
+      items,
+      cursor: tail ? { lastAt: tail.last_at, cursorId: tail.cursor_id } : null,
+      // «Пришло меньше, чем просили» — единственный честный признак конца.
+      // Поэтому предел передаётся ЯВНО: положись мы на умолчание сервера,
+      // сравнивать было бы не с чем, и прокрутка дёргала бы сервер без конца.
+      done: rows.filter((r) => !r.pinned).length < LIST_PAGE,
+    };
+  }
+
+  // A row of list_chats (and of list_archived_chats, the same table) as the panel takes it.
+  function itemOf(r, archived) {
+    return {
       id: r.chat_key,
       kind: r.kind,
       title: r.title || '',
@@ -359,16 +373,15 @@
       // The state of the chat in the list, the server's (chat_states.sql): pinned, marked unread.
       pinned: !!r.pinned,
       unread: !!r.unread,
-    }));
-    const tail = rows.filter((r) => !r.pinned).pop() || rows[rows.length - 1];
-    return {
-      items,
-      cursor: tail ? { lastAt: tail.last_at, cursorId: tail.cursor_id } : null,
-      // «Пришло меньше, чем просили» — единственный честный признак конца.
-      // Поэтому предел передаётся ЯВНО: положись мы на умолчание сервера,
-      // сравнивать было бы не с чем, и прокрутка дёргала бы сервер без конца.
-      done: rows.filter((r) => !r.pinned).length < LIST_PAGE,
+      // In the archive or not (chat_archive.sql): the list of the panel has none of the archived ones.
+      archived: archived === true,
     };
+  }
+
+  // The archive of the panel (chat_archive.sql): the archived conversations, one portion, the last movement first.
+  async function listArchivedChats() {
+    const rows = (await post('/rest/v1/rpc/list_archived_chats', {})) || [];
+    return (Array.isArray(rows) ? rows : []).map((r) => itemOf(r, true));
   }
 
   // Пустая строка сбрасывает название (сервер кладёт NULL). Длину режет тоже
@@ -746,6 +759,7 @@
     attachmentOf,
     createSession,
     listChats,
+    listArchivedChats,
     renameChat,
     setChatHidden,
     chatAct,
