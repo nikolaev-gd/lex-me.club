@@ -51,6 +51,9 @@
   // than one variable because a stopped stream can still deliver a trailing
   // frame after the next one has started.
   const live = new Map();
+  // The requests of an edit in place, keyed by requestId: { cut: the old message and what came after it, mine: the
+  // new version's question }. Not a word of the answer — they come back (undoEdit).
+  const edits = new Map();
   // Every bubble a live voice conversation is writing into, keyed by the
   // server's item_id. A Map and not two variables — see the Voice section.
   const voiceBubbles = new Map();
@@ -127,12 +130,16 @@
       // нельзя, она встаёт сама при отправке через ту же пилюлю.
       // In a chat of a person (19.11.2026) too: the words go back into the field and the next send is a new word to Lex or,
       // by a hold of the arrow, to the person. A chat of a person has no presets and no chosen words: no slot, no source.
+      // Edit in place (chat_edit_in_place.sql, 23.11.2026): a message the server lists as `editable` — the arrow makes a
+      // new version of it, its answer is written anew in its place (wc-app.js editTurn → sendEdit).
       edit: () => {
         const turn = turnOf();
+        const uid = (turn && turn.dataset.uid) || null;
         return hooks.onEdit && hooks.onEdit(
           (bubble.dataset.editText != null) ? bubble.dataset.editText : userText(bubble),
           profiChat ? null : ((opts && opts.presetSlot) || null),
-          profiChat ? null : ((turn && turn.dataset.uid) || null));
+          profiChat ? null : uid,
+          { inPlace: !!(uid && turn && turn.dataset.editable === '1'), uid });
       },
       // «Send to … now» (19.11.2026): in a chat with a person behind it (an order, a person of a folder) a word to
       // Lex that was meant for him goes to him as it stands, at once, without the model — the first item of the
@@ -247,6 +254,31 @@
     if (opts && opts.presetSlot) turn.dataset.presetSlot = String(opts.presetSlot);
     return turn;
   }
+
+  // The switcher of the versions of one's own message (‹ 1 / 2 ›), the common part of the extension
+  // (LexAnswerRow.setVersions): under the bubble, at its right edge. It stands where the edit goes in place (the
+  // server's `editable`): in a chat with a person the versions of a word stop switching once he wrote after it.
+  // A press asks the window for the other version (hooks.onSwitchVersion); while an answer is written it waits.
+  function paintVersions(node, t) {
+    const v = t && t.versions;
+    if (!v || v.total < 2 || t.editable !== true || !global.LexAnswerRow || !global.LexAnswerRow.setVersions) return;
+    const row = el('.lex-answer-row.wc-user-versions');
+    const go = (step) => {
+      const uid = v.uids[v.idx - 1 + step];
+      if (!uid || busyNow() || !hooks.onSwitchVersion) return;
+      hooks.onSwitchVersion(uid, String(t.uid || ''));
+    };
+    global.LexAnswerRow.setVersions(row, {
+      idx: v.idx, total: v.total,
+      onPrev: () => go(-1), onNext: () => go(+1),
+      prevTitle: 'Previous version', nextTitle: 'Next version',
+    });
+    // On the row of the message, not in its `> div`: in a chat with a person that div is the bubble itself
+    // (lex-profi.js, dress). The row takes the whole width under the bubble (wc-app.css, .has-versions).
+    node.classList.add('has-versions');
+    node.append(row);
+  }
+  const busyNow = () => live.size > 0;
 
   // Строка под ответом — общий модуль с расширением (lex-answer-row.js):
   // копирование под каждым ответом, правее переключатель версий, последней —
@@ -772,6 +804,16 @@
   // Прежний ответ вернуть на место: переспрос не дал ни слова (отказ, «стоп»
   // до первого слова). На сервере он не заменён — значит и на экране должен
   // остаться он, а не пустой пузырь.
+  // An edit whose new version said nothing: its two turns go, the old message and what came after it are back.
+  function undoEdit(ed, entry) {
+    if (entry && entry.turn) entry.turn.remove();
+    if (ed.mine && ed.mine.parentNode) ed.mine.remove();
+    elTurns.append(...ed.cut.nodes);
+    if (profiChat) profiChat.paintHidden(elTurns);
+    syncFeet();
+    maybeStick();
+  }
+
   function restorePrevious(entry) {
     const prev = entry.retry;
     entry.turn.classList.remove('is-streaming', 'wc-turn-error', 'wc-turn-gate');
@@ -858,6 +900,7 @@
     clear() {
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
+      edits.clear();
       incoming = null;
       backTop = null;
       elTurns.replaceChildren();
@@ -1021,6 +1064,7 @@
       // и обязан уйти вместе с ними.
       if (global.WcWordPick) WcWordPick.forgetAll();
       live.clear();
+      edits.clear();
       followedNow = null;
       elTurns.replaceChildren();
       if (profiChat) elTurns.append(profiChat.head());
@@ -1093,6 +1137,8 @@
           });
           if (t.uid) node.dataset.uid = String(t.uid);
           if (t.authoredAt) node.dataset.at = t.authoredAt;
+          if (t.editable === true) node.dataset.editable = '1';
+          paintVersions(node, t);
           elTurns.append(node);
           if (t.threadKey) markApart(node, t.threadKey);
         } else {
@@ -1334,6 +1380,30 @@
       return last;
     },
 
+    // ── Edit in place ───────────────────────────────────────────────────
+    // The edited message and everything after it leave the screen at the press; the new version and its answer
+    // come at their place (the end). Not a word of the answer — the old ones come back (undoEdit) and the window
+    // says why; the server keeps the old version selected then (lex_turn_pick moves it at the first word).
+    // null — the message is not on the screen.
+    cutForEdit(uid) {
+      const from = uid ? elTurns.querySelector(`.wc-turn-user[data-uid="${CSS.escape(String(uid))}"]`) : null;
+      if (!from) return null;
+      const nodes = [];
+      for (let n = from; n; n = n.nextElementSibling) {
+        if (n.classList.contains('wc-turn') || n.classList.contains('lex-fold')) nodes.push(n);
+      }
+      if (global.WcWordPick) for (const n of nodes) for (const b of n.querySelectorAll('.wc-bubble')) WcWordPick.forgetBubble(b);
+      for (const n of nodes) n.remove();
+      syncFeet();
+      return { nodes };
+    },
+    // The request of the new version: its question is the last own message on the screen now.
+    markEdit(requestId, cut) {
+      if (!requestId || !cut) return;
+      const mine = [...elTurns.querySelectorAll(':scope > .wc-turn-user')].pop() || null;
+      edits.set(requestId, { cut, mine });
+    },
+
     // Opened before the first token so the reader sees the answer start.
     beginAssistant(requestId, opts) {
       setEmpty(false);
@@ -1494,6 +1564,13 @@
       endLiveStep(msg.requestId, entry);
       live.delete(msg.requestId);
       clearBrainWork(entry);
+      const ed = edits.get(msg.requestId);
+      edits.delete(msg.requestId);
+      if (ed && !entry.text) {
+        undoEdit(ed, entry);
+        if (hooks.onEditBack) hooks.onEditBack(msg.stopped ? null : 'Lex sent no answer: the message is as it was.');
+        return;
+      }
       // Переспрос, который не дал ни слова, — прежний ответ остаётся.
       if (entry.retry && !entry.text) {
         restorePrevious(entry);
@@ -1583,6 +1660,16 @@
         : (modelUnpriced ? LexErrorText.modelUnpriced(text)
           : (conversationReset ? LexErrorText.conversationReset() : (providerText || text)));
 
+      // An edit that brought not a word: the message and its answer come back as they were, the reason in a line.
+      const ed = edits.get(msg.requestId);
+      edits.delete(msg.requestId);
+      if (ed && entry && !entry.text) {
+        endLiveStep(msg.requestId, entry);
+        live.delete(msg.requestId);
+        undoEdit(ed, entry);
+        if (hooks.onEditBack) hooks.onEditBack(gate ? global.LexBillingGate.message(text) : shown);
+        return;
+      }
       // The person left this chat while Lex was taking the message (WcThread.detach): nothing of
       // it is on the screen now, the page only keeps it (onUnsent without a turn).
       if (!entry && left.has(msg.requestId)) {

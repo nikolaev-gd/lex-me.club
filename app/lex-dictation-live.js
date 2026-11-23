@@ -371,7 +371,15 @@
 
       let res = null;
       try {
-        res = await transport.call('LEX_DICTATION_LIVE_START', { requestId: myId, config: config || {} });
+        // A field of the config may still be on its way (the extension mints a new chat's key while the
+        // sound is already taken, dictation.js): it is awaited here, right before the start frame.
+        const sent = {};
+        for (const k of Object.keys(config || {})) {
+          const v = config[k];
+          sent[k] = v && typeof v.then === 'function' ? await Promise.resolve(v).catch(() => null) : v;
+        }
+        if (!running || requestId !== myId) return false;
+        res = await transport.call('LEX_DICTATION_LIVE_START', { requestId: myId, config: sent });
       } catch (err) {
         res = { ok: false, error: String((err && err.message) || err) };
       }

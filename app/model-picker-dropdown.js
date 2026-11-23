@@ -4,10 +4,12 @@
 // provider) plus a second, separate <select> for effort. A native <select>
 // can't show a hover submenu — the OS renders it, not us — so this is a
 // hand-rolled popup: one row per model, and hovering a model with more than
-// one supported effort opens a submenu to the side listing the efforts, a
-// checkmark on whichever one is currently in effect. Clicking the model row
-// itself (without detouring into the submenu) commits with that same
-// checked effort — i.e. "whatever this model was last set to".
+// one supported effort opens a submenu to the side listing the efforts. Only
+// the selected model's level carries a checkmark; another model's levels are
+// bare. Clicking the selected model's row keeps its level; clicking another
+// model's row takes «low» (Gennady, 23.11.2026). The provider of the selected
+// model stands first and open; the other providers are folded into rows with
+// a submenu of their models — the same rule as `ModelMenuItems` on the iPhone.
 //
 // Two ways in: `mount(trigger, config)` turns a <button> into a full
 // self-contained picker (its own popup panel, positioning, outside-click/
@@ -52,6 +54,18 @@
     try { stored = await opts.getEffort(apiModel); } catch (_) { /* noop */ }
     const fallback = ModelRegistry.defaultEffort[apiModel] || supported[0] || 'none';
     return supported.includes(stored) ? stored : fallback;
+  }
+
+  // The level a press on a model row takes when the model is not the selected one (Gennady,
+  // 23.11.2026): «low»; a model without «low» — its first level.
+  function defaultPickEffort(supported) {
+    return supported.includes('low') ? 'low' : (supported[0] || 'none');
+  }
+
+  // The provider shown open: the selected model's, else Claude, else the first.
+  function openProvider(selected, ids) {
+    if (selected && ids.includes(selected)) return selected;
+    return ids.includes('anthropic') ? 'anthropic' : (ids[0] || null);
   }
 
   // One open picker at a time, tracked module-wide so opening a second one
@@ -170,39 +184,23 @@
   // opts.getEffort(apiModel): () => Promise<string|null> — persisted effort.
   // opts.onPick(provider, apiModel, effort): called on a committed choice.
   function populateModelRows(container, opts) {
-    let submenuEl = null;
-    let submenuForApiModel = null;
+    // Open submenus, by level: 0 — beside a row of `container` (a folded provider, a model's
+    // levels, a choice), 1 — beside a row of a level-0 submenu (the levels of a model of a
+    // folded provider). Opening one at a level closes that level and the deeper ones.
+    const subs = [];
 
-    function closeSubmenu() {
-      if (submenuEl) { submenuEl.remove(); submenuEl = null; submenuForApiModel = null; }
+    function closeSubmenu(level) {
+      const from = level || 0;
+      while (subs.length > from) subs.pop().el.remove();
     }
 
-    // labelOf — подпись пункта по его значению (у ступеней подпись и есть значение).
-    function openSubmenu(rowEl, apiModel, efforts, currentEffort, onChoose, labelOf) {
-      if (submenuForApiModel === apiModel) return;
-      closeSubmenu();
-      submenuForApiModel = apiModel;
+    // fill(sub) — puts the rows into the new submenu.
+    function openSubmenuAt(level, rowEl, key, fill) {
+      if (subs[level] && subs[level].key === key) { closeSubmenu(level + 1); return; }
+      closeSubmenu(level);
       const sub = document.createElement('div');
       sub.className = 'ytvocab-model-picker-submenu';
-      for (const eff of efforts) {
-        const item = document.createElement('div');
-        item.className = 'ytvocab-model-picker-effort-row';
-        if (eff === currentEffort) item.classList.add('is-selected');
-        const check = document.createElement('span');
-        check.className = 'ytvocab-model-picker-check';
-        check.textContent = eff === currentEffort ? '✓' : '';
-        const label = document.createElement('span');
-        label.className = 'ytvocab-model-picker-label';
-        label.textContent = labelOf ? labelOf(eff) : eff;
-        item.appendChild(check);
-        item.appendChild(label);
-        item.addEventListener('mousedown', (e) => e.stopPropagation());
-        item.addEventListener('click', (e) => {
-          e.stopPropagation();
-          onChoose(eff);
-        });
-        sub.appendChild(item);
-      }
+      fill(sub);
       // position MUST be set before measuring offsetWidth below — until it
       // is, this is a plain static block appended to <body> and reports its
       // width as the full page width, not its shrink-to-fit content width.
@@ -211,7 +209,7 @@
       // the left edge of the viewport instead of hugging the row.
       sub.style.position = 'fixed';
       document.body.appendChild(sub);
-      submenuEl = sub;
+      subs.push({ el: sub, key });
       const rr = rowEl.getBoundingClientRect();
       let left = rr.right + 2;
       const subW = sub.offsetWidth;
@@ -222,23 +220,96 @@
       sub.style.left = Math.round(Math.max(4, left)) + 'px';
     }
 
+    // A submenu of choices with a tick on `current` (null — no tick). labelOf — the label of a
+    // choice by its value (a level's label is its value).
+    function openSubmenu(level, rowEl, key, values, current, onChoose, labelOf) {
+      openSubmenuAt(level, rowEl, key, (sub) => {
+        for (const eff of values) {
+          const item = document.createElement('div');
+          item.className = 'ytvocab-model-picker-effort-row';
+          if (eff === current) item.classList.add('is-selected');
+          const check = document.createElement('span');
+          check.className = 'ytvocab-model-picker-check';
+          check.textContent = eff === current ? '✓' : '';
+          const label = document.createElement('span');
+          label.className = 'ytvocab-model-picker-label';
+          label.textContent = labelOf ? labelOf(eff) : eff;
+          item.appendChild(check);
+          item.appendChild(label);
+          item.addEventListener('mousedown', (e) => e.stopPropagation());
+          item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            onChoose(eff);
+          });
+          sub.appendChild(item);
+        }
+      });
+    }
+
+    function rowWith(className, labelText, ticked, chevron) {
+      const row = document.createElement('div');
+      row.className = className;
+      if (ticked) row.classList.add('is-selected');
+      const check = document.createElement('span');
+      check.className = 'ytvocab-model-picker-check';
+      check.textContent = ticked ? '✓' : '';
+      const label = document.createElement('span');
+      label.className = 'ytvocab-model-picker-label';
+      label.textContent = labelText;
+      row.appendChild(check);
+      row.appendChild(label);
+      if (chevron) {
+        const ch = document.createElement('span');
+        ch.className = 'ytvocab-model-picker-chevron';
+        ch.textContent = '›';
+        row.appendChild(ch);
+      }
+      return row;
+    }
+
+    // One model row at `level` (0 — in `container`, 1 — in a folded provider's submenu).
+    // The levels submenu ticks a level only at the selected model; another model's levels are
+    // bare (Gennady, 23.11.2026). A press on the row itself: the selected model keeps its level,
+    // another model takes «low» (its lowest level when it has no «low»).
+    function modelRow(parent, provider, m, level) {
+      let selected = false;
+      try { selected = !!(opts.selected && opts.selected.provider === provider && opts.selected.apiModel === m.apiModel); } catch (_) { /* noop */ }
+      const supported = ModelRegistry.effortSupport[m.apiModel] || ['none'];
+      const row = rowWith('ytvocab-model-picker-row', m.label, selected, supported.length > 1);
+      let resolvedEffort = null;
+      async function effortOfRow() {
+        if (!selected) return defaultPickEffort(supported);
+        if (resolvedEffort == null) resolvedEffort = await resolveEffort(m.apiModel, opts);
+        return resolvedEffort;
+      }
+      if (supported.length > 1) {
+        row.addEventListener('mouseenter', async () => {
+          const ticked = selected ? await effortOfRow() : null;
+          openSubmenu(level, row, m.apiModel, supported, ticked, (chosenEff) => {
+            closeSubmenu();
+            opts.onPick(provider, m.apiModel, chosenEff);
+          });
+        });
+      } else {
+        row.addEventListener('mouseenter', () => closeSubmenu(level));
+      }
+      if (level > 0) row.addEventListener('mousedown', (e) => e.stopPropagation());
+      row.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const eff = await effortOfRow();
+        closeSubmenu();
+        opts.onPick(provider, m.apiModel, eff);
+      });
+      parent.appendChild(row);
+    }
+
     // opts.leadRow — необязательная первая строка над моделями: выбор, который
     // не модель и ступеней не имеет, например «(как основной чат)» у заготовки
     // действия. { label, selected, onPick() }.
     if (opts.leadRow) {
       const lead = opts.leadRow;
-      const row = document.createElement('div');
-      row.className = 'ytvocab-model-picker-row ytvocab-model-picker-lead-row';
-      if (lead.selected) row.classList.add('is-selected');
-      const check = document.createElement('span');
-      check.className = 'ytvocab-model-picker-check';
-      check.textContent = lead.selected ? '✓' : '';
-      const label = document.createElement('span');
-      label.className = 'ytvocab-model-picker-label';
-      label.textContent = lead.label;
-      row.appendChild(check);
-      row.appendChild(label);
-      row.addEventListener('mouseenter', closeSubmenu);
+      const row = rowWith('ytvocab-model-picker-row ytvocab-model-picker-lead-row', lead.label, !!lead.selected, false);
+      row.addEventListener('mouseenter', () => closeSubmenu());
       row.addEventListener('click', () => {
         closeSubmenu();
         lead.onPick();
@@ -248,65 +319,37 @@
 
     // opts.provider — сузить до одного поставщика (вкладки в настройках).
     // Тогда заголовок группы не рисуется: он повторял бы имя открытой вкладки.
+    //
+    // Без него (решение Геннадия 23.11.2026, то же правило у айфона — `ModelMenuItems`):
+    // поставщик выбранной модели — первым и развёрнутым, с заголовком; остальные свёрнуты —
+    // строкой со стрелкой, модели в её подменю. Ничего не выбрано — развёрнут Claude.
     const only = opts.provider || null;
     const groups = textModelsGrouped(only);
-    for (const group of groups) {
+    const openId = openProvider(opts.selected && opts.selected.provider, groups.map((g) => g.provider));
+    const openGroups = only ? groups : groups.filter((g) => g.provider === openId);
+    for (const group of openGroups) {
       if (!only) {
         const groupEl = document.createElement('div');
         groupEl.className = 'ytvocab-model-picker-group-label';
         groupEl.textContent = group.label;
         container.appendChild(groupEl);
       }
-
-      for (const m of group.models) {
-        const row = document.createElement('div');
-        row.className = 'ytvocab-model-picker-row';
-
-        let selected = false;
-        try { selected = !!(opts.selected && opts.selected.provider === group.provider && opts.selected.apiModel === m.apiModel); } catch (_) { /* noop */ }
-        if (selected) row.classList.add('is-selected');
-
-        const check = document.createElement('span');
-        check.className = 'ytvocab-model-picker-check';
-        check.textContent = selected ? '✓' : '';
-        const label = document.createElement('span');
-        label.className = 'ytvocab-model-picker-label';
-        label.textContent = m.label;
-        row.appendChild(check);
-        row.appendChild(label);
-
-        const supported = ModelRegistry.effortSupport[m.apiModel] || ['none'];
-        let resolvedEffort = null;
-        async function ensureResolved() {
-          if (resolvedEffort == null) resolvedEffort = await resolveEffort(m.apiModel, opts);
-          return resolvedEffort;
-        }
-
-        if (supported.length > 1) {
-          const chevron = document.createElement('span');
-          chevron.className = 'ytvocab-model-picker-chevron';
-          chevron.textContent = '›';
-          row.appendChild(chevron);
-
-          row.addEventListener('mouseenter', async () => {
-            const eff = await ensureResolved();
-            openSubmenu(row, m.apiModel, supported, eff, (chosenEff) => {
-              closeSubmenu();
-              opts.onPick(group.provider, m.apiModel, chosenEff);
-            });
-          });
-        } else {
-          row.addEventListener('mouseenter', closeSubmenu);
-        }
-
-        row.addEventListener('click', async () => {
-          const eff = await ensureResolved();
-          closeSubmenu();
-          opts.onPick(group.provider, m.apiModel, eff);
-        });
-
-        container.appendChild(row);
-      }
+      for (const m of group.models) modelRow(container, group.provider, m, 0);
+    }
+    const folded = only ? [] : groups.filter((g) => g.provider !== openId);
+    if (folded.length) {
+      const sep = document.createElement('div');
+      sep.className = 'ytvocab-model-picker-sep';
+      container.appendChild(sep);
+    }
+    for (const group of folded) {
+      const row = rowWith('ytvocab-model-picker-row ytvocab-model-picker-provider-row', group.label, false, true);
+      const show = () => openSubmenuAt(0, row, '\u0000provider:' + group.provider, (sub) => {
+        for (const m of group.models) modelRow(sub, group.provider, m, 1);
+      });
+      row.addEventListener('mouseenter', show);
+      row.addEventListener('click', (e) => { e.stopPropagation(); show(); });
+      container.appendChild(row);
     }
 
     // opts.choiceRow — необязательная строка под моделями, за чертой: выбор, который не модель,
@@ -332,7 +375,7 @@
       row.appendChild(label);
       row.appendChild(chevron);
       const labels = new Map(ch.options.map((o) => [o.value, o.label]));
-      const show = () => openSubmenu(row, '\u0000choice', ch.options.map((o) => o.value), ch.current,
+      const show = () => openSubmenu(0, row, '\u0000choice', ch.options.map((o) => o.value), ch.current,
         (value) => { closeSubmenu(); ch.onChoose(value); }, (value) => labels.get(value) || value);
       row.addEventListener('mouseenter', show);
       row.addEventListener('click', show);
@@ -357,7 +400,7 @@
       label.textContent = tail.label;
       row.appendChild(check);
       row.appendChild(label);
-      row.addEventListener('mouseenter', closeSubmenu);
+      row.addEventListener('mouseenter', () => closeSubmenu());
       row.addEventListener('click', () => {
         closeSubmenu();
         tail.onPick(row);
@@ -366,9 +409,9 @@
     }
 
     return {
-      closeSubmenu,
+      closeSubmenu: () => closeSubmenu(),
       containsNode(node) {
-        return !!(submenuEl && submenuEl.contains(node));
+        return subs.some((s) => s.el.contains(node));
       },
     };
   }

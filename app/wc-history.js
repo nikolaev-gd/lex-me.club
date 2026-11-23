@@ -388,6 +388,12 @@
   // answer's text and state (streaming, done, stopped).
   const opState = (opId) => post('/rest/v1/rpc/lex_op_state', { p_op_id: opId });
 
+  // The switcher of the versions of a message (‹ 1 / 2 ›): the server makes that version the selected one and goes
+  // down to the newest message under it (select_turn). → { status: 'ok' | 'duplicate' | 'gone' | 'fixed', … }; 'fixed'
+  // — a chat with a person went on after the message, its version no longer changes (chat_edit_in_place.sql).
+  const selectTurn = (chatKey, uid) =>
+    post('/rest/v1/rpc/select_turn', { p_op_id: newUid(), p_chat_key: chatKey, p_turn_uid: uid });
+
   // Скрытие, а не удаление: строки в public.video_chat_turns не трогаются
   // никогда. И оно теперь ОБЩЕЕ для всех устройств, а не своё у каждого, —
   // беседа, убранная здесь, исчезает и в расширении, и на телефоне.
@@ -473,12 +479,41 @@
     if (!resp.ok) {
       const err = new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
       err.status = resp.status;
+      // The function itself answered with its words (not a gateway in front of it).
+      err.ownWords = !!(out && out.error);
       throw err;
     }
     return out;
   }
   // Send of a chat of a folder: the text for the person, through the edge function folder-send.
-  const folderSend = (body) => edge('folder-send', body);
+  //
+  // A send that did not reach the server (23.11.2026: «Not sent. Load failed» — WebKit's words for a fetch that
+  // got no answer at all, a dropped connection) is tried again by itself, with the SAME body: the server keeps one
+  // send per opId (lex_folder_send_begin), so a press that did reach it is not sent twice. Tried again: no answer
+  // (fetch threw) and a gateway 502/503/504 without the server's own words (the worker restarting). An answer of
+  // folder-send itself — a refusal or «the database does not answer» with its words — is final. When every try
+  // failed, the error says so in plain words and carries network: true; the caller keeps the opId for the next press.
+  const FOLDER_SEND_WAITS = [1000, 3000, 6000];
+  async function folderSend(body) {
+    for (let i = 0; ; i++) {
+      try {
+        return await edge('folder-send', body);
+      } catch (err) {
+        const gateway = err && [502, 503, 504].includes(err.status) && !err.ownWords;
+        const network = err && err.status == null && !/^Sign in/.test(String(err.message || ''));
+        if (!gateway && !network) throw err;
+        if (i >= FOLDER_SEND_WAITS.length) {
+          const out = new Error('No connection to the server of Lex. Press Send again: the text will not go twice.');
+          out.network = true;
+          out.cause = err;
+          console.warn('[wc] folder-send: no answer after ' + (i + 1) + ' tries:', err && err.message);
+          throw out;
+        }
+        console.warn('[wc] folder-send: try ' + (i + 1) + ' got no answer (' + ((err && err.message) || err) + '), again');
+        await new Promise((r) => setTimeout(r, FOLDER_SEND_WAITS[i]));
+      }
+    }
+  }
   // The branch «who is this» in the chat of a new person (19.11.2026, В7.50): a word of Gennady to the model of that one
   // question { chatKey, opId, text }, or the press of Confirm { chatKey, opId, confirm: 'profi:whois:<n>' }, through the
   // edge function folder-whois. Nothing of it goes to the person.
@@ -549,10 +584,15 @@
     }
     const rows = (out && Array.isArray(out.turns)) ? out.turns : [];
     const lesson = [];
+    // Which messages of the owner an Edit changes in place (chat_edit_in_place.sql, `editable`): a new version of the
+    // message, its answer written anew under it. A server without the list — every message keeps the old Edit.
+    const editable = (out && Array.isArray(out.editable)) ? new Set(out.editable.map(String)) : null;
     for (const r of rows) {
       const key = r && r.chat_key;
       if (!key || key !== chatKey) continue;
-      lesson.push(toTurn(r));
+      const t = toTurn(r);
+      if (editable && t.role === 'user' && t.uid) t.editable = editable.has(t.uid);
+      lesson.push(t);
     }
     // A chat of a folder: whether the server has earlier messages than these.
     if (isFolderKey(chatKey)) return { lesson, apart: [], folderMore: !!(out && out.more) };
@@ -585,6 +625,10 @@
       ? { pick: r.bubble_pick, rest: typeof r.bubble_rest === 'string' ? r.bubble_rest : '' } : null,
     uid: r.turn_uid || null,
     authoredAt: r.authored_at || r.created_at || null,
+    // The versions of this message (an edit is a version beside the old one, chat_tree_*.sql): which one it is, of
+    // how many, and the uids of all, in order. One version — null.
+    versions: (Number(r.versions) > 1 && Array.isArray(r.version_uids))
+      ? { idx: Number(r.version_idx) || 1, total: Number(r.versions), uids: r.version_uids.map(String) } : null,
     // Файлы реплики приезжают ПУТЯМИ в бакете. Ключ блоба здесь не появляется
     // никогда: он адресует хранилище конкретного браузера и на другом
     // устройстве не значит ничего.
@@ -705,6 +749,7 @@
     renameChat,
     setChatHidden,
     chatAct,
+    selectTurn,
     requestTitle,
     conversation,
     conversationOf,

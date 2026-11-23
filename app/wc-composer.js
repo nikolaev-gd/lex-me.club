@@ -1062,7 +1062,8 @@
         if (tm) {
           const anchor = e.currentTarget;
           items.push({
-            label: tm.label ? 'Text model: ' + tm.label : 'Text model',
+            // Just the model and its level, «Opus 5.5 · high» (Gennady, 23.11.2026).
+            label: tm.label || 'Text model',
             icon: 'spark',
             onSelect: () => tm.open(anchor),
           });

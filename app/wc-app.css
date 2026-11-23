@@ -961,6 +961,10 @@ button { font: inherit; color: inherit; }
 .wc-turn-voice .wc-bubble { font-style: italic; }
 
 .wc-turn-user { display: flex; justify-content: flex-end; }
+/* ‹ 1 / 2 › under one's own message that has versions (an edit in place, wc-thread.js paintVersions): the common
+ * switcher of the extension (lex-answer-row.css), a line of its own under the bubble, at its right edge. */
+.wc-turn-user.has-versions { flex-wrap: wrap; }
+.wc-turn-user > .wc-user-versions { flex: 0 0 100%; justify-content: flex-end; margin-top: 2px; }
 
 /* The width cap goes on the flex ITEM, not on the bubble inside it.
  *
@@ -1167,9 +1171,12 @@ button { font: inherit; color: inherit; }
   padding: 12px 14px;
   border-radius: var(--radius-sm);
   background: var(--bg-bubble);
-  /* Wide code must scroll inside its own box; the page never scrolls sideways. */
-  overflow-x: auto;
+  /* A long line wraps at the edge of its box (Gennady, 23.11.2026: a text for a person in a code block ran off to the
+   * side); the spaces and line breaks stay as written, the page never scrolls sideways. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+.wc-bubble pre code { white-space: inherit; }
 .wc-bubble pre code { padding: 0; background: none; font-size: .87em; }
 .wc-bubble blockquote {
   margin: 0 0 .75em;

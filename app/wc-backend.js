@@ -1307,6 +1307,10 @@
     // контекста, и оттуда их берёт следующее «заново» (replacesUid), — поэтому
     // в памяти обязан лежать тот же уид, что и в базе.
     const isRegen = m.act === 'regen';
+    // Edit in place (chat_edit_in_place.sql): a new version of the message m.replacesUid. The server reads the chat up
+    // to that message itself (meta.tree); the memory of the context loses the message and what came after it, and gets
+    // them back if not a word of the new answer came — the old version is then still the selected one on the server.
+    const isEdit = m.act === 'edit' && typeof m.replacesUid === 'string' && !!m.replacesUid && !!m.opId;
     const opId = m.opId ? String(m.opId) : null;
     // Вопрос при переспросе НЕ трогается: он тот же, и уид у него тот же.
     const userUid = isRegen ? m.userUid : (opId ? global.LexTurnId.userTurnUid(opId) : WcHistory.newUid());
@@ -1346,6 +1350,11 @@
     const apartPress = !isRegen && !apartOwn && m.mode === 'native' && m.presetMode === 'separate';
     const question = { role: 'user', text: m.text, uid: userUid };
     let placed = !apartPress;
+    let editTail = null;
+    if (isEdit) {
+      const at = buf.findIndex((t) => t.uid === m.replacesUid);
+      editTail = at >= 0 ? buf.splice(at) : [];
+    }
     if (placed) buf.push(question);
 
     // Everything the model sees, inline. There is no server-side thread to
@@ -1455,10 +1464,11 @@
       if (!placed) return;
       // Переспрос не дал ни слова (отказ, «стоп» до первого слова): прежний
       // ответ остался в беседе на сервере — возвращаем пару в контекст.
-      if (!answer && Array.isArray(m.restoreOnFail)) {
+      const restore = isEdit ? editTail : m.restoreOnFail;
+      if (!answer && Array.isArray(restore)) {
         const i = buf.findIndex((t) => t.uid === userUid);
         if (i >= 0) buf.splice(i, 1);
-        buf.push(...m.restoreOnFail);
+        buf.push(...restore);
         return;
       }
       // A partial answer is kept: the provider produced those tokens and the
@@ -1560,7 +1570,8 @@
         turnIndex: buf.length - 1,
         // An order chat is built by the server: the monitor writes turns into it too. So is
         // a feed of Extended Mind: the database writes its entries into it.
-        ...((inProfi || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
+        // An edit too: the server reads the chat up to the edited message, its own chain, not this page's list.
+        ...((inProfi || isEdit || WcHistory.isEmFeedKey(writeKey)) ? { tree: true, messages: messages.slice(-1) } : {}),
         // Reply in the feed of questions: the turns of the questions this message is about.
         ...(Array.isArray(m.emReply) && m.emReply.length ? { emReply: m.emReply.slice(0, 30) } : {}),
         // Reply in an order chat: the message this word to Lex answers, by its turn (В7.26).
@@ -1575,12 +1586,12 @@
         ...(opId ? {
           opId,
           chatKey: writeKey,
-          act: isRegen ? 'regen' : 'send',
+          act: isRegen ? 'regen' : isEdit ? 'edit' : 'send',
           authoredAt,
           // Какой ответ заменяет «заново». Без него сервер переспрос не ведёт:
           // «последняя реплика учителя» — не тот же ответ, когда открыто второе
-          // устройство.
-          ...(isRegen && m.replacesUid ? { replacesUid: String(m.replacesUid) } : {}),
+          // устройство. An edit — which message of the owner it changes.
+          ...((isRegen || isEdit) && m.replacesUid ? { replacesUid: String(m.replacesUid) } : {}),
         } : {}),
       },
       convId,

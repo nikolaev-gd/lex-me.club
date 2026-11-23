@@ -363,6 +363,12 @@
       if (!isDirect() || !recipe) return null;
       const k = cfg.keys || {};
       const p = recipe.provider;
+      // Microsoft's live recognizer lives on a resource of its own (the file
+      // one's region has no live model): its key is `azureMaiLive`, and it
+      // rides in the address of the socket (the recipe's `api-key=` slot).
+      if (p === 'microsoft' && recipe.kind === 'dictation-live') {
+        return typeof k.azureMaiLive === 'string' && k.azureMaiLive ? { LEX_PROVIDER_KEY: k.azureMaiLive } : null;
+      }
       if (p === 'microsoft') {
         const az = k.azureSpeech;
         if (!az || !az.key || !az.endpoint) return null;

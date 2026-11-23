@@ -132,5 +132,19 @@
   // A folder chat key (folder_chats.sql, lex_folder_is_key).
   const isChatKey = (key) => typeof key === 'string' && /^__lex_folder__[0-9]{1,18}$/.test(key);
 
-  global.LexFolders = { createSection, isChatKey, newOpId };
+  // One opId per text until it went (23.11.2026). A press of Send that got no answer from the server may still have
+  // reached it; the next press of the same words in the same chat (and the same Reply) carries the same opId, and the
+  // server, which keeps one send per opId, does not send it twice. sendOp gives the number; sendSettled(chatKey, text,
+  // quoteUid) forgets it once the server answered — took the text or refused it with its words.
+  const pendingOps = new Map();
+  const opKey = (chatKey, text, quoteUid) => `${chatKey}\n${quoteUid || ''}\n${String(text || '').trim()}`;
+  function sendOp(chatKey, text, quoteUid) {
+    const k = opKey(chatKey, text, quoteUid);
+    let op = pendingOps.get(k);
+    if (!op) { op = newOpId(); pendingOps.set(k, op); }
+    return op;
+  }
+  function sendSettled(chatKey, text, quoteUid) { pendingOps.delete(opKey(chatKey, text, quoteUid)); }
+
+  global.LexFolders = { createSection, isChatKey, newOpId, sendOp, sendSettled };
 })(typeof window !== 'undefined' ? window : globalThis);

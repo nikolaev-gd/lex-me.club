@@ -364,7 +364,8 @@
 .lex-bubble .lex-digest li { margin: 2px 0; }
 .lex-bubble .lex-digest h1, .lex-bubble .lex-digest h2, .lex-bubble .lex-digest h3 { margin: 0 0 8px; font-size: inherit; font-weight: 650; }
 .lex-bubble .lex-digest code { padding: 0 4px; border-radius: 6px; background: var(--lex-plate); font-size: 14px; overflow-wrap: anywhere; }
-.lex-bubble .lex-digest pre { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--lex-plate); overflow-x: auto; }
+.lex-bubble .lex-digest pre { margin: 0 0 8px; padding: 8px 12px; border-radius: 10px; background: var(--lex-plate); white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-bubble .lex-digest pre code { white-space: inherit; }
 .lex-bubble .lex-digest pre code { padding: 0; background: none; }
 .lex-bubble .lex-digest blockquote { margin: 0 0 8px; padding-left: 12px; border-left: 2px solid var(--line, var(--lex-plate)); color: var(--fg-muted); }
 .lex-bubble .lex-digest-table { max-width: 100%; overflow-x: auto; margin: 0 0 8px; }

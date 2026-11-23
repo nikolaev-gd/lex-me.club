@@ -274,25 +274,37 @@
   const LIVE_RULES = {
     openai: { endsWhenNoOpenSegment: false, finalWaitMs: 6000, openTimeoutMs: 8000 },
     google: { endsWhenNoOpenSegment: true, finalWaitMs: 6000, openTimeoutMs: 8000 },
+    microsoft: { endsWhenNoOpenSegment: false, finalWaitMs: 6000, openTimeoutMs: 8000 },
   };
 
-  function readLiveFrame(provider, j, committed) {
-    if (provider === 'openai') {
-      const t = j && j.type;
-      if (t === 'session.updated') return { kind: 'ready' };
-      if (t === 'error') return { kind: 'error', message: String((j.error && j.error.message) || 'provider refused') };
-      if (t === 'conversation.item.input_audio_transcription.delta') {
-        return typeof j.delta === 'string' && j.delta ? { kind: 'interim', text: j.delta, append: true } : { kind: 'ignore' };
-      }
-      if (t === 'conversation.item.input_audio_transcription.completed') {
-        const sec = Number(j.usage && j.usage.seconds);
-        return { kind: 'done', seconds: Number.isFinite(sec) && sec > 0 ? sec : null, text: typeof j.transcript === 'string' ? j.transcript : undefined, usage: j.usage || null };
-      }
-      if (t === 'conversation.item.input_audio_transcription.failed') {
-        return { kind: 'error', message: String((j.error && j.error.message) || 'transcription failed') };
-      }
-      return { kind: 'ignore' };
+  // OpenAI and Microsoft speak the same realtime frames; what differs is
+  // `delta`: an increment at OpenAI, the settled start of the open segment at
+  // Microsoft (its guess at the tail comes whole in `intermediate`). Both
+  // never change a `delta` again — it is `final`, as on the server.
+  function readRealtimeFrame(provider, j) {
+    const t = j && j.type;
+    if (t === 'session.updated') return { kind: 'ready' };
+    if (t === 'error') return { kind: 'error', message: String((j.error && j.error.message) || 'provider refused') };
+    if (t === 'conversation.item.input_audio_transcription.delta') {
+      return typeof j.delta === 'string' && j.delta ? { kind: 'final', text: j.delta } : { kind: 'ignore' };
     }
+    if (provider === 'microsoft' && t === 'conversation.item.input_audio_transcription.intermediate') {
+      // An empty tail is a tail too: the provider took its guess back.
+      return typeof j.intermediate === 'string' ? { kind: 'interim', text: j.intermediate } : { kind: 'ignore' };
+    }
+    if (t === 'conversation.item.input_audio_transcription.completed') {
+      const sec = Number(j.usage && j.usage.seconds);
+      return { kind: 'done', seconds: Number.isFinite(sec) && sec > 0 ? sec : null, text: typeof j.transcript === 'string' ? j.transcript : undefined, usage: j.usage || null };
+    }
+    if (t === 'conversation.item.input_audio_transcription.failed') {
+      return { kind: 'error', message: String((j.error && j.error.message) || 'transcription failed') };
+    }
+    return { kind: 'ignore' };
+  }
+
+  function readLiveFrame(provider, j, committed) {
+    if (provider === 'openai' || provider === 'microsoft') return readRealtimeFrame(provider, j);
+    if (provider !== 'google') return { kind: 'error', message: 'no direct reader for ' + provider };
     if (j && j.setupComplete) return { kind: 'ready' };
     const va = j && j.voiceActivity && j.voiceActivity.type;
     if (va === 'ACTIVITY_START') return { kind: 'activity', speaking: true };
@@ -306,6 +318,44 @@
       if (sc.generationComplete === true && committed) return { kind: 'done', seconds: null };
     }
     return { kind: 'ignore' };
+  }
+
+  // The text of a live dictation: what is settled and what is still a guess —
+  // the rules of the server's LiveDictationText
+  // (_shared/live-dictation-providers.ts) and of the iPhone's DirectLiveText,
+  // one for every surface:
+  //   segments — closed segments, the provider never changes them;
+  //   stable   — the settled start of the OPEN segment (`final`);
+  //   current  — the guess: the tail of the open segment.
+  // shown() → the whole line and settledLen: the length of its start (UTF-16
+  // units) that will not change any more; the rest the field shows faint.
+  function createLiveText() {
+    const t = { segments: [], stable: '', current: '' };
+    t.interim = (text, append) => { t.current = append ? t.current + text : text; };
+    t.final = (text) => {
+      if (!t.stable) text = text.replace(/^\s+/, '');
+      if (!text) return;
+      t.stable += text;
+      t.current = t.current.startsWith(text) ? t.current.slice(text.length) : '';
+    };
+    t.settle = (text) => {
+      const seg = text || t.stable;
+      if (seg) t.segments.push(seg);
+      t.stable = '';
+      t.current = '';
+    };
+    t.replaceAll = (text) => { t.segments = text ? [text] : []; t.stable = ''; t.current = ''; };
+    t.open = () => t.stable !== '' || t.current !== '';
+    t.shown = (settledOnly) => {
+      const prefix = t.segments.join(' ');
+      const tail = t.stable + (settledOnly ? '' : t.current);
+      const sep = prefix && tail ? ' ' : '';
+      const stable = t.stable.replace(/\s+$/, '');
+      const settledLen = prefix.length + (stable ? sep.length + stable.length : 0);
+      return { text: prefix + sep + tail, settledLen };
+    };
+    t.all = () => t.shown(false).text;
+    return t;
   }
 
   // A socket that speaks the protocol of the server's `dictation-live`
@@ -332,26 +382,26 @@
       close() { finish('client_closed', true); },
     };
     let up = null, upOpen = false, readyTold = false, finishing = false, settled = false;
-    let segments = [], current = '', speaking = false, lastSent = null;
+    const text = createLiveText();
+    let speaking = false, lastSent = null;
     let providerSeconds = null, providerUsage = null, audioBytes = 0;
     let finalWaiter = null, capTimer = null, config = {};
     const startedAt = Date.now();
     let firstTextAt = null;
 
     const emit = (m) => { try { sock.onmessage && sock.onmessage({ data: JSON.stringify(m) }); } catch (_) {} };
-    const segmentOpen = () => speaking || current !== '';
+    const segmentOpen = () => speaking || text.open();
     const wakeFinal = () => { if (finalWaiter) { const f = finalWaiter; finalWaiter = null; f(); } };
-    const shown = () => {
-      const s = segments.join(' ');
-      if (o.settledOnly || !current) return s;
-      return s ? s + ' ' + current : current;
-    };
+    // The same frame as the server's: the whole line and how much of its start
+    // is settled. A frame with nothing new is not sent; the same line with a
+    // longer settled start is new (the words stopped being a guess).
     const pushText = () => {
-      const t = shown();
-      if (!t || t === lastSent) return;
+      const { text: t, settledLen } = text.shown(!!o.settledOnly);
+      const sig = settledLen + ':' + t;
+      if (!t || sig === lastSent) return;
       if (firstTextAt == null) firstTextAt = Date.now();
-      lastSent = t;
-      emit({ type: 'delta', textSoFar: t });
+      lastSent = sig;
+      emit({ type: 'delta', textSoFar: t, settledLen });
     };
 
     // The socket «opens» at once, as a socket to our server would; the
@@ -390,10 +440,10 @@
               capTimer = setTimeout(() => finish('cap', false), capMs);
             }
             return;
-          case 'interim': current = e.append ? current + e.text : e.text; pushText(); return;
+          case 'interim': text.interim(e.text, e.append); pushText(); return;
+          case 'final': text.final(e.text); pushText(); return;
           case 'settled':
-            if (e.text) segments.push(e.text);
-            current = '';
+            text.settle(e.text);
             pushText();
             if (finishing && rules.endsWhenNoOpenSegment && !segmentOpen()) wakeFinal();
             return;
@@ -402,7 +452,7 @@
             if (!e.speaking && finishing && rules.endsWhenNoOpenSegment && !segmentOpen()) wakeFinal();
             return;
           case 'done':
-            if (typeof e.text === 'string') { segments = [e.text]; current = ''; }
+            if (typeof e.text === 'string') text.replaceAll(e.text);
             if (e.seconds != null && e.seconds > 0) providerSeconds = e.seconds;
             if (e.usage) providerUsage = e.usage;
             pushText();
@@ -464,7 +514,7 @@
         finalWaiter = null;
       }
       settled = true;
-      const text = current ? (segments.length ? segments.join(' ') + ' ' + current : current) : segments.join(' ');
+      const said = text.all();
       const audioSeconds = audioBytes / 2 / sampleRate;
       if (readyTold && typeof o.onReport === 'function') {
         try {
@@ -475,13 +525,13 @@
             audioSeconds: Math.round(audioSeconds * 100) / 100,
             totalMs: Date.now() - startedAt,
             ttftMs: firstTextAt != null ? firstTextAt - startedAt : null,
-            text: text || null,
+            text: said || null,
             config,
           });
         } catch (_) {}
       }
       if (!quiet || readyTold) {
-        emit({ type: 'final', text, seconds: providerSeconds || Math.round(audioSeconds * 10) / 10, billedCostUsd: null, reason, direct: true });
+        emit({ type: 'final', text: said, seconds: providerSeconds || Math.round(audioSeconds * 10) / 10, billedCostUsd: null, reason, direct: true });
       }
       closeAll();
     }
@@ -740,7 +790,7 @@
     readGeminiTranscription, readMicrosoftTranscription, microsoftMarksOf,
     readDeepgramSubtitle, readGeminiSubtitle, readMicrosoftSubtitle, subtitleBody, subtitleUsage,
     dictationResult, readSse,
-    readLiveFrame, createLiveDictationSocket, LIVE_RULES,
+    readLiveFrame, createLiveDictationSocket, createLiveText, LIVE_RULES,
     realtimeUsage, addUsage,
     fileCall, dictateFile, subtitleFile, liveDictation, timedFetch,
   });

@@ -1666,11 +1666,13 @@
     const quoteUid = r && typeof r.quoteUid === 'string' && r.quoteUid ? r.quoteUid : null;
     // Edit of a message that went to a person (19.11.2026): the same line over the field, with the pencil; it is no draft.
     const editUid = r && typeof r.editUid === 'string' && r.editUid ? r.editUid : null;
+    // Edit in place of one's own word to Lex (23.11.2026): the same line; the arrow sends a new version of that message.
+    const editTurn = !!(editUid && r.editTurn);
     // A question about a line of the journal of an agent (22.11.2026, board AgAskRun): «Log · HH:MM» and the line; the first
     // word of the new chat goes with the id of the line (sendToAgent, op chat with run).
     const run = r && typeof r.run === 'string' && r.run ? r.run : null;
     reply = uids.length || quoteUid || editUid || run
-      ? { uids, quoteUid, editUid, run, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
+      ? { uids, quoteUid, editUid, editTurn, run, text: r.text || '', head: r.head || 'Reply to Extended Mind' } : null;
     const slot = document.getElementById('wc-reply');
     if (slot) {
       slot.hidden = !reply;
@@ -1695,7 +1697,7 @@
     if (!e || !e.uid) return;
     // What stood in the field, with its Reply line, comes back when the edit ends: the edit is no draft.
     if (!(reply && reply.editUid)) editStash = { text: WcComposer.text(), reply: replyOfField() };
-    setReply({ editUid: e.uid, head: e.head || 'Edit message', text: e.text || '' });
+    setReply({ editUid: e.uid, editTurn: !!e.turn, head: e.head || 'Edit message', text: e.text || '' });
     WcComposer.setText(e.text || '');
     WcComposer.focus();
   }
@@ -1709,6 +1711,74 @@
     const out = await WcBus.call('WC_MESSAGE_EDIT', { body: { uid, text, opId: global.LexFolders.newOpId() } });
     return (out && out.edit) || null;
   }
+  // ── Edit in place of one's own word to Lex (Gennady, 2026-11-23: «как это обычно принято») ─────────
+  // The arrow under the line «Edit message» of a word to Lex: the message and what came after it leave the screen, the
+  // new words stand in their place with the answer written anew under them, and the model reads the chat up to that
+  // place (the server's chain, wc-backend.js isEdit). The old version stays on the server: ‹ 1 / 2 › under the message
+  // goes back to it. Not a word came — the old message and its answer are back, the reason in a line (onEditBack).
+  async function sendEdit(text) {
+    const e = reply && reply.editUid && reply.editTurn ? reply : null;
+    const words = String(text || '').trim();
+    if (!e) return;
+    const refuse = (why) => {
+      if (words && !WcComposer.text().trim()) WcComposer.setText(words);
+      toast(why, { error: true });
+    };
+    if (!words) { refuse('Write the new words, or cancel the edit.'); return; }
+    if (global.WcAttach && WcAttach.count() > 0) { refuse('An edit takes words only. Take the file off the field first.'); return; }
+    if (WcThread.isStreaming()) { refuse('Wait for the answer, or stop it, then edit.'); return; }
+    const convId = state.conversationId;
+    if (!convId) { refuse('This chat is not on the server yet.'); return; }
+    const cut = WcThread.cutForEdit(e.editUid);
+    if (!cut) { refuse('This message is not in the chat any more.'); return; }
+    endEdit();
+    if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
+    WcThread.appendUser(words, [], {});
+    const requestId = nextRequestId();
+    state.requestId = requestId;
+    const opId = global.LexTurnId.newOpId();
+    ownOps.add(opId);
+    opOfRequest.set(requestId, opId);
+    editRequests.set(requestId, convId);
+    WcThread.beginAssistant(requestId);
+    WcThread.markEdit(requestId, cut);
+    WcComposer.setStreaming(true, requestId);
+    try {
+      await WcBus.call('WC_SEND', {
+        requestId, opId, pressedAt: Date.now(), conversationId: convId,
+        text: words, picks: null, images: [], files: [], mode: null, slotId: null, modelId: '',
+        act: 'edit', replacesUid: e.editUid,
+      });
+    } catch (err) {
+      WcBus.broadcast({ type: 'STREAM_ERROR', requestId, error: String((err && err.message) || err) });
+    }
+  }
+  // requestId → the chat of an edit in place: its end reads the chat again (the counter of the versions comes with it).
+  const editRequests = new Map();
+  // ‹ 1 / 2 › under one's own message: the server selects that version (select_turn) and the chat is read again.
+  async function switchVersion(uid) {
+    const key = state.conversationId;
+    if (!key || WcThread.isStreaming()) return;
+    let r = null;
+    try { r = await WcHistory.selectTurn(key, uid); } catch (err) {
+      toast('Could not switch the version — the server did not answer. The previous one is back.', { error: true });
+      return;
+    }
+    if (r && r.status === 'fixed') toast('This version stays: the chat went on with the person after it.', { error: true });
+    if (r && r.status === 'gone') toast('That version is not in the chat any more.', { error: true });
+    await reloadOpenChat(key, { force: true });
+  }
+  async function reloadOpenChat(key, opts) {
+    if (!key || state.conversationId !== key) return;
+    // A chat with a person draws itself again even when the same messages are on the screen: the counter of the
+    // versions and the list of what is edited in place change with no new message.
+    if (profiChat) { await refreshProfiChat({ force: true, ...(opts || {}) }).catch(() => {}); return; }
+    try {
+      const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
+      if (again && again.ok && state.conversationId === key && !WcThread.isStreaming()) paintConversation(again, { keepPlace: true });
+    } catch (err) { console.warn('[wc] chat again:', err && err.message); }
+  }
+
   async function submitEdit(text) {
     const e = reply && reply.editUid ? reply : null;
     const chat = profiChat;
@@ -2101,7 +2171,7 @@
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
     const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
-    if (!moved && same) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
+    if (!moved && same && !(opts && opts.force)) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
     WcThread.whenFree('profi-chat', () => {
       if (profiChat !== chat || WcThread.isStreaming() || state.conversationId !== data.chatKey) return;
       chat.words = words;
@@ -2235,7 +2305,7 @@
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
     const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
-    if (!moved && same) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
+    if (!moved && same && !(opts && opts.force)) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
     WcThread.whenFree('profi-chat', () => {
       if (profiChat !== chat || state.conversationId !== data.chatKey) return;
       chat.words = words;
@@ -2255,14 +2325,18 @@
       return false;
     }
     let out;
+    const key = chat.data.chatKey;
     try {
       out = await WcBus.call('WC_FOLDER_SEND', {
-        body: { chatKey: chat.data.chatKey, text: words, opId: global.LexFolders.newOpId(), ...(quoteUid ? { quoteUid } : {}) },
+        body: { chatKey: key, text: words, opId: global.LexFolders.sendOp(key, words, quoteUid), ...(quoteUid ? { quoteUid } : {}) },
       });
     } catch (err) {
+      // No answer (err.network): the opId stays for the next press of these words — it does not go twice.
+      if (!(err && err.network)) global.LexFolders.sendSettled(key, words, quoteUid);
       toast('Not sent. ' + ((err && err.message) || ''), { error: true });
       return false;
     }
+    global.LexFolders.sendSettled(key, words, quoteUid);
     if (quoteUid && reply && reply.quoteUid === quoteUid) setReply(null);
     if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
@@ -2753,7 +2827,7 @@
 
   async function send(text, opts) {
     // The line of Edit stands over the field: the arrow edits that message at the person (19.11.2026).
-    if (reply && reply.editUid) { await submitEdit(text); return; }
+    if (reply && reply.editUid) { await (reply.editTurn ? sendEdit(text) : submitEdit(text)); return; }
     // Sent from the field over a dimmed screen (В7.64): the screen becomes the new chat first, then the words go to it.
     if (quick) await quickCommit();
     // Whose words these are is fixed at the press: the chat on the screen then. A turn that waits for
@@ -3141,7 +3215,14 @@
   // не вернуть. Отправка обычная — она добавит новый ход. Вопрос, заданный
   // заготовкой, уходит той же заготовкой: её пилюля подсвечивается, и
   // отправка идёт через неё (решение владельца 2026-09-21).
-  function editTurn(text, presetSlot, sourceUid) {
+  function editTurn(text, presetSlot, sourceUid, how) {
+    // In place (chat_edit_in_place.sql): the words into the field under the line «Edit message»; the arrow sends a
+    // new version of that message, its answer written anew in its place (sendEdit). A question asked by a preset
+    // goes by the same preset: the server takes it from the edited message.
+    if (how && how.inPlace && how.uid && !WcThread.isStreaming()) {
+      startEdit({ uid: how.uid, turn: true, text: text || '' });
+      return;
+    }
     WcComposer.setText(text || '');
     WcComposer.armPreset(presetSlot || null);
     // С какого вопроса правка: сервер возьмёт из него блок выбранного слова.
@@ -4460,6 +4541,10 @@
     WcThread.init({
       onPickModel: pickModelForAnswer,
       onEdit: editTurn,
+      // ‹ 1 / 2 › under one's own message: another version of it (select_turn).
+      onSwitchVersion: (uid) => { switchVersion(uid); },
+      // An edit in place that brought not a word: the old message is back on the screen; why — in a line.
+      onEditBack: (why) => { if (why) toast(why, { error: true }); },
       // «Send to … now» in the menu of a word to Lex: the answer still being written to it stops.
       onStopCurrent: stopStream,
       // The thread got its first word or was cleared: the main page gives way or comes back.
@@ -4619,6 +4704,12 @@
           }
         }
         if (msg.type === 'STREAM_DONE') refreshAccount();
+        // An edit in place ended: the chat as the server keeps it now — the new version with ‹ 2 / 2 ›, or the old one.
+        if (editRequests.has(msg.requestId)) {
+          const key = editRequests.get(msg.requestId);
+          editRequests.delete(msg.requestId);
+          setTimeout(() => reloadOpenChat(key, { force: true }), 300);
+        }
         // An answer followed on the server after a break (wc-backend.js followAfterBreak): what the
         // screen lacks of it comes from the chat as the server wrote it.
         if (msg.type === 'STREAM_DONE' && msg.followed && state.conversationId) catchUpOpenChat(state.conversationId);

@@ -338,7 +338,9 @@
     // Гейтимся по СТАДИИ, а не по голому 424: чужой 424 не должен превращаться
     // в «промпт не опубликован».
     function lexPromptMissingError(response) {
-      if (!response || response.status !== 424) return null;
+      // An edit in place the server refuses (409 edit_fixed: the chat went on with the person after the message) — the
+      // same way: its words are for the person.
+      if (!response || (response.status !== 424 && response.status !== 409)) return null;
       const stage = (response.headers && typeof response.headers.get === 'function')
         ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
       if (stage !== 'prompt') return null;
@@ -355,7 +357,9 @@
     // список и правка вопроса заготовки, у которой строку с тех пор сняли.
     // Стадию читаем и из тела: странице lex-me.club/app заголовок не виден.
     async function lexPresetNoLineError(response) {
-      if (!response || response.status !== 424) return null;
+      // An edit in place the server refuses (409 edit_fixed: the chat went on with the person after the message) — the
+      // same way: its words are for the person.
+      if (!response || (response.status !== 424 && response.status !== 409)) return null;
       const headerStage = (response.headers && typeof response.headers.get === 'function')
         ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
       let stage = headerStage;
@@ -376,7 +380,9 @@
     // поверхность в скобках (lex-error-text.js). Стадию читаем и из тела:
     // странице lex-me.club/app заголовок стадии не виден (CORS).
     async function lexModelUnpricedError(response) {
-      if (!response || response.status !== 424) return null;
+      // An edit in place the server refuses (409 edit_fixed: the chat went on with the person after the message) — the
+      // same way: its words are for the person.
+      if (!response || (response.status !== 424 && response.status !== 409)) return null;
       let body = '';
       try { body = await response.clone().text(); } catch (_) { body = ''; }
       let parsed = null;
@@ -396,7 +402,9 @@
     // не прочитать). Строку для человека пишет сервер, поверхность показывает
     // её как есть (lex-error-text.js, profiRefused): правило одно на всех.
     async function lexProfiRefusedError(response) {
-      if (!response || response.status !== 424) return null;
+      // An edit in place the server refuses (409 edit_fixed: the chat went on with the person after the message) — the
+      // same way: its words are for the person.
+      if (!response || (response.status !== 424 && response.status !== 409)) return null;
       let body = '';
       try { body = await response.clone().text(); } catch (_) { body = ''; }
       let parsed = null;
@@ -404,7 +412,7 @@
       const headerStage = (response.headers && typeof response.headers.get === 'function')
         ? String(response.headers.get('x-lex-proxy-stage') || '') : '';
       const stage = headerStage || String((parsed && parsed.stage) || '');
-      if (stage !== 'profi') return null;
+      if (!(stage === 'profi' && response.status === 424) && !(stage === 'edit_fixed' && response.status === 409)) return null;
       const e = new Error(`LEX_PROFI_REFUSED ${String((parsed && parsed.error) || '')}`.trim());
       e.lexProfiRefused = true;
       return e;
