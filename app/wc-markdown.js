@@ -32,6 +32,16 @@
   // literal; links before emphasis, so a title with an asterisk survives.
   const INLINE = [
     { re: /`([^`\n]+)`/, make: (m) => el('code', m[1]) },
+    // An HTML tag a model wrote (lex-tags.js, one rule for every surface): «<br>» is a line break — in a cell of a
+    // table too, where Markdown has none — any other tag of its list goes and leaves its words. Right after the
+    // code, so «`<br>`» stays literal; nothing here is parsed as HTML.
+    {
+      re: { exec: (rest) => {
+        const hit = global.LexTags ? global.LexTags.find(rest, 0) : null;
+        return hit ? Object.assign([rest.slice(hit.index, hit.index + hit.length)], { index: hit.index, br: hit.br }) : null;
+      } },
+      make: (m) => (m.br ? el('br') : document.createTextNode('')),
+    },
     {
       re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|lex:\/\/[^\s)]+)\)/,
       make: (m) => {
