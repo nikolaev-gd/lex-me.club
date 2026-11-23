@@ -2053,6 +2053,13 @@
     if (isAgentChat(chat)) chat.data = withAgentStop(chat.data);
     profiChat = chat;
     WcThread.setProfiChat(chat);
+    // The sending side is told this chat again here: the chat that was open before is left on the way in (leaveSection
+    // → leaveProfiChat), and that leave tells it «no order chat» after the press already named this one. A chat opened
+    // over another order or folder chat (a notification, the same chat pressed again) then sent its words as an
+    // ordinary chat, with the page's chain, and the server refused every one: «a folder chat turn carries one message»
+    // (23.11.2026, the live check of Stop).
+    const told = chat.data && chat.data.chatKey;
+    if (told) WcBus.call('WC_PROFI_CHAT', { key: told, modelId: chat.data.modelId || null }).catch(() => {});
     main.classList.add('is-profi-chat');
     // «Only the chat» the chat starts with (off, lex-profi.js createChat).
     main.classList.toggle('is-profi-clean', !!chat.clean);
