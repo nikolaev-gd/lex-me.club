@@ -293,6 +293,9 @@
 .lex-section-icon:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); color: var(--lex-section-fg, inherit); }
 .lex-section-icon:disabled { opacity: .5; cursor: default; background: transparent; }
 .lex-section-icon svg { display: block; width: 20px; height: 20px; margin: 0 !important; }
+/* The order of a list (В7.73): a choice other than the default shows the button pressed — the mark in the colour of
+   the text on the ground of the chosen. */
+.lex-list-sort.is-on { color: var(--lex-section-fg, var(--fg)); background: var(--bg-active, var(--lex-section-hover, rgba(127, 127, 127, .14))); }
 
 .lex-section-menu {
   position: absolute;

@@ -503,6 +503,8 @@
         right.appendChild(b);
       }
       const left = make('div', 'lex-section-slot');
+      // The left slot keeps one icon button of 44 (h.lead): the order of the list (В7.73). The arrow back is the window's.
+      if (h.lead) left.appendChild(h.lead);
       center.replaceChildren(left, mid, right);
       // The second button shows its word whole: when it is wider than 108, both slots take its width, so the name
       // stays in the middle and is the one to give way (its lines cut themselves).
@@ -626,7 +628,8 @@
       isShown,
       get screen() { return top().id; },
       // The head of the screen on top: { title, sub, subTone: 'attention' | 'muted', onTitle, titleLabel,
-      // action: { icon: [paths], label, ariaLabel, onClick } } — the centred head (В7.18); null — the title on the left.
+      // action: { icon: [paths], label, ariaLabel, onClick }, lead: an icon button of 44 in the left slot (orderButton) }
+      // — the centred head (В7.18); null — the title on the left.
       setHead(head) { top().head = head || null; paintScreen(); },
       get body() { return top().body; },
       // The section came on screen: the arrow stands as its screen needs it.
@@ -672,9 +675,11 @@
       // The twelfth (22.11.2026, «Профи-маркетолог»), not on the board: a line going up.
       'profi-marketer': ['M3 17l6-6 4 4 8-8', 'M15 7h6v6'],
     },
-    // The marks of the buttons of a head (В7.18): Activity — a clock (board AgF2HeadA).
+    // The marks of the buttons of a head (В7.18): Activity — a clock (board AgF2HeadA); the order of a list (В7.73) —
+    // three lines, each shorter than the one above.
     tool: {
       activity: ['M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0', 'M12 7v5l3 2'],
+      order: ['M4 7h16', 'M7 12h10', 'M10 17h4'],
     },
     section: {
       agents: ['M7 8h10a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-10a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3z', 'M12 4v4', 'M11 3a1 1 0 1 0 2 0a1 1 0 1 0 -2 0', 'M9 13v2', 'M15 13v2'],
@@ -814,6 +819,26 @@
   // «Waiting for you · 4», «Working · 1», «Closed»: 13/600 in grey, 16 over it and 6 under it.
   function groupLabel(text, n) {
     return make('div', 'lex-group-label', n != null ? `${text} · ${n}` : String(text));
+  }
+
+  // ── В7.73 the order of a list ───────────────────────────────────────────────
+  // An icon button of 44 with the mark `tool.order` in the left slot of the centred head (В7.18): a press opens the
+  // menu Group by · Sort by (LexListOrder.menuItems, drawn by the window's menu В7.8). A choice other than the default
+  // shows the button pressed (`is-on`), so the person sees the list is not in its usual order.
+  // o: { prefs, onClick(anchor) }; the button answers `set(prefs)`.
+  function orderButton(o) {
+    const b = button('lex-section-icon lex-list-sort', null, () => o.onClick(b));
+    b.appendChild(markSvg(MARKS.tool.order, 20, 2));
+    b.set = (prefs) => {
+      const L = global.LexListOrder;
+      const label = L ? L.label(prefs) : 'Group and sort';
+      b.title = label;
+      b.setAttribute('aria-label', label);
+      b.setAttribute('aria-haspopup', 'menu');
+      b.classList.toggle('is-on', !!L && !L.isDefault(prefs));
+    };
+    b.set(o.prefs);
+    return b;
   }
 
   // ── the switch (В7.59) ──────────────────────────────────────────────────────
@@ -974,5 +999,5 @@
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS,
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, pill, STAGES, stageWords, liveStage,
-    groupLabel, toggle, settingRow, settingsBlock, aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
+    groupLabel, orderButton, toggle, settingRow, settingsBlock, aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
 })(typeof window !== 'undefined' ? window : globalThis);

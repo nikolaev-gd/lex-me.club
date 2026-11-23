@@ -9,7 +9,8 @@
 //   home         the list of the agents (agentRow): the waiting first, then the working, the rest by their last event,
 //                the paused at the bottom
 //   agent        the folder of one agent: the head in the middle, the groups «Waiting for you · N», «Working · N»,
-//                «Closed»; the capsule «New chat» of the window at its bottom right begins a chat with the agent
+//                «Closed» — or by date, or none (the order of the list at the left of the head, В7.73,
+//                lex-list-order.js); the capsule «New chat» of the window at its bottom right begins a chat with the agent
 //   log          the journal «Activity» (op runs, by pages, by days); a bubble at a line — a new chat about it
 //   passport     the face 96, the name, the state, About, Text model, Notify me, Paused, Instruction, Memory
 //   instruction  the instruction of the agent, read only (Markdown)
@@ -224,6 +225,7 @@
     function folderHead(a) {
       return Object.assign({
         title: a.name || a.key,
+        lead: orderButton(),
         onTitle: () => openPassport(a),
         titleLabel: `${a.name || a.key}: the passport`,
         action: { icon: (S.MARKS.tool && S.MARKS.tool.activity) || CLOCK, label: 'Activity', ariaLabel: 'Activity: what the agent did', onClick: () => openLog(a) },
@@ -250,18 +252,37 @@
       row.classList.add('lex-agent-chat');
       return row;
     }
+    // The order of the folder (В7.73): Group by Date | Status | None, Sort by Last updated | Date created | Name, both
+    // ways. One choice for the folders of every agent, kept on this device; the default is the groups of the states.
+    const ORDER_KEY = 'agent-chats';
+    const L = global.LexListOrder;
+    let order = L.load(ORDER_KEY);
+    const CHAT_STATES = [
+      { id: 'waiting', title: 'Waiting for you', counted: true },
+      { id: 'working', title: 'Working', counted: true, rest: true },
+      { id: 'closed', title: 'Closed', counted: false },
+    ];
+    function orderButton() {
+      return S.orderButton({ prefs: order, onClick: (anchor) => deps.menu(anchor, L.menuItems(order, (next) => {
+        order = next;
+        L.save(ORDER_KEY, order);
+        paintHead();
+        paintFolder();
+      })) });
+    }
+    function chatGroups() {
+      return L.arrange(chats, order, {
+        at: (c) => c.at, created: (c) => c.created, name: (c) => c.title || 'Chat', status: (c) => c.state,
+        statuses: CHAT_STATES,
+      });
+    }
     function paintFolder() {
       if (frame.screen !== 'agent' || !current) return;
-      const groups = [
-        ['Waiting for you', chats.filter((c) => c.state === 'waiting'), true],
-        ['Working', chats.filter((c) => c.state !== 'waiting' && c.state !== 'closed'), true],
-        ['Closed', chats.filter((c) => c.state === 'closed'), false],
-      ];
       const list = make('div', 'lex-section-list');
-      for (const [title, items, counted] of groups) {
-        if (!items.length) continue;
-        list.appendChild(S.groupLabel(title, counted ? items.length : null));
-        for (const c of items) list.appendChild(chatLine(c));
+      for (const g of chatGroups()) {
+        if (!g.items.length) continue;
+        if (g.title) list.appendChild(S.groupLabel(g.title, g.count));
+        for (const c of g.items) list.appendChild(chatLine(c));
       }
       if (!chats.length) {
         frame.body.replaceChildren(S.emptyState({ face: S.agentFace(current.key, { size: 48, quiet: true }), title: 'No chats yet',
