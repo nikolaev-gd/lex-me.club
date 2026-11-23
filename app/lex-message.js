@@ -73,6 +73,9 @@
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick, icon })   one line in the middle for what is kept off the screen;
 //                       icon 'check' — a tick in place of the eye (tasks without remarks, В7.30)
+//   talk({ shown, count, preview, onClick })   the mark of Lex on the margin by a run of the discussion in a
+//                       chat with a person (В7.4а): shown — by its first turn, a line down the run; folded — the
+//                       mark with the number of turns and a fading line, in place of the run
 //   avatar(name, { photo, io, size })   the photo or the letter of a person (В7.12): the stored
 //                       photo (chat-files/…) in a circle, the letter on a colour from the name until it
 //                       came and when there is none; io = { blob(path) } as files() takes; size 40
@@ -1284,6 +1287,29 @@
       n.appendChild(shape('path', { d, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
     }
     return n;
+  }
+
+  // The discussion with Lex in a chat with a person (В7.4а, Gennady 23.11.2026, the variant «a mark on the margin»):
+  // it stands apart from the correspondence — the round mark of Lex on the left margin and a thin line from it down
+  // the run. Shown — the mark stands by the first turn of the run (the line hangs from it, its turns carry `lex-talk`,
+  // the last also `lex-talk-end`; lex-profi.js paintHidden), a press folds the run; folded — the mark with the number
+  // of its turns and a line fading to the right, in place of the run, a press shows it.
+  // o = { shown, count, preview, onClick }; preview — the start of the answer of Lex, the tooltip of a folded run.
+  function talk(o) {
+    const b = make('button', o.shown ? 'lex-talk-mark is-shown' : 'lex-talk-mark');
+    b.type = 'button';
+    const n = Number(o.count) || 0;
+    const dot = make('span', 'lex-talk-dot', '');
+    dot.append(sparkle(13));
+    if (!o.shown && n) dot.append(make('span', 'lex-talk-count', String(n)));
+    b.append(dot);
+    if (!o.shown) b.append(make('span', 'lex-talk-rule', ''));
+    const what = `Discussion with Lex${n ? `, ${n} ${n === 1 ? 'message' : 'messages'}` : ''}`;
+    b.setAttribute('aria-label', `${what}: ${o.shown ? 'Hide' : 'Show'}`);
+    b.title = o.shown ? 'Hide the discussion with Lex' : (o.preview ? `Lex: ${o.preview}` : 'Show the discussion with Lex');
+    b.setAttribute('aria-expanded', o.shown ? 'true' : 'false');
+    if (o.onClick) b.addEventListener('click', o.onClick);
+    return b;
   }
 
   // icon: 'check' — what is folded has nothing wrong (the tasks of «Обращения к базе» without remarks,
@@ -2929,7 +2955,7 @@
 
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
-    CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
+    CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, talk, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
