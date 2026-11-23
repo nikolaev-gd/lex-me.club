@@ -552,6 +552,8 @@
     () => WcBus.call(type, msg), show, empty);
   // The arrow in the top bar: one rule for every section, see lex-back.js.
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
+  // The corner of the bar (В7.76): the three lines, the arrow right of them.
+  global.LexBack.corner(document.getElementById('wc-sidebar-open'), document.getElementById('wc-news-back'));
   const SECTIONS = {
     em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },

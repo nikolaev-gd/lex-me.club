@@ -135,8 +135,7 @@
 .lex-whois-thinking { align-self: stretch; max-width: none; margin-top: 4px; padding: 0 2px; }
 
 /* The bar over an order chat: the client's letter, name and channel; the arrow to the order on
- * Profi. The corner holds the arrow back or the three lines, one rule for every chat (wc-app.css,
- * .wc-burger). New orders has the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place
+ * Profi. The corner holds the three lines and the arrow back right of them (В7.76). New orders has the same bar (lex-profi.js feedHead): the mark of Профи.ру 40 in place
  * of the letter, «New orders» and «Профи.ру» under it; the section's own bar steps aside on that screen. */
 .wc-main.is-profi-feed .lex-profi .lex-section-bar,
 .wc-main.is-profi-feed .wc-topbar-right { display: none; }

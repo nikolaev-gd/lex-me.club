@@ -583,3 +583,16 @@ button.lex-section-head { cursor: pointer; }
 .lex-about-pair + .lex-about-pair { margin-top: 10px; }
 .lex-about-caption { font-size: 13px; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted)); }
 .lex-about-value { font-size: 15px; line-height: 1.4; color: var(--fg, var(--lex-plain-fg)); overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* ── The corner of the bar (ios/Lex/STANDARD.md В7.76, 23.11.2026) ──────────────────────────────
+ * The three lines that open the panel of chats stand at the left of every screen — a chat, a section,
+ * an agent and its chat — and the arrow back, when the screen has one, right of them: one press opens
+ * the panel from anywhere. Both are marked by LexBack.corner (lex-back.js); the look is the host's
+ * (the round glass of the page's bar, the dark buttons of the extension), the zone is 44 everywhere (В5).
+ *
+ * THE SOLO WINDOW CONTRACT: a view that shows one chat by itself (its head, the thread and the field,
+ * nothing else) sets `data-lex-solo="1"` on <html> (document.documentElement); there the panel has no
+ * place, and neither the lines nor the arrow are shown. This rule is the only place that hides them. */
+button.lex-corner-lines,
+button.lex-corner-back { flex: none; width: 44px; height: 44px; }
+html[data-lex-solo="1"] :is(.lex-corner-lines, .lex-corner-back) { display: none !important; }

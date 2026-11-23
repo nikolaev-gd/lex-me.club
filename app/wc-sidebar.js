@@ -303,7 +303,8 @@
         WcSidebar.close();
       });
       document.getElementById('wc-sidebar-close').addEventListener('click', () => WcSidebar.toggle(false));
-      document.getElementById('wc-sidebar-open').addEventListener('click', () => WcSidebar.toggle(true));
+      // The lines of the bar switch the panel: open it, or close it when it is open (В7.76).
+      document.getElementById('wc-sidebar-open').addEventListener('click', () => WcSidebar.toggle());
       elScrim.addEventListener('click', () => WcSidebar.toggle(false));
     },
 

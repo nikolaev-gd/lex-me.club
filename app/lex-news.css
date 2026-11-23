@@ -256,9 +256,8 @@
   cursor: pointer;
 }
 .lex-news-back[hidden] { display: none; }
-/* The extension's window: the arrow stands in place of the three stripes, as on the page and the
-   iPhone (2026-11-18) — one button in the corner. */
-.ytvocab-chat-surface-menu:has(+ .lex-news-back:not([hidden])) { display: none !important; }
+/* The extension's window: the three stripes stay, the arrow right of them, as on the page and the
+   iPhone (the corner, В7.76; LexBack.corner, lex-section.css). */
 .lex-news-back:hover { background: var(--lex-dark-hover); color: var(--lex-dark-fg); }
 .lex-news-back svg { width: 18px; height: 18px; }
 
@@ -316,8 +315,8 @@
 
 /* The page and the Mac app (webchat/wc-app.js): the head of the feed — «News», Refresh and the gear —
    stands in the bar of the window by the three stripes (deps.head), and the section's own bar steps
-   aside on that screen. A news opened from the feed has the arrow back in place of the three stripes
-   (one rule for every chat, wc-app.css .wc-burger) and its source in the bar; a news has no «New chat» (one news — one chat). */
+   aside on that screen. A news opened from the feed has the arrow back right of the three stripes
+   (the corner, В7.76) and its source in the bar; a news has no «New chat» (one news — one chat). */
 .wc-main.is-news-feed .lex-news .lex-section-bar,
 .wc-main.is-news-feed .wc-topbar-right { display: none; }
 .wc-main.is-news-chat .wc-new-chat { display: none !important; }
