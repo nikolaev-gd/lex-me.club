@@ -4724,6 +4724,9 @@
         // считается платное название.
         const u = turnUids.get(msg.requestId) || {};
         turnUids.delete(msg.requestId);
+        // Its question is edited in place at once, not only after the chat is read again: a chat with a person repaints
+        // itself after the answer (refreshProfiChat), a feed of Extended Mind has no versions.
+        if (u.userUid && !profiChat && !WcHistory.isEmFeedKey(state.conversationId)) setTimeout(() => WcThread.markEditable(u.userUid), 0);
         requestMoney({
           expectUid: [u.assistantUid, u.userUid].filter(Boolean),
           patienceMs: msg.stopped ? 180000 : 30000,

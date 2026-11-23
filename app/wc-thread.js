@@ -1862,6 +1862,14 @@
     // True while any stream is open — the composer asks before deciding
     // whether its button says "send" or "stop".
     isStreaming() { return live.size > 0; },
+    // The question of a turn just answered with words takes Edit in place at once (wc-app.js, STREAM_DONE), as the
+    // server lists it (`editable`) when the chat is read again; no words under it — it stays as it is.
+    markEditable(uid) {
+      const q = uid && [...elTurns.querySelectorAll('.wc-turn-user[data-uid]')].find((n) => n.dataset.uid === String(uid));
+      let a = q && q.nextElementSibling;
+      while (a && !a.classList.contains('wc-turn')) a = a.nextElementSibling;
+      if (a && a.classList.contains('wc-turn-assistant') && !a.classList.contains('wc-turn-error') && a.dataset.raw) q.dataset.editable = '1';
+    },
     // The answer the server writes now that the last render drew as the stream (renderTurns with
     // follow): { requestId, opId, uid, text, stepSeq } — wc-app.js follows it; null — none.
     followed() { return followedNow && live.has(followedNow.requestId) ? followedNow : null; },
