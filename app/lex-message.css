@@ -443,37 +443,20 @@
 .lex-notice .lex-channel-name { font-weight: 650; }
 .lex-notice a { color: inherit; text-decoration: underline; }
 
-/* A call in a chat (В7.42, 2026-11-16): one block across the lane on the ground of the other person's bubble. The
- * head — the mark of the place 20, «Zoom call» 15/650, « · 42 min · 12:00» quieter; 8 below — the short summary in
- * the size of the conversation; 10 below — «Show the whole call». Open: under a line the detailed summary (titles
- * 15/650, items with a dot), under a line the transcript (time 12, the name 12/600, the words 15), «Show the whole
- * transcript» and «Hide»; in the head a chevron up in a zone of 44. While there is no summary — a ring and «Lex is
- * writing the summary…». */
-.lex-call {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 10px 12px 12px;
-  border-radius: 18px;
-  background: var(--lex-bubble-in);
-  color: var(--fg, var(--lex-plain-fg));
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-.lex-call-head { display: flex; align-items: center; gap: 8px; min-height: 24px; }
-.lex-call-head > .lex-channel-icon { flex: 0 0 auto; display: block; }
-.lex-call-title { flex: 1 1 auto; min-width: 0; font-size: 15px; line-height: 20px; }
-.lex-call-name { font-weight: 650; }
+/* A call in a chat (В7.42; an ordinary message since 24.11.2026): a bubble of the other person (the lane, the tail, the
+ * stamp are any message's). The words begin « 42 min · » `--fg-muted` and go on with the short summary at the size of
+ * the conversation, folded to seven lines; 10 below — «Show the whole call» (the second button, В7.7). The line under
+ * the words is the stamp: the mark of the place, «Zoom call», «·», the time. Open: the words whole; under a line the
+ * detailed summary (titles 15/650, items with a dot), under a line the transcript (time 12, the name 12/600, the
+ * words 15), «Show the whole transcript» and «Hide». While there is no summary — a ring and «Lex is writing the
+ * summary…». */
+.lex-bubble.lex-call .lex-call-body { white-space: normal; }
 .lex-call-meta { font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.lex-call-fold {
-  -webkit-appearance: none; appearance: none;
-  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
-  width: 44px; height: 44px; margin: -10px -12px -10px 0; padding: 0;
-  border: 0; border-radius: 50%; background: transparent; color: var(--fg-muted);
-  cursor: pointer; transition: background-color 120ms ease;
+.lex-call-short { white-space: pre-wrap; }
+.lex-call-short.is-folded {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 7; line-clamp: 7; overflow: hidden;
 }
-.lex-call-fold:hover { background: var(--bg-hover); }
-.lex-call-short { margin-top: 8px; white-space: pre-wrap; }
-.lex-call-wait { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
+.lex-call-wait { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
 .lex-call-ring {
   flex: 0 0 auto; box-sizing: border-box; width: 14px; height: 14px;
   border: 2px solid var(--line); border-top-color: var(--fg-soft, var(--lex-plate-fg)); border-radius: 50%;

@@ -645,7 +645,12 @@
   function stamp(o) {
     const root = make('div', 'lex-stamp');
     if (o.channel && CHANNELS[o.channel]) {
-      root.append(channel(o.channel), channelName(o.channel), make('span', 'lex-stamp-dot', '·'));
+      // `label` — the place with its own words: «WhatsApp call» of a call (В7.42).
+      const name = channelName(o.channel);
+      if (o.label) name.textContent = o.label;
+      root.append(channel(o.channel), name, make('span', 'lex-stamp-dot', '·'));
+    } else if (o.label) {
+      root.append(make('span', 'lex-channel-name is-plain', o.label), make('span', 'lex-stamp-dot', '·'));
     }
     // В7.39: a message the person deleted at his side — a bin 12 and «deleted»; an edited one — «edited»;
     // both before the time.
@@ -1304,11 +1309,13 @@
   }
 
   // ── A call in a chat (В7.42, 2026-11-16) ────────────────────────────────────
-  // Gennady's decision on the canvas «Разделы Lex по стандарту», page «Созвоны в чате: утверждено»: a call stands in
-  // the chat at its own time, one block across the lane — the mark of the place, «Zoom call · 42 min · 12:00», the short
-  // summary under it; «Show the whole call» opens it in place: the detailed summary under a line, the transcript under
-  // another, «Show the whole transcript» and «Hide», a chevron up in the head. While there is no summary — a ring and
-  // «Lex is writing the summary…». A missed call and a call without a recording are a plate (notice, В7.3).
+  // Gennady's decision on the canvas «Разделы Lex по стандарту», page «Созвоны в чате: утверждено», changed by his word
+  // of 24.11.2026: a call stands in the chat at its own time as an ordinary message of the other person — a bubble whose
+  // words begin «42 min · » and go on with the short summary, folded to seven lines; under it «Show the whole call» opens
+  // it in place: the detailed summary under a line, the transcript under another, «Show the whole transcript» and «Hide».
+  // The line under the words is the stamp of any message: the mark of the place, «Zoom call», «·», the time. While there
+  // is no summary — a ring and «Lex is writing the summary…». A missed call and a call without a recording are a plate
+  // (notice, В7.3).
   // o: { channel, at, seconds, state: writing | done | failed | none, short, sections: [{title, items | text}],
   //      lines — how many lines the transcript has, head — its first lines, transcript — all of them once loaded,
   //      open, all — the whole transcript shown, loading, onToggle(open), onAll() }
@@ -1338,74 +1345,64 @@
     return row;
   }
   function call(o) {
-    const root = make('div', `lex-call${o.open ? ' is-open' : ''}`);
-    root.setAttribute('role', 'article');
-    const head = make('div', 'lex-call-head');
-    const mark = channel(o.channel);
-    if (mark) {
-      mark.setAttribute('width', '20');
-      mark.setAttribute('height', '20');
-      head.appendChild(mark);
-    }
-    const title = make('span', 'lex-call-title');
-    const meta = [o.seconds ? callLength(o.seconds) : '', o.at ? timeOf(o.at) : ''].filter(Boolean);
-    title.append(make('span', 'lex-call-name', callName(o.channel)),
-      make('span', 'lex-call-meta', meta.length ? ` · ${meta.join(' · ')}` : ''));
-    head.appendChild(title);
-    if (o.open) {
-      const fold = make('button', 'lex-call-fold');
-      fold.type = 'button';
-      fold.setAttribute('aria-label', 'Hide the call');
-      fold.appendChild(chevronIcon(CHEVRON_UP, 20));
-      if (o.onToggle) fold.addEventListener('click', () => o.onToggle(false));
-      head.appendChild(fold);
-    }
-    root.appendChild(head);
+    const body = make('div', 'lex-call-body');
+    const length = o.seconds ? callLength(o.seconds) : '';
+    const lead = () => (length ? make('span', 'lex-call-meta', `${length} · `) : null);
     if (o.state === 'writing' && !o.short) {
       const wait = make('div', 'lex-call-wait');
       wait.append(make('span', 'lex-call-ring'), document.createTextNode('Lex is writing the summary…'));
-      root.appendChild(wait);
-    } else if (o.short) {
-      root.appendChild(make('div', 'lex-call-short', o.short));
-    } else if (o.state === 'failed') {
-      root.appendChild(make('div', 'lex-call-wait', 'Lex could not write the summary.'));
+      body.appendChild(wait);
+    } else if (o.short || o.state === 'failed') {
+      const words = make('div', `lex-call-short${o.open ? '' : ' is-folded'}`);
+      const first = lead();
+      if (first) words.appendChild(first);
+      if (o.short) words.appendChild(document.createTextNode(o.short));
+      else words.appendChild(make('span', 'lex-call-meta', 'Lex could not write the summary.'));
+      body.appendChild(words);
     }
+    const finish = () => {
+      const b = bubble({ side: 'in', body, stamp: bubbleStamp(o) });
+      b.classList.add('lex-call');
+      if (o.open) b.classList.add('is-open');
+      b.setAttribute('role', 'article');
+      return b;
+    };
     if (!o.open) {
-      // While the summary is written the block is only its head and the ring (the board «Другие случаи»).
+      // While the summary is written the block is only the ring (the board «Другие случаи»).
       if (o.state !== 'writing' || o.short) {
         const more = button({ label: 'Show the whole call', trail: chevronIcon(CHEVRON_DOWN, 16) });
         more.classList.add('lex-call-more');
         if (o.onToggle) more.addEventListener('click', () => o.onToggle(true));
-        root.appendChild(more);
+        body.appendChild(more);
       }
-      return root;
+      return finish();
     }
     const sections = Array.isArray(o.sections) ? o.sections : [];
     if (sections.length) {
-      root.appendChild(make('div', 'lex-call-rule'));
+      body.appendChild(make('div', 'lex-call-rule'));
       for (const s of sections) {
-        root.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
+        body.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
         if (Array.isArray(s.items) && s.items.length) {
           for (const it of s.items) {
             const row = make('div', 'lex-call-item');
             const dot = make('span', 'lex-call-dot', '•');
             dot.setAttribute('aria-hidden', 'true');
             row.append(dot, make('span', '', String(it)));
-            root.appendChild(row);
+            body.appendChild(row);
           }
         } else if (s.text) {
-          root.appendChild(make('div', 'lex-call-text', String(s.text)));
+          body.appendChild(make('div', 'lex-call-text', String(s.text)));
         }
       }
     }
     const lines = Array.isArray(o.transcript) ? o.transcript : (Array.isArray(o.head) ? o.head : []);
     if (lines.length || o.lines) {
-      root.appendChild(make('div', 'lex-call-rule is-tr'));
+      body.appendChild(make('div', 'lex-call-rule is-tr'));
       const t = make('div', 'lex-call-sec is-tr', 'Transcript');
       if (o.seconds) t.appendChild(make('span', 'lex-call-meta', ` · ${callLength(o.seconds)}`));
-      root.appendChild(t);
+      body.appendChild(t);
       const shown = o.all ? lines : lines.slice(0, 3);
-      for (const l of shown) root.appendChild(callLine(l));
+      for (const l of shown) body.appendChild(callLine(l));
       const total = Number(o.lines) || lines.length;
       if (!o.all && total > shown.length) {
         const all = button({ label: o.loading ? 'Loading the transcript…' : 'Show the whole transcript',
@@ -1413,14 +1410,18 @@
         all.classList.add('lex-call-more');
         all.disabled = !!o.loading;
         if (o.onAll) all.addEventListener('click', () => o.onAll());
-        root.appendChild(all);
+        body.appendChild(all);
       }
     }
     const hide = button({ label: 'Hide', trail: chevronIcon(CHEVRON_UP, 16) });
     hide.classList.add('lex-call-more', 'is-hide');
     if (o.onToggle) hide.addEventListener('click', () => o.onToggle(false));
-    root.appendChild(hide);
-    return root;
+    body.appendChild(hide);
+    return finish();
+  }
+  // The line under the words of a call: «WhatsApp call · 18:00» — the stamp of any message.
+  function bubbleStamp(o) {
+    return stamp({ channel: o.channel, label: callName(o.channel), at: o.at });
   }
 
   // ── The message of an order (В7.29) ─────────────────────────────────────────
