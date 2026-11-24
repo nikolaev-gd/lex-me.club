@@ -2,8 +2,13 @@
 // does tasks (23.11.2026, Gennady: «inside an agent it is often not clear when which order was»; the menu as Claude has
 // it — Group by and Sort by, nothing else). The chats with people keep the order of a messenger and do not take it.
 //
-//   Group by  Date | Status | None
+//   Group by  Date updated | Date created | Status | None
 //   Sort by   Last updated | Date created | Name, then Descending | Ascending
+//
+// The two are separate: Group by cuts the list into groups (by the day of the last movement, by the day of the birth, by
+// the state), Sort by orders the rows inside them — and the groups themselves, when it sorts by a date (Descending: the
+// newest group first). So «by Date created, inside by Name» is a choice. A choice kept before 24.11.2026 as `date|…` is
+// read as the date the list was sorted by.
 //
 // The default is the order the folders had before: by status (waiting, working, closed), the last movement first.
 // The choice is kept on the device, one for every list of the same kind (`key`): what a person set in one agent stays
@@ -23,7 +28,8 @@
 (function (global) {
   'use strict';
 
-  const GROUPS = [{ id: 'date', label: 'Date' }, { id: 'status', label: 'Status' }, { id: 'none', label: 'None' }];
+  const GROUPS = [{ id: 'updated', label: 'Date updated' }, { id: 'created', label: 'Date created' },
+    { id: 'status', label: 'Status' }, { id: 'none', label: 'None' }];
   const SORTS = [{ id: 'updated', label: 'Last updated' }, { id: 'created', label: 'Date created' }, { id: 'name', label: 'Name' }];
   const DIRS = [{ id: 'desc', label: 'Descending' }, { id: 'asc', label: 'Ascending' }];
   const DEFAULTS = Object.freeze({ group: 'status', sort: 'updated', dir: 'desc' });
@@ -42,7 +48,8 @@
   }
   function parse(s) {
     const [group, sort, dir] = String(s || '').split('|');
-    return norm({ group, sort, dir });
+    // The first menu had one «Date» that took the date from Sort by.
+    return norm({ group: group === 'date' ? (sort === 'created' ? 'created' : 'updated') : group, sort, dir });
   }
   const text = (p) => { const n = norm(p); return `${n.group}|${n.sort}|${n.dir}`; };
   const isDefault = (p) => text(p) === text(DEFAULTS);
@@ -124,11 +131,11 @@
       }).filter((g) => g.items.length);
     }
 
-    // Date: by the moment the list is sorted by (by name — by the last movement); the newest group first, or the oldest
-    // when ascending by a date.
+    // Date updated | Date created: the groups are the days of that moment; the rows keep the order of Sort by inside
+    // them. The newest group first, or the oldest when Sort by is a date and Ascending.
     const groups = new Map();
     for (const e of sorted) {
-      const g = dateGroup(p.sort === 'created' ? e.created : e.at, o.now);
+      const g = dateGroup(p.group === 'created' ? e.created : e.at, o.now);
       if (!groups.has(g.id)) groups.set(g.id, { id: g.id, title: g.title, rank: g.rank, count: null, items: [] });
       groups.get(g.id).items.push(e.it);
     }

@@ -303,11 +303,12 @@
       frame.body.replaceChildren(list);
       pick(deps.openKey ? deps.openKey() : null);
     }
-    // The order of the folder (В7.73): Group by Date | Status | None, Sort by Last updated | Date created | Name, both
-    // ways. One choice for the folders of every agent, kept on this device; the default is the groups of the states.
-    const ORDER_KEY = 'agent-chats';
+    // The order of the folder (В7.73): Group by Date updated | Date created | Status | None, Sort by Last updated | Date
+    // created | Name, both ways. Each agent's folder has its own choice, kept on this device (`agent-chats:<agent>`); an
+    // agent never set has the groups of the states.
+    const orderKey = (a) => `agent-chats:${a.key}`;
     const L = global.LexListOrder;
-    let order = L.load(ORDER_KEY);
+    let order = L.norm();
     const CHAT_STATES = [
       { id: 'waiting', title: 'Waiting for you', counted: true },
       { id: 'working', title: 'Working', counted: true, rest: true },
@@ -316,7 +317,7 @@
     function orderButton() {
       return S.orderButton({ prefs: order, onClick: (anchor) => deps.menu(anchor, L.menuItems(order, (next) => {
         order = next;
-        L.save(ORDER_KEY, order);
+        if (current) L.save(orderKey(current), order);
         paintHead();
         paintFolder();
       })) });
@@ -369,6 +370,7 @@
     }
     function openFolder(a) {
       current = a;
+      order = L.load(orderKey(a));
       chats = [];
       archivedChats = null;
       push({ id: 'agent', title: a.name || a.key, head: folderHead(a) });
