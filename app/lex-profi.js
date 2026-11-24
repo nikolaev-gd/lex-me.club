@@ -1623,7 +1623,9 @@
         if (t.uid) root.dataset.uid = String(t.uid);
         if (t.authoredAt) root.dataset.at = t.authoredAt;
         const ch = M.CHANNELS[v.channel] ? v.channel : null;
-        const at = t.authoredAt || v.at;
+        // The call stands at its start, but the message comes when the call is over: its stamp says the end.
+        const start = Date.parse(v.at || t.authoredAt || '');
+        const at = v.seconds > 0 && start ? new Date(start + v.seconds * 1000).toISOString() : (v.at || t.authoredAt);
         if (v.kind && v.kind !== 'call') {
           root.classList.add('is-notice');
           const who = firstName(data && data.client) || 'the client';
