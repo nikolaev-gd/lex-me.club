@@ -151,7 +151,7 @@
     ]);
     line.dataset.unreadHost = '';
     const num = line.querySelector('.lex-section-count');
-    if (num && !num.hidden) line.classList.add('has-count');
+    if (num && !num.hidden) line.classList.add('has-dot');
     // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside
     // the visible button, not instead of it.
     global.LexChatMenu.attach(line, () => chatMenu(it));

@@ -83,7 +83,7 @@
         // what the agent «Кто это» waits for here (В7.54): «Lex: <its headline>» in place of the last message
         lex: c.whois && c.whois.wait ? c.whois.wait : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
-        unread: { chat: c.chatKey },
+        unread: { chat: c.chatKey, number: true },
         // The draft of the chat, while it has one: «Draft: …» in place of the last message.
         draft: c.chatKey || null,
       });

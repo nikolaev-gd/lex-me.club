@@ -221,7 +221,7 @@
     function stateLine(a) {
       const s = stateOf(a);
       const n = Number(a.waiting) || 0;
-      if (n > 0 && s !== 'paused') return { sub: `Waiting for you · ${n}`, subTone: 'attention' };
+      if (n > 0 && s !== 'paused') return { sub: 'Waiting for you', subTone: 'attention' };
       if (s === 'working') return { sub: 'Working' };
       if (s === 'failed') return { sub: 'Failed' };
       if (s === 'paused') return { sub: 'Paused' };
@@ -478,7 +478,7 @@
     function passportState(a) {
       const s = stateOf(a);
       const n = Number(a.waiting) || 0;
-      if (n > 0 && s !== 'paused') return { text: `Waiting for you · ${n} ${n === 1 ? 'chat' : 'chats'}`, tone: 'is-wait' };
+      if (n > 0 && s !== 'paused') return { text: 'Waiting for you', tone: 'is-wait' };
       if (s === 'working') return { text: 'Working' };
       if (s === 'paused') return { text: 'Paused' };
       if (s === 'failed') return { text: `Failed: ${oneLine(a.failed_reason)}`.trim(), tone: 'is-failed' };

@@ -694,6 +694,19 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 /* A number of the unread (В7.48, lex-section.css) says it alone: no dot, the title bold. */
 .wc-conv.has-count::before { display: none; }
 .wc-conv.has-count .wc-conv-title { font-weight: 600; }
+/* The unread of a chat of Lex is the yellow dot (lex-section.js count without a number): the same dot as a chat marked unread. */
+.wc-conv.has-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--attention);
+  transform: translateY(-50%);
+}
+.wc-conv.has-dot .wc-conv-title { font-weight: 600; }
 .wc-conv-pin { flex: none; display: flex; width: 14px; height: 14px; color: var(--fg-muted); }
 .wc-conv-pin svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 /* The archive of the panel (chat_archive.sql): the quiet row «Archived» at the end of the list and the row back at the

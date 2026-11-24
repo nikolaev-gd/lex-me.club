@@ -232,6 +232,22 @@
 .lex-section .lex-section-row-subline > .lex-section-count { margin-left: auto; }
 .lex-section .lex-section-row.has-count::before { display: none; }
 .lex-section .lex-section-row.has-count .lex-section-row-title { font-weight: 600; opacity: 1; }
+/* Where a number does not stand (agents, sections, chats of Lex) the slot of the unread is the yellow dot: in a line the
+   dot of the unread at its left (the same as is-unread), on the entry of a section 8 across at its right. */
+.lex-section-count.is-dot { display: none; }
+.lex-entry > .lex-section-count.is-dot:not([hidden]) { display: block; min-width: 0; width: 8px; height: 8px; padding: 0; }
+.lex-section .lex-section-row.has-dot::before {
+  content: '';
+  position: absolute;
+  top: 19px;
+  left: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lex-section-attention, #f2c14b);
+}
+.lex-section .lex-section-row.has-lead.has-dot::before { top: 31px; left: 0; }
+.lex-section .lex-section-row.has-dot .lex-section-row-title { font-weight: 600; opacity: 1; }
 .lex-section .lex-section-row.is-wrap .lex-section-row-sub { -webkit-line-clamp: 2; }
 .lex-section .lex-section-row.is-sub3 .lex-section-row-sub { display: -webkit-box; -webkit-box-orient: vertical; white-space: normal; -webkit-line-clamp: 3; }
 .lex-section .lex-section-mark {

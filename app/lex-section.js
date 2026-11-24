@@ -217,18 +217,23 @@
         : what.section != null ? unreadNow.sections[what.section] : 0;
     return Number(n) > 0 ? Math.floor(Number(n)) : 0;
   }
+  // A number stands only in the lines of people (a client or a person wrote and Gennady has not answered: what.number);
+  // everywhere else — agents, sections, chats of Lex — the same slot is the yellow dot, no digits. A line with a dot
+  // (host class has-dot) shows it at its left, the entry of a section at its right.
   function paintCount(slot) {
     const d = slot.dataset;
     const n = unreadOf(d.unreadChat != null ? { chat: d.unreadChat }
       : d.unreadOrder != null ? { order: d.unreadOrder } : { section: d.unreadSection });
-    slot.textContent = n > 99 ? '99+' : String(n);
+    const dot = d.dot != null;
+    slot.textContent = dot ? '' : (n > 99 ? '99+' : String(n));
     slot.hidden = !n;
-    slot.setAttribute('aria-label', `${n} unread`);
+    slot.setAttribute('aria-label', dot ? 'Unread' : `${n} unread`);
     const host = slot.closest('[data-unread-host]');
-    if (host) host.classList.toggle('has-count', !!n);
+    if (host) host.classList.toggle(dot ? 'has-dot' : 'has-count', !!n);
   }
   function count(what) {
-    const slot = make('span', 'lex-section-count');
+    const slot = make('span', what.number ? 'lex-section-count' : 'lex-section-count is-dot');
+    if (!what.number) slot.dataset.dot = '';
     if (what.chat != null) slot.dataset.unreadChat = String(what.chat);
     else if (what.order != null) slot.dataset.unreadOrder = String(what.order);
     else slot.dataset.unreadSection = String(what.section || '');
@@ -243,7 +248,7 @@
     if (!u || typeof u !== 'object') return;
     unreadNow = { chats: u.chats || {}, orders: u.orders || {}, sections: u.sections || {} };
     if (Array.isArray(u.important)) importantNow = new Set(u.important.map(String));
-    // Only the slots of the unread: pill() wears the same look, but its number is not the unread.
+    // Only the slots of the unread.
     const slots = '.lex-section-count[data-unread-chat], .lex-section-count[data-unread-order], '
       + '.lex-section-count[data-unread-section]';
     if (typeof document !== 'undefined') document.querySelectorAll(slots).forEach(paintCount);
@@ -789,16 +794,8 @@
     else n.append(String(o.text || ''));
     return n;
   }
-  // A number that is not a slot of the unread (В7.48 look): how many chats of an agent wait for Gennady.
-  function pill(n, label) {
-    const v = Math.max(0, Math.floor(Number(n) || 0));
-    const p = make('span', 'lex-section-count', v > 99 ? '99+' : String(v));
-    p.hidden = !v;
-    p.setAttribute('aria-label', `${v} ${label || 'waiting'}`);
-    return p;
-  }
-  // A line of the list of agents: the face 48, the name, the time, the state line, the yellow number of the waiting
-  // chats. The name is bold while the agent waits; a paused agent is dimmed as a whole. o: { key, name, time, state,
+  // A line of the list of agents: the face 48, the name, the time, the state line, the yellow dot while chats
+  // wait. The name is bold while the agent waits; a paused agent is dimmed as a whole. o: { key, name, time, state,
   // text, stage, reason, waiting (number), onClick, more, id }.
   function agentRow(o) {
     const el = row({
@@ -808,7 +805,7 @@
       time: o.time || '',
       sub: agentState(o),
       strong: o.state === 'waiting',
-      end: o.waiting ? pill(o.waiting) : null,
+      dot: o.waiting > 0,
       more: o.more,
       onClick: o.onClick,
       cls: 'lex-agent-row',
@@ -957,7 +954,7 @@
 
   // ── В7.62 the entries of the sections in the menu of chats ──────────────────
   // Lines of one block (the ground of a card, radius 10, a line between), 44 high: the mark 20, the title 15/600, the
-  // yellow number of the unread (В7.48) when the section waits. No chevrons: the whole line is the entry. The order and
+  // yellow dot of the unread (В7.48) when the section waits. No chevrons: the whole line is the entry. The order and
   // the titles are the part's, whatever order and words the server sends: Agents, Calendar, Shopping list, Questions,
   // Extended Mind, News; a section the part does not know stands after them in the server's order, with its title.
   const ENTRY_ORDER = ['agents', 'calendar', 'shopping', 'questions', 'em', 'news'];
@@ -980,7 +977,7 @@
       b.dataset.unreadHost = '';
       const num = count({ section: s.id });
       b.appendChild(num);
-      b.classList.toggle('has-count', !num.hidden);
+      b.classList.toggle('has-dot', !num.hidden);
       host.appendChild(b);
     });
     host.hidden = !host.childElementCount;
@@ -1000,6 +997,6 @@
   // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS,
-    MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, pill, STAGES, stageWords, liveStage,
+    MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
     groupLabel, orderButton, toggle, settingRow, settingsBlock, aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
 })(typeof window !== 'undefined' ? window : globalThis);

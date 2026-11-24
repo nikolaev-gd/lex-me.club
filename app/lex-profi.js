@@ -2155,7 +2155,7 @@
           : openOrderOrFeed(c.order, o && o.from ? { from: o.from } : undefined, o && o.fail)),
         end: c.tick ? tickNode(c.tick === 'read') : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot', muted: !!c.muted,
-        unread: { order: c.order },
+        unread: { order: c.order, number: true },
         // the agent «Кто это» attached the client's messenger (В7.54): «Lex: <its headline>» in place of the last message
         lex: c.whois && c.whois.wait ? c.whois.wait : null,
         // The draft of the order chat, while it has one: «Draft: …» in place of the last message.

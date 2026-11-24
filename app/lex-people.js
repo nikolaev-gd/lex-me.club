@@ -174,7 +174,7 @@
           lead: global.LexMessage.avatarMark('profi', 48),
           title: feed.title || 'New orders', sub: feed.last || 'Nothing yet.', strong: true,
           mark: feed.active ? `${feed.active} sending` : '', onClick: () => deps.showFeed(null),
-          unread: { chat: '__lex_profi_orders__' },
+          unread: { chat: '__lex_profi_orders__', number: true },
         }));
         // The bot's service chat (19.11.2026): under the new orders, the same line as in the section.
         const heard = (botHead && botHead.messages) || [];
@@ -184,7 +184,7 @@
           title: (botHead && botHead.title) || 'Бот Профи', sub: lastWords ? String(lastWords.text || '') : 'Nothing yet.', strong: true,
           time: lastWords ? global.LexSection.listTime(lastWords.at) : '',
           onClick: () => deps.showBot(),
-          unread: { chat: '__lex_profi_bot__' },
+          unread: { chat: '__lex_profi_bot__', number: true },
         }));
       }
       const chats = (Array.isArray(home.chats) ? home.chats : []).filter((c) => selected === ALL || c.tab === selected);
