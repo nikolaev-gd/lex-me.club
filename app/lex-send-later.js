@@ -24,6 +24,7 @@
 //   menu(o)               the menu of a held button: { anchor, align: 'right'|'left', at: {x, y}, head,
 //                         lit, ring, choice, plain, onClose,
 //                         items: [{ label, icon: 'clock'|'pencil'|'pin'|…|Node, checked, danger, run() }] }
+//                         an item { bar: Node } is the bar of reactions (LexMessage.reactBar), first over the items
 //                         choice — a menu to pick one of several (the speed of a voice message, В7.21):
 //                         nothing will leave, so nothing is dimmed; 200 wide; the picked item is
 //                         brighter, with a check on the right. plain — the menu of a chat in a list
@@ -157,6 +158,14 @@
       box.setAttribute('aria-label', o.head);
     }
     o.items.forEach((it) => {
+      // The bar of reactions of a message (В7.38): a node of its own over the items; a press on one of its buttons that
+      // carries [data-lex-close] closes the menu after the button has done its work.
+      if (it.bar) {
+        box.classList.add('has-react');
+        it.bar.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-lex-close]')) close(); });
+        box.appendChild(it.bar);
+        return;
+      }
       const b = make('button', `lex-sl-menu-item${it.checked ? ' is-checked' : ''}${it.danger ? ' is-danger' : ''}`);
       b.type = 'button';
       if (o.choice) {

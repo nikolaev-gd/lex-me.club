@@ -39,6 +39,10 @@
 .lex-sl-menu-item.is-danger { color: var(--danger); }
 .lex-sl-menu-item.is-danger .lex-sl-menu-icon { color: var(--danger); }
 .lex-sl-lit { background: var(--bg-hover) !important; }
+/* The bar of reactions over the items of the menu of a message (В7.38): the card grows to hold 8 buttons of 44 (the
+   window narrower — the row goes sideways); «+» puts the grid of emoji in the place of the items. */
+.lex-sl-menu.has-react { width: min(366px, calc(100vw - 16px)); }
+.lex-sl-menu.is-react-grid > .lex-sl-menu-item { display: none; }
 
 /* ── the sheet of the time (В7.10 = В7.15) ─────────────────────────────── */
 .lex-sl-scrim { position: fixed; inset: 0; z-index: 93; background: var(--scrim); }

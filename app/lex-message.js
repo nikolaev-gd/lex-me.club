@@ -2274,19 +2274,112 @@
   // Reactions (В7.38): a pill 24 (radius 12) on --bg-hover, the emoji 15, one a reaction, at the bottom left
   // of the bubble; the stamp stays at the right of the same row (bubble({ reactions })).
   //   reactions(list, o) — list [{ emoji, who: 'client'|'me', at }]; o = { client } — the other person's
-  //   name for the words read from the screen. None — null.
+  //   name for the words read from the screen; o.onMine(emoji) — pressing one's own pill takes the reaction off
+  //   (a zone 44 round a pill 24); the pill of my reaction is marked: ground --bg-active and a ring --line-strong.
+  //   None — null.
   function reactions(list, o) {
     const items = (Array.isArray(list) ? list : []).filter((r) => r && typeof r.emoji === 'string' && r.emoji.trim());
     if (!items.length) return null;
     const row = make('div', 'lex-reacts');
     for (const r of items) {
       const e = r.emoji.trim();
-      const pill = make('span', 'lex-react', e);
+      const mine = r.who === 'me';
+      const pill = make('span', mine ? 'lex-react is-mine' : 'lex-react', e);
+      const said = `${mine ? 'You' : ((o && o.client) || 'The client')} reacted ${e}`;
+      if (mine && o && typeof o.onMine === 'function') {
+        const zone = make('button', 'lex-react-mine');
+        zone.type = 'button';
+        zone.setAttribute('data-lex-skip', '');
+        zone.setAttribute('aria-label', `${said}. Press to take it off`);
+        zone.setAttribute('aria-pressed', 'true');
+        zone.appendChild(pill);
+        zone.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); o.onMine(e); });
+        zone.addEventListener('pointerdown', (ev) => ev.stopPropagation());
+        row.appendChild(zone);
+        continue;
+      }
       pill.setAttribute('role', 'img');
-      pill.setAttribute('aria-label', `${r.who === 'me' ? 'You' : ((o && o.client) || 'The client')} reacted ${e}`);
+      pill.setAttribute('aria-label', said);
       row.appendChild(pill);
     }
     return row;
+  }
+
+  // The bar of reactions in the menu of a message (В7.38, В7.36): over the items, one row of buttons 44 — 👍 ❤️ 🔥 😂 😮 😢 🙏
+  // and «+» that opens the grid of emoji in the place of the items. A press on an emoji is Gennady's «yes» to it: it
+  // goes to the messenger of the person at once (no hold, no preview); the same emoji again takes it off.
+  //   reactBar({ channel: 'telegram'|'whatsapp'|'max', mine: emoji|null, pick(emoji|'') }) → the node, or null
+  //   — '' means «take off». The menu (LexSendLater.menu) closes on a press of [data-lex-close].
+  // One set for every channel: emoji that Telegram's standard reactions hold (WhatsApp and Max take any emoji, so these
+  // pass there too). The bar is the first seven; «+» opens the sheet of 24.
+  const REACT_QUICK = ['👍', '❤', '🔥', '🤣', '😱', '😢', '🙏'];
+  const REACT_SHEET = [...REACT_QUICK, '👎', '🥰', '👏', '😁', '🤔', '🤯', '🎉', '🤩', '👌', '😍', '💯', '👀', '🤝', '😎', '😭', '😡', '🤗'];
+  const canonEmoji = (e) => String(e == null ? '' : e).replace(/\uFE0F/g, '').trim();
+  // A one-sign symbol shows as a picture, not as a letter, with the selector of emoji after it.
+  const shownEmoji = (e) => { const c = canonEmoji(e); return /^[\u00A9\u00AE\u203C\u2049\u2122\u2139\u2190-\u2BFF]$/.test(c) ? `${c}\uFE0F` : c; };
+  function reactSet(channel) {
+    // What goes out: Telegram's own signs (without the selector), others — as shown.
+    return { quick: REACT_QUICK.map(canonEmoji), grid: REACT_SHEET.map(canonEmoji), out: (c) => (channel === 'telegram' ? c : shownEmoji(c)) };
+  }
+  function reactBar(o) {
+    if (!o || typeof o.pick !== 'function') return null;
+    const set = reactSet(o.channel);
+    const mine = canonEmoji(o.mine);
+    const root = make('div', 'lex-reactbar');
+    root.setAttribute('role', 'group');
+    root.setAttribute('aria-label', 'React');
+    const row = make('div', 'lex-reactbar-row');
+    const emojiButton = (c) => {
+      const b = make('button', 'lex-reactbar-btn', shownEmoji(c));
+      b.type = 'button';
+      b.setAttribute('data-lex-close', '');
+      b.setAttribute('aria-label', mine === c ? `Take off ${shownEmoji(c)}` : `React ${shownEmoji(c)}`);
+      b.setAttribute('aria-pressed', mine === c ? 'true' : 'false');
+      if (mine === c) b.classList.add('is-mine');
+      b.addEventListener('click', () => o.pick(mine === c ? '' : set.out(c)));
+      return b;
+    };
+    for (const c of set.quick) row.appendChild(emojiButton(c));
+    const more = make('button', 'lex-reactbar-btn lex-reactbar-more');
+    more.type = 'button';
+    more.title = 'More emoji';
+    more.setAttribute('aria-label', 'More emoji');
+    more.setAttribute('aria-expanded', 'false');
+    more.appendChild(strokes(['M12 5v14', 'M5 12h14'], 16));
+    row.appendChild(more);
+    const grid = make('div', 'lex-reactbar-grid');
+    grid.hidden = true;
+    for (const c of set.grid) grid.appendChild(emojiButton(c));
+    // «+» swaps the items under the bar for the grid and back; the card stays where it is and does not outgrow
+    // the items it replaces.
+    more.addEventListener('click', () => {
+      const card = root.closest('.lex-sl-menu');
+      const open = grid.hidden;
+      if (open && card) {
+        const h = [...card.querySelectorAll(':scope > .lex-sl-menu-item')].reduce((n, b) => n + b.offsetHeight, 0);
+        grid.style.height = `${Math.max(132, Math.min(220, h))}px`;
+      }
+      grid.hidden = !open;
+      more.setAttribute('aria-expanded', open ? 'true' : 'false');
+      more.classList.toggle('is-open', open);
+      if (card) {
+        card.classList.toggle('is-react-grid', open);
+        const r = card.getBoundingClientRect();
+        if (r.bottom > window.innerHeight - 8) card.style.top = `${Math.max(8, window.innerHeight - 8 - r.height)}px`;
+      }
+    });
+    // The arrows go along the row.
+    row.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      const list = [...row.querySelectorAll('button')];
+      const at = list.indexOf(document.activeElement);
+      if (at < 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      list[(at + (e.key === 'ArrowRight' ? 1 : -1) + list.length) % list.length].focus({ preventScroll: true });
+    });
+    root.append(row, grid);
+    return root;
   }
 
   // Forwarded (В7.39): «Forwarded from <name>» over the text — the mark of a forward 16 --fg-muted and the
@@ -2365,6 +2458,8 @@
     pill.appendChild(make('span', '', time ? `Sticker · ${time}` : 'Sticker'));
     if (o.tail) pill.appendChild(o.tail);
     root.append(pic, pill);
+    // The reactions under the sticker (В7.38, as in Telegram): the pills in a row through 4 under the plate.
+    if (o.reactions) { o.reactions.classList.add('is-under'); root.appendChild(o.reactions); }
     return root;
   }
 
@@ -2514,7 +2609,8 @@
   //           stands in (Select); reply(part) — Reply, part: the words selected in it or null; edit() — Edit;
   //           earlier: { open, toggle() } — Show / Hide the earlier text; link() — Copy link; items() — the
   //           kind's own items after these (Process again); and the places the next block fills, in this
-  //           order: react, editSent, deleteSent, forward (each a function; none — no item); row — the row of
+  //           order: react, editSent, deleteSent, forward (each a function; none — no item; react() →
+  //           { channel, mine, pick(emoji|'') }: the bar of reactions over the items, В7.38); row — the row of
   //           actions under the message (В7.78, an element or a function that finds it): «⋯» is its last button,
   //           not a circle over the message }
   //   placeMore(el)       «⋯» of `el` back to the end of its row (after the window painted or changed the row)
@@ -2658,7 +2754,10 @@
   // The items of the menu, in the one order of every chat (docs/spec/20-chat.md, «Меню сообщения»).
   function menuItems(el, o, part) {
     const items = [];
-    if (o.react) items.push({ label: 'React', icon: messageIcon('select', 16), run: () => o.react() });
+    // The bar of reactions (В7.38) stands first, over the items; the channel of the message sets its emoji.
+    const react = o.react ? o.react() : null;
+    const bar = react ? reactBar(react) : null;
+    if (bar) items.push({ bar });
     if (o.reply) items.push({ label: 'Reply', icon: messageIcon('reply', 16), run: () => o.reply(part || null) });
     items.push({
       label: 'Copy', icon: messageIcon('copy', 16), confirm: 'Copied',
@@ -2933,6 +3032,6 @@
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
-    quote, quoteName, quoteWords, emojiOnly, reactions, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
+    quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

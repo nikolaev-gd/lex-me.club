@@ -546,6 +546,9 @@
   // Edit of a message that went to a person (19.11.2026): the new words for it, through the edge function message-edit.
   // → { edit: { state } }; a refusal (too late, not a text) comes as the error with the words of the database.
   const messageEdit = (body) => edge('message-edit', body);
+  // A reaction on a message at a person (24.11.2026): { uid, emoji, opId }, emoji '' takes it off → { status: 'reacted' |
+  // 'removed' | 'waiting' | 'stand' }; a refusal (422, 502) comes as the error with the words of the server.
+  const messageReact = (body) => edge('message-react', body);
 
   // ── One conversation ─────────────────────────────────────────────────────
   //
@@ -786,6 +789,7 @@
     calendar,
     shopping,
     messageEdit,
+    messageReact,
     emEarlier,
     emLimit,
     money,

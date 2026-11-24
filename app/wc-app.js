@@ -1783,6 +1783,13 @@
     const out = await WcBus.call('WC_MESSAGE_EDIT', { body: { uid, text, opId: global.LexFolders.newOpId() } });
     return (out && out.edit) || null;
   }
+  // A reaction on a message at a person (Gennady, 2026-11-24): the press on an emoji of the bar in the menu of a message is his
+  // «yes» to it; the edge function message-react puts it on the message in the messenger of the person ('' takes it off).
+  // → { status: 'reacted' | 'removed' | 'waiting' | 'stand' }; a refusal (422, 502) is the error with the words of the server.
+  async function reactSent(uid, emoji) {
+    const out = await WcBus.call('WC_MESSAGE_REACT', { body: { uid, emoji: emoji || '', opId: global.LexFolders.newOpId() } });
+    return (out && out.react) || out;
+  }
   // ── Edit in place of one's own word to Lex (Gennady, 2026-11-23: «как это обычно принято») ─────────
   // The arrow under the line «Edit message» of a word to Lex: the message and what came after it leave the screen, the
   // new words stand in their place with the answer written anew under them, and the model reads the chat up to that
@@ -2156,6 +2163,8 @@
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
       edit: (e) => startEdit(e),
       editText: (uid, text) => editSentText(uid, text),
+      react: (uid, emoji) => reactSent(uid, emoji),
+      notify: (text) => toast(text, { error: true }),
       reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the main page is shown.
@@ -2300,6 +2309,8 @@
       replyDone: () => { if (reply && reply.quoteUid) setReply(null); },
       edit: (e) => startEdit(e),
       editText: (uid, text) => editSentText(uid, text),
+      react: (uid, emoji) => reactSent(uid, emoji),
+      notify: (text) => toast(text, { error: true }),
       reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
       sendBox: (win) => sendFolderBox(chat, win),
@@ -4915,7 +4926,7 @@
     regenerate,
     stopStream,
     toggleVoice,
-    // The page's own piece for the live checks of dev-tools (check-message-edit.mjs): a chat of a person made as the page makes it.
+    // The page's own piece for the live checks of dev-tools (check-message-edit.mjs, check-message-react.mjs): a chat of a person made as the page makes it.
     makeFolderChat,
     // For the live checks of the section «Agents» (dev-tools/check-agents-section.mjs): a section shown as its button does,
     // the screen on top of the section, the section itself.

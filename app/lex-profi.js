@@ -64,6 +64,15 @@
     max: { prefix: 'profi:max:', windowMs: 7 * 24 * 60 * 60 * 1000, personal: (uid) => !uid.startsWith('profi:max:-') },
   };
   const editChannelOf = (uid) => Object.values(EDIT_CHANNELS).find((c) => uid.startsWith(c.prefix)) || null;
+  // A reaction on a message at a person's messenger (the edge function message-react; Gennady, 24.11.2026): a personal
+  // chat of Telegram or WhatsApp (Max waits for its executor on the server), a message of the person or Gennady's own that has gone; not a group, not Profi.ru.
+  // The same patterns as the server's (message-react) and the iPhone's: a channel is added in all of them at once.
+  const REACT_CHANNELS = {
+    whatsapp: { name: 'whatsapp', prefix: 'profi:wa:', personal: (uid) => !/@g\.us:/.test(uid) },
+    telegram: { name: 'telegram', prefix: 'profi:telegram:', personal: (uid) => !uid.startsWith('profi:telegram:-') },
+  };
+  const reactChannelOf = (uid) => Object.values(REACT_CHANNELS).find((c) => uid.startsWith(c.prefix)) || null;
+  const emojiKey = (e) => String(e == null ? '' : e).replace(/\uFE0F/g, '').trim();
   const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
 
   const { make, button, newOpId } = global.LexSection;
@@ -870,9 +879,17 @@
     // What each answer with drafts was drawn from (paintAnswer): the same is not drawn again.
     const painted = new WeakMap();
     let lane = null;
+    // My reactions the chat shows before the server has them (the press is Gennady's «yes»): uid → { emoji | null (taken
+    // off), at }. They are mixed into the look of the message (lookOf) and into what the message is drawn from (sigOf);
+    // an entry goes when a reading brings the same reaction (the `data` setter) or the server refuses (react).
+    const reactMine = new Map();
     const lookOf = (uid) => {
       const l = data && data.looks && uid ? data.looks[uid] : null;
-      return l && typeof l === 'object' ? l : {};
+      const base = l && typeof l === 'object' ? l : {};
+      const m = reactMine.get(uid);
+      if (!m) return base;
+      const others = (Array.isArray(base.reactions) ? base.reactions : []).filter((r) => !(r && r.who === 'me'));
+      return Object.assign({}, base, { reactions: m.emoji ? [...others, { emoji: m.emoji, who: 'me', at: m.at }] : others });
     };
     // The branch «who is this» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54): a turn of it is drawn from its
     // look {case, turn, by, kind, headline, writer, rows, ask, open} and from which word of the model is the one that
@@ -943,6 +960,12 @@
     const sigOf = (uid) => JSON.stringify([lookOf(uid), earlierOpen.has(uid), ((data && data.readTurns) || []).includes(uid),
       WHOIS_UID.test(uid)
         ? [lastWhois(), lastOfCase((whoisOf(uid) || {}).case), whoisNote.get(uid) || null] : null]);
+    // One message drawn again where it stands (a reaction put or taken off before the server has it).
+    const redraw = (uid) => {
+      const t = drawn.get(uid);
+      const n = lane && lane.isConnected ? [...lane.querySelectorAll(':scope > .lex-profi-msg[data-uid]')].find((x) => x.dataset.uid === uid) : null;
+      if (t && n) n.replaceWith(self.messageNode(t));
+    };
     // The uids of the words of Gennady to Lex the chat has (his turns of the branch), to know which one is new.
     const whoisHisWords = () => Object.entries((data && data.looks) || {})
       .filter(([, l]) => l && typeof l === 'object' && l.whois && l.whois.by === 'gennady').map(([u]) => u);
@@ -962,7 +985,14 @@
     const self = {
       order: deps.order,
       get data() { return data; },
-      set data(v) { data = v; },
+      set data(v) {
+        data = v;
+        for (const [uid, m] of [...reactMine]) {
+          const l = v && v.looks ? v.looks[uid] : null;
+          const mine = (l && Array.isArray(l.reactions) ? l.reactions : []).filter((r) => r && r.who === 'me');
+          if (m.emoji ? mine.some((r) => emojiKey(r.emoji) === emojiKey(m.emoji)) : !mine.length) reactMine.delete(uid);
+        }
+      },
 
       // The order the way Profi shows it. On top what matters at a glance, then its blocks,
       // below what is seen less often. What stands where is the monitor's and the server's word.
@@ -1065,7 +1095,8 @@
             const pic = storedFilesOf(t.attachments).find((f) => f.kind === 'image' && f.path);
             const sticker = look.sticker.path || look.sticker.url || !pic ? look.sticker
               : Object.assign({}, look.sticker, { path: pic.path, mime: pic.mime || look.sticker.mime });
-            node = M.sticker({ side: out ? 'out' : 'in', sticker, at, tail, io: fileIo });
+            node = M.sticker({ side: out ? 'out' : 'in', sticker, at, tail, io: fileIo,
+              reactions: M.reactions(look.reactions, { client: data && data.client, onMine: self.canReact(t) ? () => self.react(uid, '') : null }) });
           } else {
             // A photo of the client (profi_client_photos.sql): the picture over the text; its link «[фото](…)»
             // the monitor put into the text is not repeated under it. The stored files of the turn
@@ -1095,7 +1126,7 @@
                 : look.forwarded === true ? true : null,
               quote,
               big: !media && !said.digest && M.emojiOnly(words),
-              reactions: M.reactions(look.reactions, { client: data && data.client }),
+              reactions: M.reactions(look.reactions, { client: data && data.client, onMine: self.canReact(t) ? () => self.react(uid, '') : null }),
               after: edited && earlierOpen.has(uid) ? M.earlier(look.edits) : null,
               faded: !!look.deletedAt,
               stamp: M.stamp({ channel: ch, at, tail, edited: edited || !!look.editedAt, deleted: !!look.deletedAt }) });
@@ -1415,6 +1446,8 @@
           // Edit of a message that went to a person (19.11.2026): read when the menu opens, as the window of WhatsApp
           // for editing closes 15 minutes after the send.
           get editSent() { return self.canEditSent(t) ? () => self.editSent(t) : null; },
+          // The bar of reactions over the items (24.11.2026): the emoji of the channel of this message; mine is marked.
+          get react() { return self.canReact(t) ? () => self.reactSpec(t) : null; },
           earlier: () => {
             const look = lookOf(uid);
             if (!Array.isArray(look.edits) || !look.edits.length) return null;
@@ -1847,6 +1880,54 @@
       editText(uid, text) {
         if (typeof deps.editText !== 'function') return Promise.reject(new Error('This chat does not edit messages.'));
         return deps.editText(uid, text);
+      },
+
+      // The reaction on a message at a person (24.11.2026): a channel of REACT_CHANNELS, a message of the person or Gennady's
+      // own that has gone, not deleted (a sticker may be reacted to), in a chat that has the person behind it. Not in a
+      // group, not on Profi.ru, not on a message that has not gone yet (it has no uid of a messenger).
+      canReact(t) {
+        if (!data || typeof deps.react !== 'function') return false;
+        const uid = String((t && t.uid) || '');
+        const channel = reactChannelOf(uid);
+        if (!channel || !channel.personal(uid)) return false;
+        if (!['profi_sent', 'folder_out', 'profi_client', 'folder_in'].includes(t.origin)) return false;
+        if (folder && !data.send) return false;
+        return !lookOf(uid).deletedAt;
+      },
+
+      // What the bar of reactions in the menu needs (LexMessage.reactBar): the channel, the emoji I have put on this message
+      // (the screen's, with the one the press has just put) and what a press does.
+      reactSpec(t) {
+        const uid = String((t && t.uid) || '');
+        const channel = reactChannelOf(uid);
+        const mine = (lookOf(uid).reactions || []).find((r) => r && r.who === 'me');
+        return { channel: channel ? channel.name : '', mine: mine ? mine.emoji : null, pick: (emoji) => self.react(uid, emoji) };
+      },
+
+      // A press on an emoji of the bar (or on my pill): the message shows it at once, the server sends it (the edge
+      // function message-react); '' takes it off. The server says { status: 'reacted' | 'removed' | 'waiting' | 'stand' }:
+      // the first three keep the mark until the reading brings the reaction (waiting — the pill stands with its mark), a
+      // stand sent nothing. A refusal (422, 502) puts the screen back and says why.
+      react(uid, emoji) {
+        if (!uid || typeof deps.react !== 'function') return Promise.resolve(null);
+        const had = reactMine.get(uid);
+        const back = () => {
+          if (reactMine.get(uid) !== mark) return;
+          if (had) reactMine.set(uid, had); else reactMine.delete(uid);
+          redraw(uid);
+        };
+        const mark = { emoji: emoji || null, at: new Date().toISOString() };
+        reactMine.set(uid, mark);
+        redraw(uid);
+        return Promise.resolve(deps.react(uid, emoji || '')).then((out) => {
+          if (out && out.status === 'stand') { back(); if (deps.notify) deps.notify('This is a stand: nothing was reacted.'); return out; }
+          if (typeof self.reload === 'function') self.reload();
+          return out;
+        }, (err) => {
+          back();
+          if (deps.notify) deps.notify('Not reacted. ' + ((err && err.message) || ''));
+          return null;
+        });
       },
 
       // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
@@ -2708,5 +2789,5 @@
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
   global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode, busyNode, busyCommand,
-    storedFilesOf, withoutFileMarks, digestOf, ownWords, agentWorks, EDIT_CHANNELS };
+    storedFilesOf, withoutFileMarks, digestOf, ownWords, agentWorks, EDIT_CHANNELS, REACT_CHANNELS };
 })(typeof window !== 'undefined' ? window : globalThis);

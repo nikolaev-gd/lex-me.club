@@ -1957,6 +1957,8 @@
   WcBus.on('WC_FOLDER_EARLIER', (m) => { if (m && m.key) WcHistory.folderEarlier(m.key); return true; });
   // Edit of a message that went to a person (message-edit).
   WcBus.on('WC_MESSAGE_EDIT', (m) => WcHistory.messageEdit(m.body));
+  // A reaction on a message at a person (message-react).
+  WcBus.on('WC_MESSAGE_REACT', (m) => WcHistory.messageReact(m.body));
 
   WcBus.on('WC_STOP', async (m) => {
     // Stop while the page waits for the server's word after a break: the seen length goes to the
