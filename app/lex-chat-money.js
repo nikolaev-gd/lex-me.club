@@ -539,7 +539,8 @@
     folder_in: [false, NO_MODEL + ': the words of a person'],
     folder_out: [false, NO_MODEL + ': the words of Gennady to a person'],
     profi_client: [false, NO_MODEL + ': the words of a client of an order'],
-    profi_sent: [false, NO_MODEL + ': the words of Gennady to a client'],
+    profi_sent: [true, null],                            // the words that went to a client: the offer of the bot is written by a model (the price stands under it
+                                                         // by its uid, profi_bridge_spend); the words of Gennady get no step from the server, so no price
     profi_draft: [false, 'a draft is not an answer of a step'],
     profi_call: [false, NO_MODEL + ': a call with a person'],
     profi_call_draft: [false, 'a draft is not an answer of a step'],
