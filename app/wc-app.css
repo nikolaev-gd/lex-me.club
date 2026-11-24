@@ -2389,6 +2389,11 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 .wc-main.is-agents-head .wc-topbar > * { pointer-events: auto; }
 .wc-main.is-agents-head:not(.is-agents-split) .wc-topbar-right { display: none; }
 .wc-main.is-agents-on #wc-new-chat { display: none !important; }
+/* The corner of the window (the lines 44, 8, the arrow 44, from 12) lies over the left slot of the head: the button of
+ * the order of the list stands right of it, as on the iPhone (SectionCenterBar: the corner, then the lead). Both slots
+ * take the width alike, so the name stays in the middle. */
+.wc-main.is-agents-head .lex-section-slot.has-lead { box-sizing: border-box; padding-left: 114px; }
+.wc-main.is-agents-head .lex-section-center:has(.has-lead) > .lex-section-slot { min-width: 164px; }
 /* Wide: the bar of the window keeps its ground over the chat on the right only. */
 .wc-main.is-agents-split.is-agents-head .wc-topbar {
   background: linear-gradient(to bottom, var(--bg) calc(100% - 10px), transparent) right top / calc(100% - 440px) 100% no-repeat;

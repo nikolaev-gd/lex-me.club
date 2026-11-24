@@ -504,7 +504,7 @@
       }
       const left = make('div', 'lex-section-slot');
       // The left slot keeps one icon button of 44 (h.lead): the order of the list (В7.73). The arrow back is the window's.
-      if (h.lead) left.appendChild(h.lead);
+      if (h.lead) { left.appendChild(h.lead); left.classList.add('has-lead'); }
       center.replaceChildren(left, mid, right);
       // The second button shows its word whole: when it is wider than 108, both slots take its width, so the name
       // stays in the middle and is the one to give way (its lines cut themselves).
