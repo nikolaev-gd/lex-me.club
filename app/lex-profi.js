@@ -1590,7 +1590,7 @@
         if (t.uid) root.dataset.uid = String(t.uid);
         if (t.authoredAt) root.dataset.at = t.authoredAt;
         const ch = M.CHANNELS[v.channel] ? v.channel : null;
-        const at = v.at || t.authoredAt;
+        const at = t.authoredAt || v.at;
         if (v.kind && v.kind !== 'call') {
           root.classList.add('is-notice');
           const who = firstName(data && data.client) || 'the client';

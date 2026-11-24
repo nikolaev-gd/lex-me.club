@@ -1310,10 +1310,10 @@
 
   // ── A call in a chat (В7.42, 2026-11-16) ────────────────────────────────────
   // Gennady's decision on the canvas «Разделы Lex по стандарту», page «Созвоны в чате: утверждено», changed by his word
-  // of 24.11.2026: a call stands in the chat at its own time as an ordinary message of the other person — a bubble whose
-  // words begin «42 min · » and go on with the short summary, folded to seven lines; under it «Show the whole call» opens
+  // of 24.11.2026: a call stands in the chat as an ordinary message of the other person — a bubble with the short summary
+  // (its first sentence, «Созвон в 18:00, 32 минуты.», is written by the model: no duration of ours), folded to seven lines; under it «Show the whole call» opens
   // it in place: the detailed summary under a line, the transcript under another, «Show the whole transcript» and «Hide».
-  // The line under the words is the stamp of any message: the mark of the place, «Zoom call», «·», the time. While there
+  // The line under the words is the stamp of any message: the mark of the place, «Zoom call», «·», the time the message came. While there
   // is no summary — a ring and «Lex is writing the summary…». A missed call and a call without a recording are a plate
   // (notice, В7.3).
   // o: { channel, at, seconds, state: writing | done | failed | none, short, sections: [{title, items | text}],
@@ -1346,16 +1346,12 @@
   }
   function call(o) {
     const body = make('div', 'lex-call-body');
-    const length = o.seconds ? callLength(o.seconds) : '';
-    const lead = () => (length ? make('span', 'lex-call-meta', `${length} · `) : null);
     if (o.state === 'writing' && !o.short) {
       const wait = make('div', 'lex-call-wait');
       wait.append(make('span', 'lex-call-ring'), document.createTextNode('Lex is writing the summary…'));
       body.appendChild(wait);
     } else if (o.short || o.state === 'failed') {
       const words = make('div', `lex-call-short${o.open ? '' : ' is-folded'}`);
-      const first = lead();
-      if (first) words.appendChild(first);
       if (o.short) words.appendChild(document.createTextNode(o.short));
       else words.appendChild(make('span', 'lex-call-meta', 'Lex could not write the summary.'));
       body.appendChild(words);
@@ -1399,7 +1395,6 @@
     if (lines.length || o.lines) {
       body.appendChild(make('div', 'lex-call-rule is-tr'));
       const t = make('div', 'lex-call-sec is-tr', 'Transcript');
-      if (o.seconds) t.appendChild(make('span', 'lex-call-meta', ` · ${callLength(o.seconds)}`));
       body.appendChild(t);
       const shown = o.all ? lines : lines.slice(0, 3);
       for (const l of shown) body.appendChild(callLine(l));
