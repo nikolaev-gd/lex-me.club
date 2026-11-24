@@ -2397,12 +2397,19 @@
     const words = monitorWords(r.turns);
     const before = chat.words || new Map();
     const same = r.turns.every((t) => !t.uid || shown.has(t.uid)) && [...words].every(([uid, w]) => before.get(uid) === w);
-    if (!moved && same && !(opts && opts.force)) { WcThread.whenFree('profi-boxes', () => WcThread.paintProfiBoxes()); return; }
+    // The prices stand under the answers and on top as the server has them (folder_item brings the money of the chat):
+    // after a repaint, which draws the turns clean, and without one.
+    const paintFolderMoney = () => { if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money)); };
+    if (!moved && same && !(opts && opts.force)) {
+      WcThread.whenFree('profi-boxes', () => { WcThread.paintProfiBoxes(); paintFolderMoney(); });
+      return;
+    }
     WcThread.whenFree('profi-chat', () => {
       if (profiChat !== chat || state.conversationId !== data.chatKey) return;
       chat.words = words;
       WcThread.repaintKeepingPlace(r.turns, { newsHead, incoming: incomingOpts(), emEarlier: emEarlierOf(r), follow: true });
       followRunning();
+      paintFolderMoney();
     });
   }
   // Send in a chat of a folder: the text goes to the database for the person (folder-send), which
