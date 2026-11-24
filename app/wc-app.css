@@ -1194,6 +1194,33 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 }
 .wc-bubble pre code { white-space: inherit; }
 .wc-bubble pre code { padding: 0; background: none; font-size: .87em; }
+/* Copy of a block of code (В7.81): over the block it shows in the top right corner; in a long block it stays in view
+ * under the bar of the window while the block is scrolled (the thread sets where that is, --lex-code-copy-top). */
+.wc-thread { --lex-code-copy-top: calc(var(--wc-topbar-h, 52px) + 8px); }
+pre .lex-code-bar {
+  position: sticky; top: var(--lex-code-copy-top, 8px); z-index: 1;
+  display: flex; justify-content: flex-end; align-items: flex-start;
+  height: 0; margin: -4px -6px 0 0;
+  -webkit-user-select: none; user-select: none;
+}
+/* The button is bare, as the Copy of a message (В7.22): the zone of the press 44 is its ::before, the plate under the mark
+   (the glass of the page) is its ::after. */
+pre .lex-code-copy {
+  -webkit-appearance: none; appearance: none; position: relative; isolation: isolate; flex: none;
+  width: 28px; height: 28px; padding: 0; border: 0; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--fg-muted);
+  opacity: 0; pointer-events: none; transition: opacity .12s;
+}
+pre .lex-code-copy::before { content: ''; position: absolute; inset: -8px; }
+pre .lex-code-copy::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: 8px;
+  background-color: var(--glass); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+}
+pre .lex-code-copy svg { display: block; width: 16px; height: 16px; }
+pre:hover .lex-code-copy, pre:focus-within .lex-code-copy, pre .lex-code-copy.is-copied { opacity: 1; pointer-events: auto; }
+pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); outline: none; }
+@media (hover: none) { pre .lex-code-copy { opacity: .85; pointer-events: auto; } }
 .wc-bubble blockquote {
   margin: 0 0 .75em;
   padding-left: 12px;

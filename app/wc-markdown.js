@@ -20,6 +20,59 @@
     return n;
   };
 
+  // ── Copy of a block of code (В7.81) ───────────────────────────────────────
+  // A bar of no height at the top of the block, inside it: the button Copy at its right corner appears when the pointer
+  // is over the block and stays in view while a long block is scrolled (`position: sticky`, wc-app.css) — one press from
+  // any part of it. The text is the words of the block as they stand at the press (a stream redraws the block on every
+  // frame). The bar holds no words, so selecting or copying the block by hand takes nothing extra.
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const COPY_MARK = ['M9 9h10v10H9z', 'M5 15V5h10'];
+  const TICK_MARK = ['M4 12l5 5L20 6'];
+  function mark(paths) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    for (const d of paths) {
+      const p = document.createElementNS(SVG_NS, 'path');
+      p.setAttribute('d', d);
+      p.setAttribute('fill', 'none');
+      p.setAttribute('stroke', 'currentColor');
+      p.setAttribute('stroke-width', '2');
+      p.setAttribute('stroke-linecap', 'round');
+      p.setAttribute('stroke-linejoin', 'round');
+      svg.append(p);
+    }
+    return svg;
+  }
+  async function toClipboard(words) {
+    const M = global.LexMessage;
+    if (M && typeof M.copyText === 'function') return !!(await M.copyText(words));
+    try { await global.navigator.clipboard.writeText(words); return true; } catch (_) { return false; }
+  }
+  function codeCopy(code) {
+    const bar = el('span');
+    bar.className = 'lex-code-bar';
+    const b = el('button');
+    b.type = 'button';
+    b.className = 'lex-code-copy';
+    b.title = 'Copy';
+    b.setAttribute('aria-label', 'Copy the code');
+    b.append(mark(COPY_MARK));
+    let timer = null;
+    b.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!(await toClipboard(code.textContent))) return;
+      b.replaceChildren(mark(TICK_MARK));
+      b.classList.add('is-copied');
+      clearTimeout(timer);
+      timer = setTimeout(() => { b.replaceChildren(mark(COPY_MARK)); b.classList.remove('is-copied'); }, 1500);
+    });
+    bar.append(b);
+    return bar;
+  }
+
   // ── Inline ───────────────────────────────────────────────────────────────
   // A link inside Lex (19.11.2026, the question «who is this»): lex://chat/<ref of a person> and lex://order/<number>.
   // It is drawn only where the caller asks for it (render(src, { lex: true })): the words of the agent «Кто это»
@@ -161,7 +214,7 @@
         const pre = el('pre');
         const code = el('code', body.join('\n'));
         if (fence[1]) code.className = 'language-' + fence[1];
-        pre.append(code);
+        pre.append(codeCopy(code), code);
         frag.append(pre);
         continue;
       }
