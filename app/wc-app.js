@@ -2198,7 +2198,9 @@
     const read = () => newsRpc('profi_item', { p_order: order, p_on_screen: true, p_take: true });
     let data = await read();
     if (!wanted()) return;
-    if (!data || !data.chatKey) {
+    // No answer at all: Lex has no such order. A row without a chat gives an answer with no `chatKey` (below).
+    if (!data) { toast('This order is not in Lex', { error: true }); return; }
+    if (!data.chatKey) {
       // An order from a list of the day has no chat yet: it opens the way Reply yourself does.
       await newsRpc('profi_command', { p_op_id: global.LexProfi.newOpId(), p_kind: 'reply_self', p_order: order, p_args: {} });
       data = await read();
@@ -4565,7 +4567,11 @@
     if (sectionOn) return null;
     const key = state.conversationId;
     if (!key) return null;
-    if (key.startsWith('__lex_profi__')) return { kind: 'profi_message', chatKey: key, order: key.slice('__lex_profi__'.length) };
+    // The key of an order chat ends in the number of its session, not of the order: the order is the open chat's own.
+    if (key.startsWith('__lex_profi__')) {
+      const order = profiChat && !profiChat.folder && profiChat.data && profiChat.data.chatKey === key ? profiChat.order : '';
+      return order ? { kind: 'profi_message', chatKey: key, order: String(order) } : null;
+    }
     // A task chat of an agent comes back over the folder of its agent.
     if (WcHistory.isFolderKey(key) && agentKeyOf(profiChat) && profiChat.data.chatKey === key) {
       return { kind: 'folder_message', chatKey: key, agent: agentKeyOf(profiChat) };
@@ -4598,6 +4604,9 @@
     let kept = null;
     try { kept = JSON.parse(global.localStorage.getItem(PLACE_KEY) || 'null'); } catch (_) { kept = null; }
     if (!keepsPlace() || !kept || !kept.place || kept.account !== placeAccount()) { placeReady = true; keepScreenPlace(); return; }
+    // A place kept before 24.11.2026 names an order chat by the number of its session as the order: nothing to open by it.
+    const old = kept.place;
+    if (old.kind === 'profi_message' && String(old.chatKey || '') === `__lex_profi__${old.order}`) { placeReady = true; keepScreenPlace(); return; }
     placeSaid = JSON.stringify(kept);
     // Until the kept chat is on the screen the main page of the start is not the place.
     openFromNotification(kept.place)
