@@ -794,9 +794,10 @@
     else n.append(String(o.text || ''));
     return n;
   }
-  // A line of the list of agents: the face 48, the name, the time, the state line, the yellow dot while chats
-  // wait. The name is bold while the agent waits; a paused agent is dimmed as a whole. o: { key, name, time, state,
-  // text, stage, reason, waiting (number), onClick, more, id }.
+  // A line of the list of agents: the face 48, the name, the time, the state line (the word «Waiting for you:» is the
+  // state's), the yellow dot and the bold name while a chat of the agent is unread (24.11.2026: the dot is the unread's
+  // alone, a chat that waits and is read has none); a paused agent is dimmed as a whole. o: { key, name, time, state,
+  // text, stage, reason, unread (number of the chats unread), onClick, more, id }.
   function agentRow(o) {
     const el = row({
       id: o.id != null ? o.id : o.key,
@@ -804,8 +805,7 @@
       title: o.name || o.key,
       time: o.time || '',
       sub: agentState(o),
-      strong: o.state === 'waiting',
-      dot: o.waiting > 0,
+      dot: o.unread > 0,
       more: o.more,
       onClick: o.onClick,
       cls: 'lex-agent-row',

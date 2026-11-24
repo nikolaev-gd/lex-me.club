@@ -171,11 +171,12 @@
     }
 
     // ── the first screen: the agents (board AgList) ───────────────────────────────────────────────────────────
-    // A line: the face 48, the name, the time of the last event, the state line (В7.57), the yellow number of the
-    // waiting chats. A paused agent is dimmed as a whole.
+    // A line: the face 48, the name, the time of the last event, the state line (В7.57), the yellow dot while a chat
+    // of the agent is unread — only the unread (Gennady, 24.11.2026); that it waits for him the state line says in words.
+    // A paused agent is dimmed as a whole.
     function lineOf(a) {
       const state = stateOf(a);
-      const o = { key: a.key, name: a.name || a.key, time: S.listTime(timeOf(a)), state, waiting: Number(a.waiting) || 0,
+      const o = { key: a.key, name: a.name || a.key, time: S.listTime(timeOf(a)), state, unread: Number(a.unread) || 0,
         onClick: () => openFolder(a) };
       if (state === 'waiting') o.text = waitWords.get(a.key) || actionWords(a.last_action) || oneLine(a.goal);
       else if (state === 'working') o.stage = a.stage || null;
@@ -242,16 +243,16 @@
     }
 
     // ── the folder of an agent ────────────────────────────────────────────────────────────────────────────────
-    // The task chats by groups (В7.58): the waiting ones — bold, the yellow dot, the last word of the agent; the working
-    // ones — the spinner and the stage; the closed ones — plain, the last word. The time at the right, the number of the
-    // unread. On a wide window the line of the chat on the right stands picked.
+    // The task chats by groups (В7.58): the waiting ones — the last word of the agent, under the label «Waiting for you»;
+    // the working ones — the spinner and the stage; the closed ones — plain, the last word. The yellow dot and the bold
+    // title are the unread's alone (the slot `unread` below, read again at every signal), whatever the state of the chat.
+    // The time at the right. On a wide window the line of the chat on the right stands picked.
     function chatLine(c) {
-      const waiting = c.state === 'waiting';
       const working = c.state !== 'waiting' && c.state !== 'closed';
       const row = S.row({
         id: c.chatKey, title: c.title || 'Chat',
         sub: working ? S.agentState({ state: 'working', stage: c.stage }) : oneLine(c.last),
-        time: S.listTime(c.at), unread: { chat: c.chatKey }, dot: waiting, strong: waiting,
+        time: S.listTime(c.at), unread: { chat: c.chatKey },
         onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
       });
       row.classList.add('lex-agent-chat');
