@@ -2561,6 +2561,8 @@
     }
 
     // ── settings: the rest of the bot's menu ─────────────────────────────────
+    let kinds = null;
+    let focusBlock = null;
     function paintSettings() {
       const { body } = frame;
       body.replaceChildren();
@@ -2606,6 +2608,20 @@
         auto.appendChild(button('lex-profi-btn', 'Card topped up', run('card_topped_up', {}, 'Paid replies go again.')));
       }
 
+      // Every kind of the group Profi.ru, one row with the menu of four positions: the same rows as Settings →
+      // Notifications (LexSection.kindsList; the kinds come from the server). Painted once per visit, so that a
+      // repaint of the screen does not read them again.
+      const notes = block('Notifications');
+      notes.dataset.block = 'notifications';
+      if (!kinds) {
+        kinds = global.LexSection.kindsList({
+          rpc: deps.rpc, only: 'profi', menu: (anchor, items) => global.WcUI.menu(anchor, items),
+          tell: (text, error) => say(text, error),
+        });
+        kinds.load();
+      }
+      notes.appendChild(kinds.node);
+
       const all = block('Monitor');
       if (st.stopped) all.appendChild(make('div', 'lex-profi-line is-error', st.stopped));
       all.appendChild(button('lex-profi-btn', 'Stop everything', run('stop_all', {}, 'Stopped.')));
@@ -2616,6 +2632,11 @@
       for (const [name, label] of [['answered', 'Answered today'], ['unanswered', 'Unanswered today'], ['question', 'In question today'],
         ['summary', 'Summary of the day'], ['stats', 'Statistics']]) {
         rep.appendChild(button('lex-profi-btn', label, () => { report = { name, label }; go('report', label); }));
+      }
+      if (focusBlock) {
+        const b = body.querySelector(`[data-block="${focusBlock}"]`);
+        focusBlock = null;
+        if (b && b.scrollIntoView) b.scrollIntoView({ block: 'start' });
       }
     }
 
@@ -2782,7 +2803,12 @@
           focusOrder = order || null;
           frame.push({ id: 'feed', title: feedTitle() });
         } else if (screen === 'bot') frame.push({ id: 'bot', title: BOT_TITLE });
-        else frame.push({ id: 'settings', title: 'Settings' });
+        else {
+          // order — here the block to stand at («notifications»: the row Profi.ru of Settings → Notifications).
+          kinds = null;
+          focusBlock = order || null;
+          frame.push({ id: 'settings', title: 'Settings' });
+        }
       },
     };
   }

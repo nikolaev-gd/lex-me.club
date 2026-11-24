@@ -25,51 +25,6 @@
     ['dark', 'Dark'],
   ];
 
-  // The four positions of a kind of notification (the board NotifMenu, 2026-11-22), in the words of the iPhone
-  // (`NotificationSettingsView.positions`). The server keeps what it kept (notification_modes.sql, profi_bot_chat.sql):
-  // a mode — 'banner', 'count', 'none' — and the switch «breakthrough». The positions are read from the two:
-  //   Alarm      = mode 'banner' and breakthrough on — rings even in silent mode and focus;
-  //   Banner     = mode 'banner' and breakthrough off;
-  //   Count only = mode 'count';  Off = mode 'none'.
-  // A row of one switch (`switch_only`, «Important chats», alarm_loud.sql) has Alarm and Banner only: the server always
-  // banners a chat marked important, the switch decides whether it rings.
-  const NOTIFY_POSITIONS = [
-    { id: 'alarm', label: 'Alarm', note: 'Rings even in silent mode and focus', icon: 'bellRing', tone: 'attention' },
-    { id: 'banner', label: 'Banner', note: 'A notification and the count', icon: 'bell' },
-    { id: 'count', label: 'Count only', note: 'No notification, the number in Lex and on its icon', icon: 'countOne' },
-    { id: 'none', label: 'Off', note: 'Neither', icon: 'bellOff', tone: 'faint' },
-  ];
-  const notifyPositionOf = (k) => {
-    const loud = k.breakthrough === true;
-    if (k.switch_only === true) return loud ? 'alarm' : 'banner';
-    const mode = k.mode || 'banner';
-    if (mode === 'banner') return loud ? 'alarm' : 'banner';
-    return mode === 'count' || mode === 'none' ? mode : 'banner';
-  };
-  const notifyChoicesOf = (k) => (k.switch_only === true
-    ? NOTIFY_POSITIONS.filter((p) => p.id === 'alarm' || p.id === 'banner') : NOTIFY_POSITIONS);
-  // The calls that bring a kind to a position, in their order (each waits for the one before): the mode first, then the
-  // switch. A switch left on under Count only or Off is cleared too, so that a later Banner is not secretly Alarm.
-  // [] — the kind is there already.
-  function notifyPlanOf(k, to) {
-    const at = { p_kind: k.kind, p_scope: k.scope || '' };
-    const loud = k.breakthrough === true;
-    const mode = k.mode || 'banner';
-    const brk = (on) => ['lex_notification_breakthrough_set', { p_kind: at.p_kind, p_on: on, p_scope: at.p_scope }];
-    const setMode = (m) => ['lex_notification_mode_set', { p_kind: at.p_kind, p_mode: m, p_scope: at.p_scope }];
-    if (k.switch_only === true) {
-      if (to === 'alarm') return loud ? [] : [brk(true)];
-      if (to === 'banner') return loud ? [brk(false)] : [];
-      return [];
-    }
-    const plan = [];
-    const wantMode = to === 'alarm' || to === 'banner' ? 'banner' : to;
-    if (mode !== wantMode) plan.push(setMode(wantMode));
-    if (to === 'alarm' && !loud) plan.push(brk(true));
-    if (to !== 'alarm' && loud) plan.push(brk(false));
-    return plan;
-  }
-
   function applyTheme(value) {
     const root = document.documentElement;
     if (value === 'light' || value === 'dark') {
@@ -249,89 +204,25 @@
       return handle;
     },
 
-    // The screen of notifications: the kinds of messages by the sections of Lex (Profi.ru, each folder,
-    // Questions, Extended Mind, Chats, Calendar), each a row with one menu of four positions (В7.59, В7.60; the
-    // boards NotifSettings and NotifMenu). The sections and kinds come from the server (`lex_notification_modes`),
-    // the same screen as the iPhone's.
+    // The screen of notifications: the kinds of messages by the sections of Lex (each folder, Questions, Extended Mind,
+    // Chats, Calendar), each a row with one menu of four positions (В7.59, В7.60; the boards NotifSettings and NotifMenu).
+    // The rows are LexSection.kindsList, the same as in the settings of Profi.ru; Profi.ru itself is one row with a
+    // chevron here, which leads to those settings (ctx.openProfiSettings). The sections and kinds come from the server
+    // (`lex_notification_modes`), the same screen as the iPhone's.
     async openNotifications(ctx) {
       const say = el('.wc-notify-say', { text: 'Reading…' });
-      const list = el('div');
-      const handle = sheet('wc-settings', 'Notifications', [
-        el('.wc-notify-intro', { text: 'For each kind: how Lex tells you.' }), say, list]);
       const tell = (text, error) => { say.textContent = text || ''; say.classList.toggle('is-error', !!error); };
-      let groups = [];
-      const paint = (fresh) => {
-        groups = Array.isArray(fresh) ? fresh : [];
-        const nodes = [];
-        groups.forEach((g) => {
-          const kinds = Array.isArray(g.kinds) ? g.kinds : [];
-          if (!kinds.length) return;
-          nodes.push(LexSection.groupLabel(g.title));
-          nodes.push(LexSection.settingsBlock(kinds.map((k) => notifyRow(k))));
-        });
-        list.replaceChildren(...nodes);
-      };
-      // A kind whose calls are on their way takes no second choice until they are back.
-      const busy = new Set();
-      const notifyRow = (k) => {
-        const pos = NOTIFY_POSITIONS.find((p) => p.id === notifyPositionOf(k));
-        const row = LexSection.settingRow({
-          title: k.title, note: k.hint || '', id: `${k.kind}|${k.scope || ''}`,
-          menu: {
-            value: pos.label, tone: pos.tone,
-            onOpen: (anchor) => WcUI.menu(anchor, notifyChoicesOf(k).map((p) => ({
-              label: p.label, note: p.note, icon: p.icon, checked: p.id === pos.id,
-              onSelect: () => choose(k, row, pos, p),
-            }))),
-          },
-        });
-        return row;
-      };
-      // The choice shows at once; the calls go one after another, and the screen is painted from the last answer.
-      // A call that fails: the position before comes back — or, when a call before it already landed, what the
-      // server holds now (its answer) — with the line about it.
-      async function choose(k, row, from, to) {
-        const key = `${k.kind}|${k.scope || ''}`;
-        const plan = notifyPlanOf(k, to.id);
-        if (!plan.length || busy.has(key)) return;
-        busy.add(key);
-        row.setValue(to.label, to.tone);
-        let fresh = null;
-        let landed = 0;
-        try {
-          for (const [fn, args] of plan) {
-            const answer = await ctx.rpc(fn, args);
-            landed++;
-            if (Array.isArray(answer) && answer.length) fresh = answer;
-          }
-          tell('');
-          if (fresh) paint(fresh);
-          else {
-            // No screen in the answer: the kind takes the position it was given.
-            if (k.switch_only !== true) k.mode = to.id === 'alarm' ? 'banner' : to.id;
-            k.breakthrough = to.id === 'alarm';
-            paint(groups);
-          }
-        } catch (_) {
-          if (!fresh && landed) fresh = await ctx.rpc('lex_notification_modes', {}).catch(() => null);
-          if (Array.isArray(fresh) && fresh.length) paint(fresh);
-          else row.setValue(from.label, from.tone);
-          tell('The choice did not reach the server. Try again.', true);
-        } finally {
-          busy.delete(key);
-        }
-      }
-      try {
-        paint(await ctx.rpc('lex_notification_modes', {}));
-        tell('');
-      } catch (_) {
-        tell('Could not read the settings. Close this screen and open it again.', true);
-      }
+      let handle = null;
+      const list = LexSection.kindsList({
+        rpc: ctx.rpc, menu: (anchor, items) => WcUI.menu(anchor, items), tell,
+        link: ctx.openProfiSettings
+          ? { group: 'profi', onOpen: () => { handle.close(); ctx.openProfiSettings(); } } : null,
+      });
+      handle = sheet('wc-settings', 'Notifications', [
+        el('.wc-notify-intro', { text: 'For each kind: how Lex tells you.' }), say, list.node]);
+      await list.load();
       return handle;
     },
-
-    // The positions of a kind as pure functions, for dev-tools/check-notification-positions.mjs.
-    notifyPositions: { POSITIONS: NOTIFY_POSITIONS, positionOf: notifyPositionOf, choicesOf: notifyChoicesOf, planOf: notifyPlanOf },
   };
 
   global.WcSettings = WcSettings;

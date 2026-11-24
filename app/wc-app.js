@@ -3867,6 +3867,8 @@
       account: state.account,
       onSignOut: signOut,
       rpc: newsRpc,
+      // The row «Profi.ru» of Settings → Notifications: the settings of the section, at the block «Notifications».
+      openProfiSettings: () => showProfi('settings', 'notifications'),
     });
   }
 

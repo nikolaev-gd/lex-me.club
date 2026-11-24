@@ -917,6 +917,149 @@
     return n;
   }
 
+  // ── В7.59 the rows of the kinds of notifications (24.11.2026) ───────────────────────────────────────────────
+  // One row per kind of notification with one menu of four positions (В7.60; the board NotifMenu), the same where the
+  // kinds are shown: the screen Settings → Notifications and the block «Notifications» of the settings of Profi.ru
+  // (the iPhone: `NotificationKindsList`). The server keeps what it kept (notification_modes.sql, profi_bot_chat.sql):
+  // a mode — 'banner', 'count', 'none' — and the switch «breakthrough»; the positions are read from the two:
+  //   Alarm      = mode 'banner' and breakthrough on — rings even in silent mode and focus;
+  //   Banner     = mode 'banner' and breakthrough off;
+  //   Count only = mode 'count';  Off = mode 'none'.
+  // A row of one switch (`switch_only`, «Important chats», alarm_loud.sql) has Alarm and Banner only.
+  const KIND_POSITIONS = [
+    { id: 'alarm', label: 'Alarm', note: 'Rings even in silent mode and focus', icon: 'bellRing', tone: 'attention' },
+    { id: 'banner', label: 'Banner', note: 'A notification and the count', icon: 'bell' },
+    { id: 'count', label: 'Count only', note: 'No notification, the number in Lex and on its icon', icon: 'countOne' },
+    { id: 'none', label: 'Off', note: 'Neither', icon: 'bellOff', tone: 'faint' },
+  ];
+  const kindPositionOf = (k) => {
+    const loud = k.breakthrough === true;
+    if (k.switch_only === true) return loud ? 'alarm' : 'banner';
+    const mode = k.mode || 'banner';
+    if (mode === 'banner') return loud ? 'alarm' : 'banner';
+    return mode === 'count' || mode === 'none' ? mode : 'banner';
+  };
+  const kindChoicesOf = (k) => (k.switch_only === true
+    ? KIND_POSITIONS.filter((p) => p.id === 'alarm' || p.id === 'banner') : KIND_POSITIONS);
+  // The calls that bring a kind to a position, in their order (each waits for the one before): the mode first, then the
+  // switch. A switch left on under Count only or Off is cleared too, so that a later Banner is not secretly Alarm.
+  // [] — the kind is there already.
+  function kindPlanOf(k, to) {
+    const at = { p_kind: k.kind, p_scope: k.scope || '' };
+    const loud = k.breakthrough === true;
+    const mode = k.mode || 'banner';
+    const brk = (on) => ['lex_notification_breakthrough_set', { p_kind: at.p_kind, p_on: on, p_scope: at.p_scope }];
+    const setMode = (m) => ['lex_notification_mode_set', { p_kind: at.p_kind, p_mode: m, p_scope: at.p_scope }];
+    if (k.switch_only === true) {
+      if (to === 'alarm') return loud ? [] : [brk(true)];
+      if (to === 'banner') return loud ? [brk(false)] : [];
+      return [];
+    }
+    const plan = [];
+    const wantMode = to === 'alarm' || to === 'banner' ? 'banner' : to;
+    if (mode !== wantMode) plan.push(setMode(wantMode));
+    if (to === 'alarm' && !loud) plan.push(brk(true));
+    if (to !== 'alarm' && loud) plan.push(brk(false));
+    return plan;
+  }
+  // «6 on · 3 off»: the kinds that tell the person in some way and the kinds that are off.
+  function kindsSummary(kinds) {
+    const off = (kinds || []).filter((k) => (k.mode || 'banner') === 'none').length;
+    const on = (kinds || []).length - off;
+    return `${on} on · ${off} off`;
+  }
+  // The list of the kinds, read from the server (`lex_notification_modes`) and written back to it (`lex_notification_mode_set`,
+  // `lex_notification_breakthrough_set` → notification_prefs): the one store. o:
+  //   rpc(name, args)  the call of a database function under the person's pass
+  //   menu(anchor, items)   the menu with notes (WcUI.menu)
+  //   tell(text, error)     the line of the screen; '' clears it
+  //   only: 'profi'         the kinds of that group only, under no title (the block has its own)
+  //   link: { group, onOpen }  a group drawn as one row with the chevron, «6 on · 3 off», that opens the screen where its kinds are
+  // Returns { node, load() }. The sections and the kinds come from the server, so a new kind shows without a new build.
+  function kindsList(o) {
+    const node = make('div');
+    let groups = [];
+    const busy = new Set();
+    const keyOf = (k) => `${k.kind}|${k.scope || ''}`;
+    function paint(fresh) {
+      groups = Array.isArray(fresh) ? fresh : [];
+      const nodes = [];
+      groups.forEach((g) => {
+        const kinds = Array.isArray(g.kinds) ? g.kinds : [];
+        if (!kinds.length) return;
+        if (o.only) {
+          if (g.group !== o.only) return;
+          nodes.push(settingsBlock(kinds.map((k) => rowOf(k))));
+        } else if (o.link && g.group === o.link.group) {
+          nodes.push(settingsBlock([settingRow({
+            title: g.title, note: 'The bot\'s messages are set in its own settings', id: `group|${g.group}`,
+            go: { value: kindsSummary(kinds), onClick: () => o.link.onOpen() },
+          })]));
+        } else {
+          nodes.push(groupLabel(g.title));
+          nodes.push(settingsBlock(kinds.map((k) => rowOf(k))));
+        }
+      });
+      node.replaceChildren(...nodes);
+    }
+    function rowOf(k) {
+      const pos = KIND_POSITIONS.find((p) => p.id === kindPositionOf(k));
+      const row = settingRow({
+        title: k.title, note: k.hint || '', id: keyOf(k),
+        menu: {
+          value: pos.label, tone: pos.tone,
+          onOpen: (anchor) => o.menu(anchor, kindChoicesOf(k).map((p) => ({
+            label: p.label, note: p.note, icon: p.icon, checked: p.id === pos.id,
+            onSelect: () => choose(k, row, pos, p),
+          }))),
+        },
+      });
+      return row;
+    }
+    // The choice shows at once; the calls go one after another, and the screen is painted from the last answer.
+    // A call that fails: the position before comes back — or, when a call before it already landed, what the
+    // server holds now (its answer) — with the line about it. A kind whose calls are on their way takes no second choice.
+    async function choose(k, row, from, to) {
+      const key = keyOf(k);
+      const plan = kindPlanOf(k, to.id);
+      if (!plan.length || busy.has(key)) return;
+      busy.add(key);
+      row.setValue(to.label, to.tone);
+      let fresh = null;
+      let landed = 0;
+      try {
+        for (const [fn, args] of plan) {
+          const answer = await o.rpc(fn, args);
+          landed++;
+          if (Array.isArray(answer) && answer.length) fresh = answer;
+        }
+        o.tell('');
+        if (fresh) paint(fresh);
+        else {
+          if (k.switch_only !== true) k.mode = to.id === 'alarm' ? 'banner' : to.id;
+          k.breakthrough = to.id === 'alarm';
+          paint(groups);
+        }
+      } catch (_) {
+        if (!fresh && landed) fresh = await o.rpc('lex_notification_modes', {}).catch(() => null);
+        if (Array.isArray(fresh) && fresh.length) paint(fresh);
+        else row.setValue(from.label, from.tone);
+        o.tell('The choice did not reach the server. Try again.', true);
+      } finally {
+        busy.delete(key);
+      }
+    }
+    async function load() {
+      try {
+        paint(await o.rpc('lex_notification_modes', {}));
+        o.tell('');
+      } catch (_) {
+        o.tell('Could not read the settings. Close this screen and open it again.', true);
+      }
+    }
+    return { node, load };
+  }
+
   // ── В7.59 the block «About» (22.11.2026, board AgPassport) ─────────────────────
   // What a thing is, read only: a card of the ground of a bubble, radius 10, 12 14 inside; the head 13/600 in the
   // muted grey, under it on 4 the pairs — the caption 13 muted over the value 15 (the iPhone 17, as the text of the
@@ -998,5 +1141,7 @@
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS,
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
-    groupLabel, orderButton, toggle, settingRow, settingsBlock, aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
+    groupLabel, orderButton, toggle, settingRow, settingsBlock, kindsList, kindsSummary,
+    kindPositions: { POSITIONS: KIND_POSITIONS, positionOf: kindPositionOf, choicesOf: kindChoicesOf, planOf: kindPlanOf },
+    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
 })(typeof window !== 'undefined' ? window : globalThis);
