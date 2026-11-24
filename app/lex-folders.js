@@ -42,7 +42,7 @@
     // read or written by it), and a press shows the chat from it at once.
     const held = global.LexSection.keep({ load: (key) => deps.rpc('folder_item', { p_chat_key: key }) });
     // the photo too: a new photo of the person is read again for the bar over the chat
-    const stampOf = (c) => [c.at, c.last, c.unread, c.pinned, c.photo || ''].join('|');
+    const stampOf = (c) => [c.at, c.last, c.unread, c.pinned, c.photo || '', c.tick || ''].join('|');
     const keepOf = (key) => (item) => held.put(key, item);
     // o.fail(text) — where a failure is told: the status line of this section is not on the screen.
     const openChat = (key, o) => frame.open(
@@ -78,6 +78,8 @@
       const line = global.LexSection.row({
         lead: M.avatar(c.title || '?', { size: 48, photo: c.photo, io }),
         title: c.title || 'Chat', sub: lastWords(c), dot: !!c.unread, onClick: () => openChat(c.chatKey, o),
+        // The tick under Gennady's last message, as in the lines of Profi.ru: one grey — sent, two blue — read (folder_ticks.sql).
+        end: c.tick ? global.LexMessage.ticks(c.tick === 'read') : null,
         // what the agent «Кто это» waits for here (В7.54): «Lex: <its headline>» in place of the last message
         lex: c.whois && c.whois.wait ? c.whois.wait : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned,
