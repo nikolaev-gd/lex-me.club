@@ -208,9 +208,22 @@
     // supabase/functions/_shared/call-slot.ts; the client declares it in
     // meta.slotWaitMs and sizes its own first-answer watchdog by it.
     const LEX_SERVER_SLOT_WAIT_MS = 30_000;
+    // How long a request stopped before the server answered still waits for that answer before the connection is
+    // dropped (proxyFetch): the server's own wait for a place in the queue and a margin.
+    const LEX_STOP_HOLD_MS = LEX_SERVER_SLOT_WAIT_MS + 5_000;
     function proxyFetch(proxy, providerBody, signal) {
       const url = `${lexSbUrl()}/functions/v1/llm-proxy/${proxy.kind}`;
-      return fetch(url, {
+      // STOP BEFORE THE SERVER ANSWERED DOES NOT DROP THE REQUEST. A turn with the number of a press (meta.opId)
+      // is the server's to write: Stop has already told it that number (LexTurnId.stopOp), and the server, seeing
+      // the stop when it takes the number, keeps the question, calls no model and charges nothing. Dropped at
+      // once, a request still on its way may never reach the server, and the message is lost: on screen it
+      // stays, opened again it is gone (23.11.2026, the live check of Stop: Stop 0.3 s after the send, a new
+      // connection). So the caller is let go at once, as by an abort, and the request itself goes on until the
+      // server's headers (then it is dropped unread) or LEX_STOP_HOLD_MS. A turn without a number aborts at once.
+      const held = !!(signal && proxy && proxy.meta && proxy.meta.opId);
+      const net = held ? new AbortController() : null;
+      let answered = false;
+      const sent = fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${proxy.token}`,
@@ -218,8 +231,11 @@
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ meta: proxy.meta || {}, providerRequestBody: providerBody }),
-        signal,
+        signal: net ? net.signal : signal,
       }).then((resp) => {
+        answered = true;
+        // Stopped while the request was on its way: the server has it now, the answer is not read.
+        if (net && signal.aborted) { net.abort(signal.reason); throw signal.reason; }
         // Заголовки ответа наверх — ОДНОЙ точкой на все четыре адаптера. Ради
         // 'x-lex-server-turn': ведёт ли сервер этот ход. Ответ нужен раньше
         // конца потока (человек может нажать «стоп» в первую секунду, и
@@ -235,6 +251,18 @@
         if (proxy && typeof proxy.onServerCost === 'function') resp.__lexOnServerCost = proxy.onServerCost;
         if (proxy && typeof proxy.onServerDone === 'function') resp.__lexOnServerDone = proxy.onServerDone;
         return resp;
+      });
+      if (!net) return sent;
+      return new Promise((resolve, reject) => {
+        sent.then(resolve, reject);
+        const onStop = () => {
+          reject(signal.reason);
+          // Answered already — the stream is dropped now, as before; still on its way — at the server's answer
+          // (above) or when the hold runs out.
+          if (answered) net.abort(signal.reason);
+          else setTimeout(() => net.abort(signal.reason), LEX_STOP_HOLD_MS);
+        };
+        if (signal.aborted) onStop(); else signal.addEventListener('abort', onStop, { once: true });
       });
     }
 
