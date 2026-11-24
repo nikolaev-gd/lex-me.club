@@ -79,7 +79,7 @@
     'save_news_settings', 'rename_chat', 'set_chat_hidden', 'chat_act', 'lex_turn_stopped', 'attach_to_turn',
     'lex_push_register', 'lex_push_unregister', 'lex_push_badge_on', 'lex_chat_presence',
     'lex_live_register', 'lex_notification_set', 'lex_notification_mode_set', 'lex_notification_breakthrough_set',
-    'lex_patch_user_settings',
+    'lex_patch_user_settings', 'lex_chat_branch_set', 'lex_chat_branch_labels', 'lex_chat_branches',
     // subscription or API tokens of Claude (claude_route.sql): asked at the «+», never kept
     'lex_claude_route',
     // Stop under a running development task of Lex (dev_tasks.sql): a press, never kept

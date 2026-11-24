@@ -505,5 +505,97 @@
     return box;
   }
 
-  global.LexAnswerRow = { create, setModel, setEdit, setRetry, setTime, setVersions, sync, modelLabel, modelIdOfCharge, copyText, brainMarksNode };
+  // ── Дело ответа (ветки по делам, 23.11.2026) ─────────────────────────────
+  //
+  // Над каждым ответом — строка «к какому делу он»: сервер на каждом сообщении решает, продолжает
+  // оно текущее дело, переходит к другому, открывает новое, задевает несколько или просит обзор
+  // (supabase/functions/_shared/chat-branches.ts, таблица chat_turn_branches). Ошиблись — нажать
+  // строку: под ней список дел беседы и «Новое дело»; выбор переносит ход (lex_chat_branch_set),
+  // и следующий ответ в том деле его видит. Одна часть на все окна: страница, Мак, расширение.
+  //   label    — { op_id, branch_id, branches, title, label, confidence, via, corrected } (lex_chat_branch_labels);
+  //   branches — [{ branch_id, title }] дел беседы (lex_chat_branches);
+  //   o.onMove(opId, branchId, newTitle) → Promise<boolean> — перенести ход; null — строка без выбора.
+  const BRANCH_HEAD = { overview: 'Обзор дел', several: 'Несколько дел', unclear: 'Похоже, ', chitchat: '' };
+  function branchTitleOf(label, branches) {
+    const byId = new Map((branches || []).map((b) => [String(b.branch_id), String(b.title || '')]));
+    const ids = Array.isArray(label.branches) && label.branches.length ? label.branches : [label.branch_id];
+    const titles = ids.map((id) => byId.get(String(id)) || (String(id) === String(label.branch_id) ? label.title : '')).filter(Boolean);
+    if (label.label === 'overview' && !label.corrected) return BRANCH_HEAD.overview;
+    if (label.label === 'several' && titles.length > 1) return `${BRANCH_HEAD.several}: ${titles.join(' · ')}`;
+    const t = titles[0] || label.title || 'Дело';
+    if (label.label === 'unclear' && !label.corrected) return `${BRANCH_HEAD.unclear}${t}?`;
+    return t;
+  }
+  function branchLabelNode(label, branches, o) {
+    if (!label || !label.op_id) return null;
+    const box = document.createElement('div');
+    box.className = 'lex-branch-label';
+    box.dataset.label = label.label || '';
+    if (label.corrected) box.classList.add('is-corrected');
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'lex-branch-label-head';
+    head.textContent = branchTitleOf(label, branches);
+    head.title = 'Дело этого ответа. Нажмите, чтобы перенести в другое';
+    box.appendChild(head);
+    if (!o || !o.onMove) { head.disabled = true; return box; }
+    let menu = null;
+    const close = () => { if (menu) { menu.remove(); menu = null; } };
+    const move = async (branchId, newTitle) => {
+      if (!menu) return;
+      menu.classList.add('is-busy');
+      let ok = false;
+      try { ok = !!(await o.onMove(label.op_id, branchId, newTitle)); } catch (_) { ok = false; }
+      if (!menu) return;
+      menu.classList.remove('is-busy');
+      if (ok) { close(); return; }
+      let note = menu.querySelector('.lex-branch-label-note');
+      if (!note) { note = document.createElement('div'); note.className = 'lex-branch-label-note'; menu.appendChild(note); }
+      note.textContent = 'Не перенеслось: нет связи с сервером.';
+    };
+    head.addEventListener('click', () => {
+      if (menu) { close(); return; }
+      menu = document.createElement('div');
+      menu.className = 'lex-branch-label-choices';
+      const current = new Set((Array.isArray(label.branches) && label.branches.length ? label.branches : [label.branch_id]).map(String));
+      for (const b of (branches || [])) {
+        if (!b || !b.branch_id || current.has(String(b.branch_id))) continue;
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'lex-choice lex-branch-label-item';
+        item.textContent = String(b.title || 'Дело');
+        item.addEventListener('click', () => move(String(b.branch_id), null));
+        menu.appendChild(item);
+      }
+      const fresh = document.createElement('button');
+      fresh.type = 'button';
+      fresh.className = 'lex-choice lex-branch-label-item is-new';
+      fresh.textContent = 'Новое дело';
+      fresh.addEventListener('click', () => {
+        const row = document.createElement('div');
+        row.className = 'lex-branch-label-new';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'lex-branch-label-input';
+        input.placeholder = 'Как назвать дело';
+        input.maxLength = 80;
+        const ok = document.createElement('button');
+        ok.type = 'button';
+        ok.className = 'lex-choice lex-branch-label-item';
+        ok.textContent = 'Перенести';
+        const go = () => { const t = input.value.trim(); if (t) move(null, t); };
+        ok.addEventListener('click', go);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } if (e.key === 'Escape') close(); });
+        row.appendChild(input);
+        row.appendChild(ok);
+        fresh.replaceWith(row);
+        input.focus();
+      });
+      menu.appendChild(fresh);
+      box.appendChild(menu);
+    });
+    return box;
+  }
+
+  global.LexAnswerRow = { create, setModel, setEdit, setRetry, setTime, setVersions, sync, modelLabel, modelIdOfCharge, copyText, brainMarksNode, branchLabelNode, branchTitleOf };
 })(typeof window !== 'undefined' ? window : globalThis);

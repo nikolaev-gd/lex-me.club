@@ -544,6 +544,18 @@
     boxes: draftBoxes,
   });
 
+  // Метка дела над ответом: перенести ход в другое дело беседы или в новое (lex_chat_branch_set).
+  WcThread.setBranchHooks({
+    onMove: async (opId, branchId, newTitle) => {
+      const key = state.conversationId;
+      if (!key) return false;
+      const r = await newsRpc('lex_chat_branch_set', { p_chat_key: key, p_op_id: opId, p_branch_id: branchId, p_new_title: newTitle }).catch(() => null);
+      const ok = !!(r && r.ok);
+      if (ok && state.conversationId === key) requestMoney();
+      return ok;
+    },
+  });
+
   function resetMoney() {
     brainAsked = null;
     moneyEpoch++;

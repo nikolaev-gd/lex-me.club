@@ -769,6 +769,26 @@
     }, true);
   }
   let brainHooks = null;
+  // Дело над каждым ответом (LexAnswerRow.branchLabelNode): что за дело выбрал сервер и перенос в другое.
+  let branchHooks = null;
+  const branchSigs = new WeakMap();
+  function paintBranchLabels() {
+    const labels = (lastMoney && lastMoney.branchLabels) || new Map();
+    const list = (lastMoney && lastMoney.branchList) || [];
+    const make = global.LexAnswerRow && global.LexAnswerRow.branchLabelNode;
+    for (const t of elTurns.querySelectorAll('.wc-turn-assistant[data-uid]')) {
+      const old = t.querySelector(':scope > .lex-branch-label');
+      const label = labels.get(t.dataset.uid);
+      if (!label || !make) { if (old) old.remove(); continue; }
+      const sig = JSON.stringify([label, list]);
+      if (old && branchSigs.get(old) === sig) continue;
+      const node = make(label, list, { onMove: branchHooks && branchHooks.onMove ? branchHooks.onMove : null });
+      if (old) old.remove();
+      if (!node) continue;
+      branchSigs.set(node, sig);
+      t.prepend(node);
+    }
+  }
   // Что нарисовано под каждым ответом: по этому знаку видно, что пометки не менялись и узел
   // трогать не надо (окошко под зажатым пальцем не должно заменяться при каждом обновлении денег).
   const brainSigs = new WeakMap();
@@ -1673,6 +1693,7 @@
       lastMoney = money;
       paintTopMoney();
       paintBrainMarks();
+      paintBranchLabels();
     },
 
     // The price of a step while a Claude Code turn of this chat goes (STREAM_COST, the frame
@@ -1692,6 +1713,8 @@
     // (LexDraftBox.create, lex-draft-box.js: оно же ставит окошки под ответ, под строкой ответа).
     // setBrainMarks — новые пометки беседы без денег (ответ проверки очереди).
     setBrainHooks(hooks) { brainHooks = hooks || null; },
+    // Перенос хода в другое дело: hooks.onMove(opId, branchId, newTitle) → Promise<boolean>.
+    setBranchHooks(hooks) { branchHooks = hooks || null; },
     setBrainMarks(list) {
       if (!lastMoney) return;
       const marks = new Map();

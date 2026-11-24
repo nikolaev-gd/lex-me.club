@@ -90,6 +90,12 @@
       if (!marks.has(k)) marks.set(k, []);
       marks.get(k).push(m);
     }
+    // Дело каждого ответа (lex_chat_branch_labels) и дела беседы (lex_chat_branches): уид ответа → метка.
+    const branchLabels = new Map();
+    for (const l of (Array.isArray(b.branch_labels) ? b.branch_labels : [])) {
+      if (l && l.answer_uid && l.op_id) branchLabels.set(String(l.answer_uid), l);
+    }
+    const branchList = (Array.isArray(b.branches) ? b.branches : []).filter((x) => x && x.branch_id);
     // The door of after 21.11.2026 prices every step by the API prices (answers[i].api_usd,
     // answers[i].step, total.api_usd, week). A door of before has none of them: then the number
     // on top stays the billed total of the chat, as it was (stepPriced false).
@@ -101,6 +107,8 @@
       answers,
       list,
       marks,
+      branchLabels,
+      branchList,
       entries: Array.isArray(b.entries) ? b.entries : [],
       total: t ? { usd: num(t.usd) || 0, byKind, apiUsd: num(t.api_usd) } : null,
       stepPriced,

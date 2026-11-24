@@ -688,11 +688,18 @@
       const [out, marks] = await Promise.all([copies.kept('list_chat_money', args), copies.kept('lex_chat_marks', args)]);
       return moneyOf(out, marks);
     }
-    const [out, marks] = await Promise.all([
+    // Дело каждого ответа и дела беседы (ветки по делам, chat-branches.ts) — рядом, не пришли — без них.
+    const [out, marks, labels, branches] = await Promise.all([
       post('/rest/v1/rpc/list_chat_money', args),
       post('/rest/v1/rpc/lex_chat_marks', args).catch(() => null),
+      post('/rest/v1/rpc/lex_chat_branch_labels', args).catch(() => null),
+      post('/rest/v1/rpc/lex_chat_branches', args).catch(() => null),
     ]);
-    return moneyOf(out, marks);
+    return withBranches(moneyOf(out, marks), labels, branches);
+  }
+  function withBranches(out, labels, branches) {
+    if (!out || !Array.isArray(labels) || !labels.length) return out;
+    return Object.assign({}, out, { branch_labels: labels, branches: Array.isArray(branches) ? branches : [] });
   }
   // The same from what the item of a section brought (lex_chat_open: money and marks).
   function moneyOf(out, marks) {

@@ -1616,3 +1616,15 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-step-popup-foot { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line, var(--lex-dark-line)); }
 .lex-step-popup.is-dark .lex-step-popup-foot { border-top-color: var(--lex-dark-line); }
 .lex-step-popup-week { margin-top: 2px; font-size: 12px; line-height: 16px; }
+
+/* Дело ответа (lex-answer-row.js, branchLabelNode): строка над ответом, нажатие — перенести в другое дело. */
+.lex-branch-label { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 0 0 4px; max-width: 100%; }
+.lex-branch-label-head { appearance: none; border: 0; background: none; padding: 0; min-height: 24px; color: var(--fg-muted); font: inherit; font-size: 13px; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.lex-branch-label-head:disabled { cursor: default; }
+.lex-branch-label-head::before { content: '▸ '; }
+.lex-branch-label[data-label="unclear"]:not(.is-corrected) > .lex-branch-label-head { color: var(--fg); }
+.lex-branch-label-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.lex-branch-label-choices.is-busy { opacity: .6; pointer-events: none; }
+.lex-branch-label-new { display: flex; gap: 6px; flex: 1 1 100%; }
+.lex-branch-label-input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--lex-bubble-in); color: var(--fg); font: inherit; }
+.lex-branch-label-note { flex: 1 1 100%; color: var(--danger); font-size: 13px; }
