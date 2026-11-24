@@ -842,10 +842,12 @@
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
-    // «Only the chat» (the button in the bar), while the chat is open: every run of the discussion with Lex folded
-    // into its line (paintHidden). A chat opens with everything shown (Gennady, 23.11.2026); a word to Lex from the
-    // field shows everything again, so that the answer is seen.
-    let clean = deps.clean === true;
+    // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
+    // with it on (Gennady, 2026-11-14): an order chat is first of all the conversation with
+    // the client; a word to Lex from the field turns it off, so that the answer is seen. A chat
+    // opened by Reply yourself opens with it off: the person came for the bot's draft in its box
+    // and the talk with the model about it, and the clean view hides both.
+    let clean = deps.clean !== false;
     // The words being typed into the boxes of the chat (Edit, not yet saved), by window: they stay while the
     // answer is drawn again.
     const edits = new Map();
@@ -854,9 +856,8 @@
       openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits,
       // the chat of a group: its whole title names where a box goes (every member reads it)
       group: folder && data && data.kind === 'group' ? String(data.title || data.client || '').trim() : null });
-    // The runs of the discussion turned by their own line against the view of the chat (folded in the full view,
-    // shown in «only the chat»), by the uids of their turns, while the chat is open.
-    const flipped = new Set();
+    // The runs of the hidden discussion the person brought back with Show, while the chat is open.
+    const revealed = new Set();
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
     // of a quote shows one with its neighbours, a toggle draws one again); their short numbers; the edited
     // ones whose earlier text is open; the message the last word to Lex answered (its draft carries its
@@ -1846,49 +1847,38 @@
         return deps.editText(uid, text);
       },
 
-      // The discussion with Lex (В7.4а, Gennady 23.11.2026): every run of it — the turns between two messages of the
-      // correspondence — stands apart, the mark of Lex on the left margin by its first turn and a thin line down it.
-      // The button «only the chat» in the bar folds every run into its mark with the number of its turns; pressed
-      // again, everything is shown. Each run folds and opens by a press on its own mark.
-      // Nothing is ever gone from the screen entirely, and the model reads it all. A task chat of an agent is the
-      // discussion itself: no rail there. The marks of Profi follow the server with it: what the client read turns blue.
+      // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
+      // with the model up to the last message that went to the client, from Lex, Telegram or the
+      // site. Every run of it becomes one line «Discussion with Lex is hidden · Show»; Show
+      // brings that run back until the chat is left. The model still reads it all.
+      // The marks of Profi follow the server with it: what the client has read turns blue.
       paintHidden(thread) {
         self.dress(thread);
-        for (const f of thread.querySelectorAll(':scope > .lex-talk-mark')) f.remove();
-        const isTalk = (n) => !agent() && n.classList.contains('wc-turn') && !n.classList.contains('lex-profi-msg');
-        const wordsOf = (n) => {
-          const b = n && n.querySelector('.wc-bubble');
-          return b ? b.textContent.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
-        };
+        const hidden = new Set((data && data.hiddenDiscussion) || []);
+        for (const f of thread.querySelectorAll(':scope > .lex-fold')) f.remove();
         let run = [];
         const flush = () => {
           if (!run.length) return;
-          const uids = run.map((t) => t.dataset.uid).filter(Boolean);
-          const turned = uids.some((u) => flipped.has(u));
-          const shown = clean ? turned : !turned;
-          run.forEach((t, i) => {
-            t.classList.add('lex-talk');
-            t.classList.toggle('lex-talk-end', i === run.length - 1);
-            t.classList.toggle('lex-profi-hidden', !shown);
-          });
-          const answer = run.find((t) => t.classList.contains('lex-profi-answer'));
-          const line = global.LexMessage.talk({
-            shown,
-            count: run.length,
-            preview: wordsOf(answer) || wordsOf(run[0]),
+          const uids = run.map((t) => t.dataset.uid);
+          const shown = uids.every((u) => revealed.has(u));
+          for (const t of run) t.classList.toggle('lex-profi-hidden', !shown);
+          const line = global.LexMessage.fold({
+            text: shown ? 'Discussion with Lex' : 'Discussion with Lex is hidden',
+            action: shown ? 'Hide' : 'Show',
             onClick: () => {
-              for (const u of uids) { if (turned) flipped.delete(u); else flipped.add(u); }
+              for (const u of uids) { if (shown) revealed.delete(u); else revealed.add(u); }
               self.paintHidden(thread);
             },
           });
+          line.classList.add('lex-profi-fold');
           run[0].before(line);
           run = [];
         };
         for (const n of [...thread.children]) {
-          if (n.classList.contains('lex-talk-mark')) continue;
-          if (isTalk(n)) { run.push(n); continue; }
+          if (n.classList.contains('lex-fold')) continue;
+          if (n.classList.contains('wc-turn') && n.dataset.uid && hidden.has(n.dataset.uid)) { run.push(n); continue; }
           flush();
-          n.classList.remove('lex-talk', 'lex-talk-end', 'lex-profi-hidden');
+          if (n.classList.contains('lex-profi-hidden')) n.classList.remove('lex-profi-hidden');
         }
         flush();
         // A message whose look the fresh reading says otherwise — a reaction, an edit, a deletion, the
@@ -1910,15 +1900,15 @@
       bar() {
         const M = global.LexMessage;
         const person = make('div', 'lex-profi-person', '');
-        // The button «only the chat»: pressed, every run of the discussion with Lex is folded into its line; pressed
-        // again, everything is shown (paintHidden).
+        // The button of the clean view: pressed, the discussion with Lex up to the last message that went is
+        // off the screen (the server says which, hiddenDiscussion).
         const cleanButton = () => {
           const link = make('button', 'wc-icon-btn lex-profi-clean', '');
           link.type = 'button';
           const paint = () => {
             link.classList.toggle('is-on', clean);
             link.setAttribute('aria-pressed', clean ? 'true' : 'false');
-            link.title = clean ? 'Show the whole discussion with Lex' : 'Fold the discussion with Lex';
+            link.title = clean ? 'Show the discussion with Lex' : 'Hide the discussion with Lex';
             link.setAttribute('aria-label', link.title);
             const paths = [['path', { d: 'M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z' }],
               ['path', { d: 'M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z' }]];
@@ -1996,13 +1986,11 @@
         if (words !== (data.brief || null) && deps.reload) deps.reload();
       },
 
-      // «Only the chat»: only the screen, the model reads the whole chat and the server is not told. Either way the
-      // runs turned by their own lines come back to the view of the chat. A new opening of a chat makes a new object,
-      // so it starts with everything shown again.
+      // The clean view: only the screen, the model reads the whole chat and the server is not
+      // told. A new opening of a chat makes a new object, so it starts with it on again.
       get clean() { return clean; },
       setClean(on) {
         clean = !!on;
-        flipped.clear();
         if (deps.onClean) deps.onClean(clean);
       },
     };

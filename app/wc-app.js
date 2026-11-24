@@ -2075,7 +2075,7 @@
     const told = chat.data && chat.data.chatKey;
     if (told) WcBus.call('WC_PROFI_CHAT', { key: told, modelId: chat.data.modelId || null }).catch(() => {});
     main.classList.add('is-profi-chat');
-    // «Only the chat» the chat starts with (off, lex-profi.js createChat).
+    // The clean view the chat starts with (on, lex-profi.js createChat).
     main.classList.toggle('is-profi-clean', !!chat.clean);
     paintProfiBar();
     paintProfiOutbox(chat);
@@ -2142,9 +2142,10 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      // «Only the chat» folds every run of the discussion with Lex into its line (lex-profi.js paintHidden); a chat
-      // opens with everything shown (Gennady, 23.11.2026).
-      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); WcThread.paintProfiBoxes(); },
+      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      // Reply yourself, and a notification of a draft after a call: the chat opens with the draft and the
+      // discussion shown.
+      clean: !(opts && (opts.replySelf || opts.showLex)),
       order,
       // The look of a message (В7.35–В7.40): the sheet of a quoted message (the common sheet В7.15), the
       // way to it in the chat, and the line of a reply over the field (В7.26).
@@ -2287,9 +2288,9 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      // The chat of a person or a group talks with the assistant in correspondence: «only the chat» folds the
-      // discussion, as in an order chat; it opens with everything shown.
-      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); WcThread.paintProfiBoxes(); },
+      // The chat of a person or a group talks with the assistant in correspondence: it opens clean, as an order chat.
+      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      clean: data && (data.kind === 'person' || data.kind === 'group'),
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
       showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
@@ -2967,7 +2968,7 @@
       }
     }
     if (openWait === w) openWait = null;
-    // A word to Lex in a chat with a person shows the whole discussion: its answer must be seen.
+    // A word to Lex in an order chat brings the discussion back: its answer must be seen.
     if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
     const images = WcAttach.take();
     // Files of this message (lex-file-attach.js): uploaded already, their records go with the turn.
@@ -3513,7 +3514,7 @@
       show.push(item);
     }
     if (state.conversationId !== key || !show.length) return;
-    // A word to Lex in a chat with a person is part of the discussion: «only the chat» would fold it.
+    // A word to Lex in an order chat is part of the discussion: the clean view would hide it.
     if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
     for (const item of show) {
       const turn = WcThread.appendUnsent(item.text, { at: item.at, presetSlot: (item.opts && item.opts.mode) ? item.opts.slotId : null }, null);

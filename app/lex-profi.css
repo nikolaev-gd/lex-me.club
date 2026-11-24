@@ -85,11 +85,6 @@
 .lex-profi-only { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-muted); font-size: 12px; font-weight: 400; }
 .lex-profi-only svg { width: 12px; height: 12px; }
 .lex-bubbles > .lex-profi-answer > .wc-turn-foot { margin-top: 4px; }
-/* A run of the discussion with Lex in a chat with a person (В7.4а, lex-message.css .lex-talk-mark; lex-profi.js
- * paintHidden): its turns step 34 to the right of the mark on the margin, the line of the mark runs down them at 13;
- * no gap between them, so the line is one. */
-.lex-bubbles > .wc-turn.lex-talk { margin: 0 0 0 12px; padding: 0 2px 20px 21px; border-left: 1px solid var(--lex-talk-thread); }
-.lex-bubbles > .wc-turn.lex-talk.lex-talk-end { padding-bottom: 6px; margin-bottom: 14px; }
 .lex-profi-boxes { display: flex; flex-direction: column; gap: 6px; }
 .lex-profi-words > :first-child { margin-top: 0; }
 .lex-profi-words > :last-child { margin-bottom: 0; }
@@ -163,9 +158,14 @@
  * and crossed out. Colours are tokens of the page. */
 .wc-icon-btn.lex-profi-clean { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--line); color: var(--fg-soft, var(--fg-muted)); }
 .wc-icon-btn.lex-profi-clean.is-on { border-color: var(--accent); background-color: var(--accent); color: var(--accent-fg); }
-/* A folded run of the discussion with Lex: its turns are off the screen, its line stands in place of them
- * (lex-profi.js paintHidden, В7.4а); the model still reads it. */
-.wc-turn.lex-profi-hidden { display: none !important; }
+/* The clean view: the discussion with Lex leaves the screen, the conversation with the client
+ * stays (the card, the client's messages, what went to him, the notices of Profi, own texts on
+ * their way). */
+.wc-main.is-profi-clean #wc-turns > .wc-turn:not(.lex-profi-msg),
+.wc-main.is-profi-clean #wc-turns > .lex-fold { display: none !important; }
+
+/* The discussion before the last message to the client: off the screen, the model still reads it. */
+.wc-turn.lex-profi-hidden { display: none; }
 
 /* One message box in every chat (2026-11-13): an order chat has «+» with a picture and
  * «Text model», the microphone and the voice conversation like any chat. It has no row of
