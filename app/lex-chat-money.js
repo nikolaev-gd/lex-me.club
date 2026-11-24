@@ -111,6 +111,9 @@
       branchList,
       entries: Array.isArray(b.entries) ? b.entries : [],
       total: t ? { usd: num(t.usd) || 0, byKind, apiUsd: num(t.api_usd) } : null,
+      // false — the chat has no paid step: the number on top is not drawn (not «$0»); a real step of $0 stays «$0».
+      // A door of before has no such field: undefined, the number stays.
+      hasPaidSteps: (t && typeof t.has_paid_steps === 'boolean') ? t.has_paid_steps : undefined,
       stepPriced,
       week: (w && num(w.used) != null) ? { used: num(w.used), resetsAt: w.resets_at || null } : null,
     };
@@ -518,7 +521,49 @@
     };
   }
 
+  // ── The kinds of messages: has it a price under it, or has it none and why ────────────────────────────────────
+  //
+  // One table for every place that draws a message (the page, the extension, the Mac; the iPhone mirrors the
+  // words of it in ChatMoney.swift `MessageKinds`, and dev-tools/test-message-kinds.mjs checks the two against
+  // each other and against every `origin` the code and the database know). The key is the origin of a turn of the
+  // chat (`video_chat_turns.origin`; no origin is `text`). [price, why not]: the price stands under a message
+  // only where the server gives a paid step for its uid (list_chat_money) — this table says where it can ever be.
+  // A new origin without a row here fails the test: decide first, whether it has a price.
+  const NO_MODEL = 'no model worked on it';
+  const MESSAGE_KINDS = {
+    text: [true, null],                                  // the main chat
+    voice: [true, null],                                 // a talk by voice
+    claude_code: [true, null],                           // a step of Claude Code (by the API prices)
+    folder_whois: [true, null],                          // the words of an agent of the base (profi:editor:<n>)
+    news: [false, 'the feed of news is written by the base, not by a step of a chat'],
+    folder_in: [false, NO_MODEL + ': the words of a person'],
+    folder_out: [false, NO_MODEL + ': the words of Gennady to a person'],
+    profi_client: [false, NO_MODEL + ': the words of a client of an order'],
+    profi_sent: [false, NO_MODEL + ': the words of Gennady to a client'],
+    profi_draft: [false, 'a draft is not an answer of a step'],
+    profi_call: [false, NO_MODEL + ': a call with a person'],
+    profi_call_draft: [false, 'a draft is not an answer of a step'],
+    profi_notice: [false, 'a line of the system'],
+    call_summary: [false, 'the summary of a call is written by the base; its spend has no chat'],
+    em_intake: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
+    em_request: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
+    em_question: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
+    em_status: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
+    digest: [false, 'the summary of the day is written by the base; its spend has no chat'],
+    base_alert: [false, 'a line of the system'],
+    base_ok: [false, 'a line of the system'],
+    send_wait: [false, 'a line of the system'],
+    send_failed: [false, 'a line of the system'],
+    mac: [false, 'a line of the system'],
+  };
+  // May a message of this origin carry a price? An unknown origin may not (and the test fails on it).
+  function kindPriced(origin) {
+    const k = MESSAGE_KINDS[origin == null || origin === '' ? 'text' : String(origin)];
+    return !!(k && k[0]);
+  }
+
   root.LexChatMoney = {
+    MESSAGE_KINDS, kindPriced,
     format, normalize, breakdown, createRefresher, KIND_ORDER,
     stepUsd, lastStep, formatTokens, formatMarkup, payLine, statsLine, formatPause, moscowDay,
     weekLine, stepView, createLiveStep,

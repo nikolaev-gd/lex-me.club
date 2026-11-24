@@ -1104,6 +1104,7 @@
         const root = make('div', `wc-turn lex-profi-msg ${notice ? 'is-notice' : out ? 'is-sent' : 'is-client'}`);
         root.appendChild(node);
         if (t.uid) root.dataset.uid = uid;
+        if (t.origin) root.dataset.origin = String(t.origin);
         if (t.authoredAt) root.dataset.at = t.authoredAt;
         // What the look was drawn from: a fresh reading that says otherwise draws the message again
         // (paintHidden), a reaction or an edit comes without a new turn.
@@ -1132,6 +1133,7 @@
         if (!still && by === 'gennady' && whoisWord && !whoisWord.before.includes(uid)) self.whoisSettle();
         const row = make('div', `wc-turn lex-profi-msg is-whois is-${by}`);
         if (uid) row.dataset.uid = uid;
+        row.dataset.origin = 'folder_whois';
         if (t.authoredAt) row.dataset.at = t.authoredAt;
         row.dataset.look = sigOf(uid);
         let words = String(t.text || '');

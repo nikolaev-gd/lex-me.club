@@ -757,6 +757,8 @@
     const show = !!(money && money.showMoney);
     if (!show) { WcHeader.setMoney(null, false); return; }
     const M = global.LexChatMoney;
+    // No paid step in the chat (and none going on): no number, not «$0»; a real step of $0 stays «$0».
+    if (money.hasPaidSteps === false && !liveStep.live()) { WcHeader.setMoney(null, false); return; }
     if (!money.stepPriced) { WcHeader.setMoney({ usd: money.total ? money.total.usd : 0, view: null }, true); return; }
     const top = liveStep.top(money);
     WcHeader.setMoney({
@@ -1244,7 +1246,9 @@
         // The feed of requests: a record with its task takes its place after the loop (paintRequests).
         if (rFeed && t.origin === 'em_request' && t.uid && t.emEntry && t.emEntry.task) { rTurns.set(String(t.uid), t); return; }
         if (t.origin && String(t.origin).indexOf('em_') === 0) {
-          elTurns.append(emEntryTurn(t));
+          const emTurn = emEntryTurn(t);
+          emTurn.dataset.origin = String(t.origin);
+          elTurns.append(emTurn);
           return;
         }
         // The monitor's turns of an order chat: a message of the client, what went to him, a
@@ -1326,6 +1330,7 @@
           }
           // Сказанное голосом — под ним строки нет (syncFeet).
           if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
+          if (t.origin) turn.dataset.origin = String(t.origin);
           // Модель ответа (из денег беседы) — подпись кнопки модели.
           if (t.model) turn.dataset.model = t.model;
           // Уид реплики: по нему встаёт цена хода (paintMoney).
@@ -1658,7 +1663,8 @@
       if (!money) liveStep.reset();
       for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
         const old = t.querySelector(':scope > .wc-turn-foot > .wc-price');
-        const a = show && money.answers ? money.answers.get(t.dataset.uid) : null;
+        // The table of kinds (lex-chat-money.js): a message of a kind with no price never gets one.
+        const a = show && money.answers && M.kindPriced(t.dataset.origin) ? money.answers.get(t.dataset.uid) : null;
         const usd = !a ? null
           : priced ? M.stepUsd(a)
             : (a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
