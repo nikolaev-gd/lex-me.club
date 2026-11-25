@@ -17,7 +17,7 @@
 //   WC_RENAME_CONVERSATION{id, title} → {ok}
 //   WC_DELETE_CONVERSATION{id} → {ok}
 //   WC_LIST_ARCHIVED      → {ok, items}   the archived conversations (chat_archive.sql), the items of WC_LIST_CONVERSATIONS
-//   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread, archive, unarchive (the menu of a chat, В7.33)
+//   WC_CHAT_ACT           {id, act} → {ok}   pin, unpin, read, unread, archive, unarchive, mute, unmute (the menu of a chat, В7.33)
 //   WC_SEND               {requestId, conversationId, text, images} → {ok, conversationId}
 //   WC_STOP               {requestId, seenChars} → {ok}
 //   WC_MODELS             → {items, activeId}
@@ -786,7 +786,7 @@
   // Pin, Unpin, Mark as read, Mark as unread: the server keeps the state of the chat, every device
   // draws it from the next list.
   WcBus.on('WC_CHAT_ACT', async (m) => {
-    if (!['pin', 'unpin', 'read', 'unread', 'archive', 'unarchive'].includes(m && m.act)) return { ok: false, error: 'no such act' };
+    if (!['pin', 'unpin', 'read', 'unread', 'archive', 'unarchive', 'mute', 'unmute'].includes(m && m.act)) return { ok: false, error: 'no such act' };
     await WcHistory.chatAct(m.id, m.act);
     WcBus.broadcast({ type: 'WC_CONVERSATIONS_CHANGED' });
     return { ok: true };

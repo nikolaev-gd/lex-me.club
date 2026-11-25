@@ -56,14 +56,16 @@
         // The mark is not a line of the list: the numbers of the unread carry it, and the signal «unread»
         // brings them to every device (important_chats.sql).
         if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act === 'important');
+        if (act === 'mute' || act === 'unmute') global.LexSection.markMuted(c.chatKey, act === 'mute');
         await deps.rpc('chat_act', { p_op_id: newOpId(), p_chat_key: c.chatKey, p_act: act });
       } catch (e) {
         if (act === 'important' || act === 'unimportant') global.LexSection.markImportant(c.chatKey, act !== 'important');
+        if (act === 'mute' || act === 'unmute') global.LexSection.markMuted(c.chatKey, act !== 'mute');
         const text = (e && e.message) || 'It did not work.';
         if (o && o.fail) o.fail(text); else say(text, true);
         return;
       }
-      if (act === 'important' || act === 'unimportant') return;
+      if (['important', 'unimportant', 'mute', 'unmute'].includes(act)) return;
       if (o && o.after) o.after();
     }
 
@@ -90,7 +92,9 @@
       if (global.LexChatMenu) {
         const act = (name) => chatAct(c, name, o);
         global.LexChatMenu.attach(line, () => ({
-          title: c.title, pinned: !!c.pinned, unread: !!c.unread, act,
+          // Mark as read or unread by the one number of the chat (chat_read_one.sql), as its line shows it.
+          title: c.title, pinned: !!c.pinned, unread: global.LexSection.chatUnread(c.chatKey) > 0, act,
+          muted: global.LexSection.isMuted(c.chatKey),
           // Archive or Unarchive: the server's word of the line (chat_archive.sql); a server without it — no item
           archived: typeof c.archived === 'boolean' ? c.archived : undefined,
           // Open in new window (В7.79): the chat as a notification of the folder names it.

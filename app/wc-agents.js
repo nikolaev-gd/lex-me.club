@@ -184,11 +184,34 @@
       else if (state === 'idle') o.text = actionWords(a.last_action) || oneLine(a.goal);
       return o;
     }
+    // The menu of an agent's line (В7.33, chat_read_one.sql): Mute or Unmute of the agent as a whole — the level between
+    // «Agents' words» and one task chat; its chats with a position of their own keep it. A server before it — no menu.
+    function agentMenu(row, a) {
+      if (!global.LexChatMenu || !S.isAgentMuted) return;
+      global.LexChatMenu.attach(row, () => {
+        const muted = S.isAgentMuted(a.key);
+        if (typeof muted !== 'boolean') return null;
+        return { title: a.name || a.key, muted, mute: (on) => muteAgent(a, on) };
+      });
+    }
+    async function muteAgent(a, on) {
+      S.markAgentMuted(a.key, on);
+      try {
+        await deps.rpc('lex_notification_mode_set', { p_kind: 'agent', p_mode: on ? 'none' : 'inherit', p_scope: a.key });
+      } catch (e) {
+        S.markAgentMuted(a.key, !on);
+        if (deps.toast) deps.toast((e && e.message) || 'It did not work.', true);
+      }
+    }
     function paintList() {
       const body = frame.screen === 'home' ? frame.body : null;
       if (!body) return;
       const list = make('div', 'lex-section-list');
-      for (const a of agents) list.appendChild(S.agentRow(lineOf(a)));
+      for (const a of agents) {
+        const row = S.agentRow(lineOf(a));
+        agentMenu(row, a);
+        list.appendChild(row);
+      }
       body.replaceChildren(list);
       if (!agents.length) body.replaceChildren(S.emptyState({ section: 'agents', title: 'No agents yet' }));
       say('');
@@ -268,18 +291,24 @@
           unread: (Number((S.unread().chats || {})[c.chatKey]) || 0) > 0,
           // A base before the archive gives no flag, and the menu has no Archive.
           archived: typeof c.archived === 'boolean' ? c.archived : undefined,
+          // Mute of this one chat (chat_read_one.sql): absent while the server has none
+          muted: S.isMuted ? S.isMuted(c.chatKey) : undefined,
           act: (name) => chatAct(c, name),
         }));
       }
       return row;
     }
     async function chatAct(c, act) {
+      const mute = act === 'mute' || act === 'unmute';
+      if (mute && S.markMuted) S.markMuted(c.chatKey, act === 'mute');
       try {
         await deps.rpc('chat_act', { p_op_id: S.newOpId(), p_chat_key: c.chatKey, p_act: act });
       } catch (e) {
+        if (mute && S.markMuted) S.markMuted(c.chatKey, act !== 'mute');
         if (deps.toast) deps.toast((e && e.message) || 'It did not work.', true);
         return;
       }
+      if (mute) return;
       readFolder().catch((e) => console.warn('[agents] folder:', e && e.message));
     }
     // The row «Archived» at the top of the folder: the face of the archive, the gray number of the archived chats.

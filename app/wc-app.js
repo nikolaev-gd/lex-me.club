@@ -3612,10 +3612,14 @@
   // The menu of a chat (lex-chat-menu.js): Pin, Unpin, Mark as read, Mark as unread. The list is read
   // anew: what the press means for it is the server's. A read on opening says nothing when it fails.
   async function actConversation(id, act) {
+    // Mute shows in the menu at once; the numbers' next answer (the signal «unread») confirms it or puts it back.
+    const mute = act === 'mute' || act === 'unmute';
+    if (mute && global.LexSection) global.LexSection.markMuted(id, act === 'mute');
     try {
       const r = await WcBus.call('WC_CHAT_ACT', { id, act });
       if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
     } catch (err) {
+      if (mute && global.LexSection) global.LexSection.markMuted(id, act !== 'mute');
       if (act === 'read') console.warn('[wc] read:', err && err.message);
       else toast('Could not change the chat: ' + (err && err.message), { error: true });
       return;

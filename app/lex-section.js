@@ -142,7 +142,9 @@
   // `--attention` when it waits for a word of Gennady (a guess, a question), in `--fg` for an attach done by itself.
   function row(o) {
     const el = make('div', 'lex-section-row');
-    el.classList.toggle('is-unread', !!o.dot);
+    // A line with a slot of the number takes its dot and its bold title from the number alone (chat_read_one.sql: one
+    // «read» of a chat on the server — the number, the dot and the bold agree); `dot` is for a line with no slot.
+    el.classList.toggle('is-unread', !!o.dot && !o.unread);
     el.classList.toggle('is-strong', !!o.strong);
     el.classList.toggle('is-wrap', !!o.wrap);
     // subLines: 3 — the title on one line, the sub on up to three (a block of memory of an agent, board AgMemory).
@@ -244,10 +246,16 @@
   // person wrote there rings an alarm on the iPhone. An answer of a server before part 6 has no list: the
   // marks known stay.
   let importantNow = new Set();
+  // The chats muted (their own position Off) and the agents muted as a whole (chat_read_one.sql) come with the numbers
+  // too: the menu says Mute or Unmute. null — a server before it: the menus have no Mute.
+  let mutedNow = null;
+  let agentsMutedNow = null;
   function setUnread(u) {
     if (!u || typeof u !== 'object') return;
     unreadNow = { chats: u.chats || {}, orders: u.orders || {}, sections: u.sections || {} };
     if (Array.isArray(u.important)) importantNow = new Set(u.important.map(String));
+    if (Array.isArray(u.muted)) mutedNow = new Set(u.muted.map(String));
+    if (Array.isArray(u.agents_muted)) agentsMutedNow = new Set(u.agents_muted.map(String));
     // Only the slots of the unread.
     const slots = '.lex-section-count[data-unread-chat], .lex-section-count[data-unread-order], '
       + '.lex-section-count[data-unread-section]';
@@ -259,6 +267,22 @@
   function markImportant(chatKey, on) {
     if (chatKey == null) return;
     if (on) importantNow.add(String(chatKey)); else importantNow.delete(String(chatKey));
+    // an important chat is not muted (chat_read_one.sql)
+    if (on && mutedNow) mutedNow.delete(String(chatKey));
+  }
+  // How many messages of a chat are unread — the one number its line, its dot and its menu go by.
+  const chatUnread = (chatKey) => unreadOf(chatKey != null ? { chat: chatKey } : null);
+  // Mute or Unmute in the menu of a chat: true — muted, false — not, undefined — the server has no Mute yet.
+  const isMuted = (chatKey) => (mutedNow && chatKey != null ? mutedNow.has(String(chatKey)) : undefined);
+  const isAgentMuted = (agentKey) => (agentsMutedNow && agentKey != null ? agentsMutedNow.has(String(agentKey)) : undefined);
+  // A press of Mute shows at once; the next answer of the numbers confirms or puts it back.
+  function markMuted(chatKey, on) {
+    if (chatKey == null || !mutedNow) return;
+    if (on) { mutedNow.add(String(chatKey)); importantNow.delete(String(chatKey)); } else mutedNow.delete(String(chatKey));
+  }
+  function markAgentMuted(agentKey, on) {
+    if (agentKey == null || !agentsMutedNow) return;
+    if (on) agentsMutedNow.add(String(agentKey)); else agentsMutedNow.delete(String(agentKey));
   }
 
   // ── the draft of a chat in a list (2026-11-17) ──────────────────────────────
@@ -932,15 +956,25 @@
     { id: 'count', label: 'Count only', note: 'No notification, the number in Lex and on its icon', icon: 'countOne' },
     { id: 'none', label: 'Off', note: 'Neither', icon: 'bellOff', tone: 'faint' },
   ];
+  // A row of one chat or one agent set apart (`level`, chat_read_one.sql: the levels below the kinds — the agent, the
+  // chat): Banner, Count only, Off, and «As the rest» — the own position goes, the one above holds (its note says which).
+  const LEVEL_INHERIT = { id: 'inherit', label: 'As the rest', icon: 'bell' };
   const kindPositionOf = (k) => {
+    if (k.level === true) return k.mode === 'count' || k.mode === 'none' ? k.mode : 'banner';
     const loud = k.breakthrough === true;
     if (k.switch_only === true) return loud ? 'alarm' : 'banner';
     const mode = k.mode || 'banner';
     if (mode === 'banner') return loud ? 'alarm' : 'banner';
     return mode === 'count' || mode === 'none' ? mode : 'banner';
   };
-  const kindChoicesOf = (k) => (k.switch_only === true
-    ? KIND_POSITIONS.filter((p) => p.id === 'alarm' || p.id === 'banner') : KIND_POSITIONS);
+  const positionWord = (m) => (m === 'count' ? 'Count only' : m === 'none' ? 'Off' : 'Banner');
+  const kindChoicesOf = (k) => {
+    if (k.level === true) {
+      return [...KIND_POSITIONS.filter((p) => p.id !== 'alarm'),
+        { ...LEVEL_INHERIT, note: `Its own position goes: ${positionWord(k.above)}, as the rest` }];
+    }
+    return k.switch_only === true ? KIND_POSITIONS.filter((p) => p.id === 'alarm' || p.id === 'banner') : KIND_POSITIONS;
+  };
   // The calls that bring a kind to a position, in their order (each waits for the one before): the mode first, then the
   // switch. A switch left on under Count only or Off is cleared too, so that a later Banner is not secretly Alarm.
   // [] — the kind is there already.
@@ -950,6 +984,8 @@
     const mode = k.mode || 'banner';
     const brk = (on) => ['lex_notification_breakthrough_set', { p_kind: at.p_kind, p_on: on, p_scope: at.p_scope }];
     const setMode = (m) => ['lex_notification_mode_set', { p_kind: at.p_kind, p_mode: m, p_scope: at.p_scope }];
+    // a chat or an agent set apart: one call, the position or «inherit»
+    if (k.level === true) return to === kindPositionOf(k) ? [] : [setMode(to === 'alarm' ? 'banner' : to)];
     if (k.switch_only === true) {
       if (to === 'alarm') return loud ? [] : [brk(true)];
       if (to === 'banner') return loud ? [brk(false)] : [];
@@ -1003,7 +1039,7 @@
       node.replaceChildren(...nodes);
     }
     function rowOf(k) {
-      const pos = KIND_POSITIONS.find((p) => p.id === kindPositionOf(k));
+      const pos = kindChoicesOf(k).find((p) => p.id === kindPositionOf(k)) || KIND_POSITIONS[1];
       const row = settingRow({
         title: k.title, note: k.hint || '', id: keyOf(k),
         menu: {
@@ -1036,7 +1072,7 @@
         o.tell('');
         if (fresh) paint(fresh);
         else {
-          if (k.switch_only !== true) k.mode = to.id === 'alarm' ? 'banner' : to.id;
+          if (k.switch_only !== true) k.mode = to.id === 'alarm' ? 'banner' : to.id === 'inherit' ? k.above : to.id;
           k.breakthrough = to.id === 'alarm';
           paint(groups);
         }
@@ -1139,7 +1175,8 @@
 
   // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
-    count, setUnread, unread, isImportant, markImportant, draft, setDrafts, paintDrafts, AGAIN_MS,
+    count, setUnread, unread, isImportant, markImportant, chatUnread, isMuted, markMuted, isAgentMuted, markAgentMuted,
+    draft, setDrafts, paintDrafts, AGAIN_MS,
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
     groupLabel, orderButton, toggle, settingRow, settingsBlock, kindsList, kindsSummary,
     kindPositions: { POSITIONS: KIND_POSITIONS, positionOf: kindPositionOf, choicesOf: kindChoicesOf, planOf: kindPlanOf },

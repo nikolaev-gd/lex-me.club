@@ -12,7 +12,8 @@
 // line 12/600 --fg-muted with the name of the chat; items 44 with an icon 16 — Pin or Unpin, Mark as
 // read or Mark as unread, Archive or Unarchive where the list has its archive (2026-11-23, chat_archive.sql), Mark as important or Unmark important where a person writes (2026-11-17,
 // part 6 of «Уведомления и непрочитанное»: a message there rings an alarm on the iPhone through the
-// silent switch; supabase/migrations/important_chats.sql), Rename where the list has it, Delete chat
+// silent switch; supabase/migrations/important_chats.sql), Mute or Unmute (2026-11-25, chat_read_one.sql), Rename where
+// the list has it, Delete chat
 // in --danger. Nothing is dimmed;
 // the line of the chat stands on --bg-hover while the menu is open. Delete chat asks first (the
 // dialog В7.16, the window's own `confirm`).
@@ -23,7 +24,9 @@
 // actions of the server (the task chats of an agent) gives only `window`: its menu is that one item.
 //
 // Gives global.LexChatMenu:
-//   items(o)            the items: o = { window, pinned, unread, archived, important, act(name), rename(), remove() };
+//   items(o)            the items: o = { window, pinned, unread, archived, important, muted, act(name), mute(on),
+//                       rename(), remove() }; muted true or false — Unmute or Mute (act 'mute' / 'unmute', or mute(on)
+//                       where the line is not a chat: an agent), absent — the server has no Mute yet;
 //                       window — the place of the chat (lex-chat-window.js), absent — no window for it;
 //                       Pin and Read only with act, Pin not with pinned null (the folder of an agent,
 //                       an archived conversation); archived, important true or false — the list has the mark, absent — it has
@@ -63,6 +66,13 @@
       out.push(o.important
         ? { label: 'Unmark important', icon: 'bellOff', run: () => o.act('unimportant') }
         : { label: 'Mark as important', icon: 'bell', run: () => o.act('important') });
+    }
+    // Mute (2026-11-25, chat_read_one.sql): the chat's own position Off — no banner, no number, no dot; Unmute gives it
+    // back to the levels above (the agent or the folder, then the kind). Any chat whose server says muted or not.
+    if (typeof o.muted === 'boolean' && (acts || typeof o.mute === 'function')) {
+      const on = !o.muted;
+      const run = () => (typeof o.mute === 'function' ? o.mute(on) : o.act(on ? 'mute' : 'unmute'));
+      out.push(o.muted ? { label: 'Unmute', icon: 'bell', run } : { label: 'Mute', icon: 'bellOff', run });
     }
     if (typeof o.rename === 'function') out.push({ label: 'Rename', icon: 'pencil', run: () => o.rename() });
     if (typeof o.remove === 'function') out.push({ label: 'Delete chat', icon: 'trash', danger: true, run: () => o.remove() });

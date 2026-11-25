@@ -89,7 +89,10 @@
       window: { chatKey: it.id },
       // An archived conversation has no pin (archiving took it off): its menu has no Pin.
       pinned: it.archived ? null : !!it.pinned,
-      unread: !!it.unread,
+      // the mark, or the one number of the chat (chat_read_one.sql): the same the dot of the line shows
+      unread: !!it.unread || (global.LexSection && global.LexSection.chatUnread ? global.LexSection.chatUnread(it.id) > 0 : false),
+      // Mute (chat_read_one.sql): absent while the server has none
+      muted: global.LexSection && global.LexSection.isMuted ? global.LexSection.isMuted(it.id) : undefined,
       archived: archiveKnown ? !!it.archived : undefined,
       act,
       rename: () => doRename(it.id),

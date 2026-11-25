@@ -204,19 +204,18 @@
       return handle;
     },
 
-    // The screen of notifications: the kinds of messages by the sections of Lex (each folder, Questions, Extended Mind,
-    // Chats, Calendar), each a row with one menu of four positions (В7.59, В7.60; the boards NotifSettings and NotifMenu).
-    // The rows are LexSection.kindsList, the same as in the settings of Profi.ru; Profi.ru itself is one row with a
-    // chevron here, which leads to those settings (ctx.openProfiSettings). The sections and kinds come from the server
-    // (`lex_notification_modes`), the same screen as the iPhone's.
+    // The screen of notifications in one list (chat_read_one.sql, 25.11.2026): the kinds of messages by the sections of
+    // Lex — Profi.ru, each folder, Agents, Questions, Extended Mind, Chats, Calendar — each a row with one menu of four
+    // positions (В7.59, В7.60; the boards NotifSettings and NotifMenu), and at the end «Set apart»: the chats and the
+    // agents with a position of their own (Mute in the menu of a chat or of an agent), with «As the rest» to give it
+    // back. The rows are LexSection.kindsList, the same as in the settings of Profi.ru. The sections and kinds come from
+    // the server (`lex_notification_modes`), the same screen as the iPhone's.
     async openNotifications(ctx) {
       const say = el('.wc-notify-say', { text: 'Reading…' });
       const tell = (text, error) => { say.textContent = text || ''; say.classList.toggle('is-error', !!error); };
       let handle = null;
       const list = LexSection.kindsList({
         rpc: ctx.rpc, menu: (anchor, items) => WcUI.menu(anchor, items), tell,
-        link: ctx.openProfiSettings
-          ? { group: 'profi', onOpen: () => { handle.close(); ctx.openProfiSettings(); } } : null,
       });
       handle = sheet('wc-settings', 'Notifications', [
         el('.wc-notify-intro', { text: 'For each kind: how Lex tells you.' }), say, list.node]);
