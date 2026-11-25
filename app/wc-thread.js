@@ -1511,6 +1511,8 @@
       const foot = turn.querySelector(':scope > .wc-turn-foot');
       if (foot) foot.hidden = true;
       syncFeet();
+      // A chat of a person or an order: the word stays out of the line of the talk with Lex, on the screen with why.
+      if (profiChat) profiChat.paintHidden(elTurns);
     },
 
     // A message kept on this device, put back at the end of the chat when it opens.

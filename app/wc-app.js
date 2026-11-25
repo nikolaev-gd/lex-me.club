@@ -2096,6 +2096,13 @@
     // this chat by default — known once WC_PROFI_CHAT told it.
     refreshTextModelLabel();
   }
+  // The clean view of the open chat changed — by its button, by Show on a line of the talk with Lex, by a word to Lex, or
+  // by the server (another device): the page follows, the button in the bar too. A chat not open yet changes nothing.
+  function profiCleanChanged(chat, on) {
+    if (!chat || profiChat !== chat) return;
+    profiEls().main.classList.toggle('is-profi-clean', !!on);
+    paintProfiBar();
+  }
   // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
   // button of the clean view (lex-profi.js bar(); the order on Profi is the title of the card).
   function paintProfiBar() {
@@ -2149,9 +2156,9 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      onClean: (on) => profiCleanChanged(chat, on),
       // Reply yourself, and a notification of a draft after a call: the chat opens with the draft and the
-      // discussion shown.
+      // discussion shown (and tells the server so: the chat's view, lex-profi.js setView).
       clean: !(opts && (opts.replySelf || opts.showLex)),
       order,
       // The look of a message (В7.35–В7.40): the sheet of a quoted message (the common sheet В7.15), the
@@ -2299,8 +2306,9 @@
       rpc: newsRpc,
       copy: copyText,
       putBack: putBackIntoField,
-      // The chat of a person or a group talks with the assistant in correspondence: it opens clean, as an order chat.
-      onClean: (on) => { const { main } = profiEls(); main.classList.toggle('is-profi-clean', on); },
+      // The chat of a person or a group talks with the assistant in correspondence: it opens in the view the server keeps
+      // for it (`view` of folder_item; never touched — clean, as an order chat).
+      onClean: (on) => profiCleanChanged(chat, on),
       clean: data && (data.kind === 'person' || data.kind === 'group'),
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
       showInChat: (uid, o) => WcThread.showTurn(uid, o),
@@ -3529,8 +3537,8 @@
       show.push(item);
     }
     if (state.conversationId !== key || !show.length) return;
-    // A word to Lex in an order chat is part of the discussion: the clean view would hide it.
-    if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
+    // A word Lex did not take stays on the screen in the clean view too, with why (lex-unsent, lex-profi.css): the view of
+    // the chat is not changed for it.
     for (const item of show) {
       const turn = WcThread.appendUnsent(item.text, { at: item.at, presetSlot: (item.opts && item.opts.mode) ? item.opts.slotId : null }, null);
       WcThread.paintUnsent(turn, unsentPart(item, turn));

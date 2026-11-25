@@ -138,15 +138,19 @@
 .lex-profi-person-channel .lex-profi-agent-wait { color: var(--attention); }
 .wc-profi-link { display: contents; }
 /* The button of the clean view in the bar (lex-profi.js bar()): the common round button of the
- * page (.wc-icon-btn) at 44, clear with a thin frame; pressed — the accent ground, the mark dark
- * and crossed out. Colours are tokens of the page. */
+ * page (.wc-icon-btn) at 44, clear with a thin frame; pressed (the clean view) — the accent ground,
+ * the mark in its colour and crossed out, under the pointer too (the glass of the bar's buttons
+ * does not cover it). Colours are tokens of the page. */
 .wc-icon-btn.lex-profi-clean { width: 44px; height: 44px; border-radius: 22px; border: 1px solid var(--line); color: var(--fg-soft, var(--fg-muted)); }
-.wc-icon-btn.lex-profi-clean.is-on { border-color: var(--accent); background-color: var(--accent); color: var(--accent-fg); }
+.wc-icon-btn.lex-profi-clean.is-on,
+.wc-topbar .wc-icon-btn.lex-profi-clean.is-on,
+.wc-topbar .wc-icon-btn.lex-profi-clean.is-on:hover { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
 /* The clean view: the discussion with Lex leaves the screen, the conversation with the client
  * stays (the card, the client's messages, what went to him, the notices of Profi, own texts on
- * their way). */
-.wc-main.is-profi-clean #wc-turns > .wc-turn:not(.lex-profi-msg),
-.wc-main.is-profi-clean #wc-turns > .lex-fold { display: none !important; }
+ * their way), and so does a word Lex did not take, with why (lex-profi-keep: paintHidden marks it).
+ * Where the discussion was stands its line «Discussion with Lex · N · Show» (lex-profi.js
+ * paintHidden): never nothing. */
+.wc-main.is-profi-clean #wc-turns > .wc-turn:not(.lex-profi-msg):not(.lex-profi-keep) { display: none !important; }
 
 /* The discussion before the last message to the client: off the screen, the model still reads it. */
 .wc-turn.lex-profi-hidden { display: none; }

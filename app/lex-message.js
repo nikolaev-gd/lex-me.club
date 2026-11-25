@@ -73,6 +73,9 @@
 //   notice({ channel, body | text, at })   a notice of a service as a plate in the middle
 //   fold({ text, action, onClick, icon })   one line in the middle for what is kept off the screen;
 //                       icon 'check' — a tick in place of the eye (tasks without remarks, В7.30)
+//   discussionFold({ count, shown, onClick })   the line of the talk with Lex in a chat of a person (В7.4,
+//                       25.11.2026): «Discussion with Lex · N · Show», shown — «… · Hide»; the same words on the iPhone
+//                       (FoldLine.discussion)
 //   avatar(name, { photo, io, size })   the photo or the letter of a person (В7.12): the stored
 //                       photo (chat-files/…) in a circle, the letter on a colour from the name until it
 //                       came and when there is none; io = { blob(path) } as files() takes; size 40
@@ -1307,6 +1310,13 @@
     b.append(mark, make('span', '', `${o.text} · `), make('span', 'lex-fold-action', o.action));
     if (o.onClick) b.addEventListener('click', o.onClick);
     return b;
+  }
+
+  // The talk with Lex in a chat of a person, an order or a group (docs/spec/21-chat-canvas.md, «Разговор с моделью в чате
+  // человека»): where its turns are off the screen, one quiet line with how many — never nothing.
+  function discussionFold(o) {
+    const n = Math.max(0, Number(o && o.count) || 0);
+    return fold({ text: `Discussion with Lex · ${n}`, action: o && o.shown ? 'Hide' : 'Show', onClick: o && o.onClick });
   }
 
   // ── Read more (В7.82, 25.11.2026) ───────────────────────────────────────────
@@ -3182,7 +3192,7 @@
 
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
-    CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
+    CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, discussionFold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };

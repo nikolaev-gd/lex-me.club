@@ -851,12 +851,20 @@
   function createChat(deps) {
     const folder = !!deps.folder;
     let data = null;
-    // The clean view of the chat (the button in the bar), while the chat is open. A chat opens
-    // with it on (Gennady, 2026-11-14): an order chat is first of all the conversation with
-    // the client; a word to Lex from the field turns it off, so that the answer is seen. A chat
-    // opened by Reply yourself opens with it off: the person came for the bot's draft in its box
-    // and the talk with the model about it, and the clean view hides both.
+    // The view of the talk with Lex (docs/spec/21-chat-canvas.md, «Разговор с моделью в чате человека», 25.11.2026): the
+    // chat's own, kept on the server for every device (chat_view_set, `view` of profi_item / folder_item). clean — the
+    // button in the bar: only the conversation with the person, the talk with Lex is one line «Discussion with Lex · N ·
+    // Show» per run; shown — Show on the line over the discussion the server keeps off the screen. A chat never touched
+    // opens clean (Gennady, 2026-11-14: an order chat is first of all the conversation with the client); a word to Lex
+    // from the field turns it off, so that the answer is seen. A chat opened by Reply yourself opens with it off: the
+    // person came for the bot's draft in its box and the talk with the model about it. A task chat of an agent has no
+    // clean view.
     let clean = deps.clean !== false;
+    let shown = false;
+    // The words to the server on their way: an answer read meanwhile says the view of before, and is not taken.
+    let viewWrites = 0;
+    // The first view the server gave this chat is taken as it is, or — opened by Reply yourself — told the server.
+    let viewTaken = false;
     // The words being typed into the boxes of the chat (Edit, not yet saved), by window: they stay while the
     // answer is drawn again.
     const edits = new Map();
@@ -865,8 +873,6 @@
       openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits,
       // the chat of a group: its whole title names where a box goes (every member reads it)
       group: folder && data && data.kind === 'group' ? String(data.title || data.client || '').trim() : null });
-    // The runs of the hidden discussion the person brought back with Show, while the chat is open.
-    const revealed = new Set();
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
     // of a quote shows one with its neighbours, a toggle draws one again); their short numbers; the edited
     // ones whose earlier text is open; the message the last word to Lex answered (its draft carries its
@@ -982,11 +988,33 @@
     // The calls the person opened, and their whole transcripts once loaded, while the chat is open: a repaint of the
     // chat keeps a call open (В7.42).
     const calls = new Map();
+    // A chat with the clean view: an order chat, a chat of a person or a group; a task chat of an agent has none.
+    const cleanable = () => !folder || !!(data && (data.kind === 'person' || data.kind === 'group'));
+    // The view the server says with a reading of the chat (`view`): taken unless a word of this screen is on its way.
+    // The first reading of a chat opened with the talk shown (Reply yourself, a draft after a call) tells the server so.
+    function takeView(v) {
+      const view = v && v.view;
+      if (!view || typeof view !== 'object' || viewWrites) return;
+      if (!viewTaken) {
+        viewTaken = true;
+        if (deps.clean === false && cleanable() && view.clean !== false) {
+          shown = !!view.shown;
+          clean = true;
+          self.setView({ clean: false });
+          return;
+        }
+      }
+      const was = self.clean;
+      clean = view.clean !== false;
+      shown = !!view.shown;
+      if (self.clean !== was && deps.onClean) deps.onClean(self.clean);
+    }
     const self = {
       order: deps.order,
       get data() { return data; },
       set data(v) {
         data = v;
+        takeView(v);
         for (const [uid, m] of [...reactMine]) {
           const l = v && v.looks ? v.looks[uid] : null;
           const mine = (l && Array.isArray(l.reactions) ? l.reactions : []).filter((r) => r && r.who === 'me');
@@ -1921,27 +1949,34 @@
         });
       },
 
-      // What the server keeps off the screen (profi_discussion_hides_itself.sql): the discussion
-      // with the model up to the last message that went to the client, from Lex, Telegram or the
-      // site. Every run of it becomes one line «Discussion with Lex is hidden · Show»; Show
-      // brings that run back until the chat is left. The model still reads it all.
+      // The talk with Lex off the screen, one line over every run of it (docs/spec/21-chat-canvas.md, «Разговор с моделью
+      // в чате человека»): in the clean view — the whole talk, everything that is not the conversation with the person
+      // (lex-profi-msg) and not a word Lex did not take (lex-unsent: it stays with why); else — what the server keeps off
+      // the screen (profi_discussion_hides_itself.sql: the talk up to the last message that went to the person), unless
+      // Show brought it back. The line is «Discussion with Lex · N · Show»: Show in the clean view leaves it and shows the
+      // whole talk; over the server's runs Show and Hide bring them back and fold them again. The model still reads it all.
       // The marks of Profi follow the server with it: what the client has read turns blue.
       paintHidden(thread) {
         self.dress(thread);
+        const isClean = self.clean;
         const hidden = new Set((data && data.hiddenDiscussion) || []);
-        for (const f of thread.querySelectorAll(':scope > .lex-fold')) f.remove();
+        for (const f of thread.querySelectorAll(':scope > .lex-fold.lex-profi-fold')) f.remove();
+        // A word Lex did not take (wc-thread.js paintUnsent) is kept on the screen: lex-profi-keep (lex-profi.css).
+        for (const t of thread.querySelectorAll(':scope > .wc-turn')) t.classList.toggle('lex-profi-keep', t.classList.contains('lex-unsent'));
+        const talk = (n) => n.classList.contains('wc-turn') && (isClean
+          ? !n.classList.contains('lex-profi-msg') && !n.classList.contains('lex-profi-keep')
+          : !!(n.dataset.uid && hidden.has(n.dataset.uid)));
         let run = [];
         const flush = () => {
           if (!run.length) return;
-          const uids = run.map((t) => t.dataset.uid);
-          const shown = uids.every((u) => revealed.has(u));
-          for (const t of run) t.classList.toggle('lex-profi-hidden', !shown);
-          const line = global.LexMessage.fold({
-            text: shown ? 'Discussion with Lex' : 'Discussion with Lex is hidden',
-            action: shown ? 'Hide' : 'Show',
+          const off = isClean || !shown;
+          for (const t of run) t.classList.toggle('lex-profi-hidden', off);
+          const line = global.LexMessage.discussionFold({
+            count: run.length,
+            shown: !off,
             onClick: () => {
-              for (const u of uids) { if (shown) revealed.delete(u); else revealed.add(u); }
-              self.paintHidden(thread);
+              if (isClean) self.setView({ clean: false, shown: true });
+              else self.setView({ shown: !shown });
             },
           });
           line.classList.add('lex-profi-fold');
@@ -1949,8 +1984,8 @@
           run = [];
         };
         for (const n of [...thread.children]) {
-          if (n.classList.contains('lex-fold')) continue;
-          if (n.classList.contains('wc-turn') && n.dataset.uid && hidden.has(n.dataset.uid)) { run.push(n); continue; }
+          if (n.classList.contains('lex-fold') || n.hidden) continue;
+          if (talk(n)) { run.push(n); continue; }
           flush();
           if (n.classList.contains('lex-profi-hidden')) n.classList.remove('lex-profi-hidden');
         }
@@ -1980,6 +2015,7 @@
           const link = make('button', 'wc-icon-btn lex-profi-clean', '');
           link.type = 'button';
           const paint = () => {
+            const clean = self.clean;
             link.classList.toggle('is-on', clean);
             link.setAttribute('aria-pressed', clean ? 'true' : 'false');
             link.title = clean ? 'Show the discussion with Lex' : 'Hide the discussion with Lex';
@@ -1990,7 +2026,7 @@
             link.replaceChildren(strokeIcon(paths, 20));
           };
           paint();
-          link.addEventListener('click', () => { self.setClean(!clean); paint(); });
+          link.addEventListener('click', () => { self.setClean(!self.clean); paint(); });
           return link;
         };
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
@@ -2060,12 +2096,33 @@
         if (words !== (data.brief || null) && deps.reload) deps.reload();
       },
 
-      // The clean view: only the screen, the model reads the whole chat and the server is not
-      // told. A new opening of a chat makes a new object, so it starts with it on again.
-      get clean() { return clean; },
-      setClean(on) {
-        clean = !!on;
-        if (deps.onClean) deps.onClean(clean);
+      // The view of the talk with Lex: only the screen — the model reads the whole chat — kept on the server for the chat,
+      // so another device and the next opening show the same. A task chat of an agent has no clean view.
+      get clean() { return clean && cleanable(); },
+      get shown() { return shown; },
+      setClean(on) { self.setView({ clean: !!on }); },
+      // { clean, shown }: what changes; the screen at once, the server after it (chat_view_set). A refusal (the server
+      // before chat_discussion_view.sql, no network) leaves the view on this screen only.
+      setView(v) {
+        const was = { clean, shown };
+        if (v.clean != null) clean = !!v.clean;
+        if (v.shown != null) shown = !!v.shown;
+        if (clean !== was.clean && deps.onClean) deps.onClean(self.clean);
+        if (lane && lane.isConnected) self.paintHidden(lane);
+        if (clean === was.clean && shown === was.shown) return;
+        const key = data && data.chatKey;
+        if (!key || !deps.rpc || !cleanable()) return;
+        viewWrites += 1;
+        Promise.resolve().then(() => deps.rpc('chat_view_set', {
+          p_chat_key: key, p_clean: v.clean != null ? clean : null, p_shown: v.shown != null ? shown : null,
+        })).then((view) => {
+          // The copy this device keeps of the chat says the new view: the next opening shows it at once.
+          if (view && typeof view === 'object' && data && data.chatKey === key) {
+            data.view = view;
+            if (typeof self.keep === 'function') self.keep(data);
+          }
+        }).catch((e) => console.warn('[profi] the view of the chat is not kept:', e && e.message))
+          .finally(() => { viewWrites -= 1; });
       },
     };
     return self;
