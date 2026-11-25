@@ -1740,6 +1740,18 @@
             const live = make('div', 'wc-turn lex-profi-msg lex-agent-stage');
             live.appendChild(global.LexSection.liveStage({ stage: data.agent.stage || null }));
             items.push(live);
+          } else if (agent() && data.agent && data.agent.state === 'closed' && M && M.notice) {
+            // A closed task chat ends with the plate «Closed · HH:MM» (board AgChatWaiting, В7.3), as on the iPhone
+            // (FolderOutboxView): the mirror keeps no time of the closing, so the time is the last message's — the agent
+            // closes a chat with its last word. A word of Gennady after it opens the chat again (the state moves).
+            let last = '';
+            drawn.forEach((t) => {
+              const at = t && t.authoredAt;
+              if (at && (!last || Date.parse(at) > Date.parse(last))) last = at;
+            });
+            const plate = make('div', 'wc-turn lex-profi-msg lex-agent-closed');
+            plate.appendChild(M.notice({ text: 'Closed', at: last || null }));
+            items.push(plate);
           }
           host.replaceChildren(...items);
           host.hidden = !items.length;
