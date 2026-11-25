@@ -136,7 +136,8 @@
   }
 
   // A folder chat key (folder_chats.sql, lex_folder_is_key).
-  const isChatKey = (key) => typeof key === 'string' && /^__lex_folder__[0-9]{1,18}$/.test(key);
+  // A chat of the folders, by the table of the profiles of chats (lex-chat-profile.js, KEYS).
+  const isChatKey = (key) => typeof key === 'string' && !!global.LexChatProfile && global.LexChatProfile.kindOfKey(key) === 'person';
 
   // One opId per text until it went (23.11.2026). A press of Send that got no answer from the server may still have
   // reached it; the next press of the same words in the same chat (and the same Reply) carries the same opId, and the

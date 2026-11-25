@@ -155,11 +155,8 @@
 /* The discussion before the last message to the client: off the screen, the model still reads it. */
 .wc-turn.lex-profi-hidden { display: none; }
 
-/* One message box in every chat (2026-11-13): an order chat has «+» with a picture and
- * «Text model», the microphone and the voice conversation like any chat. It has no row of
- * presets (the teacher's actions — the server refuses them here) and no new chat (one chat per
- * order). It has no second version of an answer either (the server refuses it): the row under
- * an answer here is Copy and «⋯» (wc-thread.js syncFeet gives it no model button and no Retry). */
-.wc-main.is-profi-chat #wc-mode-split,
-.wc-main.is-profi-chat .wc-new-chat { display: none !important; }
+/* One message box in every chat (2026-11-13): what the box of an order chat or a chat of a person has — no row of
+ * presets, no new chat, the voice only in an order chat — is the profile of the chat (lex-chat-profile.js, the classes
+ * .lex-no-* of webchat/wc-app.css). No second version of an answer either (the server refuses it): the row under an
+ * answer here is Copy and «⋯» (wc-thread.js syncFeet gives it no model button and no Retry). */
 

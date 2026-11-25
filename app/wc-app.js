@@ -228,7 +228,10 @@
   // a new one, and the «Новые» line stands over the first message that came after it. The
   // moment stays for the whole visit — a repaint does not move the line — and leaving the
   // chat, or the page going to the background, marks what came meanwhile as read.
-  const isIncomingKey = (key) => !!key && (WcHistory.isEmFeedKey(key) || WcHistory.isFolderKey(key) || /^__lex_profi__\d/.test(key));
+  // The kind by the key is the table of the profiles of chats (lex-chat-profile.js): a feed, the questions, a chat of
+  // the folders, an order chat.
+  const INCOMING_KINDS = ['feed', 'questions', 'person', 'order'];
+  const isIncomingKey = (key) => !!key && !!global.LexChatProfile && INCOMING_KINDS.includes(global.LexChatProfile.kindOfKey(key));
   let visit = null;   // { key, since }
   async function beginVisit(key) {
     if (visit && visit.key === key) return;
@@ -775,6 +778,44 @@
   // The field over the dimming begins a chat with an agent: what the field offers is that agent's (its model in
   // «+ → Text model», words only — no voice, no picture, no file).
   const quickAgentOn = () => (quick && quick.agent) || null;
+
+  // ── The profile of what is open (lex-chat-profile.js; docs/spec/21-chat-canvas.md, «Профиль чата») ───────────────
+  // The field over a screen of an agent and a task chat of an agent — the agent's; an order chat and a chat of the
+  // folders — the one the server brought with the chat (`profile` of profi_item, folder_item; the table by its key and
+  // its folder's kind for an older server); a feed of the base, a news — their rows; everything else is the main chat.
+  // What the profile does not give is not drawn: the presets, the voice button and «new chat» are classes of the main
+  // column (lex-no-presets, lex-no-voice, lex-no-new-chat in wc-app.css), «+» asks takesFiles.
+  function openProfile() {
+    const P = global.LexChatProfile;
+    if (!P) return null;
+    const main = document.querySelector('.wc-main');
+    const has = (cls) => !!(main && main.classList.contains(cls));
+    if (quickAgentOn()) return P.profileOfKind('agent');
+    if (profiChat && profiChat.data) return P.profileOf(profiChat.data.chatKey, profiChat.data);
+    if (has('is-em-feed')) return P.profileOfKind(P.kindOfKey(state.conversationId) === 'questions' ? 'questions' : 'feed');
+    if (has('is-news-chat')) return P.profileOfKind('news');
+    return P.profileOfKind('main');
+  }
+  function paintFieldProfile() {
+    const main = document.querySelector('.wc-main');
+    const p = openProfile();
+    if (!main || !p) return;
+    const has = (part) => global.LexChatProfile.fieldHas(p, part);
+    // Only a change is written: the column watches its own classes (wc-composer.js, and the observer below).
+    const set = (cls, on) => { if (main.classList.contains(cls) !== on) main.classList.toggle(cls, on); };
+    set('lex-no-presets', !has('presets'));
+    set('lex-no-voice', !has('voice'));
+    set('lex-no-new-chat', !has('newChat'));
+    if (main.dataset.chatKind !== p.kind) main.dataset.chatKind = p.kind;
+  }
+  // Every way into and out of a chat changes a class of the main column (is-profi-chat, is-agent-chat, is-em-feed,
+  // is-news-chat, is-quick-agent): the profile is painted again after each. Started by boot().
+  function watchFieldProfile() {
+    const main = document.querySelector('.wc-main');
+    if (!main || !global.MutationObserver) return;
+    new MutationObserver(paintFieldProfile).observe(main, { attributes: true, attributeFilter: ['class'] });
+    paintFieldProfile();
+  }
   function homeOnNow() {
     return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
   }
@@ -2026,6 +2067,8 @@
     who.hidden = true;
     main.classList.remove('is-profi-chat', 'is-profi-clean', 'is-agent-chat');
     if (global.WcComposer && WcComposer.refresh) WcComposer.refresh();
+    // profiChat goes below: the column is painted again when it has gone.
+    setTimeout(paintFieldProfile, 0);
     paintProfiOutbox(null);
     paintAgentStop(null);
     // The line of a reply on a message of this chat does not go to another chat: it is this chat's
@@ -2087,8 +2130,9 @@
     if (told) WcBus.call('WC_PROFI_CHAT', { key: told, modelId: chat.data.modelId || null }).catch(() => {});
     main.classList.add('is-profi-chat');
     // A task chat of an agent takes only words: its field has no presets, no live voice, no picture or file in «+»
-    // (wc-app.css, .is-agent-chat; takesFiles). The slot of the voice folds again by what the field holds.
+    // (its profile: paintFieldProfile, takesFiles). The slot of the voice folds again by what the field holds.
     main.classList.toggle('is-agent-chat', isAgentChat(chat));
+    paintFieldProfile();
     if (WcComposer.refresh) WcComposer.refresh();
     // The clean view the chat starts with (on, lex-profi.js createChat).
     main.classList.toggle('is-profi-clean', !!chat.clean);
@@ -2317,7 +2361,7 @@
       // The chat of a person or a group talks with the assistant in correspondence: it opens in the view the server keeps
       // for it (`view` of folder_item; never touched — clean, as an order chat).
       onClean: (on) => profiCleanChanged(chat, on),
-      clean: data && (data.kind === 'person' || data.kind === 'group'),
+      clean: !!(data && global.LexChatProfile && global.LexChatProfile.profileOf(data.chatKey, data).talk),
       sheet: (o) => WcUI.sheet('wc-msg-sheet', o.title, [o.body], o.onClose),
       showInChat: (uid, o) => WcThread.showTurn(uid, o),
       reply: (r) => setReply(r),
@@ -2400,6 +2444,7 @@
       moved = true;
     }
     chat.data = isAgentChat(chat) ? withAgentStop(data) : data;
+    paintFieldProfile();
     paintProfiBar();
     paintProfiOutbox(chat);
     paintAgentStop();
@@ -2564,7 +2609,8 @@
   // word of Lex (В7.50) without buttons, Gennady's as his word «To Lex», the system's as a plate. Every word of the
   // field goes to the agent (folder-agents, op say), nothing to a person or to the assistant; no files, presets or voice.
   // The arrow of the chat leads to the folder of its agent, the arrow of the folder to the list of the agents.
-  const isAgentChat = (chat) => !!(chat && chat.folder && chat.data && chat.data.kind === 'agent');
+  const isAgentChat = (chat) => !!(chat && chat.folder && chat.data && global.LexChatProfile
+    && global.LexChatProfile.kindOf(chat.data.chatKey, chat.data) === 'agent');
   // The agent of a task chat (folder_open `agent`: { key, name, state, opened_by, n }).
   const agentKeyOf = (chat) => (isAgentChat(chat) && chat.data.agent && chat.data.agent.key) || '';
   const ONLY_WORDS = 'Agents take only words.';
@@ -4729,8 +4775,11 @@
       // A task chat of an agent takes only words (a file pasted into the field stops at the send).
       onAttach: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
       onAttachFile: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
-      // A chat with an agent takes only words: «+» there has no picture and no file, only the agent's model.
-      takesFiles: () => !(isAgentChat(profiChat) || quickAgentOn()),
+      // «+» has a picture and a file where the profile of the chat gives them (a chat with an agent takes only words).
+      takesFiles: () => {
+        const p = openProfile();
+        return !p || global.LexChatProfile.fieldHas(p, 'image') || global.LexChatProfile.fieldHas(p, 'file');
+      },
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,
@@ -4741,6 +4790,7 @@
       // model, or at a time (lex-profi.js sendMenu); other chats have no such ways.
       sendMenu: (text) => (profiChat && !(reply && reply.editUid) ? profiChat.sendMenu(text) : null),
     });
+    watchFieldProfile();
     WcQuick.init({
       onCapsule: (mode) => { openQuick(mode).catch((e) => console.warn('[wc] quick:', e && e.message)); },
       onClose: () => { closeQuick().catch((e) => console.warn('[wc] quick close:', e && e.message)); },

@@ -49,35 +49,18 @@
   // How many of the bot's last messages its chat shows (profi_bot_chat): a service chat is read from its end.
   const BOT_LIMIT = 200;
   const BOT_TITLE = 'Бот Профи';
-  // The channels where «Edit» of a message that went to a person works (19.11.2026; Gennady: in every channel — WhatsApp,
-  // Telegram, Max, Profi.ru). One row per channel: the uid of its messages begins with `prefix`; `windowMs` — how long
-  // the messenger lets a message be edited after the send (null — no term); `personal(uid)` — the chat is a person's,
-  // not a group. The iPhone holds the same table (`editChannels`, ios/Lex/Lex/EditSent.swift), the server of Lex the
-  // same patterns (`lex_message_edit_patterns`, supabase/migrations/message_edit.sql) and the database of Gennady the
-  // same channels (`brain.edit_channels`, modules/actions/message_edits.sql): a channel is added in all four, and only
-  // when its executor is proven on the live messenger — a row without one is an empty place in the menu (lesson
-  // 2026-11-19). The database says the term again and has the last word: this only keeps «Edit» out of the menu of a
-  // message it would refuse.
-  const EDIT_CHANNELS = {
-    whatsapp: { prefix: 'profi:wa:', windowMs: 15 * 60 * 1000, personal: (uid) => !/@g\.us:/.test(uid) },
-    telegram: { prefix: 'profi:telegram:', windowMs: 48 * 60 * 60 * 1000, personal: (uid) => !uid.startsWith('profi:telegram:-') },
-    max: { prefix: 'profi:max:', windowMs: 7 * 24 * 60 * 60 * 1000, personal: (uid) => !uid.startsWith('profi:max:-') },
-  };
-  const editChannelOf = (uid) => Object.values(EDIT_CHANNELS).find((c) => uid.startsWith(c.prefix)) || null;
-  // A reaction on a message at a person's messenger (the edge function message-react; Gennady, 24.11.2026): a personal
-  // chat of Telegram or WhatsApp (Max waits for its executor on the server), a message of the person or Gennady's own that has gone; not a group, not Profi.ru.
-  // The same patterns as the server's (message-react) and the iPhone's: a channel is added in all of them at once.
-  const REACT_CHANNELS = {
-    whatsapp: { name: 'whatsapp', prefix: 'profi:wa:', personal: (uid) => !/@g\.us:/.test(uid) },
-    telegram: { name: 'telegram', prefix: 'profi:telegram:', personal: (uid) => !uid.startsWith('profi:telegram:-') },
-  };
-  const reactChannelOf = (uid) => Object.values(REACT_CHANNELS).find((c) => uid.startsWith(c.prefix)) || null;
+  // What a chat may do — Edit and a reaction by the channel of a message (its window, a personal chat), the items of the
+  // menu of a message — is the one table of the profiles of chats (supabase/functions/_shared/lex-chat-profile.js,
+  // docs/spec/21-chat-canvas.md, «Профиль чата»); the chat brings its profile from the server (`profile` of profi_item
+  // and folder_item), the table is read for a chat that came without it. The server checks the same table (message-edit,
+  // message-react) and the database of Gennady has the last word: this only keeps an item out of the menu of a message it
+  // would refuse.
+  const Profiles = () => global.LexChatProfile || null;
   const emojiKey = (e) => String(e == null ? '' : e).replace(/\uFE0F/g, '').trim();
-  const CHAT_KEY_RE = /^__lex_profi__[0-9]{1,18}$/;
-
   const { make, button, newOpId } = global.LexSection;
 
-  const isChatKey = (key) => typeof key === 'string' && CHAT_KEY_RE.test(key);
+  // An order chat of Profi.ru, by the key (the fallback of the table: the chat's own kind comes with it).
+  const isChatKey = (key) => !!Profiles() && typeof key === 'string' && Profiles().kindOfKey(key) === 'order';
 
   // ── a box with text for the client inside an answer ─────────────────────────
   // What the model marked: <client_text>…</client_text>. An answer still being written has
@@ -1881,21 +1864,31 @@
         return menu && menu.items && menu.items[0] ? menu.items[0] : null;
       },
 
-      // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, by a channel of EDIT_CHANNELS, in the
-      // window of that channel, not a photo, a voice message, a file or a sticker, not deleted, in a chat that has the
-      // person behind it. The chat draws the menu from this each time it opens (the window closes while the chat stands).
+      // The profile of this chat (lex-chat-profile.js): what the server said with it, else the table's row by its key
+      // and the kind of its folder. null — the table did not load: nothing of a channel is offered.
+      profile() {
+        const P = Profiles();
+        return P && data ? P.profileOf(data.chatKey, data) : null;
+      },
+
+      // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, in a chat whose profile offers Edit,
+      // by a channel that has it (a chat of one person, in the window of that channel), not a photo, a voice message, a
+      // file or a sticker, not deleted, in a chat that has the person behind it. The chat draws the menu from this each
+      // time it opens (the window closes while the chat stands).
       canEditSent(t) {
         if (!data || typeof deps.edit !== 'function' || typeof deps.editText !== 'function') return false;
         const uid = String((t && t.uid) || '');
-        const channel = editChannelOf(uid);
-        if (!channel || !channel.personal(uid)) return false;
+        const profile = self.profile();
+        if (!profile || !Profiles().offers(profile, 'edit')) return false;
+        const edit = Profiles().editOf(uid, profile.channels);
+        if (!edit) return false;
         if (t.origin !== 'profi_sent' && t.origin !== 'folder_out') return false;
         if (folder && !data.send) return false;
         const look = lookOf(uid);
         if (look.deletedAt || look.sticker) return false;
         if (storedFilesOf(t.attachments).length || photosOf(t.attachments).length) return false;
         const sentAt = Date.parse(t.authoredAt || '');
-        if (!Number.isFinite(sentAt) || (channel.windowMs !== null && Date.now() - sentAt >= channel.windowMs)) return false;
+        if (!Number.isFinite(sentAt) || (edit.windowS != null && Date.now() - sentAt >= edit.windowS * 1000)) return false;
         return !!wordsOf(t).trim();
       },
 
@@ -1914,14 +1907,15 @@
         return deps.editText(uid, text);
       },
 
-      // The reaction on a message at a person (24.11.2026): a channel of REACT_CHANNELS, a message of the person or Gennady's
-      // own that has gone, not deleted (a sticker may be reacted to), in a chat that has the person behind it. Not in a
-      // group, not on Profi.ru, not on a message that has not gone yet (it has no uid of a messenger).
+      // The reaction on a message at a person (24.11.2026): in a chat whose profile offers it, by a channel that has it (a
+      // chat of one person), a message of the person or Gennady's own that has gone, not deleted (a sticker may be reacted
+      // to), in a chat that has the person behind it. Not in a group, not on Profi.ru, not on a message that has not gone
+      // yet (it has no uid of a messenger).
       canReact(t) {
         if (!data || typeof deps.react !== 'function') return false;
         const uid = String((t && t.uid) || '');
-        const channel = reactChannelOf(uid);
-        if (!channel || !channel.personal(uid)) return false;
+        const profile = self.profile();
+        if (!profile || !Profiles().offers(profile, 'react') || !Profiles().reactableUid(uid, profile.channels)) return false;
         if (!['profi_sent', 'folder_out', 'profi_client', 'folder_in'].includes(t.origin)) return false;
         if (folder && !data.send) return false;
         return !lookOf(uid).deletedAt;
@@ -1931,9 +1925,10 @@
       // (the screen's, with the one the press has just put) and what a press does.
       reactSpec(t) {
         const uid = String((t && t.uid) || '');
-        const channel = reactChannelOf(uid);
+        const profile = self.profile();
+        const channel = Profiles() ? Profiles().channelOfUid(uid, profile && profile.channels) : '';
         const mine = (lookOf(uid).reactions || []).find((r) => r && r.who === 'me');
-        return { channel: channel ? channel.name : '', mine: mine ? mine.emoji : null, pick: (emoji) => self.react(uid, emoji) };
+        return { channel, mine: mine ? mine.emoji : null, pick: (emoji) => self.react(uid, emoji) };
       },
 
       // A press on an emoji of the bar (or on my pill): the message shows it at once, the server sends it (the edge
@@ -1964,7 +1959,7 @@
 
       // The talk with Lex off the screen, one line over every run of it (docs/spec/21-chat-canvas.md, «Разговор с моделью
       // в чате человека»): in the clean view — the whole talk, everything that is not the conversation with the person
-      // (lex-profi-msg) and not a word Lex did not take (lex-unsent: it stays with why); else — what the server keeps off
+      // (the side of the turn, data-talk) and not a word Lex did not take (lex-unsent: it stays with why); else — what the server keeps off
       // the screen (profi_discussion_hides_itself.sql: the talk up to the last message that went to the person), unless
       // Show brought it back. The line is «Discussion with Lex · N · Show»: Show in the clean view leaves it and shows the
       // whole talk; over the server's runs Show and Hide bring them back and fold them again. The model still reads it all.
@@ -1976,8 +1971,12 @@
         for (const f of thread.querySelectorAll(':scope > .lex-fold.lex-profi-fold')) f.remove();
         // A word Lex did not take (wc-thread.js paintUnsent) is kept on the screen: lex-profi-keep (lex-profi.css).
         for (const t of thread.querySelectorAll(':scope > .wc-turn')) t.classList.toggle('lex-profi-keep', t.classList.contains('lex-unsent'));
+        // The side of a message is the server's (data-talk of the turn, wc-thread.js renderTurns: lex_turn_talk, one rule
+        // with the iPhone); a node drawn without a turn behind it (the stage of an agent, a plate) is the conversation.
+        const isTalk = (n) => (n.dataset.talk === '1' || n.dataset.talk === '0' ? n.dataset.talk === '1'
+          : !n.classList.contains('lex-profi-msg'));
         const talk = (n) => n.classList.contains('wc-turn') && (isClean
-          ? !n.classList.contains('lex-profi-msg') && !n.classList.contains('lex-profi-keep')
+          ? isTalk(n) && !n.classList.contains('lex-profi-keep')
           : !!(n.dataset.uid && hidden.has(n.dataset.uid)));
         let run = [];
         const flush = () => {
@@ -2923,5 +2922,5 @@
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).
   global.LexProfi = { isChatKey, splitAnswer, createSection, createChat, newOpId, boxNode, outboxNode, busyNode, busyCommand,
-    storedFilesOf, withoutFileMarks, digestOf, ownWords, agentWorks, EDIT_CHANNELS, REACT_CHANNELS };
+    storedFilesOf, withoutFileMarks, digestOf, ownWords, agentWorks };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -451,10 +451,11 @@
 
   // ── The feeds of Extended Mind ───────────────────────────────────────────
   // The three feeds, and the chat of one question (supabase/migrations/em_question_chats.sql).
-  const EM_FEED_KEY = /^__lex_em_(intake|request|question)__$|^__lex_em_question_-?\d+__$/;
+  // The key says the kind by the table of the profiles of chats (lex-chat-profile.js, KEYS): a feed or the questions.
+  const kindOfKey = (key) => (global.LexChatProfile ? global.LexChatProfile.kindOfKey(key) : 'main');
   const EM_PAGE = 100;
   const emLimits = new Map();
-  const isEmFeedKey = (key) => typeof key === 'string' && EM_FEED_KEY.test(key);
+  const isEmFeedKey = (key) => typeof key === 'string' && ['feed', 'questions'].includes(kindOfKey(key));
   // Any of the database's words counts: answered, a status «answered», the time or the text
   // of the answer. The same rule as the iPhone's (EmFeed.answer).
   function emAnswer(d) {
@@ -471,10 +472,9 @@
   // ── The chats of the folders (Kolya, Other) ───────────────────────────────
   // A chat of a person holds his whole past from every messenger: its latest messages
   // (lex_folder_turns, folder_chats.sql), and «Earlier messages» takes one page more.
-  const FOLDER_KEY = /^__lex_folder__[0-9]{1,18}$/;
   const FOLDER_PAGE = 300;
   const folderLimits = new Map();
-  const isFolderKey = (key) => typeof key === 'string' && FOLDER_KEY.test(key);
+  const isFolderKey = (key) => typeof key === 'string' && kindOfKey(key) === 'person';
   const folderLimit = (key) => folderLimits.get(key) || FOLDER_PAGE;
   function folderEarlier(key) { folderLimits.set(key, folderLimit(key) + FOLDER_PAGE); }
   // A call of an edge function of the folders with the person's pass: the answer's JSON, or the error with the words of
@@ -653,6 +653,10 @@
     // с выбором модели и копированием нет, и после перезагрузки это видно
     // только по этому полю.
     origin: r.origin || null,
+    // The side of the turn in a chat of a person, a group or an order, as the server says it (lex_turn_talk,
+    // chat_profile.sql): true — the talk with the model, false — the conversation with the person; null — the server
+    // did not say (an older one, a page of «Earlier messages»): the list of lex-chat-money.js decides.
+    talk: typeof r.talk === 'boolean' ? r.talk : null,
     // An answer the server writes (chat_turn_live.sql): its state and number of operation; while it
     // runs, live — since when, how many steps of work, the current step. Such an answer is drawn as
     // the stream and followed to its end (WcThread.renderTurns, wc-backend.js WC_FOLLOW).

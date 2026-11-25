@@ -613,6 +613,13 @@
   //           part's menu; never with the controls of a model.
   // An unknown origin is a word of the system: it has no price and no controls of a model. A new origin without
   // a row here fails the test: decide first what it is.
+  //
+  // The side of a message in a chat of a person, a group or an order (docs/spec/21-chat-canvas.md, «Что разговор с
+  // моделью, а что переписка»): the origins of CONVERSATION are the conversation with the person — his messages, what
+  // went to him, the notices of Profi.ru, a call, the agent «Кто это»; every other origin is the talk with the model
+  // (the clean view takes it off the screen, the line «Discussion with Lex · N» counts it). The server holds the rule
+  // (lex_turn_talk of chat_profile.sql, written from this list by dev-tools/chat-profile-sql.mjs) and gives it with every
+  // turn (`talk`); this list is read for a turn that came without it. The iPhone: `MessageKinds.conversation`.
   const NO_MODEL = 'no model worked on it';
   const MESSAGE_KINDS = {
     text: [true, null, 'answer'],                        // the main chat
@@ -655,6 +662,13 @@
   }
   // May a message of this origin carry the controls of a model — the model button, Retry? Only an answer of a model.
   const kindReasks = (origin) => kindLook(origin) === 'answer';
+  // The conversation with the person; the rest of a chat of a person is the talk with the model (see above).
+  const CONVERSATION = ['folder_in', 'folder_out', 'folder_whois', 'profi_client', 'profi_sent', 'profi_notice', 'profi_call'];
+  // Is this turn of a chat of a person the talk with the model? The server's word (`talk` of the turn) when it gave one.
+  function kindTalk(origin, talk) {
+    if (typeof talk === 'boolean') return talk;
+    return CONVERSATION.indexOf(origin == null || origin === '' ? 'text' : String(origin)) < 0;
+  }
 
   // ── The drawing of the page and the Mac: the number on top and the price under a message ────────────────────────────
   //
@@ -721,7 +735,7 @@
   }
 
   root.LexChatMoney = {
-    MESSAGE_KINDS, kindPriced, kindLook, kindReasks, answerPriced, answerPrice, hasNumber, topNumber, drawTop, drawPrice, formatBalance,
+    MESSAGE_KINDS, CONVERSATION, kindPriced, kindLook, kindReasks, kindTalk, answerPriced, answerPrice, hasNumber, topNumber, drawTop, drawPrice, formatBalance,
     format, normalize, breakdown, createRefresher, KIND_ORDER,
     stepUsd, lastStep, formatTokens, formatMarkup, payLine, statsLine, formatPause, moscowDay,
     weekLine, stepView, createLiveStep,

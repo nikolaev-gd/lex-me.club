@@ -1391,14 +1391,14 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
   backdrop-filter: none;
 }
 .wc-main.is-quick .wc-jump { display: none; }
-/* A chat with an agent — its task chat, or the field over a screen of an agent — takes only words
- * (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): no presets (the teacher's), no live voice; «+» has no picture
- * and no file (wc-composer.js takesFiles). The text, the dictation, send and stop stay. With the voice button gone the
- * slot folds while the field is empty (wc-composer.js syncButton). */
-.wc-main.is-quick-agent #wc-mode-split,
-.wc-main.is-agent-chat #wc-mode-split,
-.wc-main.is-quick-agent #wc-talk,
-.wc-main.is-agent-chat #wc-talk { display: none; }
+/* What the profile of the open chat does not give is not drawn (lex-chat-profile.js; docs/spec/21-chat-canvas.md,
+ * «Профиль чата»): the row of presets (the teacher's — only the main chat, a video, a news), the voice button (not in a
+ * chat of a person or a group, not with an agent), «new chat» (only the main chat and a video). wc-app.js
+ * paintFieldProfile puts the classes; «+» asks the same profile (takesFiles). With the voice button gone the slot folds
+ * while the field is empty (wc-composer.js syncButton). */
+.wc-main.lex-no-presets #wc-mode-split,
+.wc-main.lex-no-new-chat .wc-new-chat,
+.wc-main.lex-no-voice #wc-talk { display: none !important; }
 /* The list under the capsule ends above it: 16 + 52 + 16. */
 .wc-main.is-home .wc-home .lex-section-body,
 .wc-main.is-section .lex-section-body { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
@@ -2323,9 +2323,7 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
   cursor: pointer;
 }
 /* A feed of Extended Mind: the whole message box, voice included (2026-11-13); no row of
- * presets (the server refuses them), no new chat, no second version of an answer. */
-.wc-main.is-em-feed #wc-mode-split,
-.wc-main.is-em-feed .wc-new-chat,
+ * presets and no new chat (its profile, .lex-no-presets and .lex-no-new-chat above), no second version of an answer. */
 .wc-main.is-em-feed .lex-answer-row { display: none !important; }
 .lex-em .lex-section-empty { padding: 16px 0; color: var(--fg-muted); font-size: 14px; }
 

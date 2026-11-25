@@ -319,4 +319,4 @@
    (the corner, В7.76) and its source in the bar; a news has no «New chat» (one news — one chat). */
 .wc-main.is-news-feed .lex-news .lex-section-bar,
 .wc-main.is-news-feed .wc-topbar-right { display: none; }
-.wc-main.is-news-chat .wc-new-chat { display: none !important; }
+/* No «new chat» over a news: its profile (lex-chat-profile.js, .lex-no-new-chat of webchat/wc-app.css). */

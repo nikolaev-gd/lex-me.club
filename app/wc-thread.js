@@ -1230,7 +1230,18 @@
       }
       if (qFeed) qTurns.clear();
       if (rFeed) rTurns.clear();
+      // The side every node of a turn takes (data-talk: 1 — the talk with the model, 0 — the conversation with the
+      // person), by the server's word on the turn or the list of lex-chat-money.js; the clean view of a chat of a person
+      // reads it (lex-profi.js paintHidden), one rule with the iPhone (MessageKinds.isTalk).
+      const sideOf = (t) => (global.LexChatMoney && global.LexChatMoney.kindTalk ? global.LexChatMoney.kindTalk(t.origin, t.talk) : null);
       (turns || []).forEach((t) => {
+        const last = elTurns.lastElementChild;
+        drawTurn(t);
+        const node = elTurns.lastElementChild;
+        const talk = node && node !== last ? sideOf(t) : null;
+        if (talk !== null) node.dataset.talk = talk ? '1' : '0';
+      });
+      function drawTurn(t) {
         // The feed of questions: a question takes its place after the loop (paintQuestions), the
         // server's line after an answer is said by the line of its question.
         if (qFeed && t.origin === 'em_question' && t.uid) { qTurns.set(String(t.uid), t); return; }
@@ -1337,7 +1348,7 @@
           if (devTask && hooks.onDevStop) turn.appendChild(LexMessage.taskStop({ onStop: () => hooks.onDevStop(devTask) }));
           elTurns.append(turn);
         }
-      });
+      }
       paintQuestions();
       paintRequests();
       remark();
