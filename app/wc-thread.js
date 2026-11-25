@@ -749,26 +749,11 @@
     liveStep.onDone({ requestId, apiUsd: null, uid: (entry && entry.turn && entry.turn.dataset.uid) || null });
     paintTopMoney();
   }
-  // The number on top of the chat (WcHeader.setMoney): the price of the last step, live while a
-  // turn of this chat goes; a door of before — the billed total, as it was.
+  // The number on top of the chat (WcHeader.setMoney): whether there is one and which step it is, the server says
+  // (list_chat_money `top`); live while a turn of this chat goes. The drawing is LexChatMoney.drawTop.
   function paintTopMoney() {
     if (!global.WcHeader || !WcHeader.setMoney) return;
-    const money = lastMoney;
-    const show = !!(money && money.showMoney);
-    if (!show) { WcHeader.setMoney(null, false); return; }
-    const M = global.LexChatMoney;
-    // No paid step in the chat (and none going on): no number, not «$0»; a real step of $0 stays «$0».
-    if (money.hasPaidSteps === false && !liveStep.live()) { WcHeader.setMoney(null, false); return; }
-    if (!money.stepPriced) { WcHeader.setMoney({ usd: money.total ? money.total.usd : 0, view: null }, true); return; }
-    const top = liveStep.top(money);
-    WcHeader.setMoney({
-      usd: top.usd,
-      live: !!top.live,
-      view: () => {
-        const t = liveStep.top(lastMoney);
-        return M.stepView(t.answer || { api_usd: t.usd }, lastMoney, t.live);
-      },
-    }, true);
+    WcHeader.setMoney(lastMoney, liveStep);
   }
   let brainHooks = null;
   // Дело над каждым ответом (LexAnswerRow.branchLabelNode): что за дело выбрал сервер и перенос в другое.
@@ -1658,47 +1643,25 @@
     // (show_money); своего счёта у страницы нет. money === null — беседы нет
     // или денег не показывают: все цены снимаются.
     paintMoney(money) {
-      const show = !!(money && money.showMoney);
-      const M = global.LexChatMoney;
-      // The door of after 21.11.2026: under every step its price by the API prices (api_usd),
-      // whatever way it was paid; the way of paying, the tokens and the parts — in the window of
-      // the step on hover (lex-step-popup.js). A door of before: the billed price, as it was.
-      const priced = !!(show && money.stepPriced);
+      // The price under each message: whether it has one (answers[].priced), which number — the server's; one drawing
+      // for every chat of the page (LexChatMoney.drawPrice), the window of the step on hover (lex-step-popup.js).
       if (!money) liveStep.reset();
       for (const t of elTurns.querySelectorAll('.wc-turn[data-uid]')) {
-        const old = t.querySelector(':scope > .wc-turn-foot > .wc-price');
-        // The table of kinds (lex-chat-money.js): a message of a kind with no price never gets one.
-        const a = show && money.answers && M.kindPriced(t.dataset.origin) ? money.answers.get(t.dataset.uid) : null;
-        const usd = !a ? null
-          : priced ? M.stepUsd(a)
-            : (a.billed != null && Number.isFinite(Number(a.billed))) ? Number(a.billed) : null;
-        if (usd == null) {
-          if (old) { if (global.LexStepPopup) LexStepPopup.detach(old); old.remove(); }
-          continue;
-        }
-        // The foot of a question (its row of actions, В7.78) and of an answer — a child of the turn, under its words.
-        let foot = t.querySelector(':scope > .wc-turn-foot');
-        if (!foot) {
-          foot = el('.wc-turn-foot');
-          if (t.classList.contains('wc-turn-user')) foot.classList.add('wc-turn-foot-question');
-          t.append(foot);
-        }
-        const node = old || el('span.wc-price');
-        node.textContent = M.format(usd);
-        node.dataset.lexUsd = String(usd);
-        if (priced && global.LexStepPopup) {
-          node.removeAttribute('title');
-          const uid = t.dataset.uid;
-          LexStepPopup.attach(node, () => {
-            const m = lastMoney;
-            const ans = m && m.answers ? m.answers.get(uid) : null;
-            return ans && M.stepUsd(ans) != null ? M.stepView(ans, m, null) : null;
-          });
-        } else {
-          if (global.LexStepPopup) LexStepPopup.detach(node);
-          node.title = [a.model, a.effort].filter(Boolean).join(' · ');
-        }
-        if (!old) foot.append(node);
+        global.LexChatMoney.drawPrice(t, money, {
+          cls: 'wc-price',
+          footSel: '.wc-turn-foot',
+          getMoney: () => lastMoney,
+          // The foot of a question (its row of actions, В7.78) and of an answer — a child of the turn, under its words.
+          foot: () => {
+            let foot = t.querySelector(':scope > .wc-turn-foot');
+            if (!foot) {
+              foot = el('.wc-turn-foot');
+              if (t.classList.contains('wc-turn-user')) foot.classList.add('wc-turn-foot-question');
+              t.append(foot);
+            }
+            return foot;
+          },
+        });
       }
       lastMoney = money;
       paintTopMoney();

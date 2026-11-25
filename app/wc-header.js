@@ -34,7 +34,6 @@
   const { fmtMoney } = WcUI;
 
   let elBalance, elSettings, elTopup, elNewChat, elVoiceGear, elMoney, elMoneySum;
-  let moneyView = null;
   let hooks = {};
   let account = { signedIn: false };
   let hasContent = false;
@@ -131,24 +130,13 @@
     // а на её месте встаёт шестерёнка. Дёргается из wc-app.js рядом с
     // WcComposer.setVoiceActive — тем же событием, что открывает и закрывает
     // сам звонок.
-    // Число над чатом — только когда сервер велит показывать деньги (show). С 21.11.2026 это
-    // цена ПОСЛЕДНЕГО шага по ценам API (а пока Claude Code работает — растущая цена идущего
-    // шага); наведение мышью открывает окно разбивки шага (lex-step-popup.js, В7.55). Считает
-    // и решает всё wc-thread.js (paintTopMoney) из ответа двери: spec — { usd, live, view }
-    // (view() — слова окна, LexChatMoney.stepView; null у двери прежнего вида: тогда это
-    // списанное по беседе, без окна); null — «$0».
-    setMoney(spec, show) {
+    // Число над чатом: the price of the last step by the API prices (while Claude Code works — the growing price of
+    // the step that goes on); hover opens the window of the step (lex-step-popup.js, В7.55). Whether there is a number
+    // and which step it is, the server says (list_chat_money `top`); the drawing is one for every chat
+    // (LexChatMoney.drawTop). money — LexChatMoney.normalize of the open chat or null (no number); live — its live step.
+    setMoney(money, live) {
       if (!elMoney) return;
-      elMoney.hidden = !show;
-      const usd = spec ? spec.usd : 0;
-      elMoneySum.textContent = global.LexChatMoney.format(usd);
-      elMoney.dataset.lexUsd = String(usd);
-      elMoney.classList.toggle('is-live', !!(spec && spec.live));
-      moneyView = spec && typeof spec.view === 'function' ? spec.view : null;
-      if (global.LexStepPopup) {
-        LexStepPopup.attach(elMoney, () => (moneyView && !elMoney.hidden ? moneyView() : null));
-        LexStepPopup.refresh(elMoney);
-      }
+      global.LexChatMoney.drawTop(elMoney, elMoneySum, money, live || null);
     },
 
     setVoiceActive(on) {

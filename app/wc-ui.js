@@ -380,12 +380,17 @@
     return { text: 'Untitled', untitled: true };
   }
 
+  // The balance of the account: one rule on the page, the Mac and the iPhone (LexChatMoney.formatBalance — cut down to
+  // the cent, four digits under a cent). The fallback below is the same rule, for a page that lost lex-chat-money.js.
   function fmtMoney(usd) {
-    if (usd === null || usd === undefined || !Number.isFinite(Number(usd))) return '—';
+    const M = global.LexChatMoney;
+    if (M && typeof M.formatBalance === 'function') return M.formatBalance(usd);
+    if (usd === null || usd === undefined || usd === '' || !Number.isFinite(Number(usd))) return '—';
     const n = Number(usd);
-    // Under a cent still has to read as money, not as zero: a balance of
-    // $0.004 shown as "$0.00" looks like an empty account that still answers.
-    return '$' + (Math.abs(n) < 0.01 && n !== 0 ? n.toFixed(4) : n.toFixed(2));
+    const digits = n !== 0 && Math.abs(n) < 0.01 ? 4 : 2;
+    const f = Math.pow(10, digits);
+    const cut = Math.floor(Math.abs(n) * f + 1e-6) / f;
+    return (n < 0 && cut > 0 ? '-$' : '$') + cut.toFixed(digits);
   }
 
   // Tabs (ios/Lex/STANDARD.md В7.27, 2026-11-14): a row of pills under the bar of a chat, one of

@@ -17,16 +17,24 @@
 //   stepView(), lastStep(), createLiveStep(), formatTokens() — цена шага по
 //                        ценам API и слова окна разбивки шага (lex-step-popup.js
 //                        рисует их на странице и в расширении);
+//   topNumber(), answerPrice(), formatBalance() — what the number on top shows,
+//                        the price under a message, how the balance is written:
+//                        the rules are the server's (list_chat_money: top,
+//                        answers[].priced), these only read them;
+//   drawTop(), drawPrice() — the one drawing of the number on top and of the
+//                        price under a message for the page and the Mac (DOM
+//                        only when called);
 //   createRefresher()  — когда перечитывать деньги беседы после платного
 //                        события: строка расхода появляется на сервере не сразу
 //                        (ответ дочитывается, слушатель голоса пишет после хода,
 //                        название беседы считается позже), поэтому перечитываем
 //                        по сигналу базы, пока не пришло ожидаемое или не вышел
 //                        срок; без канала сигналов — по расписанию.
-// Рисуют окна сами: у расширения и страницы разная разметка ленты.
+// Ленту страница рисует сама; число над чатом и цену под сообщением — drawTop и
+// drawPrice отсюда (расширение отложено и рисует своё, chat-surface.js).
 //
-// Без chrome.* и без DOM — файл грузят и контент-скрипты расширения, и
-// обычная страница.
+// Без chrome.* и без DOM при загрузке — файл грузят и контент-скрипты
+// расширения, и обычная страница; DOM трогают только drawTop и drawPrice.
 (function (root) {
   'use strict';
 
@@ -55,6 +63,21 @@
     const rounded = Math.round(cost * factor) / factor;
     if (Math.abs(rounded) >= 0.001) return '$' + rounded.toFixed(3);
     return '$' + rounded.toFixed(digits);
+  }
+
+  // How the balance of the account is written (one rule on the page, the Mac and the iPhone, ChatMoney.formatBalance,
+  // 25.11.2026): never more than there is — cut DOWN, not rounded: from a cent up two digits ($0.999 → «$0.99», not
+  // «$1.00»); under a cent but not zero four digits, so that a few tenths of a cent do not read as an empty account
+  // ($0.004 → «$0.0040»); zero — «$0.00»; unknown — «—». A small epsilon keeps $0.29 from turning into «$0.28».
+  function formatBalance(usd) {
+    if (usd === null || usd === undefined || usd === '') return '—';
+    const n = typeof usd === 'number' ? usd : Number(usd);
+    if (!Number.isFinite(n)) return '—';
+    const abs = Math.abs(n);
+    const digits = abs > 0 && abs < 0.01 ? 4 : 2;
+    const f = Math.pow(10, digits);
+    const cut = Math.floor(abs * f + 1e-6) / f;
+    return (n < 0 && cut > 0 ? '-$' : '$') + cut.toFixed(digits);
   }
 
   function num(v) {
@@ -102,6 +125,13 @@
     const stepPriced = !!(t && Object.prototype.hasOwnProperty.call(t, 'api_usd'))
       || list.some((a) => Object.prototype.hasOwnProperty.call(a, 'api_usd'));
     const w = (b.week && typeof b.week === 'object') ? b.week : null;
+    // The number on top as the server decides it (chat_money_one_rule.sql, 25.11.2026): { usd, uid } or null — no number.
+    // A door of before has no such field: undefined, and the rule is read from hasPaidSteps and the answers as it was.
+    let top;
+    if (Object.prototype.hasOwnProperty.call(b, 'top')) {
+      top = (b.top && typeof b.top === 'object' && num(b.top.usd) != null)
+        ? { usd: num(b.top.usd), uid: b.top.uid != null ? String(b.top.uid) : null } : null;
+    }
     return {
       showMoney: b.show_money === true,
       answers,
@@ -115,6 +145,7 @@
       // A door of before has no such field: undefined, the number stays.
       hasPaidSteps: (t && typeof t.has_paid_steps === 'boolean') ? t.has_paid_steps : undefined,
       stepPriced,
+      top,
       week: (w && num(w.used) != null) ? { used: num(w.used), resetsAt: w.resets_at || null } : null,
     };
   }
@@ -134,14 +165,58 @@
     return a ? num(a.api_usd) : null;
   }
 
-  // The step on top of the chat: the last answer of the door that has a price. null — none
-  // (the number shows «$0», as with no answers at all).
+  // The step on top of the chat. The door names it (`top`, chat_money_one_rule.sql): its answer, or null — none. A door of
+  // before: the last answer that has a price and is not marked as a kind with none.
   function lastStep(money) {
+    if (money && money.top !== undefined) {
+      const t = money.top;
+      if (!t) return null;
+      const a = t.uid && money.answers ? money.answers.get(t.uid) : null;
+      return a || { uid: t.uid, api_usd: t.usd };
+    }
     const list = money && Array.isArray(money.list) ? money.list : [];
     for (let i = list.length - 1; i >= 0; i--) {
-      if (stepUsd(list[i]) != null) return list[i];
+      if (stepUsd(list[i]) != null && list[i].priced !== false) return list[i];
     }
     return null;
+  }
+
+  // Has the chat a number on top at all (no step going on)? The server's `top`; a door of before — its has_paid_steps
+  // (no such field either — yes, as it was).
+  function hasNumber(money) {
+    if (!money || !money.showMoney) return false;
+    if (money.top !== undefined) return money.top != null;
+    return money.hasPaidSteps !== false;
+  }
+
+  // May a message carry a price under it: the server says it for every answer (`priced`); a door of before — the table
+  // of kinds below by the origin of the message.
+  function answerPriced(a, origin) {
+    if (a && typeof a.priced === 'boolean') return a.priced;
+    return kindPriced(origin);
+  }
+
+  // The price under a message: its uid and its origin → usd, or null (no price there). A door of before 21.11.2026: what
+  // was charged, as it was.
+  function answerPrice(money, uid, origin) {
+    if (!money || !money.showMoney || !money.answers || uid == null) return null;
+    const a = money.answers.get(String(uid));
+    if (!a || !answerPriced(a, origin)) return null;
+    return money.stepPriced ? stepUsd(a) : num(a.billed);
+  }
+
+  // What the number on top shows now: null — no number; { usd, live, answer, held, old }. live — the live step
+  // (createLiveStep) or null. A door of before 21.11.2026: the charged total of the chat, no window (old).
+  function topNumber(money, live) {
+    if (!money || !money.showMoney) return null;
+    if (!money.stepPriced) return { usd: money.total ? money.total.usd : 0, live: null, answer: null, old: true };
+    if (live && typeof live.top === 'function') {
+      const t = live.top(money);
+      if (t.live || t.held) return t;
+    }
+    if (!hasNumber(money)) return null;
+    const a = lastStep(money);
+    return { usd: money.top ? money.top.usd : (a ? stepUsd(a) : 0), live: null, answer: a };
   }
 
   // Tokens grouped by threes with a thin space (U+2009): 31 232, 613 408.
@@ -523,9 +598,10 @@
 
   // ── The kinds of messages: has it a price under it, or has it none and why ────────────────────────────────────
   //
-  // One table for every place that draws a message (the page, the extension, the Mac; the iPhone mirrors the
-  // words of it in ChatMoney.swift `MessageKinds`, and dev-tools/test-message-kinds.mjs checks the two against
-  // each other and against every `origin` the code and the database know). The key is the origin of a turn of the
+  // The table lives on the server (lex_message_priced, chat_money_one_rule.sql): every answer of list_chat_money says
+  // `priced` itself, and the apps draw by it. This copy (and the iPhone's, ChatMoney.swift `MessageKinds`) is read only
+  // for a door of before that has no `priced`; dev-tools/test-message-kinds.mjs checks the three against each other and
+  // against every `origin` the code and the database know. The key is the origin of a turn of the
   // chat (`video_chat_turns.origin`; no origin is `text`). [price, why not]: the price stands under a message
   // only where the server gives a paid step for its uid (list_chat_money) — this table says where it can ever be.
   // A new origin without a row here fails the test: decide first, whether it has a price.
@@ -555,7 +631,7 @@
     base_ok: [false, 'a line of the system'],
     send_wait: [false, 'a line of the system'],
     send_failed: [false, 'a line of the system'],
-    mac: [false, 'a line of the system'],
+    mac: [true, null],                                   // a step of Claude Code on the Mac (a code task): its price stands under its row
   };
   // May a message of this origin carry a price? An unknown origin may not (and the test fails on it).
   function kindPriced(origin) {
@@ -563,8 +639,72 @@
     return !!(k && k[0]);
   }
 
+  // ── The drawing of the page and the Mac: the number on top and the price under a message ────────────────────────────
+  //
+  // One drawing for every chat of the page — the main chat, a person, a group, an order, an agent, Claude Code: the
+  // header calls drawTop, the feed calls drawPrice; what is drawn is what the server said (topNumber, answerPrice).
+  // The window of a step on hover is lex-step-popup.js.
+
+  // The number on top: el — its button (hidden when there is no number), sum — the place of the digits (el itself when
+  // absent). money — normalize(), live — createLiveStep() or null. → what is shown (topNumber).
+  function drawTop(el, sum, money, live) {
+    if (!el) return null;
+    const t = topNumber(money, live);
+    const usd = t ? t.usd : 0;
+    el.hidden = !t;
+    (sum || el).textContent = format(usd);
+    el.dataset.lexUsd = String(usd);
+    el.classList.toggle('is-live', !!(t && t.live));
+    el._lexTop = { money, live };
+    const popup = root.LexStepPopup;
+    if (popup) {
+      popup.attach(el, () => {
+        const s = el._lexTop;
+        const now = !el.hidden && s ? topNumber(s.money, s.live) : null;
+        if (!now || now.old) return null;
+        return stepView(now.answer || { api_usd: now.usd }, s.money, now.live);
+      });
+      popup.refresh(el);
+    }
+    return t;
+  }
+
+  // The price under a message: turn — the element of the message (data-uid, data-origin); foot() — the row under its
+  // words to put the price in (made when needed); cls — the class of the price («wc-price»). getMoney() — the money of
+  // the chat now (the window of the step reads it on hover). No price → its node goes. → usd or null.
+  function drawPrice(turn, money, opts) {
+    const o = opts || {};
+    const cls = o.cls || 'lex-price';
+    const old = turn.querySelector(':scope > ' + (o.footSel || '*') + ' > .' + cls);
+    const uid = turn.dataset.uid;
+    const usd = answerPrice(money, uid, turn.dataset.origin);
+    const popup = root.LexStepPopup;
+    if (usd == null) {
+      if (old) { if (popup) popup.detach(old); old.remove(); }
+      return null;
+    }
+    const node = old || (() => { const n = turn.ownerDocument.createElement('span'); n.className = cls; return n; })();
+    node.textContent = format(usd);
+    node.dataset.lexUsd = String(usd);
+    if (money.stepPriced && popup) {
+      node.removeAttribute('title');
+      const getMoney = typeof o.getMoney === 'function' ? o.getMoney : () => money;
+      popup.attach(node, () => {
+        const m = getMoney();
+        const a = m && m.answers ? m.answers.get(uid) : null;
+        return a && stepUsd(a) != null ? stepView(a, m, null) : null;
+      });
+    } else {
+      if (popup) popup.detach(node);
+      const a = money.answers.get(String(uid));
+      node.title = [a && a.model, a && a.effort].filter(Boolean).join(' · ');
+    }
+    if (!old) (typeof o.foot === 'function' ? o.foot() : turn).append(node);
+    return usd;
+  }
+
   root.LexChatMoney = {
-    MESSAGE_KINDS, kindPriced,
+    MESSAGE_KINDS, kindPriced, answerPriced, answerPrice, hasNumber, topNumber, drawTop, drawPrice, formatBalance,
     format, normalize, breakdown, createRefresher, KIND_ORDER,
     stepUsd, lastStep, formatTokens, formatMarkup, payLine, statsLine, formatPause, moscowDay,
     weekLine, stepView, createLiveStep,
