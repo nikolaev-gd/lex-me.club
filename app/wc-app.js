@@ -2773,8 +2773,10 @@
     if (WcThread.isStreaming()) leaveStream();
     await endVoiceOnLeave('open-chat');
     stopSectionOpening();
+    // profile.kind: the chat has no key yet, and a kind from a key would be the main chat — the word would not go to the
+    // agent (isAgentChat), the field would refuse it as a chat of a folder that takes no messages.
     const chat = makeFolderChat('agents', {
-      kind: 'agent', chatKey: null, title: 'New chat', client: 'New chat', send: false,
+      kind: 'agent', chatKey: null, title: 'New chat', client: 'New chat', send: false, profile: { kind: 'agent' },
       agent: { key: agent.key, name: agent.name || agent.key }, looks: {}, sends: [], channels: {},
     }, null);
     takeField(agentDraftKey(agent.key));
