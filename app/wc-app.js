@@ -3206,20 +3206,19 @@
   }
 
   // Пункт «Text model» в меню «+»: модель по умолчанию для следующих вопросов. Он есть в
-  // каждом чате (2026-11-13): в чате заказа — модель чатов заказов (свой выбор, по
-  // умолчанию модель монитора), в остальных — модель чатов Lex. Какая из двух, решает
-  // открытый чат; хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
+  // каждом чате (2026-11-13), и модель у него одна на все чаты, где пишет Геннадий
+  // (2026-11-25): главный, люди, группы, заказы, ленты. Своя — только у агента. Хранит и
+  // отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
     // A task chat of an agent: the model of that agent, not the model of the chats of orders.
     if (isAgentChat(profiChat)) { pickAgentModel(anchor, agentKeyOf(profiChat)); return; }
     // The field over the dimming of a screen of an agent: the model of that agent.
     if (quickAgentOn()) { pickAgentModel(anchor, quickAgentOn().key); return; }
-    const profi = !!profiChat;
     let cur = { modelId: null, efforts: {} };
-    try { cur = await WcBus.call('WC_TEXT_MODEL', { profi }); } catch (_) { /* пусто — без галочки */ }
+    try { cur = await WcBus.call('WC_TEXT_MODEL', {}); } catch (_) { /* пусто — без галочки */ }
     openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
       try {
-        await WcBus.call('WC_SET_TEXT_MODEL', { modelId, profi });
+        await WcBus.call('WC_SET_TEXT_MODEL', { modelId });
         WcUI.toast('Text model: ' + global.LexAnswerRow.modelLabel(modelId));
         refreshTextModelLabel();
       } catch (err) {
@@ -3228,35 +3227,31 @@
     }, CLAUDE_ROUTE_ROW);
   }
 
-  // Подпись пункта «Text model» — нынешняя модель по умолчанию, у чатов Lex и у чатов
-  // заказов своя. Меню «+» открывается синхронно, поэтому обе подписи держатся наготове.
+  // Подпись пункта «Text model» — нынешняя модель по умолчанию, одна на все чаты. Меню «+»
+  // открывается синхронно, поэтому подпись держится наготове.
   let textModelLabel = '';
-  let profiModelLabel = '';
   // The label of this chat: a task chat of an agent names the agent's model (the list of the section holds it).
   function textModelLabelNow() {
     if (quickAgentOn()) {
       const a = SECTIONS.agents.live.agent(quickAgentOn().key);
       return a ? global.WcAgents.modelLabel(a) : '';
     }
-    if (!isAgentChat(profiChat)) return profiChat ? profiModelLabel : textModelLabel;
+    if (!isAgentChat(profiChat)) return textModelLabel;
     const live = SECTIONS.agents.live;
     const agent = live && live.agent(agentKeyOf(profiChat));
     return agent ? global.WcAgents.modelLabel(agent) : '';
   }
-  // Whether those models read pictures: a picture picked as «File» goes the picture's way only
+  // Whether that model reads pictures: a picture picked as «File» goes the picture's way only
   // then (WcAttach.accept). Not known yet — it does, as before.
   let textModelSees = true;
-  let profiModelSees = true;
   async function refreshTextModelLabel() {
-    const label = async (profi) => {
-      try {
-        const cur = await WcBus.call('WC_TEXT_MODEL', { profi });
-        if (!cur || !cur.modelId) return ['', true];
-        const R = global.LexModelRegistry;
-        return [global.LexAnswerRow.modelLabel(cur.modelId), !R || R.visionSupported(cur.modelId)];
-      } catch (_) { return ['', true]; }
-    };
-    [[textModelLabel, textModelSees], [profiModelLabel, profiModelSees]] = await Promise.all([label(false), label(true)]);
+    try {
+      const cur = await WcBus.call('WC_TEXT_MODEL', {});
+      if (!cur || !cur.modelId) { textModelLabel = ''; textModelSees = true; return; }
+      const R = global.LexModelRegistry;
+      textModelLabel = global.LexAnswerRow.modelLabel(cur.modelId);
+      textModelSees = !R || R.visionSupported(cur.modelId);
+    } catch (_) { textModelLabel = ''; textModelSees = true; }
   }
 
   // Подписка или токены API (claude_route.sql, 2026-11-18): как идут ходы Геннадия к модели
@@ -4696,7 +4691,7 @@
     WcAttach.init();
     // A picture or a file put on the field or taken off it: the draft of the chat keeps it.
     WcAttach.onChange = () => saveField();
-    WcAttach.readsImages = () => (profiChat ? profiModelSees : textModelSees);
+    WcAttach.readsImages = () => textModelSees;
     WcAttach.chatKey = () => state.conversationId || null;
     WcSidebar.init({
       onOpen: openConversation,

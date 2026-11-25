@@ -362,9 +362,19 @@
   // опубликованная владельцем). Страница это правило у себя не повторяет:
   // спрашивает и раскладывает ответ по тем же ячейкам, которые уже читает
   // отправка хода. Поэтому ни один читатель ячейки не менялся.
+  //
+  // One default model for every chat Gennady writes in (2026-11-25, PLAN-CHAT-UNIFY stage 1.1): the main chat,
+  // the chats of people and groups, the order chats of Profi.ru, the feeds and the news — one cell,
+  // activeModelId_shorts-main. The order chats had a cell of their own (activeModelId_profi) and, empty, the
+  // monitor's model; the database moved that choice here once (one_default_model.sql). Agents keep their own.
+  //
+  // A choice made here is stronger than the server's answer until it has reached the server: the answer of a
+  // request that left before the choice, or while its write is still on its way, would put the old model back
+  // (the extension closes the same window with dirtyKeys, background.js syncModelDefaults).
   async function modelDefaults() {
     const token = await A.validToken();
     if (!token) return { ok: false };
+    const asked = Date.now();
     let resp;
     try {
       resp = await fetch(A.supabaseUrl() + '/rest/v1/rpc/lex_model_defaults', {
@@ -378,13 +388,14 @@
     if (!resp.ok) { console.warn(TAG, 'model defaults', resp.status); return { ok: false }; }
     const out = await resp.json().catch(() => null);
     if (!out || out.ok !== true || !out.scopes) return { ok: false };
-    // The order chats of Profi.ru keep their own choice (supabase/migrations/
-    // profi_model_choice.sql): the person's or none — then the monitor's model. Empty
-    // string = none.
-    const profi = out.scopes[PROFI_SCOPE];
-    await WcStore.set({ [PROFI_MODEL_KEY]: (profi && typeof profi.personal === 'string') ? profi.personal : '' });
+    // The old cell of the order chats on this device: nobody reads it now.
+    WcStore.removeQuiet(['activeModelId_profi']).catch(() => {});
     const mine = out.scopes[SCOPE];
     if (!mine || typeof mine !== 'object') return { ok: true, applied: 0 };
+    if (choiceAt >= asked || await WcStore.one(PENDING_CHOICE_KEY, null)) {
+      pushPendingChoice();
+      return { ok: true, applied: 0, kept: true };
+    }
     const patch = {};
     if (typeof mine.model === 'string' && mine.model) patch['activeModelId_' + SCOPE] = mine.model;
     if (mine.effort && typeof mine.effort === 'object' && Object.keys(mine.effort).length) {
@@ -412,15 +423,41 @@
     } catch (e) { console.warn(TAG, 'model choice push failed:', e && e.message); return false; }
   }
 
-  // The model of the order chats: the person's choice for them, else the monitor's model of
-  // the order chat that is open. null — neither (the server then says the bot has not sent
-  // its model and instruction).
-  const PROFI_SCOPE = 'profi';
-  const PROFI_MODEL_KEY = 'activeModelId_' + PROFI_SCOPE;
-  async function profiModelId() {
-    const mine = await WcStore.one(PROFI_MODEL_KEY, null);
-    return mine || (profiChat && profiChat.modelId) || null;
+  // The choice not yet in the account: { patch, seq } in this browser's store, so a reload or a closed tab does
+  // not lose it. It goes up again and again — 2 s, 5 s, 15 s, 30 s, then every minute, and at once when the
+  // network comes back — and is taken off only when the account has it and no newer choice was made meanwhile.
+  const PENDING_CHOICE_KEY = 'modelChoicePending_' + SCOPE;
+  const PUSH_DELAYS = [2000, 5000, 15000, 30000, 60000];
+  let choiceAt = 0;
+  let pushTries = 0;
+  let pushTimer = null;
+  let pushing = null;
+  function pushPendingChoiceLater(ms) {
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => { pushTimer = null; pushPendingChoice(); }, ms);
+    return false;
   }
+  function pushPendingChoice() {
+    if (pushing) return pushing;
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    pushing = (async () => {
+      const pending = await WcStore.one(PENDING_CHOICE_KEY, null);
+      if (!pending || !pending.patch) { pushTries = 0; return true; }
+      if (await pushModelChoice(pending.patch)) {
+        pushTries = 0;
+        const now = await WcStore.one(PENDING_CHOICE_KEY, null);
+        if (now && now.seq === pending.seq) { await WcStore.remove(PENDING_CHOICE_KEY); return true; }
+        // A newer choice came while this one travelled: it goes next.
+        return now ? pushPendingChoiceLater(0) : true;
+      }
+      return pushPendingChoiceLater(PUSH_DELAYS[Math.min(pushTries++, PUSH_DELAYS.length - 1)]);
+    })().catch((e) => { console.warn(TAG, 'model choice push:', e && e.message); return false; })
+      .finally(() => { pushing = null; });
+    return pushing;
+  }
+  try { global.addEventListener('online', () => pushPendingChoice()); } catch (_) { /* no window */ }
+  // A choice left from the last visit goes up as the page starts.
+  setTimeout(() => pushPendingChoice(), 0);
 
   async function activeModelId() {
     const key = 'activeModelId_' + SCOPE;
@@ -437,14 +474,11 @@
   // ── Модель по умолчанию: пункт «Text model» в меню «+» ─────────────────────
   // Та же ячейка, что читает отправка (activeModelId) и что приносит публикация
   // настроек, — и те же имена, что у расширения (activeModelId_<scope>,
-  // effortByApiModel_<scope>). Хранится в этом браузере; следующая публикация
-  // настроек перепишет выбор, как и в расширении у обычного человека.
+  // effortByApiModel_<scope>).
   //
-  // Пункт есть в каждом чате (2026-11-13). Чат заказа Профи держит свой выбор, общий для
-  // всех чатов заказов (m.profi): ячейка activeModelId_profi, по умолчанию — модель монитора
-  // открытого чата. Уровень размышления у неё в самом номере модели (provider:model:effort).
-  WcBus.on('WC_TEXT_MODEL', async (m) => {
-    if (m && m.profi) return { modelId: await profiModelId(), efforts: {} };
+  // Пункт есть в каждом чате (2026-11-13), и выбор у него один на все чаты (2026-11-25): главный, чаты людей и
+  // групп, чаты заказов, ленты. Только у чата задачи агента своя модель — её пункт меняет агента (wc-app.js).
+  WcBus.on('WC_TEXT_MODEL', async () => {
     const modelId = await WcStore.one('activeModelId_' + SCOPE, null);
     const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);
     return { modelId: modelId || null, efforts: (efforts && typeof efforts === 'object') ? efforts : {} };
@@ -466,21 +500,20 @@
   WcBus.on('WC_SET_TEXT_MODEL', async (m) => {
     const parts = String((m && m.modelId) || '').split(':');
     if (parts.length < 3 || !parts[0] || !parts[1]) throw new Error('Unknown model.');
-    if (m.profi) {
-      await WcStore.set({ [PROFI_MODEL_KEY]: m.modelId });
-      await pushModelChoice({ [PROFI_MODEL_KEY]: m.modelId });
-      return { ok: true };
-    }
     const effKey = 'effortByApiModel_' + SCOPE;
     const cur = await WcStore.one(effKey, null);
     const efforts = (cur && typeof cur === 'object') ? { ...cur } : {};
     efforts[parts[1]] = parts[2];
-    await WcStore.set({ ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts });
     // И наверх, человеку в аккаунт: выбор принадлежит ему, а не этому браузеру.
     // Локальная ячейка при этом остаётся — она нужна, чтобы кнопка модели
-    // перерисовалась сразу, не дожидаясь сети.
-    await pushModelChoice({ ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts });
-    return { ok: true };
+    // перерисовалась сразу, не дожидаясь сети. Отметка «не доехало» ложится той же
+    // записью, что и выбор: ответ сервера, пришедший между ними, выбора не перепишет.
+    const patch = { ['activeModelId_' + SCOPE]: m.modelId, [effKey]: efforts };
+    choiceAt = Date.now();
+    await WcStore.set({ ...patch, [PENDING_CHOICE_KEY]: { patch, seq: choiceAt + ':' + Math.random() } });
+    pushTries = 0;
+    const pushed = await pushPendingChoice();
+    return { ok: true, pushed };
   });
 
   WcBus.on('WC_ACCOUNT_STATE', async (m) => {
@@ -1282,11 +1315,9 @@
     const native = (m.mode === 'native') ? nativeTurnConfig(m.slotId, m.modelId) : null;
     // Порядок важен: у повтора модель уже назначена (та, которой отвечали в
     // прошлый раз), и она сильнее и режима, и текущей настройки.
-    // An order chat of the Profi.ru section writes with the model of order chats: the
-    // person's choice for them, the monitor's model by default (WC_TEXT_MODEL).
-    const inProfi = !!(profiChat && m.conversationId === profiChat.key);
-    const profiModel = inProfi ? await profiModelId() : null;
-    const modelId = profiModel || m.modelOverride || (native && native.model) || await activeModelId();
+    // An order chat of Profi.ru and a chat of a person or a group write with the same default
+    // model as every chat (WC_TEXT_MODEL, 2026-11-25): no model of their own any more.
+    const modelId = m.modelOverride || (native && native.model) || await activeModelId();
     // Модель хода — ленте: ею подписана кнопка модели под ответом.
     WcBus.broadcast({ type: 'WC_TURN_MODEL', requestId: m.requestId, modelId });
 
@@ -1811,9 +1842,10 @@
     const expiry = setTimeout(finish, 30 * 60 * 1000);
   }
 
-  // The order chat that is open: its key and the model of the monitor (lex-profi.js).
+  // The order chat (or the chat of a person, a group, an agent) that is open: its key. Its model is no longer
+  // read here — every chat writes with the one default model (WC_TEXT_MODEL, 2026-11-25).
   WcBus.on('WC_PROFI_CHAT', (m) => {
-    profiChat = m && m.key ? { key: m.key, modelId: m.modelId } : null;
+    profiChat = m && m.key ? { key: m.key } : null;
     return true;
   });
 
