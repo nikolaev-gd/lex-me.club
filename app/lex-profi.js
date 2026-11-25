@@ -1049,6 +1049,19 @@
         const root = make('div', 'wc-turn lex-profi-msg is-client is-order');
         root.dataset.origin = 'profi_order';
         root.appendChild(node);
+        // The message of the order, not an answer of a model (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): the
+        // common menu — Copy (the words of the order) and Select, as an order of New orders.
+        if (M.attachMenu) {
+          // No side: the order cuts what stands out of it, so «⋯» stands in its top right corner, as on a record of a feed.
+          M.attachMenu(node, {
+            text: () => M.orderWords({ title: data.title, budget: data.budget, facts: (data.facts || []).join(' · '),
+              sections, note: (data.foot || []).join(' · ') }),
+            body: node.querySelector('.lex-order-in') || node,
+            who: () => data.client || 'Client',
+            at: () => null,
+            host: () => root.parentElement,
+          });
+        }
         return root;
       },
 
@@ -2455,6 +2468,18 @@
       const node = M.order({ ...base, text: it.description, fold: `feed:${it.order}`, reply: it.draft, ask,
         foot: foot.childElementCount ? foot : null,
         onFold: done ? () => { opened.delete(it.order); repaintOrder(it.order); } : null });
+      // A message of the monitor, not an answer of a model (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): the
+      // common menu — Copy (the title, the client, the text of the order) and Select; its buttons stay its own.
+      if (M.attachMenu) {
+        // No side: the order is across the lane and cuts what stands out of it — «⋯» in its top right corner.
+        M.attachMenu(node, {
+          text: () => M.orderWords({ ...base, text: it.description, reply: it.draft }),
+          body: node.querySelector('.lex-order-in') || node,
+          who: () => it.client || feedTitle(),
+          at: () => it.at || null,
+          host: () => node.parentElement,
+        });
+      }
       if (cd) {
         const c = countdownOf(it);
         cd.set(c.left, c.share);
@@ -2504,6 +2529,7 @@
     // The feed as it was read the last time: drawn at once when the feed opens, the server's
     // answer comes after and takes its place.
     let lastFeed = null;
+    let feedWaits = false;
     async function paintFeed() {
       if (frame.screen !== 'feed') return;
       // A feed screen just opened is empty: what this window read the last time goes on it at
@@ -2522,6 +2548,16 @@
     function drawFeed(r, fresh) {
       const { body } = frame;
       if (frame.screen !== 'feed') return;
+      // A selection, an open menu or Select among the orders: drawn once they are free, as the bot's chat.
+      const old = body.querySelector(':scope > .lex-profi-lane');
+      const LM = global.LexMessage;
+      if (old && LM.isBusy && LM.isBusy(old)) {
+        if (!feedWaits) {
+          feedWaits = true;
+          document.addEventListener('lexmessagefree', () => { feedWaits = false; if (lastFeed) drawFeed(lastFeed, false); }, { once: true });
+        }
+        return;
+      }
       const stick = !body.childElementCount || feedAtEnd(body);
       if (fresh) clockOffset = (r.now || Date.now() / 1000) - Date.now() / 1000;
       if (focusOrder) opened.add(focusOrder);
@@ -2577,6 +2613,7 @@
     // time under it; the day stands between two days (В7.14). The chat the person has open is read — the number of
     // its unread goes by itself (the page tells the server which screen is open, webchat/wc-app.js, presenceKey).
     let lastBot = null;
+    let botWaits = false;
     async function paintBot() {
       if (frame.screen !== 'bot') return;
       if (lastBot && !frame.body.childElementCount) drawBot(lastBot);
@@ -2592,16 +2629,38 @@
       if (frame.screen !== 'bot') return;
       // A chat opens on its end and a message that comes sets it there again; a reader who has scrolled up to the old lines
       // stays where they were.
+      const M = global.LexMessage;
+      // A selection, an open menu or Select in the chat: it is not drawn again now — the redraw would take them away.
+      // The newest read is drawn once the message is free (lexmessagefree).
+      const old = body.querySelector(':scope > .lex-profi-lane');
+      if (old && M.isBusy && M.isBusy(old)) {
+        if (!botWaits) {
+          botWaits = true;
+          document.addEventListener('lexmessagefree', () => { botWaits = false; drawBot(lastBot); }, { once: true });
+        }
+        return;
+      }
       const stick = !body.childElementCount || feedAtEnd(body);
       const was = body.scrollTop;
       body.replaceChildren();
       const items = (r && r.messages) || [];
       if (!items.length) { body.appendChild(make('div', 'lex-profi-empty', 'The bot has not written yet.')); return; }
-      const M = global.LexMessage;
       const lane = make('div', 'lex-bubbles lex-profi-lane');
       for (const m of items) {
         const node = M.bubble({ side: 'in', text: m.text || '', stamp: M.stamp({ at: m.at }) });
         node.dataset.at = m.at || '';
+        // A word of the system (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): the common menu — Copy and Select,
+        // nothing of a model and no Reply (the bot reads no answers).
+        if (M.attachMenu) {
+          M.attachMenu(node, {
+            side: 'in',
+            text: () => m.text || '',
+            body: node.querySelector('.lex-bubble-text') || node,
+            who: () => 'Бот Профи',
+            at: () => m.at || null,
+            host: lane,
+          });
+        }
         lane.appendChild(node);
       }
       M.mark(lane);

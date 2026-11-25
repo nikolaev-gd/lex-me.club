@@ -1570,6 +1570,18 @@
   // «<client> · <budget> · <what the reply costs>»: what is missing is left out (the cost — Gennady,
   // 18.11.2026: «Комиссия 130 ₽», «Оплата 31 ₽», «Цена отклика — в форме»).
   const orderWho = (o) => [o.client, o.budget, o.pay].map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
+  // What Copy of the menu of an order takes (the same o as order()): the title, «client · budget · what the reply costs»,
+  // what the order is, its text and blocks, the line when it was left, the reply of the bot — an empty line between. The
+  // iPhone takes the same (LexOrderMessage.copyWords).
+  function orderWords(o) {
+    const parts = [o.title, orderWho(o), o.facts, o.text];
+    for (const sec of (Array.isArray(o.sections) ? o.sections : [])) {
+      if (!sec || (Array.isArray(sec.links) && sec.links.some((l) => l && l.url))) continue;
+      parts.push([sec.title, sec.text].map((x) => String(x || '').trim()).filter(Boolean).join('\n'));
+    }
+    parts.push(o.note, o.reply);
+    return parts.map((x) => String(x || '').trim()).filter(Boolean).join('\n\n');
+  }
 
   // order({ order, title, url, at | timeText, client, budget, pay, links, facts, text, sections, note, fold, side,
   //         reply, state, foot, ask, folded, onOpen, onFold })
@@ -3193,7 +3205,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, discussionFold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, orderWords, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);

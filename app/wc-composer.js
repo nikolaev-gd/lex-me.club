@@ -1071,10 +1071,16 @@
             onSelect: () => { try { window.open(att.url, '_blank', 'noopener'); } catch (_) {} },
           });
         }
-        items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
-        // Any file (2026-11-17): a PDF, a document, a video, an archive — to the message, so that it
-        // can go on to people. A picture picked here goes the way of a picture (WcAttach.accept).
-        if (hooks.onAttachFile) items.push({ label: 'File', icon: 'file', onSelect: () => hooks.onAttachFile() });
+        // A chat that takes only words (a chat with an agent) has no picture and no file in «+»: the items that
+        // would only refuse are not drawn (docs/spec/21-chat-canvas.md, «Виды чатов и их части»).
+        let files = true;
+        try { files = !hooks.takesFiles || hooks.takesFiles() !== false; } catch (_) { files = true; }
+        if (files) {
+          items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
+          // Any file (2026-11-17): a PDF, a document, a video, an archive — to the message, so that it
+          // can go on to people. A picture picked here goes the way of a picture (WcAttach.accept).
+          if (hooks.onAttachFile) items.push({ label: 'File', icon: 'file', onSelect: () => hooks.onAttachFile() });
+        }
         // Модель по умолчанию для следующих вопросов — так же, как пункт «Text
         // model» в меню «+» расширения. Меню моделей встаёт у кнопки «+».
         let tm = null;
@@ -1148,7 +1154,7 @@
 
     // The attachment strip changes what "empty" means, so it has to be able to
     // ask for a re-check.
-    refresh() { syncButton(); },
+    refresh() { if (elSend) syncButton(); },
 
     // Фокус. Правило — в общем модуле, здесь только повод.
     //

@@ -803,6 +803,7 @@
     const kept = fieldKey && global.LexDrafts ? global.LexDrafts.get(fieldKey) : null;
     if (kept && (kept.text || kept.reply) && !WcComposer.text().trim()) fillField(kept);
     WcQuick.open({ to: agent ? (agent.name || agent.key) : 'Lex', agent: !!agent });
+    WcComposer.refresh();   // an agent's field: no live voice, the slot folds (wc-app.css, .is-quick-agent)
     paintCapsule();
     if (mode === 'voice') { await toggleVoice(); return; }
     if (mode === 'dictate') { quick.before = WcComposer.text(); WcComposer.dictate(); return; }
@@ -816,6 +817,7 @@
     if (!q) return;
     quick = null;
     WcQuick.close();
+    WcComposer.refresh();
     if (q.agent) { await newAgentChat(q.agent); return; }
     if (sectionOn) leaveSection();
     paintHome();
@@ -834,6 +836,7 @@
     WcComposer.blur();
     quick = null;
     WcQuick.close();
+    WcComposer.refresh();
     if (!q.agent && !profiChat && state.conversationId && WcThread.isEmpty()) {
       // A live dictation or the voice made its conversation at the press, and the field's draft went over to it
       // (`adoptFieldKey`). No chat was made: the words go back to the draft of the new chat, so the next «New chat» has
@@ -2021,7 +2024,8 @@
     link.replaceChildren();
     who.replaceChildren();
     who.hidden = true;
-    main.classList.remove('is-profi-chat', 'is-profi-clean');
+    main.classList.remove('is-profi-chat', 'is-profi-clean', 'is-agent-chat');
+    if (global.WcComposer && WcComposer.refresh) WcComposer.refresh();
     paintProfiOutbox(null);
     paintAgentStop(null);
     // The line of a reply on a message of this chat does not go to another chat: it is this chat's
@@ -2082,6 +2086,10 @@
     const told = chat.data && chat.data.chatKey;
     if (told) WcBus.call('WC_PROFI_CHAT', { key: told, modelId: chat.data.modelId || null }).catch(() => {});
     main.classList.add('is-profi-chat');
+    // A task chat of an agent takes only words: its field has no presets, no live voice, no picture or file in «+»
+    // (wc-app.css, .is-agent-chat; takesFiles). The slot of the voice folds again by what the field holds.
+    main.classList.toggle('is-agent-chat', isAgentChat(chat));
+    if (WcComposer.refresh) WcComposer.refresh();
     // The clean view the chat starts with (on, lex-profi.js createChat).
     main.classList.toggle('is-profi-clean', !!chat.clean);
     paintProfiBar();
@@ -4721,6 +4729,8 @@
       // A task chat of an agent takes only words (a file pasted into the field stops at the send).
       onAttach: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
       onAttachFile: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
+      // A chat with an agent takes only words: «+» there has no picture and no file, only the agent's model.
+      takesFiles: () => !(isAgentChat(profiChat) || quickAgentOn()),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,

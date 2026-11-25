@@ -596,48 +596,65 @@
     };
   }
 
-  // ── The kinds of messages: has it a price under it, or has it none and why ────────────────────────────────────
+  // ── The kinds of messages: what a message of this origin is — its price and the controls under it ────────────
   //
-  // The table lives on the server (lex_message_priced, chat_money_one_rule.sql): every answer of list_chat_money says
-  // `priced` itself, and the apps draw by it. This copy (and the iPhone's, ChatMoney.swift `MessageKinds`) is read only
-  // for a door of before that has no `priced`; dev-tools/test-message-kinds.mjs checks the three against each other and
-  // against every `origin` the code and the database know. The key is the origin of a turn of the
-  // chat (`video_chat_turns.origin`; no origin is `text`). [price, why not]: the price stands under a message
-  // only where the server gives a paid step for its uid (list_chat_money) — this table says where it can ever be.
-  // A new origin without a row here fails the test: decide first, whether it has a price.
+  // The price of a message lives on the server (lex_message_priced, chat_money_one_rule.sql): every answer of
+  // list_chat_money says `priced` itself, and the apps draw by it; the price column here (and the iPhone's,
+  // ChatMoney.swift `MessageKinds`) is read only for a door of before that has no `priced`. What a message is — the
+  // look — is read here always. dev-tools/test-message-kinds.mjs checks the copies against each other and against every
+  // `origin` the code and the database know. The key is the origin of a turn of the chat (`video_chat_turns.origin`;
+  // no origin is `text`). [price, why not, look]:
+  //   price — the price stands under a message only where the server gives a paid step for its uid (list_chat_money);
+  //   look  — 'answer': an answer of a model of this chat — the model button and Retry under the last one;
+  //           'system': a word of the system (a service of the base, a summary, a task of development, a notice) —
+  //           no model of this chat wrote it, so nothing asks it again: Copy in its row, Copy and Select in its
+  //           menu, no model button, no Retry (docs/spec/21-chat-canvas.md, «Виды чатов и их части»);
+  //           'own': drawn by a part of its own chat (a person, a client, a feed, a news, an agent) with that
+  //           part's menu; never with the controls of a model.
+  // An unknown origin is a word of the system: it has no price and no controls of a model. A new origin without
+  // a row here fails the test: decide first what it is.
   const NO_MODEL = 'no model worked on it';
   const MESSAGE_KINDS = {
-    text: [true, null],                                  // the main chat
-    voice: [true, null],                                 // a talk by voice
-    claude_code: [true, null],                           // a step of Claude Code (by the API prices)
-    folder_whois: [true, null],                          // the words of an agent of the base (profi:editor:<n>)
-    news: [false, 'the feed of news is written by the base, not by a step of a chat'],
-    folder_in: [false, NO_MODEL + ': the words of a person'],
-    folder_out: [false, NO_MODEL + ': the words of Gennady to a person'],
-    profi_client: [false, NO_MODEL + ': the words of a client of an order'],
-    profi_sent: [true, null],                            // the words that went to a client: the offer of the bot is written by a model (the price stands under it
+    text: [true, null, 'answer'],                        // the main chat
+    voice: [true, null, 'answer'],                       // a talk by voice (no row under it)
+    claude_code: [true, null, 'answer'],                 // a step of Claude Code (by the API prices)
+    folder_whois: [true, null, 'own'],                   // the words of an agent of the base (profi:editor:<n>)
+    news: [false, 'the feed of news is written by the base, not by a step of a chat', 'own'],
+    folder_in: [false, NO_MODEL + ': the words of a person', 'own'],
+    folder_out: [false, NO_MODEL + ': the words of Gennady to a person', 'own'],
+    profi_client: [false, NO_MODEL + ': the words of a client of an order', 'own'],
+    profi_sent: [true, null, 'own'],                     // the words that went to a client: the offer of the bot is written by a model (the price stands under it
                                                          // by its uid, profi_bridge_spend); the words of Gennady get no step from the server, so no price
-    profi_draft: [false, 'a draft is not an answer of a step'],
-    profi_call: [false, NO_MODEL + ': a call with a person'],
-    profi_call_draft: [false, 'a draft is not an answer of a step'],
-    profi_notice: [false, 'a line of the system'],
-    call_summary: [false, 'the summary of a call is written by the base; its spend has no chat'],
-    em_intake: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
-    em_request: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
-    em_question: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
-    em_status: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat'],
-    digest: [false, 'the summary of the day is written by the base; its spend has no chat'],
-    base_alert: [false, 'a line of the system'],
-    base_ok: [false, 'a line of the system'],
-    send_wait: [false, 'a line of the system'],
-    send_failed: [false, 'a line of the system'],
-    mac: [true, null],                                   // a step of Claude Code on the Mac (a code task): its price stands under its row
+    profi_draft: [false, 'a draft is not an answer of a step', 'own'],
+    profi_call: [false, NO_MODEL + ': a call with a person', 'own'],
+    profi_call_draft: [false, 'a draft is not an answer of a step', 'own'],
+    profi_notice: [false, 'a line of the system', 'system'],
+    call_summary: [false, 'the summary of a call is written by the base; its spend has no chat', 'system'],
+    em_intake: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
+    em_request: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
+    em_question: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
+    em_status: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
+    digest: [false, 'the summary of the day is written by the base; its spend has no chat', 'system'],
+    base_alert: [false, 'a line of the system', 'system'],
+    base_ok: [false, 'a line of the system', 'system'],
+    send_wait: [false, 'a line of the system', 'system'],
+    send_failed: [false, 'a line of the system', 'system'],
+    mac: [true, null, 'system'],                         // a step of Claude Code on the Mac (a code task): its price stands under its
+                                                         // row; a word of the system all the same — no model of this chat wrote it
   };
+  const kindRow = (origin) => MESSAGE_KINDS[origin == null || origin === '' ? 'text' : String(origin)] || null;
   // May a message of this origin carry a price? An unknown origin may not (and the test fails on it).
   function kindPriced(origin) {
-    const k = MESSAGE_KINDS[origin == null || origin === '' ? 'text' : String(origin)];
+    const k = kindRow(origin);
     return !!(k && k[0]);
   }
+  // What a message of this origin is: 'answer', 'system' or 'own'. An unknown origin is 'system'.
+  function kindLook(origin) {
+    const k = kindRow(origin);
+    return k ? k[2] : 'system';
+  }
+  // May a message of this origin carry the controls of a model — the model button, Retry? Only an answer of a model.
+  const kindReasks = (origin) => kindLook(origin) === 'answer';
 
   // ── The drawing of the page and the Mac: the number on top and the price under a message ────────────────────────────
   //
@@ -704,7 +721,7 @@
   }
 
   root.LexChatMoney = {
-    MESSAGE_KINDS, kindPriced, answerPriced, answerPrice, hasNumber, topNumber, drawTop, drawPrice, formatBalance,
+    MESSAGE_KINDS, kindPriced, kindLook, kindReasks, answerPriced, answerPrice, hasNumber, topNumber, drawTop, drawPrice, formatBalance,
     format, normalize, breakdown, createRefresher, KIND_ORDER,
     stepUsd, lastStep, formatTokens, formatMarkup, payLine, statsLine, formatPause, moscowDay,
     weekLine, stepView, createLiveStep,

@@ -820,6 +820,8 @@
     if (!t) return '';
     return t.dataset.threadKey || (t.classList.contains('wc-turn-apart') ? '?apart' : '');
   }
+  // May this answer carry the controls of a model (the model button, Retry)? By its origin, one table for every place.
+  const reasksKind = (t) => !global.LexChatMoney || global.LexChatMoney.kindReasks(t.dataset.origin);
   function syncFeet() {
     const entries = [];
     const turns = [...elTurns.querySelectorAll('.wc-turn-assistant')];
@@ -846,8 +848,11 @@
         turn: t,
         row,
         // A chat of a person or an order has no second version of an answer (the server refuses it): no model button
-        // and no Retry there — Copy and «⋯» only.
+        // and no Retry there — Copy and «⋯» only. A word of the system (the summary of the day, «Службы базы», the
+        // summary of a call, a task of development, an origin nobody knows) is not an answer of a model either: the
+        // table of the kinds says so (lex-chat-money.js MESSAGE_KINDS, docs/spec/21-chat-canvas.md).
         eligible: !!row && !profiChat && lastOf.get(threadOfTurn(t)) === t
+          && reasksKind(t)
           && !t.classList.contains('is-streaming')
           && !t.classList.contains('wc-turn-error')
           && !t.classList.contains('wc-turn-gate'),

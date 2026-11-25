@@ -1391,8 +1391,14 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
   backdrop-filter: none;
 }
 .wc-main.is-quick .wc-jump { display: none; }
-/* The presets are the teacher's: a chat with an agent takes only words. */
-.wc-main.is-quick-agent #wc-mode-split { display: none; }
+/* A chat with an agent — its task chat, or the field over a screen of an agent — takes only words
+ * (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): no presets (the teacher's), no live voice; «+» has no picture
+ * and no file (wc-composer.js takesFiles). The text, the dictation, send and stop stay. With the voice button gone the
+ * slot folds while the field is empty (wc-composer.js syncButton). */
+.wc-main.is-quick-agent #wc-mode-split,
+.wc-main.is-agent-chat #wc-mode-split,
+.wc-main.is-quick-agent #wc-talk,
+.wc-main.is-agent-chat #wc-talk { display: none; }
 /* The list under the capsule ends above it: 16 + 52 + 16. */
 .wc-main.is-home .wc-home .lex-section-body,
 .wc-main.is-section .lex-section-body { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
