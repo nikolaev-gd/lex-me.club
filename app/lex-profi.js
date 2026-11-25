@@ -1213,9 +1213,12 @@
         const rows = self.whoisRows(w);
         const tied = (w.writer && w.writer.kind === 'group') || (Array.isArray(w.rows) && w.rows.some((r) => r && r.kind === 'deal'));
         const mark = wait ? 'нужен твой ответ' : kind === 'attached' ? (tied ? 'привязал сам' : 'присоединил сам') : '';
+        // An attach of the agent that still stands (`undo`: the database can still undo it; an undone one loses it) is
+        // yellow, «look here» (25.11.2026: Gennady sees at once whom the agent joined here, and says «не он» if not).
+        const attention = kind === 'attached' && w.undo === true;
         const part = M.whois({
           message: true, mark, wait, headline, rows, body, ask, at: t.authoredAt, onGo,
-          note: whoisNote.get(uid) || null,
+          note: whoisNote.get(uid) || null, attention,
         });
         row.appendChild(part);
         // The message comes without the person: it can be new (the «Новые» line, the unread of the chat).

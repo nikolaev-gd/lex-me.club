@@ -878,7 +878,8 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
 }
 /* ── The message of the agent «Кто это» (В7.54, 21.11.2026, boards WhoisW1, WhoisW2) ───────────────────────────
  * An ordinary message of the other side, as in Telegram: the bubble `--lex-bubble-in`, 18 18 18 6, inside 8 12 6,
- * 86 % of the lane, no buttons. The mark 12/600 (`--attention` while it waits for a word of Gennady), the conclusion
+ * 86 % of the lane, no buttons. The mark 12/600 (`--attention` while it waits for a word of Gennady or while an attach
+ * of the agent stands — then the bubble too is on `--attention-wash` with a rim 2 `--attention`), the conclusion
  * 16/650, the lines of who is who on `--bg-raised` (radius 12, at least 52, the face 36), the words 15 `--fg-soft`,
  * over a line `--line` what the agent waits for 15, the time 12 at the right foot. */
 .lex-whois-msg {
@@ -892,6 +893,14 @@ button.lex-brief:focus-visible { outline: 2px solid var(--line-strong); outline-
   color: var(--fg, var(--lex-plain-fg)); font-size: 12px; font-weight: 600; line-height: 16px;
 }
 .lex-whois-msg.is-wait .lex-whois-mark { color: var(--attention); }
+/* An attach of the agent that still stands (25.11.2026): «look here» — the yellow ground over the bubble, a rim 2 and the
+ * mark in the yellow; undone or old — the plain bubble. */
+.lex-whois-msg.is-attention {
+  background: linear-gradient(var(--attention-wash, rgba(242, 193, 75, .12)), var(--attention-wash, rgba(242, 193, 75, .12))),
+    var(--lex-bubble-in);
+  box-shadow: inset 0 0 0 2px var(--attention, #f2c14b);
+}
+.lex-whois-msg.is-attention .lex-whois-mark { color: var(--attention, #f2c14b); }
 .lex-whois-msg.is-plain .lex-whois-mark { color: var(--fg-muted); }
 .lex-whois-msg .lex-whois-mark .lex-sparkle { flex: 0 0 auto; width: 14px; height: 14px; }
 .lex-whois-msg .lex-whois-headline { font-size: 16px; font-weight: 650; line-height: 22px; }

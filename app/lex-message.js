@@ -109,7 +109,8 @@
 //                       answered or withdrawn — one line, a press unfolds it. o = { at, pending,
 //                       open, onChoice(i), onToggle() }
 //   whois(o)            the message of the agent «Кто это» (В7.54, 21.11.2026, no buttons): o.message — the bubble of
-//                       the other side, 86 %: the mark (sparkle, «Lex», o.mark, o.wait — `--attention`), o.headline,
+//                       the other side, 86 %: the mark (sparkle, «Lex», o.mark, o.wait — `--attention`; o.attention —
+//                       an attach that stands: the mark, the ground and a rim of `--attention`), o.headline,
 //                       o.rows [{ caption, name, sub, face: { name, photo, io, deal }, href | onPress }] — the lines of
 //                       who is who (a link where it opens something), the words (Markdown the caller drew into `body`,
 //                       links of Lex go to onGo), o.ask under a line, o.note { error }, the time. Without o.message —
@@ -1910,6 +1911,9 @@
   // bubble of the other side (`--lex-bubble-in`, 18 18 18 6, inside 8 12 6, 86 % of the lane), from top to bottom:
   //   the mark — the sparkle 14, «Lex», and through «·» what it is (`mark`: «присоединил сам», «привязал сам», «нужен
   //   твой ответ»), 12/600, `--attention` when it waits for a word of Gennady (`wait`), `--fg` else, 4 to the words;
+  //   an attach of the agent that still stands (`attention`, 25.11.2026: «ярко, жёлтым — чтобы я увидел, что он
+  //   соединил») — the mark `--attention`, the bubble on `--attention-wash` over `--lex-bubble-in` with a rim 2
+  //   `--attention`;
   //   the conclusion (`headline`) 16/650; the lines (`rows`: [{ caption, name, sub, face: { name, photo, deal },
   //   href | onPress }]) through 6 at 8 — the face 36, the caption 12 `--fg-muted`, the name 15/600, the second line 13
   //   `--fg-muted`, a chevron 16 where the line opens something (`href` — a site in a new tab, `onPress` — a place of
@@ -1990,7 +1994,8 @@
       root.append(head, whoisWords(o), questionFoot(o.at, null, false, null, null));
       return root;
     }
-    const root = make('div', `lex-whois-msg${o.wait ? ' is-wait' : o.mark ? '' : ' is-plain'}`);
+    const lit = !o.wait && !!o.attention;
+    const root = make('div', `lex-whois-msg${o.wait ? ' is-wait' : lit ? ' is-attention' : o.mark ? '' : ' is-plain'}`);
     root.setAttribute('role', 'article');
     const mark = make('div', 'lex-whois-mark');
     mark.append(sparkle(14), make('span', '', 'Lex'));
