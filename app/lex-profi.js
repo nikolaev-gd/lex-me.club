@@ -994,64 +994,33 @@
         }
       },
 
-      // The order the way Profi shows it. On top what matters at a glance, then its blocks,
-      // below what is seen less often. What stands where is the monitor's and the server's word.
-      head() {
-        // A chat of a folder has no order: nothing stands over its messages.
-        if (folder) return document.createDocumentFragment();
-        const root = make('header', 'lex-profi-head');
-        if (!data) return root;
-        // The title opens the order on the site of Profi (the arrow of the bar moved here,
-        // 2026-11-14): a link with a small arrow on its right.
-        if (data.orderUrl) {
-          const a = make('a', 'lex-profi-head-title lex-profi-head-order', data.title || '');
-          a.href = data.orderUrl;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          a.setAttribute('aria-label', `${data.title || 'The order'}. Open the order on Profi`);
-          a.appendChild(strokeIcon([['path', { d: 'M7 17L17 7' }], ['path', { d: 'M8 7h9v9' }]], 14));
-          root.appendChild(a);
-        } else {
-          root.appendChild(make('div', 'lex-profi-head-title', data.title || ''));
-        }
-        const line = make('div', 'lex-profi-head-line');
-        const add = (node) => {
-          if (line.childElementCount) line.appendChild(make('span', '', '·'));
-          line.appendChild(node);
-        };
-        // The client's name stands in the bar over the chat (2026-11-13), not here.
-        if (data.budget) add(make('span', '', data.budget));
-        if (data.chatUrl) {
-          const a = make('a', 'lex-profi-link', 'Chat on Profi');
-          a.href = data.chatUrl;
-          a.target = '_blank';
-          a.rel = 'noopener noreferrer';
-          add(a);
-        }
-        if (line.childElementCount) root.appendChild(line);
-        if ((data.facts || []).length) root.appendChild(make('div', 'lex-profi-head-facts', data.facts.join(' · ')));
-        for (const s of data.sections || []) {
-          root.appendChild(make('div', 'lex-profi-head-block', s.title));
-          // The files the client attached to the order (the block «Файлы», 2026-11-14): each name is a
-          // link to the file itself on the site of Profi, the same link as «Chat on Profi».
-          const links = (Array.isArray(s.links) ? s.links : [])
-            .filter((l) => l && typeof l.url === 'string' && PROFI_FILE.test(l.url));
-          if (!links.length) {
-            root.appendChild(make('div', 'lex-profi-head-text', s.text));
-            continue;
-          }
-          const box = make('div', 'lex-profi-head-text');
-          links.forEach((l, i) => {
-            if (i) box.appendChild(document.createElement('br'));
-            const a = make('a', 'lex-profi-link', String(l.name || 'File'));
-            a.href = l.url;
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
-            box.appendChild(a);
-          });
-          root.appendChild(box);
-        }
-        if ((data.foot || []).length) root.appendChild(make('div', 'lex-profi-head-foot', data.foot.join(' · ')));
+      // The order is the first message of the client (Gennady, 25.11.2026; docs/PLAN-CHAT-UNIFY.md, «Карточка заказа»): the
+      // message of an order (LexMessage.order, В7.29) as wide as a bubble of the client, at the top of the chat, before
+      // everything that came after it. The title opens the order on the site of Profi; «Chat on Profi» after the
+      // budget; then what the order is, its blocks (the description folds at its lines — Read more, В7.82 — its files
+      // are links to the files themselves), and last the server's words when the order was left. The server gives no
+      // hour of the order (only «Заказ оставлен … назад»), so the head has no time: those words are its time. A chat of
+      // a folder has no order: null.
+      firstMessage() {
+        if (folder || !data) return null;
+        const M = global.LexMessage;
+        const sections = (data.sections || []).map((sec) => ({
+          title: sec && sec.title,
+          text: sec && sec.text,
+          // The files the client attached to the order (the block «Файлы», 2026-11-14): only a file of the site of Profi.
+          links: (Array.isArray(sec && sec.links) ? sec.links : [])
+            .filter((l) => l && typeof l.url === 'string' && PROFI_FILE.test(l.url)),
+        }));
+        const node = M.order({
+          order: deps.order, title: data.title || '', url: data.orderUrl || null, timeText: '',
+          budget: data.budget || null,
+          links: data.chatUrl ? [{ text: 'Chat on Profi', url: data.chatUrl }] : [],
+          facts: (data.facts || []).join(' · '), sections, note: (data.foot || []).join(' · '),
+          fold: `order:${deps.order}`, side: 'in',
+        });
+        const root = make('div', 'wc-turn lex-profi-msg is-client is-order');
+        root.dataset.origin = 'profi_order';
+        root.appendChild(node);
         return root;
       },
 
@@ -1120,7 +1089,12 @@
             node = M.bubble({ side: out ? 'out' : 'in', media,
               // A group of a folder: the name of who wrote over his message, as Telegram has it.
               label: folder && !out && typeof look.author === 'string' && look.author.trim() ? look.author.trim() : null,
-              body: said.digest ? M.digest(words, said.digest) : linkedText(make('div', '', ''), words),
+              // A long text — the person's words or the digest of a file — folds at its lines (Read more, В7.82); the
+              // state is the message's while the page lives. A copy in the sheet of a message stands whole.
+              body: (() => {
+                const text = said.digest ? M.digest(words, said.digest) : linkedText(make('div', '', ''), words);
+                return still || !M.readMore || (!said.digest && M.emojiOnly(words)) ? text : M.readMore(text, { key: uid });
+              })(),
               // «Forwarded from <name>»; `forwarded` alone — the author is not known (WhatsApp): «Forwarded».
               forwarded: typeof look.forwardedFrom === 'string' && look.forwardedFrom.trim() ? look.forwardedFrom.trim()
                 : look.forwarded === true ? true : null,
@@ -2420,7 +2394,8 @@
         title: 'Не уверен, что заказ подходит',
         text: it.why || (state === 'countdown' ? 'Отмени, если заказ не подходит.' : 'Отклик не отправлен: отправь или ответь сам.'),
       } : null;
-      const node = M.order({ ...base, text: it.description, reply: it.draft, ask,
+      // A long description folds at its lines (Read more, В7.82), as the order at the top of its chat does.
+      const node = M.order({ ...base, text: it.description, fold: `feed:${it.order}`, reply: it.draft, ask,
         foot: foot.childElementCount ? foot : null,
         onFold: done ? () => { opened.delete(it.order); repaintOrder(it.order); } : null });
       if (cd) {

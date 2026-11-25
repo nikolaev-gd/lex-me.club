@@ -1228,7 +1228,9 @@
       edits.clear();
       followedNow = null;
       elTurns.replaceChildren();
-      if (profiChat) elTurns.append(profiChat.head());
+      // An order chat begins with its order, as the first message of the client (lex-profi.js firstMessage).
+      const first = profiChat && profiChat.firstMessage ? profiChat.firstMessage() : null;
+      if (first) elTurns.append(first);
       // A feed shows its latest entries; the earlier ones come by this button.
       if (opts && opts.emEarlier) {
         const b = el('button.wc-em-earlier', { type: 'button' }, []);

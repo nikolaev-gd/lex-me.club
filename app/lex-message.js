@@ -1309,19 +1309,123 @@
     return b;
   }
 
+  // ── Read more (В7.82, 25.11.2026) ───────────────────────────────────────────
+  // A long text stands folded, as in WhatsApp (docs/PLAN-CHAT-UNIFY.md, «Read more»): the first lines, and «… Read more»
+  // as a word at the end of the last of them; a press shows it whole, «Read less» at its end folds it back. How many
+  // lines — only here (FOLD_LINES): the text of a message, 8; the line «who is this» in the bar over a chat, 3 (the bar
+  // stays low). The same numbers on the iPhone: `LexReadMore.lines` (Parts/ReadMore.swift).
+  //   readMore(body, { lines: 'text' | 'bar', key, open, onToggle(open), always, end }) → the element
+  //   body      the text, a node; its own look stays (`pre-wrap`, Markdown, links)
+  //   key       the message the state belongs to (its uid): an unfolded text stays so while the page lives — every
+  //             repaint of the chat draws it unfolded again. No key — the node alone keeps it.
+  //   open, onToggle — the caller keeps the state itself (a call, whose «Read more» opens the whole call): onToggle
+  //             gets the new state and the caller draws again.
+  //   always    there is more than these words even when they fit (a call: its detailed summary and transcript):
+  //             «Read more» stands at the end of the text anyway.
+  //   end       where an inline «Read less» goes (the end of the words; body by default).
+  // The word is measured, not guessed: while folded the text is cut at its lines and the word floats into the last
+  // of them (the words of that line wrap round it); a text that fits has no word. Without ResizeObserver (a page with
+  // no layout) nothing is folded.
+  const FOLD_LINES = { text: 8, bar: 3 };
+  const unfolded = new Set();
+  function readMore(body, o) {
+    o = o || {};
+    const lines = FOLD_LINES[o.lines] || FOLD_LINES.text;
+    const root = make('div', 'lex-more');
+    root.style.setProperty('--lex-more-lines', String(lines));
+    const box = make('div', 'lex-more-text');
+    box.appendChild(body);
+    root.appendChild(box);
+    const key = o.key != null && o.key !== '' ? String(o.key) : null;
+    let open = o.open != null ? !!o.open : !!(key && unfolded.has(key));
+    const btn = make('button', 'lex-more-btn');
+    btn.type = 'button';
+    const end = o.end || body;
+    let over = false;
+    // The space before an inline word: a line that breaks there starts with the word, not with a gap.
+    const gap = document.createTextNode(' ');
+    const paint = () => {
+      btn.remove();
+      gap.remove();
+      btn.classList.remove('is-end');
+      root.classList.toggle('is-folded', over && !open);
+      root.classList.toggle('is-open', open);
+      if (over && !open) {
+        btn.replaceChildren(make('span', 'lex-more-dots', '…'), document.createTextNode(' Read more'));
+        btn.setAttribute('aria-expanded', 'false');
+        box.insertBefore(btn, box.firstChild);
+      } else if ((over && open) || o.always) {
+        btn.textContent = open ? 'Read less' : 'Read more';
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.classList.add('is-end');
+        if ((end.textContent || '').trim()) end.appendChild(gap);
+        end.appendChild(btn);
+      }
+    };
+    const fit = () => {
+      if (!root.isConnected || !root.getClientRects().length) return;
+      // Measured without the word and uncut: the text alone says whether it is longer than its lines.
+      btn.remove();
+      gap.remove();
+      root.classList.remove('is-folded');
+      const cs = getComputedStyle(body);
+      const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 15) * 1.35;
+      root.style.setProperty('--lex-more-lh', `${lh}px`);
+      const top = body.getBoundingClientRect().top;
+      const cap = lh * lines;
+      over = body.getBoundingClientRect().height > cap + 2;
+      // A text of blocks (the digest: a list, a table, paragraphs with room between them) cuts at the bottom of the
+      // last whole line under the cap, never through the letters of a line.
+      let cut = cap;
+      if (over && typeof document.createRange === 'function') {
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        let best = 0;
+        for (const r of range.getClientRects()) {
+          // A rect of text is its letters; its line is half the leading lower.
+          const b = r.bottom - top + Math.max(0, (lh - r.height) / 2);
+          if (r.height > 0 && b <= cap + 1 && b > best) best = b;
+        }
+        if (best > lh) cut = Math.ceil(best);
+      }
+      root.style.setProperty('--lex-more-max', `${cut}px`);
+      paint();
+    };
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      open = !open;
+      if (key) { if (open) unfolded.add(key); else unfolded.delete(key); }
+      if (o.onToggle) o.onToggle(open); else paint();
+    });
+    // A press on the word is not a press on what holds it (the line «who is this» opens the card).
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    paint();
+    // Fitted again when the width changes (the window, the text size); its own folding changes only the height.
+    let width = -1;
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver((list) => {
+        const w = Math.round(list[list.length - 1].contentRect.width);
+        if (w === width) return;
+        width = w;
+        fit();
+      }).observe(root);
+    }
+    return root;
+  }
+
   // ── A call in a chat (В7.42, 2026-11-16) ────────────────────────────────────
   // Gennady's decision on the canvas «Разделы Lex по стандарту», page «Созвоны в чате: утверждено», changed by his word
   // of 24.11.2026: a call stands in the chat as an ordinary message of the other person — a bubble with the short summary
-  // (its first sentence, «Созвон в 18:00, 32 минуты.», is written by the model: no duration of ours), folded to seven lines; under it «Show the whole call» opens
-  // it in place: the detailed summary under a line, the transcript under another, «Show the whole transcript» and «Hide».
+  // (its first sentence, «Созвон в 18:00, 32 минуты.», is written by the model: no duration of ours), folded as any
+  // long text (В7.82, 25.11.2026): «Read more» at the end of its words opens it in place — the detailed summary under a
+  // line, the transcript under another, «Show the whole transcript», and «Read less» at the end folds it back.
   // The line under the words is the stamp of any message: the mark of the place, «Zoom call», «·», the time the message came. While there
   // is no summary — a ring and «Lex is writing the summary…». A missed call and a call without a recording are a plate
   // (notice, В7.3).
   // o: { channel, at, seconds, state: writing | done | failed | none, short, sections: [{title, items | text}],
   //      lines — how many lines the transcript has, head — its first lines, transcript — all of them once loaded,
   //      open, all — the whole transcript shown, loading, onToggle(open), onAll() }
-  const CHEVRON_DOWN = 'M6 9l6 6 6-6';
-  const CHEVRON_UP = 'M18 15l-6-6-6 6';
   function chevronIcon(d, size) {
     const n = svg('0 0 24 24', size);
     n.setAttribute('class', 'lex-call-chevron');
@@ -1347,16 +1451,6 @@
   }
   function call(o) {
     const body = make('div', 'lex-call-body');
-    if (o.state === 'writing' && !o.short) {
-      const wait = make('div', 'lex-call-wait');
-      wait.append(make('span', 'lex-call-ring'), document.createTextNode('Lex is writing the summary…'));
-      body.appendChild(wait);
-    } else if (o.short || o.state === 'failed') {
-      const words = make('div', `lex-call-short${o.open ? '' : ' is-folded'}`);
-      if (o.short) words.appendChild(document.createTextNode(o.short));
-      else words.appendChild(make('span', 'lex-call-meta', 'Lex could not write the summary.'));
-      body.appendChild(words);
-    }
     const finish = () => {
       const b = bubble({ side: 'in', body, stamp: bubbleStamp(o) });
       b.classList.add('lex-call');
@@ -1364,55 +1458,66 @@
       b.setAttribute('role', 'article');
       return b;
     };
-    if (!o.open) {
+    if (o.state === 'writing' && !o.short) {
       // While the summary is written the block is only the ring (the board «Другие случаи»).
-      if (o.state !== 'writing' || o.short) {
-        const more = button({ label: 'Show the whole call', trail: chevronIcon(CHEVRON_DOWN, 16) });
-        more.classList.add('lex-call-more');
-        if (o.onToggle) more.addEventListener('click', () => o.onToggle(true));
-        body.appendChild(more);
-      }
+      const wait = make('div', 'lex-call-wait');
+      wait.append(make('span', 'lex-call-ring'), document.createTextNode('Lex is writing the summary…'));
+      body.appendChild(wait);
+      return finish();
+    }
+    // The words, and when open the whole call under them, are one text of «Read more» (В7.82): folded — the short
+    // summary at its lines with «Read more» at its end, which opens the whole call; open — «Read less» at its end.
+    const text = make('div', 'lex-call-all');
+    const words = make('div', 'lex-call-short');
+    if (o.short) words.appendChild(document.createTextNode(o.short));
+    else words.appendChild(make('span', 'lex-call-meta', 'Lex could not write the summary.'));
+    text.appendChild(words);
+    if (!o.open) {
+      body.appendChild(readMore(text, { open: false, always: true, end: words,
+        onToggle: (open) => { if (o.onToggle) o.onToggle(open); } }));
       return finish();
     }
     const sections = Array.isArray(o.sections) ? o.sections : [];
     if (sections.length) {
-      body.appendChild(make('div', 'lex-call-rule'));
+      text.appendChild(make('div', 'lex-call-rule'));
       for (const s of sections) {
-        body.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
+        text.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
         if (Array.isArray(s.items) && s.items.length) {
           for (const it of s.items) {
             const row = make('div', 'lex-call-item');
             const dot = make('span', 'lex-call-dot', '•');
             dot.setAttribute('aria-hidden', 'true');
             row.append(dot, make('span', '', String(it)));
-            body.appendChild(row);
+            text.appendChild(row);
           }
         } else if (s.text) {
-          body.appendChild(make('div', 'lex-call-text', String(s.text)));
+          text.appendChild(make('div', 'lex-call-text', String(s.text)));
         }
       }
     }
     const lines = Array.isArray(o.transcript) ? o.transcript : (Array.isArray(o.head) ? o.head : []);
     if (lines.length || o.lines) {
-      body.appendChild(make('div', 'lex-call-rule is-tr'));
-      const t = make('div', 'lex-call-sec is-tr', 'Transcript');
-      body.appendChild(t);
+      text.appendChild(make('div', 'lex-call-rule is-tr'));
+      text.appendChild(make('div', 'lex-call-sec is-tr', 'Transcript'));
       const shown = o.all ? lines : lines.slice(0, 3);
-      for (const l of shown) body.appendChild(callLine(l));
+      for (const l of shown) text.appendChild(callLine(l));
       const total = Number(o.lines) || lines.length;
       if (!o.all && total > shown.length) {
-        const all = button({ label: o.loading ? 'Loading the transcript…' : 'Show the whole transcript',
-          trail: chevronIcon(CHEVRON_DOWN, 16) });
-        all.classList.add('lex-call-more');
+        // A word as «Read more» is, on a line of its own: the rest of the transcript comes from the server.
+        const row = make('div', 'lex-call-all-tr');
+        const all = make('button', 'lex-more-btn', o.loading ? 'Loading the transcript…' : 'Show the whole transcript');
+        all.type = 'button';
         all.disabled = !!o.loading;
         if (o.onAll) all.addEventListener('click', () => o.onAll());
-        body.appendChild(all);
+        row.appendChild(all);
+        text.appendChild(row);
       }
     }
-    const hide = button({ label: 'Hide', trail: chevronIcon(CHEVRON_UP, 16) });
-    hide.classList.add('lex-call-more', 'is-hide');
-    if (o.onToggle) hide.addEventListener('click', () => o.onToggle(false));
-    body.appendChild(hide);
+    // «Read less» closes the whole call, on a line of its own at the end of it.
+    const tail = make('div', 'lex-call-tail');
+    text.appendChild(tail);
+    body.appendChild(readMore(text, { open: true, always: true, end: tail,
+      onToggle: (open) => { if (o.onToggle) o.onToggle(open); } }));
     return finish();
   }
   // The line under the words of a call: «WhatsApp call · 18:00» — the stamp of any message.
@@ -1456,8 +1561,16 @@
   // 18.11.2026: «Комиссия 130 ₽», «Оплата 31 ₽», «Цена отклика — в форме»).
   const orderWho = (o) => [o.client, o.budget, o.pay].map((x) => String(x || '').trim()).filter(Boolean).join(' · ');
 
-  // order({ order, title, url, at | timeText, client, budget, pay, text, reply, state, foot, ask, folded,
-  //         onOpen, onFold })
+  // order({ order, title, url, at | timeText, client, budget, pay, links, facts, text, sections, note, fold, side,
+  //         reply, state, foot, ask, folded, onOpen, onFold })
+  //   links   [{ text, url }] — after «client · budget» on the same line («Chat on Profi»), each a link of its own
+  //   facts   one line 13 under it (what the order is: «Оплата 64 ₽ · Дистанционно · Санкт-Петербург»)
+  //   sections [{ title, text, links: [{ name, url }] }] — the blocks of the order as Profi shows them: a title 13/600
+  //           and its text (or its files, each name a link), after `text`
+  //   note    the last line 12 (when the order was left, its reviews: the server's words)
+  //   fold    a key: the text and the blocks fold at their lines (Read more, В7.82) under this key
+  //   side    'in' — the first message of the client in an order chat (25.11.2026): as wide as a bubble of the
+  //           other person, not the whole lane
   //   pay     what the reply costs, after the client and the budget
   //   state   { text, icon: 'tick' | 'cross' | 'reply' | null, danger } — on the right above the reply
   //           (no word «Reply» — Gennady, 18.11.2026): the price before the reply leaves, how it ended after
@@ -1465,6 +1578,14 @@
   //   ask     { title, text } — the band on top
   //   folded  true — the three lines; onOpen() — a press on them; onFold() — the chevron up of a
   //           done order shown whole (none — no chevron)
+  // A link inside the grey part of an order: «Chat on Profi», a file of the order — opens in a new tab.
+  function orderLink(text, url) {
+    const a = make('a', 'lex-order-link', text || '');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    return a;
+  }
   function order(o) {
     const time = o.timeText != null ? o.timeText : timeOf(o.at);
     const who = orderWho(o);
@@ -1486,7 +1607,7 @@
       if (o.onOpen) b.addEventListener('click', o.onOpen);
       return b;
     }
-    const root = make('article', 'lex-order');
+    const root = make('article', `lex-order${o.side === 'in' ? ' is-in' : ''}`);
     if (o.order != null) root.dataset.order = o.order;
     if (o.ask) {
       const band = make('div', 'lex-order-ask');
@@ -1521,8 +1642,32 @@
       head.appendChild(fold);
     }
     inPart.appendChild(head);
-    if (who) inPart.appendChild(make('div', 'lex-order-who', who));
-    if (o.text) inPart.appendChild(make('div', 'lex-order-text', o.text));
+    const links = (Array.isArray(o.links) ? o.links : []).filter((l) => l && l.url);
+    if (who || links.length) {
+      const line = make('div', 'lex-order-who', who);
+      for (const l of links) {
+        if (line.childNodes.length) line.appendChild(document.createTextNode(' · '));
+        line.appendChild(orderLink(l.text, l.url));
+      }
+      inPart.appendChild(line);
+    }
+    if (o.facts) inPart.appendChild(make('div', 'lex-order-facts', o.facts));
+    const fold = o.fold != null && o.fold !== '' ? String(o.fold) : null;
+    const folded = (node, i) => (fold ? readMore(node, { key: `${fold}:${i}` }) : node);
+    if (o.text) inPart.appendChild(folded(make('div', 'lex-order-text', o.text), 'text'));
+    (Array.isArray(o.sections) ? o.sections : []).forEach((sec, i) => {
+      if (!sec) return;
+      if (sec.title) inPart.appendChild(make('div', 'lex-order-sec', String(sec.title)));
+      const files = (Array.isArray(sec.links) ? sec.links : []).filter((l) => l && l.url);
+      if (files.length) {
+        const box = make('div', 'lex-order-files');
+        for (const l of files) box.appendChild(orderLink(String(l.name || 'File'), l.url));
+        inPart.appendChild(box);
+      } else if (sec.text) {
+        inPart.appendChild(folded(make('div', 'lex-order-text is-sec', String(sec.text)), i));
+      }
+    });
+    if (o.note) inPart.appendChild(make('div', 'lex-order-note', o.note));
     root.appendChild(inPart);
     if (o.reply || o.foot) {
       const out = make('div', 'lex-order-out');
@@ -1641,7 +1786,7 @@
     const b = make('button', `lex-btn${o.main ? ' is-main' : ''}${o.left ? ' is-left' : ''}${o.icon || o.trail ? ' has-icon' : ''}`);
     b.type = 'button';
     // `icon` — a mark 16 before the words, through 8: the arrow of a reply on «Reply» (В7.37); `trail` — a
-    // mark after the words: the chevron of «Show the whole call» and «Hide» (В7.42).
+    // mark after the words (a chevron).
     if (o.icon) b.appendChild(o.icon);
     b.appendChild(make('span', 'lex-btn-words', o.label || ''));
     if (o.note) b.appendChild(make('span', 'lex-btn-note', o.note));
@@ -1695,7 +1840,7 @@
   // ── «Who is this» under the bar of a chat (В7.52, 2026-11-20) ────────────────
   // One or two phrases about the person the chat is with — his post, his company, what he does, where he came
   // from. The database of Lex writes them (the cards of people kept up to date after a message and a call); the
-  // part shows them as they came: 13 `--fg-muted`, three lines at most, then an ellipsis. It stands under the bar
+  // part shows them as they came: 13 `--fg-muted`, three lines, then «… Read more» (В7.82). It stands under the bar
   // of the chat on a line of its own, as wide as the thread, and does not scroll with it; no words — no line (the
   // caller draws nothing: null). `onOpen` — a press opens the card of the person (an order chat, В7.41): the line
   // is then a button with a zone of 44. The card shows the same words whole as its first block (lex-person.js).
@@ -1703,14 +1848,16 @@
     const words = String(text == null ? '' : text).trim();
     if (!words) return null;
     const open = o && o.onOpen;
-    const n = make(open ? 'button' : 'div', 'lex-brief');
+    // The words fold at three lines with «Read more» at their end (В7.82, 25.11.2026): a press on the word shows them
+    // whole in the bar, anywhere else on the line — the card. The line is a press face then, not a <button>: the word
+    // inside it is a button of its own.
+    const n = open ? pressFace('div', 'lex-brief') : make('div', 'lex-brief');
     if (open) {
-      n.type = 'button';
       n.setAttribute('aria-label', words + '. Open the card of the person');
       n.addEventListener('click', open);
     }
     n.title = words;
-    n.appendChild(make('span', 'lex-brief-words', words));
+    n.appendChild(readMore(make('div', 'lex-brief-words', words), { lines: 'bar', key: `brief:${words}` }));
     return n;
   }
 
@@ -3036,7 +3183,7 @@
   global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);
