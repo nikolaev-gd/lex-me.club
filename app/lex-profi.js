@@ -1612,6 +1612,16 @@
           // A stand account (not an account of the database) sends to nobody: its text says so.
           const sends = ((data && data.sends) || []).filter((s) => s && s.state !== 'sent' && s.state !== 'dropped');
           const items = sends.map((s) => {
+            // Waiting for its time (folder-send with sendAt): the person's own text as the order chat draws one — paler,
+            // a dashed frame, the clock and the time where the ticks stand, «Cancel» (its words come back into the
+            // field) and «Hold to send now» (the same number of the press, without a time) — the one window, with the
+            // door of the chat.
+            if (s.state === 'scheduled') {
+              return outboxNode({
+                id: s.id, op: s.op || null, text: s.text || '', state: 'scheduled', sendAt: s.sendAt || null,
+                direct: true, outbox: true, to: s.channel || (data && data.replyTo) || null, quoteUid: s.quoteUid || null,
+              }, boxDeps());
+            }
             const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
             const body = make('div', '', '');
             body.textContent = s.text || '';
@@ -1730,26 +1740,35 @@
         // A word in the branch «who is this» goes to the model of that question and nowhere else: no way to send it
         // to the person (the line «Reply to Lex» is over the field).
         if (quoteUid && WHOIS_UID.test(quoteUid)) return null;
-        // A chat of a folder: the text goes to the person now, without the assistant, where he wrote last, or to
-        // the messenger of the message it answers; no time to pick (the queue of the database sends at once). A
-        // group the database does not send to — none. A group it sends to: the head and the item name the group,
-        // every member of it reads the text.
+        // A chat of a folder: the text goes to the person without the assistant, where he wrote last, or to the
+        // messenger of the message it answers — now, or at a time (folder-send with sendAt: the row waits in Lex and
+        // leaves by itself; where it goes is decided when it leaves). A group the database does not send to — none.
+        // A group it sends to: the head and the item name the group, every member of it reads the text.
         if (folder) {
           // A group Lex does not send into keeps the menu: its item answers why (sendText refuses, 2026-11-21).
           if (typeof deps.sendText !== 'function' || (!data.send && data.kind !== 'group')) return null;
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
           const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
+          // «Schedule…» — the same text at a time, where the door of the chat has one for the text (LexChatProfile.laterOf).
+          const later = door().later ? [{
+            label: 'Schedule…',
+            icon: 'clock',
+            run: async () => {
+              const at = await global.LexSendLater.pick({ text, client: data.client || data.title || null });
+              return at ? deps.sendText(text, quoteUid, { at }) : false;
+            },
+          }] : [];
           if (data.kind === 'group') {
             return {
               group: true,
               head: `To the group ${data.title || data.client || ''}`.trim() + ': everyone in it will read this',
-              items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
+              items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }].concat(later),
             };
           }
           const at = self.attachedAddress(where);
           return {
             head: `To ${data.client || data.title || 'the person'}, without Lex`,
-            items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
+            items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }].concat(later),
           };
         }
         // The person's own text goes by the door of the chat (profi_send_text), as its boxes do; a refusal or no
@@ -1776,10 +1795,10 @@
         const mark = global.LexMessage && global.LexMessage.channel(place || 'profi');
         return {
           head: `To ${data.client || 'the client'}, without Lex`,
-          // «Schedule…» — where the door of the chat has a time (an order chat: profi_send_text with p_at).
+          // «Schedule…» — where the door of the chat has a time for the text (an order chat: profi_send_text with p_at).
           items: [
             { label: `Send to ${self.attachedAddress(place) || placeName(place)} now`, icon: mark || 'send', run: () => send(null) },
-          ].concat(door().schedules ? [{
+          ].concat(door().later ? [{
             label: 'Schedule…',
             icon: 'clock',
             run: async () => {

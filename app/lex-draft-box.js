@@ -162,7 +162,8 @@
   //   deps = {
   //     apply(marks)   the marks an answer brought (a window of the base): the caller replaces what the chat holds
   //     refresh()      an answer without marks (a box of a chat): the caller reads the chat again → Promise
-  //     putBack(text)  the person's own text came back from its way (Cancel of one that waited): into the field
+  //     putBack(text, opts)  the person's own text came back from its way (Cancel of one that waited): into the field;
+  //                    opts.taken — the server took it off its way already: never lost, before the field's own words
   //     copy(text)     Copy of the bubble → Promise<bool> (default: LexAnswerRow.copyText)
   //     layer          a class the menu of «⋯» gets in the <body> (the windows of the extension: ytvocab-sl-portal)
   //   }
@@ -239,7 +240,9 @@
         }
         if (r.after && !r.busy) u.after = { text: String(r.after), sig: sigOf((before && before.view) || view) };
         if (saving && r.ok !== false) u.edit = null;
-        if (r.putBack && typeof d0.putBack === 'function') { try { d0.putBack(String(r.putBack)); } catch (_) { /* the field is not there */ } }
+        // r.taken — the server took the text off its way (Cancel or Delete of the person's own text): the field takes it
+        // even with words of its own in it, before them, so that nothing is lost.
+        if (r.putBack && typeof d0.putBack === 'function') { try { d0.putBack(String(r.putBack), r.taken ? { taken: true } : undefined); } catch (_) { /* the field is not there */ } }
       }
       // The field of Edit is still open (the call failed, the server refused): the caret goes back into it, where the
       // words are to be mended — the button that was pressed is drawn anew and the focus would be lost.
@@ -538,8 +541,12 @@
   // brain-action with the kind of the mark.
   //   o = { profile, kind (the door itself, when the table of profiles is not loaded: a page of a check), rpc(name, args), folderSend(body), brain(body), chatKey(), order(), closed() → the words why this
   //         chat takes no messages now | '' }
-  //   → { kind, schedules (a time can be picked: the order chats), send(w), at(w, date), cancel(w), text(w, words),
-  //       direct(text, { quote, at }) }
+  //   → { kind, schedules (a box may wait for a time: the order chats), later (the held arrow's text may wait for a
+  //       time: the order chats and the chats of the folders — LexChatProfile.laterOf), send(w), at(w, date), cancel(w),
+  //       text(w, words), direct(text, { quote, at }) }
+  // A chat of the folders: the person's own text that waits for its time is a window too (w.direct, w.id — the row of
+  // its send, w.op — the number of its press): send(w) sends it now (folder-send, the same number without a time),
+  // cancel(w) takes it back (folder_send_cancel) and gives its words back for the field (putBack).
   // Every call answers as brain-action does — { ok, text, state, channel, busy, marks, putBack, test } — or throws
   // Error(why) when the server was not reached. A call that got no answer at all (the connection dropped, a gateway
   // in front of the server) is tried again by itself with the SAME number of the press, after 1, 3 and 6 s: the server
@@ -575,6 +582,7 @@
   function door(o) {
     const P = global.LexChatProfile;
     const kind = P && typeof P.doorOf === 'function' ? P.doorOf(o.profile) : (o.kind || 'brain');
+    const later = kind !== 'brain';
     // The number of a press, by what it is: the same until the server answered it.
     const ops = new Map();
     const opOf = (what) => { if (!ops.has(what)) ops.set(what, newOp()); return ops.get(what); };
@@ -603,6 +611,7 @@
       return {
         kind,
         schedules: false,
+        later: false,
         send: (m) => call({ op: 'send', turnUid: m.uid, kind: m.kind }),
         text: (m, words) => call({ op: 'text', turnUid: m.uid, kind: m.kind, text: words }),
         cancel: (m) => call({ op: 'cancel', turnUid: m.uid, kind: m.kind }),
@@ -622,7 +631,9 @@
     };
     const cancel = async (w) => {
       const r = await again(() => o.rpc('profi_send_cancel', { p_window: w.id }));
-      return answered(r, { putBack: r && r.state === 'removed' && r.text ? r.text : null });
+      // removed — the server deleted the person's own text: its words come back for the field and are never lost (taken).
+      const back = r && r.state === 'removed' && r.text ? r.text : null;
+      return answered(r, { putBack: back, taken: !!back });
     };
 
     if (kind === 'folder') {
@@ -631,6 +642,7 @@
       const send = async (w) => {
         const why = closed();
         if (why) return refused(why);
+        if (w && w.direct) return sendNow(w);
         if (!w || !w.id || !String(w.text || '').trim()) return refused('The box has no words.');
         const tries = w.press ? (Number(String(w.press).split(':')[2]) || 1) + 1 : 1;
         const out = await o.folderSend({
@@ -640,23 +652,43 @@
         const s = out && out.send ? out.send : { state: 'queued' };
         return answered(s, { test: !!s.test });
       };
-      // The person's own text, now: one number for these words and this quote until the server answered them.
+      // The person's own text, now or at a time (sendAt: the row waits in Lex, its watchman sends it then): one number
+      // for these words, this quote and this time until the server answered them — the same words sent now after
+      // they were scheduled are another press, never «send the scheduled one now».
       const direct = async (words, opts) => {
         const why = closed();
         if (why) return refused(why);
         const t = String(words || '').trim();
         const quote = (opts && opts.quote) || null;
+        const at = (opts && opts.at) || null;
         if (!t) return refused('Nothing to send.');
-        if (opts && opts.at) return refused('A chat of the folders sends at once: no time to pick.');
-        return numbered(`direct|${o.chatKey()}|${quote || ''}|${t}`, async (op) => {
-          const out = await o.folderSend({ chatKey: o.chatKey(), text: t, opId: op, ...(quote ? { quoteUid: quote } : {}) });
+        return numbered(`direct|${o.chatKey()}|${quote || ''}|${at ? at.toISOString() : ''}|${t}`, async (op) => {
+          const out = await o.folderSend({ chatKey: o.chatKey(), text: t, opId: op, ...(quote ? { quoteUid: quote } : {}),
+            ...(at ? { sendAt: at.toISOString() } : {}) });
           const s = out && out.send ? out.send : { state: 'queued' };
           return answered(s, { test: !!s.test });
         });
       };
+      // The person's own text that waits: «Hold to send now» — the number of its press again, without a time.
+      const sendNow = async (w) => {
+        if (!w.op || !String(w.text || '').trim()) return refused('Nothing to send.');
+        const out = await again(() => o.folderSend({ chatKey: o.chatKey(), text: w.text, opId: w.op,
+          ...(w.quoteUid ? { quoteUid: w.quoteUid } : {}) }), []);
+        const s = out && out.send ? out.send : { state: 'queued' };
+        return answered(s, { test: !!s.test });
+      };
+      // Cancel of the person's own text that waits: the row is dropped and its words come back for the field. One the
+      // watchman has taken already stays as it is (its state comes back, no words): nothing is put back twice.
+      const cancelSend = async (w) => {
+        if (!w.direct) return cancel(w);
+        const r = await again(() => o.rpc('folder_send_cancel', { p_id: w.id }));
+        const back = r && r.state === 'dropped' && !r.box && typeof r.text === 'string' && r.text ? r.text : null;
+        if (r && r.state !== 'dropped') return refused('It is on its way already: it cannot be taken back.');
+        return answered(r, { putBack: back, taken: !!back });
+      };
       return {
-        kind, schedules: false, send, text, cancel, direct,
-        at: async () => refused('A chat of the folders sends at once: no time to pick.'),
+        kind, schedules: false, later, send, text, cancel: cancelSend, direct,
+        at: async () => refused('A box of a chat of the folders goes at once: no time to pick.'),
       };
     }
 
@@ -664,6 +696,7 @@
     return {
       kind,
       schedules: true,
+      later,
       text,
       cancel,
       send: (w) => numbered(`send|${w.id}`, async (op) => answered(await o.rpc('profi_send', { p_op_id: op, p_window: w.id }))),

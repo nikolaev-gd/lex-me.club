@@ -30,7 +30,7 @@
   //                      model»; in a chat of an agent — the agent's own model),
   //           mic      — the dictation, voice — the button of a talk by voice, newChat — the button «new chat» on top.
   // send    — where the arrow sends: model | person | agent | none; hold — what a held arrow offers: person (send now,
-  //           schedule) | null.
+  //           schedule) | null. What of it may wait for a time is the door's (laterOf below).
   // stop    — whose Stop the round button is while it works: turn (the answer of the model) | agent | null.
   // price   — step: the price of a step under its answer and the number over the chat; none.
   // menu    — the items of the menu of a message beyond Copy and Select (always there): reply, edit (a message that went
@@ -173,6 +173,11 @@
     ['doorOfKind', 'main', 'brain'],
     ['doorOfKind', 'agent', 'brain'],
     ['doorOfKind', 'service', 'brain'],
+    ['laterOfKind', 'order', 'all'],
+    ['laterOfKind', 'person', 'text'],
+    ['laterOfKind', 'group', 'text'],
+    ['laterOfKind', 'main', ''],
+    ['laterOfKind', 'agent', ''],
   ];
 
   const TABLE = { kinds: KINDS, channels: CHANNELS, keys: KEYS, examples: EXAMPLES };
@@ -274,9 +279,20 @@
   // The door of the row of a kind (the examples run it, here and on the iPhone: ChatProfile.door).
   const doorOfKind = (kind) => doorOf(profileOfKind(kind));
 
+  // What of a message to a person may wait for a time (docs/spec/21-chat-canvas.md, «Отправка позже из чата человека»):
+  // 'all' — Gennady's own text of the held arrow and a box of the model alike (an order chat: profi_send_text with p_at,
+  // profi_send_at); 'text' — the text of the held arrow only (a person or a group of the folders: folder-send with
+  // sendAt; a box of the model there goes at once — the box does not know the row of its send, so a time could not be
+  // taken back); '' — nothing (no held arrow to a person). The iPhone: ChatProfile.later.
+  function laterOf(profile) {
+    const d = doorOf(profile);
+    return d === 'profi' ? 'all' : d === 'folder' ? 'text' : '';
+  }
+  const laterOfKind = (kind) => laterOf(profileOfKind(kind));
+
   root.LexChatProfile = {
     KINDS, CHANNELS, KEYS, EXAMPLES, TABLE,
     kindOfKey, kindOf, profileOf, profileOfKind, channelOfUid, personalUid, editOf, editableUid, reactableUid,
-    serverEditable, serverReactable, offers, fieldHas, doorOf, doorOfKind,
+    serverEditable, serverReactable, offers, fieldHas, doorOf, doorOfKind, laterOf, laterOfKind,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -2190,9 +2190,15 @@
   }
   // A text taken back from its way to the client, or a box of the model to edit by hand («Edit
   // in the field»), goes into the field, unless the person has typed something else there.
-  // true — the text is in the field.
-  function putBackIntoField(text) {
+  // opts.taken — the server has already taken it off its way (Cancel of one that waited): it goes in all the same,
+  // before the words that stand there, so that it is not lost. true — the text is in the field.
+  function putBackIntoField(text, opts) {
     const cur = (document.getElementById('wc-input') || {}).value || '';
+    if (cur.trim() && opts && opts.taken) {
+      WcComposer.setText(`${text}\n${cur}`);
+      WcComposer.focus();
+      return true;
+    }
     if (cur.trim()) { toast('The field is not empty: the text was not put there.'); return false; }
     WcComposer.setText(text);
     WcComposer.focus();
@@ -2378,7 +2384,7 @@
       react: (uid, emoji) => reactSent(uid, emoji),
       notify: (text) => toast(text, { error: true }),
       reload: () => refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)),
-      sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
+      sendText: (text, quoteUid, opts) => sendToFolder(chat, text, quoteUid, opts && opts.at),
       // The door of the chat (LexDraftBox.door): its boxes and the held arrow go to the person by folder-send.
       folderSend: (body) => WcBus.call('WC_FOLDER_SEND', { body }),
       // The agent «Кто это» (В7.50, В7.54): a link of Lex in its words or a line of its message opens that chat; the
@@ -2492,12 +2498,14 @@
   // (LexDraftBox.door, folder-send): one number of the press for these words until the server answered them, so a press
   // that got no answer does not go twice. A refusal (a group the database does not send into) says why. → true once the
   // server took the text (the field is cleared then).
-  async function sendToFolder(chat, text, quoteUid) {
+  // at — a Date: the text waits in Lex for that time and leaves by itself (folder-send with sendAt); it stands at the end
+  // of the chat as scheduled, with Cancel (lex-profi.js paintOutbox).
+  async function sendToFolder(chat, text, quoteUid, at) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return false;
     let out;
     try {
-      out = await chat.door().direct(words, { quote: quoteUid || null });
+      out = await chat.door().direct(words, { quote: quoteUid || null, at: at || null });
     } catch (err) {
       toast('Not sent. ' + ((err && err.message) || ''), { error: true });
       return false;
