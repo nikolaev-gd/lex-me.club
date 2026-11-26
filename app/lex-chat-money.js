@@ -666,7 +666,7 @@
   // May a message of this origin carry the controls of a model — the model button, Retry? Only an answer of a model.
   const kindReasks = (origin) => kindLook(origin) === 'answer';
   // The conversation with the person; the rest of a chat of a person is the talk with the model (see above).
-  const CONVERSATION = ['folder_in', 'folder_out', 'folder_whois', 'profi_client', 'profi_sent', 'profi_notice', 'profi_call'];
+  const CONVERSATION = ['folder_in', 'folder_out', 'folder_whois', 'agent_word', 'profi_client', 'profi_sent', 'profi_notice', 'profi_call'];
   // Is this turn of a chat of a person the talk with the model? The server's word (`talk` of the turn) when it gave one.
   function kindTalk(origin, talk) {
     if (typeof talk === 'boolean') return talk;
