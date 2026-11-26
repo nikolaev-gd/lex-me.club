@@ -1042,7 +1042,7 @@
     C.register('profi_call', (t, ctx) => (ctx.chat && ctx.chat.callNode ? ctx.chat.callNode(t) : undefined));
     // The main chat's kinds, the words of the system, and the looks (a kind the table does not know is a word of the system).
     C.register(['text', 'voice', 'claude_code', 'news', 'mac', 'digest', 'call_summary', 'base_alert', 'base_ok',
-      'send_wait', 'send_failed', 'profi_draft', 'profi_call_draft', 'look:answer', 'look:system', 'look:own'], turnNode);
+      'send_wait', 'send_failed', 'profi_bot', 'profi_draft', 'profi_call_draft', 'look:answer', 'look:system', 'look:own'], turnNode);
   }
 
   const WcThread = {

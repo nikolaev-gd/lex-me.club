@@ -636,6 +636,7 @@
     profi_call: [false, NO_MODEL + ': a call with a person', 'own'],
     profi_call_draft: [false, 'a draft is not an answer of a step', 'own'],
     profi_notice: [false, 'a line of the system', 'system'],
+    profi_bot: [false, 'a line of the system: the bot of Profi.ru tells of itself', 'system'],
     call_summary: [false, 'the summary of a call is written by the base; its spend has no chat', 'system'],
     em_intake: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
     em_request: [false, 'the feed of Extended Mind: the base writes it, its spend has no chat', 'own'],
