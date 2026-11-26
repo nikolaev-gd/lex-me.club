@@ -181,7 +181,7 @@
         const lastWords = heard[heard.length - 1] || null;
         list.appendChild(global.LexSection.row({
           lead: global.LexMessage.avatarBrand(48),
-          title: (botHead && botHead.title) || 'Бот Профи', sub: lastWords ? String(lastWords.text || '') : 'Nothing yet.', strong: true,
+          title: (botHead && botHead.title) || 'Агент Профи', sub: lastWords ? String(lastWords.text || '') : 'Nothing yet.', strong: true,
           time: lastWords ? global.LexSection.listTime(lastWords.at) : '',
           onClick: () => deps.showBot(),
           unread: { chat: '__lex_profi_bot__', number: true },

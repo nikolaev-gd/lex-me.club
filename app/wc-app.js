@@ -2159,7 +2159,7 @@
       person.hidden = true;
     }
   }
-  // The head of the bot's service chat in the bar, as an order chat shows its client: the mark of Lex, «Бот Профи» (the
+  // The head of the bot's service chat in the bar, as an order chat shows its client: the mark of Lex, «Агент Профи» (the
   // line under New orders draws the same, lex-people.js). It presses nothing: the bot has no card. Off — only the bot's
   // own head goes; a head another screen put there meanwhile stays.
   function paintBotHead(on) {
@@ -2170,7 +2170,7 @@
       words.className = 'lex-profi-person-words';
       const name = document.createElement('div');
       name.className = 'lex-profi-person-name';
-      name.textContent = 'Бот Профи';
+      name.textContent = 'Агент Профи';
       words.appendChild(name);
       person.replaceChildren(M.avatarBrand(), words);
       person.onclick = null;

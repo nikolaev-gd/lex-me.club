@@ -83,7 +83,7 @@
 //   avatarMark(channel, size)   the mark of a channel 28 on a round ground in place of a person
 //                       (the line of New orders)
 //   avatarBrand(size)   the Lex mark (lex-brand-mark.js) on the same round ground, in place of a person: the
-//                       line of the bot's service chat «Бот Профи» (19.11.2026)
+//                       line of the bot's service chat «Агент Профи» (19.11.2026)
 //   order({ … })        the message of an order in the chat of new orders of Profi.ru (В7.29): the grey
 //                       part of the client, the blue part of the bot's reply with the buttons, a yellow
 //                       band «Not sure» on top; a done order folded in three lines that open in place
