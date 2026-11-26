@@ -12,7 +12,13 @@
 //                «Closed» — or by date, or none (the order of the list at the left of the head, В7.73,
 //                lex-list-order.js); the capsule «New chat» of the window at its bottom right begins a chat with the agent
 //   log          the journal «Activity» (op runs, by pages, by days); a bubble at a line — a new chat about it
-//   passport     the face 96, the name, the state, About, Text model, Notify me, Paused, Instruction, Memory
+//   screen       the agent's own main screen (26.11.2026, the contract «Scribe в Lex»; an agent whose list line says
+//                `screen: true`, Scribe first): the blocks of place «main» as the base describes them (wc-agent-screen.js)
+//                — Scribe's totals and history; a press on such an agent's line opens it (the coordinator's rule of
+//                26.11.2026, one for the page, the Mac and the iPhone), «Chats» at the right of its head opens the folder
+//   passport     the face 96, the name, the state, About, the blocks of place «card» (Scribe: Model, Recording
+//                description, Keys on this Mac), Text model (only an agent with a text model), Notify me, Paused,
+//                Instruction, Memory
 //   archived     the archived task chats of the agent (2026-11-23, chat_archive.sql): the row «Archived» at the top of
 //                the folder opens it; the same lines, their menu says Unarchive; a word of the agent puts a chat back
 //   instruction  the instruction of the agent, read only (Markdown)
@@ -31,6 +37,9 @@
 //   ask(agent, run)      a press on the bubble of a line of the journal: a new chat with the quote of the line
 //   pickModel(anchor, modelId, onPick(modelId))   the common menu of the models, Anthropic only
 //   menu(anchor, items)  the menu with notes (WcUI.menu, В7.60)
+//   confirm(title, body, opts), prompt(title, value, opts)   the page's question (WcUI.confirm, WcUI.prompt): the
+//                        agent's own screen asks with them (Delete, Recording description)
+//   money(usd)           the money as the page writes it (WcUI.fmtMoney)
 //   toast(text, error)   the line that pops up (В7.17)
 //   markdown(host, text) the text of the instruction (WcMarkdown)
 //   chatOpen()           → true while a task chat of this section is on the screen
@@ -147,20 +156,40 @@
     const waitWords = new Map();
     // The passport of an agent as the base gave it (op about), by key.
     const about = new Map();
+    // The agent's own screen (wc-agent-screen.js), by key: read when its main screen or its passport opens.
+    const screens = new Map();
+    function screenOf(a) {
+      if (!a || !a.screen || !global.LexAgentScreen) return null;
+      if (!screens.has(a.key)) {
+        screens.set(a.key, global.LexAgentScreen.create({
+          agent: a.key,
+          call: deps.call,
+          menu: deps.menu,
+          toast: deps.toast,
+          confirm: deps.confirm,
+          prompt: deps.prompt,
+          money: deps.money,
+          onChange: () => { if (frame.screen === 'passport' && current && current.key === a.key) paintPassport(); },
+        }));
+      }
+      return screens.get(a.key);
+    }
 
     const frame = S.createFrame({
       title: 'Agents',
       cls: 'lex-agents',
       back: deps.back,
       signals: deps.signals,
-      // A task chat got a word, moved or was read (lex_folder_touch → «folders»); the numbers of the unread changed.
-      events: ['folders', 'unread'],
+      // A task chat got a word, moved or was read (lex_folder_touch → «folders»); the numbers of the unread changed;
+      // an agent's own screen changed (agent_screen {agent}: a dictation, its price, a press elsewhere).
+      events: ['folders', 'unread', 'agent_screen'],
       check: (signal) => look(signal),
       onBack: (id) => {
         if (id === 'home') { current = null; readList().catch((e) => console.warn('[agents] back:', e && e.message)); }
         if (id === 'agent') { paintHead(); readFolder().catch((e) => console.warn('[agents] folder:', e && e.message)); }
         if (id === 'archived') readFolder().catch((e) => console.warn('[agents] archive:', e && e.message));
         if (id === 'passport') paintPassport();
+        if (id === 'screen') paintMain();
         told();
       },
     });
@@ -187,7 +216,7 @@
     function lineOf(a) {
       const state = stateOf(a);
       const o = { key: a.key, name: a.name || a.key, time: S.listTime(timeOf(a)), state, unread: Number(a.unread) || 0,
-        onClick: () => openFolder(a) };
+        onClick: () => (a.screen && global.LexAgentScreen ? openMain(a) : openFolder(a)) };
       if (state === 'waiting') o.text = waitWords.get(a.key) || actionWords(a.last_action) || oneLine(a.goal);
       else if (state === 'working') o.stage = a.stage || null;
       else if (state === 'failed') o.reason = oneLine(a.failed_reason);
@@ -245,6 +274,7 @@
       if (current && byKey.has(current.key)) current = byKey.get(current.key);
       paintList();
       if (frame.screen === 'agent') paintHead();
+      if (frame.screen === 'screen') paintMainHead();
       if (frame.screen === 'passport') paintPassport();
       readWaitWords().catch((e) => console.warn('[agents] waiting words:', e && e.message));
     }
@@ -408,6 +438,46 @@
       paintFolder();
       paintArchived();
     }
+    // ── the agent's own main screen (the contract «Scribe в Lex», p. 1) ─────────────────────────────────────────
+    // The head: the name in the middle (the passport), Activity at the left, «Chats» at the right — the folder of its
+    // task chats. The body: the blocks of place «main» (Scribe: the totals and the history), read from the base.
+    function activityButton(a) {
+      const b = S.button('lex-section-icon', null, () => openLog(a));
+      b.appendChild(S.markSvg((S.MARKS.tool && S.MARKS.tool.activity) || CLOCK, 20, 2));
+      b.title = 'Activity';
+      b.setAttribute('aria-label', 'Activity: what the agent did');
+      return b;
+    }
+    function mainHead(a) {
+      return Object.assign({
+        title: a.name || a.key,
+        lead: activityButton(a),
+        onTitle: () => openPassport(a),
+        titleLabel: `${a.name || a.key}: the passport`,
+        action: { icon: BUBBLE, label: 'Chats', ariaLabel: 'Chats with the agent', onClick: () => openFolder(a) },
+      }, stateLine(a));
+    }
+    function paintMainHead() {
+      if (frame.screen !== 'screen' || !current || typeof frame.setHead !== 'function') return;
+      frame.setHead(mainHead(current));
+    }
+    function paintMain() {
+      if (frame.screen !== 'screen' || !current) return;
+      const ctl = screenOf(current);
+      if (!ctl) return;
+      ctl.paintMain(frame.body);
+    }
+    function openMain(a) {
+      current = a;
+      push({ id: 'screen', title: a.name || a.key, head: mainHead(a) });
+      const body = frame.body;
+      body.replaceChildren();
+      const ctl = screenOf(a);
+      if (!ctl) return;
+      ctl.read().then(() => { if (frame.body === body) ctl.paintMain(body); })
+        .catch((e) => { if (e && e.status) say(String(e.message || ''), true); else console.warn('[agents] screen:', e && e.message); });
+    }
+
     function openFolder(a) {
       current = a;
       order = L.load(orderKey(a));
@@ -545,7 +615,12 @@
       top.append(S.agentFace(a.key, { size: 96, name: a.name || a.key }), make('div', 'lex-agent-name', a.name || a.key),
         make('div', `lex-agent-state${st.tone ? ` ${st.tone}` : ''}`, st.text));
       root.append(top, aboutBlock(a, p));
+      // The agent's own blocks of the card (Scribe: Model, Recording description, Keys on this Mac), after About.
+      const ctl = screenOf(a);
+      if (ctl) for (const n of ctl.cardBlocks()) root.appendChild(n);
       const model = { model: p.model || a.model, effort: p.effort || a.effort };
+      // «Text model» only for an agent that has one (model_kind «none» gives model null: Scribe has recognizers).
+      const textModel = !!model.model;
       const engine = p.engine || a.engine || null;
       const notify = p.notify || a.notify || 'all';
       const paused = p.paused != null ? !!p.paused : !!a.paused;
@@ -553,11 +628,11 @@
       const ins = p.instruction || null;
       const mem = Array.isArray(p.memory) ? p.memory : null;
       root.appendChild(S.settingsBlock([
-        S.settingRow({ id: 'model', title: 'Text model', menu: { value: modelLabel(model),
+        textModel ? S.settingRow({ id: 'model', title: 'Text model', menu: { value: modelLabel(model),
           onOpen: (anchor) => deps.pickModel(anchor, modelId(model), (id) => {
             const [, m, effort] = String(id).split(':');
             saveModel(a.key, m, effort);
-          }) } }),
+          }) } }) : null,
         ...(engine ? [S.settingRow({ id: 'engine', title: 'Engine', menu: { value: engineLabel(engine),
           onOpen: (anchor) => deps.menu(anchor, ENGINES.map((x) => ({ label: x.label, checked: x.value === engine,
             onSelect: () => { saveEngine(a.key, x.value); } }))) } })] : []),
@@ -590,6 +665,8 @@
       push({ id: 'passport', title: a.name || a.key, head: { title: '' } });
       paintPassport();
       readAbout(current).catch((e) => console.warn('[agents] about:', e && e.message));
+      const ctl = screenOf(current);
+      if (ctl) ctl.read().then(() => paintPassport()).catch((e) => console.warn('[agents] screen:', e && e.message));
     }
     // A setting to the base: true — the base took it, and the passport and the list show what it answered.
     async function save(key, patch) {
@@ -675,9 +752,19 @@
     // The screen on top read again (a signal, the section shown again); a task chat on the screen reads itself.
     async function readScreen() {
       if (frame.screen === 'agent' || frame.screen === 'archived') await Promise.all([readFolder(), readList()]);
+      else if (frame.screen === 'screen' && current && screenOf(current)) await Promise.all([screenOf(current).refresh(), readList()]);
       else await readList();
     }
     async function look(signal) {
+      // An agent's own screen changed: only that screen reads again, the first page and the totals.
+      if (signal && signal.event === 'agent_screen') {
+        const key = signal.payload && signal.payload.agent;
+        if (frame.isShown() && current && current.key === key && (frame.screen === 'screen' || frame.screen === 'passport')) {
+          const ctl = screenOf(current);
+          if (ctl) await ctl.refresh();
+        }
+        return;
+      }
       if (deps.chatOpen()) {
         const ev = signal && signal.event;
         await deps.onChange(ev === 'folders' ? (signal.payload || null) : null);
@@ -714,17 +801,28 @@
         openFolder(a);
         return a;
       },
+      // The agent's own main screen (right Cmd+H of Scribe, `agent_screen` of a notification): an agent without one —
+      // its folder. → the agent.
+      async enterScreen(key) {
+        if (!byKey.has(key)) await readList().catch((e) => console.warn('[agents] list:', e && e.message));
+        const a = byKey.get(key) || { key, name: key };
+        frame.reset();
+        if (a.screen && global.LexAgentScreen) openMain(a); else openFolder(a);
+        return a;
+      },
       agent: (key) => byKey.get(key) || null,
       // The agent of the screen on top: its folder, its journal, its passport, its instruction or memory; null on the list.
       // The capsule «New chat» on these screens begins a chat with it (wc-app.js openQuick → newAgentChat).
       currentAgent: () => (current ? { key: current.key, name: current.name || current.key } : null),
-      // The screen on top: home, agent, log, passport, instruction, memory.
+      // The screen on top: home, screen, agent, log, passport, instruction, memory.
       get screen() { return frame.screen; },
       // The passport of an agent from the head of its task chat (the chat leaves, the passport stands over its folder).
       passport(key) {
         const a = byKey.get(key) || (current && current.key === key ? current : { key, name: key });
-        if (!current || current.key !== key || frame.screen === 'home') { frame.reset(); openFolder(a); }
-        else while (frame.screen !== 'agent' && frame.screen !== 'home') frame.pop();
+        if (!current || current.key !== key || frame.screen === 'home') {
+          frame.reset();
+          if (a.screen && global.LexAgentScreen) openMain(a); else openFolder(a);
+        } else while (frame.screen !== 'agent' && frame.screen !== 'screen' && frame.screen !== 'home') frame.pop();
         openPassport(a);
       },
       // The open chat changed (a wide window): its line in the folder stands picked.

@@ -1067,6 +1067,12 @@
       const dict = await readDictationKnobs().catch(() => ({ model: null, knobs: {} }));
       const route = await global.LexDictationCatalog.route(dict.model, global.LexModelRegistry.defaultDictationModel);
       const out = route.ok ? [{ kind: route.live ? 'dictation-live' : 'dictation', body: { model: route.model, knobs: dict.knobs || {} } }] : [];
+      // The agent Scribe on the Mac (wc-mac-dictation.js): its own recognizer and knobs, from the agent's settings —
+      // the press of right Cmd+Space sends that body, not the chat microphone's.
+      try {
+        const mac = global.LexMacDictation && typeof global.LexMacDictation.recipe === 'function' ? await global.LexMacDictation.recipe() : null;
+        if (mac && !out.some((x) => x.kind === mac.kind && JSON.stringify(x.body) === JSON.stringify(mac.body))) out.push(mac);
+      } catch (_) {}
       // The voice: the bodies the page announced and pressed lately
       // (wc-voice.js warmDirect, LexDirectMode.createVoiceCalls).
       try { if (global.WcVoice && typeof global.WcVoice.directWarmList === 'function') out.push(...(await global.WcVoice.directWarmList())); } catch (_) {}

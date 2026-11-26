@@ -1241,6 +1241,13 @@
       else await openEmFeed(feed, wanted, ref, back);
       return;
     }
+    // An agent's own main screen (right Cmd+H of Scribe on the Mac: {kind: 'agent_screen', agent}): the section «Agents»
+    // on that agent's screen (its folder, when it has none).
+    if (kind === 'agent_screen' && lex.agent) {
+      // back: the section stands on the screen enterScreen put up, not on its list.
+      await showSection('agents', { enter: (live) => { live.enterScreen(String(lex.agent)); }, back: true, wanted });
+      return;
+    }
     // A word of an agent (lex.agent, a task chat of the section «Agents»): the folder of that agent, the chat over it.
     if (lex.agent && WcHistory.isFolderKey(key)) {
       await openAgentFrom(String(lex.agent), key, wanted);
@@ -2679,6 +2686,9 @@
       pickModel: (anchor, modelId, onPick) => openModelMenu(anchor, modelId, {}, onPick, null, 'anthropic'),
       menu: (anchor, items) => WcUI.menu(anchor, items),
       toast: (text, error) => toast(text, error ? { error: true } : undefined),
+      confirm: (title, body, opts) => WcUI.confirm(title, body, opts),
+      prompt: (title, value, opts) => WcUI.prompt(title, value, opts),
+      money: (usd) => WcUI.fmtMoney(usd),
       markdown: (host, text) => {
         if (global.WcMarkdown && typeof global.WcMarkdown.into === 'function') global.WcMarkdown.into(host, text);
         else host.textContent = text;
