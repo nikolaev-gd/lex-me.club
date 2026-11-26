@@ -174,10 +174,14 @@
     ['doorOfKind', 'agent', 'brain'],
     ['doorOfKind', 'service', 'brain'],
     ['laterOfKind', 'order', 'all'],
-    ['laterOfKind', 'person', 'text'],
-    ['laterOfKind', 'group', 'text'],
+    ['laterOfKind', 'person', 'all'],
+    ['laterOfKind', 'group', 'all'],
     ['laterOfKind', 'main', ''],
     ['laterOfKind', 'agent', ''],
+    ['filesOfKind', 'order', false],
+    ['filesOfKind', 'person', true],
+    ['filesOfKind', 'group', true],
+    ['filesOfKind', 'main', false],
   ];
 
   const TABLE = { kinds: KINDS, channels: CHANNELS, keys: KEYS, examples: EXAMPLES };
@@ -281,18 +285,25 @@
 
   // What of a message to a person may wait for a time (docs/spec/21-chat-canvas.md, «Отправка позже из чата человека»):
   // 'all' — Gennady's own text of the held arrow and a box of the model alike (an order chat: profi_send_text with p_at,
-  // profi_send_at); 'text' — the text of the held arrow only (a person or a group of the folders: folder-send with
-  // sendAt; a box of the model there goes at once — the box does not know the row of its send, so a time could not be
-  // taken back); '' — nothing (no held arrow to a person). The iPhone: ChatProfile.later.
+  // profi_send_at; a person or a group of the folders: folder-send with sendAt, a box by the row of its send — `sendId`
+  // of folder_send_files.sql, which its Cancel takes back); 'text' — the text of the held arrow only (no door has it
+  // now); '' — nothing (no held arrow to a person). The iPhone: ChatProfile.later.
   function laterOf(profile) {
-    const d = doorOf(profile);
-    return d === 'profi' ? 'all' : d === 'folder' ? 'text' : '';
+    return doorOf(profile) === 'brain' ? '' : 'all';
   }
   const laterOfKind = (kind) => laterOf(profileOfKind(kind));
+
+  // Do the pictures and files of the field go to the person with the words of the held arrow (2026-11-26)? A chat of the
+  // folders — yes: folder-send carries them to the door of the database, whose table of the channels has the last word
+  // (brain.channels.files_send: Telegram, WhatsApp, Max take them). An order chat — no: profi_send_text goes to the site
+  // of Profi.ru, which takes words only (its row: files_send false); there a file of the field goes to the model. The
+  // iPhone: ChatProfile.files.
+  const filesOf = (profile) => doorOf(profile) === 'folder';
+  const filesOfKind = (kind) => filesOf(profileOfKind(kind));
 
   root.LexChatProfile = {
     KINDS, CHANNELS, KEYS, EXAMPLES, TABLE,
     kindOfKey, kindOf, profileOf, profileOfKind, channelOfUid, personalUid, editOf, editableUid, reactableUid,
-    serverEditable, serverReactable, offers, fieldHas, doorOf, doorOfKind, laterOf, laterOfKind,
+    serverEditable, serverReactable, offers, fieldHas, doorOf, doorOfKind, laterOf, laterOfKind, filesOf, filesOfKind,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

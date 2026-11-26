@@ -11,15 +11,18 @@
 //
 // No chrome.*, no ids of a page: the elements come from the caller, so that the extension's windows (chat-surface.js)
 // may take it too. LexComposer gives:
-//   parts(profile) → { kind, field, presets, mic, voice, newChat, material, image, file, model, files, hold, send, stop }
+//   parts(profile) → { kind, field, presets, mic, voice, newChat, material, image, file, model, files, hold, send, stop,
+//       door, filesGo }
 //       what the field of a chat of this profile has; no profile (the table did not load) — the main chat's.
 //   paint(els, parts) → parts — every part the profile does not give is off (data-profile-off), the rest on:
 //       els = { root (data-chat-kind), presets, mic, voice, newChat (an element or a list) }
 //   plusItems(parts, o) → the items of «+» in their order: o = { attached: { url, label, iconUrl } | null, image(),
 //       file(), model: { label, open(anchor) } | null, anchor, open(url) }
 //   holdWays(parts, ways, o) → the ways the held arrow offers, or null: only where the profile has a hold; o.files —
-//       how many files lie in the field: the text goes to a person without the model, its files do not (folder-send and
-//       profi_send_text carry words only), and the head of the menu says so
+//       how many files lie in the field. A chat whose door carries them (parts.filesGo: a chat of the folders,
+//       folder-send — LexChatProfile.filesOf) sends them with the words: the head says how many go (`files: 'go'`); an
+//       order chat sends the words only (profi_send_text: the site of Profi.ru takes words), and the head says so
+//       (FILES_STAY, `files: 'stay'`)
 //   sendFace(el, { streaming, can }) → the round button: an arrow (Send) or a square (Stop), its title and its words
 //   folded(parts, sending) → the slot of the voice folds: nothing to send and no voice button in this chat
 (function (root) {
@@ -41,6 +44,8 @@
     out.send = (p && p.send) || 'model';
     out.stop = (p && p.stop) || null;
     out.door = P && typeof P.doorOf === 'function' ? P.doorOf(p) : 'brain';
+    // The files of the field go with the words of the held arrow (2026-11-26): only where the door carries them.
+    out.filesGo = !!(P && typeof P.filesOf === 'function' && P.filesOf(p));
     return out;
   }
 
@@ -92,13 +97,17 @@
     return items;
   }
 
-  // The words of the head when files lie in the field: what goes without the model is the text alone.
+  // The words of the head when files lie in the field: in an order chat what goes without the model is the text alone;
+  // in a chat of the folders the files go with it.
   const FILES_STAY = 'only the words go: a file goes with Lex';
+  const filesGoWords = (n) => (n === 1 ? 'with 1 file' : `with ${n} files`);
   function holdWays(ps, ways, o) {
     if (!ps.hold || !ways || !Array.isArray(ways.items) || !ways.items.length) return null;
     const files = Number(o && o.files) || 0;
     if (!files) return ways;
-    return Object.assign({}, ways, { head: `${ways.head || ''}`.trim() ? `${ways.head} · ${FILES_STAY}` : FILES_STAY, files: true });
+    const words = ps.filesGo ? filesGoWords(files) : FILES_STAY;
+    return Object.assign({}, ways, { head: `${ways.head || ''}`.trim() ? `${ways.head} · ${words}` : words,
+      files: ps.filesGo ? 'go' : 'stay' });
   }
 
   function sendFace(el, s) {
@@ -117,5 +126,5 @@
 
   const folded = (ps, sending) => !sending && !ps.voice;
 
-  root.LexComposer = { PLUS, FILES_STAY, parts, paint, plusItems, holdWays, sendFace, folded };
+  root.LexComposer = { PLUS, FILES_STAY, filesGoWords, parts, paint, plusItems, holdWays, sendFace, folded };
 })(typeof window !== 'undefined' ? window : globalThis);

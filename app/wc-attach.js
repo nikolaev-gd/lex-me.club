@@ -609,6 +609,37 @@
       }
     },
 
+    // What the field holds, for a person without the model (the held arrow of a chat of the folders, 2026-11-26):
+    // every file by its record (in the bucket already) and the picture uploaded now (once: its path stays on it, so a
+    // second press does not upload it again) — [{kind, path, mime, bytes?, name?}]. Nothing is taken off the field:
+    // the caller takes it once the server took the text (sent()), or leaves it there after a refusal. Throws
+    // Error(words) when a file is still uploading or the picture did not get into the bucket.
+    async forPerson(chatKey) {
+      if (files.some((f) => f.busy)) throw new Error('Wait until the file has uploaded.');
+      const out = files.filter((f) => f.rec && f.rec.path).map((f) => ({
+        kind: 'file', path: f.rec.path, mime: f.rec.mime || f.mime || '', ...(f.rec.bytes || f.bytes ? { bytes: f.rec.bytes || f.bytes } : {}),
+        ...(f.rec.name || f.name ? { name: f.rec.name || f.name } : {}),
+      }));
+      for (const a of pending) {
+        if (!a.path) {
+          const up = await WcAttach.upload(a.key, chatKey);
+          if (!up.ok) throw new Error('The picture did not upload. Try again.');
+          a.path = up.path;
+        }
+        out.unshift({ kind: 'image', path: a.path, mime: a.mime || 'image/jpeg' });
+      }
+      return out;
+    },
+
+    // The field's pictures and files went to a person (forPerson): off the field, kept in the bucket — the program that
+    // sends takes them from there, maybe later (a text at a time).
+    sent() {
+      pending.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+      pending.length = 0;
+      files.length = 0;
+      paint();
+    },
+
     // Everything off the field; the uploaded files out of the bucket too (they never went).
     clear() {
       pending.forEach((a) => URL.revokeObjectURL(a.previewUrl));

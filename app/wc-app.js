@@ -2384,7 +2384,7 @@
       react: (uid, emoji) => reactSent(uid, emoji),
       notify: (text) => toast(text, { error: true }),
       reload: () => refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)),
-      sendText: (text, quoteUid, opts) => sendToFolder(chat, text, quoteUid, opts && opts.at),
+      sendText: (text, quoteUid, opts) => sendToFolder(chat, text, quoteUid, opts && opts.at, opts && opts.files),
       // The door of the chat (LexDraftBox.door): its boxes and the held arrow go to the person by folder-send.
       folderSend: (body) => WcBus.call('WC_FOLDER_SEND', { body }),
       // The agent «Кто это» (В7.50, В7.54): a link of Lex in its words or a line of its message opens that chat; the
@@ -2499,13 +2499,15 @@
   // that got no answer does not go twice. A refusal (a group the database does not send into) says why. → true once the
   // server took the text (the field is cleared then).
   // at — a Date: the text waits in Lex for that time and leaves by itself (folder-send with sendAt); it stands at the end
-  // of the chat as scheduled, with Cancel (lex-profi.js paintOutbox).
-  async function sendToFolder(chat, text, quoteUid, at) {
+  // of the chat as scheduled, with Cancel (lex-profi.js paintOutbox). files — the pictures and files of the field, in the
+  // bucket already (WcAttach.forPerson): they go with the words (LexChatProfile.filesOf).
+  async function sendToFolder(chat, text, quoteUid, at, files) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return false;
     let out;
     try {
-      out = await chat.door().direct(words, { quote: quoteUid || null, at: at || null });
+      out = await chat.door().direct(words, { quote: quoteUid || null, at: at || null,
+        ...(Array.isArray(files) && files.length ? { files } : {}) });
     } catch (err) {
       toast('Not sent. ' + ((err && err.message) || ''), { error: true });
       return false;

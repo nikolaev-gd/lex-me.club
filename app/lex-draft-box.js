@@ -541,12 +541,16 @@
   // brain-action with the kind of the mark.
   //   o = { profile, kind (the door itself, when the table of profiles is not loaded: a page of a check), rpc(name, args), folderSend(body), brain(body), chatKey(), order(), closed() → the words why this
   //         chat takes no messages now | '' }
-  //   → { kind, schedules (a box may wait for a time: the order chats), later (the held arrow's text may wait for a
-  //       time: the order chats and the chats of the folders — LexChatProfile.laterOf), send(w), at(w, date), cancel(w),
-  //       text(w, words), direct(text, { quote, at }) }
+  //   → { kind, schedules (a box may wait for a time: the order chats and the chats of the folders), later (the held
+  //       arrow's text may wait for a time: the same — LexChatProfile.laterOf), files (the files of the field go with the
+  //       words of the held arrow: the chats of the folders — LexChatProfile.filesOf), send(w), at(w, date), cancel(w),
+  //       text(w, words), direct(text, { quote, at, files }) }
   // A chat of the folders: the person's own text that waits for its time is a window too (w.direct, w.id — the row of
   // its send, w.op — the number of its press): send(w) sends it now (folder-send, the same number without a time),
-  // cancel(w) takes it back (folder_send_cancel) and gives its words back for the field (putBack).
+  // cancel(w) takes it back (folder_send_cancel) and gives its words back for the field (putBack). A box of the model
+  // knows the row of its latest send (w.sendId, w.press — folder_send_files.sql): at(w, date) gives it a time (its own
+  // number when it waits already — the time moves, else a new try win:<id>:<n>), send(w) of a box that waits sends it
+  // now by its number, cancel(w) of a box that waits is folder_send_cancel(sendId) — the box waits for a hold again.
   // Every call answers as brain-action does — { ok, text, state, channel, busy, marks, putBack, test } — or throws
   // Error(why) when the server was not reached. A call that got no answer at all (the connection dropped, a gateway
   // in front of the server) is tried again by itself with the SAME number of the press, after 1, 3 and 6 s: the server
@@ -583,6 +587,7 @@
     const P = global.LexChatProfile;
     const kind = P && typeof P.doorOf === 'function' ? P.doorOf(o.profile) : (o.kind || 'brain');
     const later = kind !== 'brain';
+    const files = P && typeof P.filesOf === 'function' ? !!P.filesOf(o.profile) : kind === 'folder';
     // The number of a press, by what it is: the same until the server answered it.
     const ops = new Map();
     const opOf = (what) => { if (!ops.has(what)) ops.set(what, newOp()); return ops.get(what); };
@@ -612,6 +617,7 @@
         kind,
         schedules: false,
         later: false,
+        files: false,
         send: (m) => call({ op: 'send', turnUid: m.uid, kind: m.kind }),
         text: (m, words) => call({ op: 'text', turnUid: m.uid, kind: m.kind, text: words }),
         cancel: (m) => call({ op: 'cancel', turnUid: m.uid, kind: m.kind }),
@@ -638,33 +644,46 @@
 
     if (kind === 'folder') {
       // A box of the assistant: its text word for word, with the number of the press that ties the send to the box
-      // (the box shows the state of its send, lex_folder_windows_json).
-      const send = async (w) => {
+      // (the box shows the state of its send, lex_folder_windows_json). A box that waits for its time goes now by the
+      // number of its press without a time (the server sends the scheduled row at once); a new press of a box is a new
+      // try win:<id>:<n>; `at` — the same at a time.
+      const boxSend = async (w, at) => {
         const why = closed();
         if (why) return refused(why);
-        if (w && w.direct) return sendNow(w);
         if (!w || !w.id || !String(w.text || '').trim()) return refused('The box has no words.');
+        const waits = w.state === 'scheduled' && w.press;
         const tries = w.press ? (Number(String(w.press).split(':')[2]) || 1) + 1 : 1;
+        const opId = waits ? String(w.press) : tries > 1 ? `win:${w.id}:${tries}` : `win:${w.id}`;
         const out = await o.folderSend({
-          chatKey: o.chatKey(), text: w.text, opId: tries > 1 ? `win:${w.id}:${tries}` : `win:${w.id}`,
+          chatKey: o.chatKey(), text: w.text, opId,
           ...(w.quote && w.quote.uid ? { quoteUid: w.quote.uid } : {}),
+          ...(at ? { sendAt: at.toISOString() } : {}),
         });
-        const s = out && out.send ? out.send : { state: 'queued' };
+        const s = out && out.send ? out.send : { state: at ? 'scheduled' : 'queued' };
         return answered(s, { test: !!s.test });
       };
-      // The person's own text, now or at a time (sendAt: the row waits in Lex, its watchman sends it then): one number
-      // for these words, this quote and this time until the server answered them — the same words sent now after
-      // they were scheduled are another press, never «send the scheduled one now».
+      const send = async (w) => (w && w.direct ? sendNow(w) : boxSend(w, null));
+      const at = async (w, when) => {
+        if (!w || w.direct) return refused('This text has its time: Cancel it and send again.');
+        if (!(when instanceof Date) || !Number.isFinite(when.getTime())) return refused('No time picked.');
+        return boxSend(w, when);
+      };
+      // The person's own text, now or at a time (sendAt: the row waits in Lex, its watchman sends it then), with the
+      // files of the field (opts.files — [{path, name, mime, bytes, kind}], uploaded already; LexChatProfile.filesOf):
+      // one number for these words, this quote, this time and these files until the server answered them — the same
+      // words sent now after they were scheduled are another press, never «send the scheduled one now».
       const direct = async (words, opts) => {
         const why = closed();
         if (why) return refused(why);
         const t = String(words || '').trim();
         const quote = (opts && opts.quote) || null;
         const at = (opts && opts.at) || null;
+        const list = files && opts && Array.isArray(opts.files) ? opts.files.filter((f) => f && f.path) : [];
         if (!t) return refused('Nothing to send.');
-        return numbered(`direct|${o.chatKey()}|${quote || ''}|${at ? at.toISOString() : ''}|${t}`, async (op) => {
+        const paths = list.map((f) => f.path).join(',');
+        return numbered(`direct|${o.chatKey()}|${quote || ''}|${at ? at.toISOString() : ''}|${paths}|${t}`, async (op) => {
           const out = await o.folderSend({ chatKey: o.chatKey(), text: t, opId: op, ...(quote ? { quoteUid: quote } : {}),
-            ...(at ? { sendAt: at.toISOString() } : {}) });
+            ...(at ? { sendAt: at.toISOString() } : {}), ...(list.length ? { files: list } : {}) });
           const s = out && out.send ? out.send : { state: 'queued' };
           return answered(s, { test: !!s.test });
         });
@@ -679,24 +698,31 @@
       };
       // Cancel of the person's own text that waits: the row is dropped and its words come back for the field. One the
       // watchman has taken already stays as it is (its state comes back, no words): nothing is put back twice.
+      // A box of the model that waits for its time: the row of its send (w.sendId) is taken back the same way, and the box
+      // waits for a hold again. A server without folder_send_files.sql gives no sendId: the box says so.
       const cancelSend = async (w) => {
+        if (!w.direct && w.state === 'scheduled') {
+          if (!w.sendId) return refused('Not cancelled: the server does not know this box\'s time yet. Try again in a minute.');
+          const r = await again(() => o.rpc('folder_send_cancel', { p_id: w.sendId }));
+          if (r && r.state !== 'dropped') return refused('It is on its way already: it cannot be taken back.');
+          return answered(r);
+        }
         if (!w.direct) return cancel(w);
         const r = await again(() => o.rpc('folder_send_cancel', { p_id: w.id }));
         const back = r && r.state === 'dropped' && !r.box && typeof r.text === 'string' && r.text ? r.text : null;
         if (r && r.state !== 'dropped') return refused('It is on its way already: it cannot be taken back.');
         return answered(r, { putBack: back, taken: !!back });
       };
-      return {
-        kind, schedules: false, later, send, text, cancel: cancelSend, direct,
-        at: async () => refused('A box of a chat of the folders goes at once: no time to pick.'),
-      };
+      return { kind, schedules: true, later, files, send, text, cancel: cancelSend, direct, at };
     }
 
-    // An order chat of Profi.ru: the box goes to the monitor, which sends it where the window says.
+    // An order chat of Profi.ru: the box goes to the monitor, which sends it where the window says. The site takes words
+    // only: the files of the field do not go with the held arrow (files false).
     return {
       kind,
       schedules: true,
       later,
+      files: false,
       text,
       cancel,
       send: (w) => numbered(`send|${w.id}`, async (op) => answered(await o.rpc('profi_send', { p_op_id: op, p_window: w.id }))),

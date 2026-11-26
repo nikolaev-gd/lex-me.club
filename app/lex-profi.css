@@ -97,6 +97,9 @@
 .wc-profi-outbox[hidden] { display: none; }
 .lex-profi-outbox-item { display: flex; flex-direction: column; align-items: flex-end; margin-left: 44px; }
 .lex-profi-outbox-item .lex-bubble { max-width: 520px; }
+/* The files that go with the text (a chat of the folders, outboxFiles): the cards of the field, no cross. */
+.lex-profi-outbox-files { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.lex-profi-outbox-files .lex-file-chip { pointer-events: none; }
 .lex-profi-outbox-item > .lex-draft-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
 .lex-profi-outbox-item > .lex-draft-box-note.is-error { color: var(--danger); }
 .lex-profi-outbox-item > .lex-draft-box-note:empty { display: none; }

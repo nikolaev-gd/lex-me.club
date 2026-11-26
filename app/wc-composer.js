@@ -979,8 +979,10 @@
       // around the field, the arrow gets a ring. An item that took the text clears the field;
       // one that did not (the person closed the sheet, the server refused) leaves it. A chat
       // without such ways has no hold at all: a long press sends as before.
-      // Only a chat whose profile has a hold has one (LexComposer.holdWays); the files in the field do not go without
-      // the model — the head of the menu says so, and they leave the field with the words.
+      // Only a chat whose profile has a hold has one (LexComposer.holdWays). The files in the field go with the words
+      // where the door carries them (a chat of the folders: `files: 'go'` — the item gets them, uploaded, as
+      // run(text, { files }), and they leave the field kept in the bucket); in an order chat they do not go without the
+      // model — the head of the menu says so, and they leave the field with the words.
       const waysOf = (text) => (hooks.sendMenu && text
         ? global.LexComposer.holdWays(partsNow(), hooks.sendMenu(text), { files: global.WcAttach ? WcAttach.count() : 0 })
         : null);
@@ -999,14 +1001,20 @@
             icon: it.icon,
             run: async () => {
               let ok = false;
-              try { ok = await it.run(text); } catch (err) {
+              const go = ways.files === 'go' && !!global.WcAttach && typeof WcAttach.forPerson === 'function';
+              try {
+                const files = go ? await WcAttach.forPerson(global.WcAttach.chatKey || null) : null;
+                ok = await it.run(text, files && files.length ? { files } : {});
+              } catch (err) {
                 toast((err && err.message) || 'Not sent.', { error: true });
               }
+              if (ok && go) WcAttach.sent();   // they went with the words: kept in the bucket for the sender
               if (ok && elInput.value.trim() === text) {
                 elInput.value = '';
                 wasBegun = false;
-                // The field is cleared whole: its files went nowhere and are not left behind (the head said so).
-                if (ways.files && global.WcAttach && typeof WcAttach.clear === 'function') WcAttach.clear();
+                // The field is cleared whole: in an order chat its files went nowhere and are not left behind (the head
+                // said so).
+                if (ways.files === 'stay' && global.WcAttach && typeof WcAttach.clear === 'function') WcAttach.clear();
                 autoGrow();
                 syncButton();
                 changed();

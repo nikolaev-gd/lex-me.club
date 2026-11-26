@@ -339,8 +339,8 @@
       view.hold = {
         channel: to || 'profi', words, label, fit: !!win.direct,
         busy: door.kind === 'profi' ? 'Going to the monitor…' : 'Sending…',
-        // «⋯» of a box of the model: the same box at a time, where the door of the chat has one (a box of a folder
-        // chat goes at once: the queue of the database sends at once). Edit is the window's own item.
+        // «⋯» of a box of the model: the same box at a time, where the door of the chat has one (an order chat; a chat
+        // of the folders — folder-send with sendAt, its Cancel by sendId). Edit is the window's own item.
         items: !win.direct && door.schedules ? (press) => [{
           label: 'Schedule…',
           icon: 'clock',
@@ -451,6 +451,8 @@
     // No channel: the place is chosen at the moment it leaves.
     const body = make('div', '', '');
     body.textContent = win.text;
+    const fl = outboxFiles(win.files);
+    if (fl) body.appendChild(fl);
     let stamp = null;
     if (win.state === 'scheduled' && win.sendAt) {
       stamp = make('div', 'lex-stamp');
@@ -465,6 +467,19 @@
     view.body = bubble;
     view.noteFirst = true;
     return deps.windows.draw(view, boxActs(win, deps));
+  }
+
+  // The files that go with the person's own text of a chat of the folders (folder_send_files.sql, `files` of a send):
+  // the cards of the field (LexMessage.fileChip), with no cross — they are on their way with the words. null — none.
+  function outboxFiles(list) {
+    const M = global.LexMessage;
+    const items = (Array.isArray(list) ? list : []).filter((f) => f && f.path);
+    if (!items.length || !M || typeof M.fileChip !== 'function') return null;
+    const root = make('div', 'lex-profi-outbox-files');
+    for (const f of items) {
+      root.appendChild(M.fileChip({ name: f.name || (f.kind === 'image' ? 'Photo' : ''), mime: f.mime || '', bytes: f.bytes || 0 }));
+    }
+    return root;
   }
 
   // ── «While you're busy» (profi_busy.sql, 2026-11-19) ──────────────────────────────────────────────────
@@ -1620,11 +1635,14 @@
               return outboxNode({
                 id: s.id, op: s.op || null, text: s.text || '', state: 'scheduled', sendAt: s.sendAt || null,
                 direct: true, outbox: true, to: s.channel || (data && data.replyTo) || null, quoteUid: s.quoteUid || null,
+                files: Array.isArray(s.files) ? s.files : null,
               }, boxDeps());
             }
             const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
             const body = make('div', '', '');
             body.textContent = s.text || '';
+            const fl = outboxFiles(s.files);
+            if (fl) body.appendChild(fl);
             root.appendChild(M.bubble({ side: 'out', body }));
             // Not sent (17.11.2026): the common part, the same as under a word to Lex in the main chat. It
             // stands until the person sends it again (Retry — the same words anew, then the failed one goes
@@ -1644,7 +1662,9 @@
                 note: [sendPlace(s) ? `to ${sendPlace(s)}` : '', s.error || ''].filter(Boolean).join(' · '),
                 onRetry: typeof deps.sendText === 'function' ? async () => {
                   part.update({ sending: true });
-                  const ok = await deps.sendText(s.text || '', s.quoteUid || null, { again: true });
+                  // the same words with the same files (the row keeps them, folder_send_files.sql)
+                  const ok = await deps.sendText(s.text || '', s.quoteUid || null, { again: true,
+                    files: Array.isArray(s.files) && s.files.length ? s.files : null });
                   if (!ok) { part.update({ sending: false }); return; }
                   await drop();
                 } : null,
@@ -1750,25 +1770,30 @@
           const where = (quoteUid && data.channels && data.channels[quoteUid]) || data.replyTo || null;
           const sign = where && global.LexMessage ? global.LexMessage.channel(where) : null;
           // «Schedule…» — the same text at a time, where the door of the chat has one for the text (LexChatProfile.laterOf).
+          // The files of the field come with the press (wc-composer.js: run(text, { files }), the door carries them —
+          // LexChatProfile.filesOf) and go with the words, now or at the time.
+          const filesOf = (extra) => (extra && Array.isArray(extra.files) && extra.files.length ? extra.files : null);
           const later = door().later ? [{
             label: 'Schedule…',
             icon: 'clock',
-            run: async () => {
+            run: async (_t, extra) => {
               const at = await global.LexSendLater.pick({ text, client: data.client || data.title || null });
-              return at ? deps.sendText(text, quoteUid, { at }) : false;
+              return at ? deps.sendText(text, quoteUid, { at, files: filesOf(extra) }) : false;
             },
           }] : [];
           if (data.kind === 'group') {
             return {
               group: true,
               head: `To the group ${data.title || data.client || ''}`.trim() + ': everyone in it will read this',
-              items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }].concat(later),
+              items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send',
+                run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra) }) }].concat(later),
             };
           }
           const at = self.attachedAddress(where);
           return {
             head: `To ${data.client || data.title || 'the person'}, without Lex`,
-            items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }].concat(later),
+            items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send',
+              run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra) }) }].concat(later),
           };
         }
         // The person's own text goes by the door of the chat (profi_send_text), as its boxes do; a refusal or no
