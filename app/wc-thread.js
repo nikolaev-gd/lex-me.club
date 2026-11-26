@@ -410,7 +410,7 @@
   // A record of «Разбор» drawn again in its place: a press folded or unfolded it.
   function repaintEm(t) {
     const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
-    if (old) old.replaceWith(emEntryTurn(t));
+    if (old) old.replaceWith(global.LexMessage.cell(t, { chat: profiChat }));
   }
   function emEntryTurn(t) {
     if (t.origin === 'em_status') {
@@ -938,6 +938,113 @@
     if (line) line.remove();
   }
 
+  // ── The drawers of the one cell of a message (LexMessage.cells; docs/spec/21-chat-canvas.md, «Одна ячейка сообщения») ──
+  // A turn of the main chat — a word of Gennady to a model, an answer of a model, a word of the system, a news — in any
+  // chat. ctx.opts — the options of renderTurns. → its node, or null when it shows nothing.
+  function turnNode(t, ctx) {
+    const opts = ctx && ctx.opts;
+    // t.images is a list of ready object URLs — the backend resolved them
+    // from this browser's picture store while loading the conversation.
+    if (t.role === 'user') {
+      // Скрытая часть хода со словами («Word: "…"\nContext: "…"») уезжает
+      // учителю и лежит в беседе, но человеку показывать её нельзя: в
+      // живой ленте он видел только напечатанное, и перечитывание обязано
+      // вести себя так же. Правило общее с расширением (лента одна и та
+      // же: беседа из расширения читается здесь и наоборот).
+      let visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
+      let editText;
+      const bub = (t.bubble && t.bubble.pick) ? t.bubble : null;
+      const pp = (!bub && t.presetSlot) ? presetParts(t.later) : null;
+      if (bub) {
+        visible = global.LexWordPick.pickBubbleText(bub.pick, bub.rest);
+        editText = bub.rest;
+      } else if (pp && pp.line) {
+        visible = global.LexWordPick.presetBubbleText(pp);
+        editText = pp.phrase;
+      }
+      // Ход, от которого после этого ничего не осталось, — служебная
+      // инструкция выключенного лексического попапа, а не реплика
+      // человека. Пустой пузырь на её месте читался бы как «он ничего не
+      // сказал». Но картинка без слов — законный вопрос (см.
+      // ImageAttachment на iOS), и её дропать нельзя вместе с пустым
+      // текстом: без этой оговорки такой ход пропадал из ленты целиком —
+      // ни пузыря, ни картинки.
+      const hasImage = (Array.isArray(t.images) && t.images.length > 0)
+        || (Array.isArray(t.files) && t.files.length > 0);
+      if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return null;
+      const node = userTurn(visible, t.images, {
+        presetSlot: t.presetSlot || null, editText, files: t.files || null,
+        ...(bub ? { pick: bub.pick, rest: bub.rest } : {}),
+      });
+      if (t.uid) node.dataset.uid = String(t.uid);
+      if (t.authoredAt) node.dataset.at = t.authoredAt;
+      if (t.editable === true) node.dataset.editable = '1';
+      paintVersions(node, t);
+      if (t.threadKey) markApart(node, t.threadKey);
+      return node;
+    } else {
+      // An answer the server writes now (chat_turn_live.sql: running, its number, live): drawn as the
+      // stream — the dots or the words so far, the grey line of the current step — and followed to
+      // its end (wc-app.js followRunning). Only from the server's answer (opts.follow), never from
+      // this device's copy: a copy may keep as running an answer that ended long ago.
+      const running = !!(opts && opts.follow && t.live && t.opId) && t.origin !== 'news' && t.origin !== 'voice';
+      // An answer with no word (stopped before the first one, the model said nothing) is not drawn: the
+      // question stands alone (docs/spec/20-chat.md, «Остановка хода»).
+      if (!running && !String(t.text || '').trim() && t.origin !== 'news' && t.origin !== 'voice') return null;
+      const { turn } = t.origin === 'news'
+        ? newsTurn(t.text, opts && opts.newsHead ? opts.newsHead() : null)
+        : assistantTurn(t.text);
+      if (running) {
+        turn.classList.add('is-streaming');
+        const entry = { turn, bubble: turn.querySelector('.wc-bubble'), text: String(t.text || '') };
+        // Its words are cut when it ends (done), as a stream's: every frame redraws the bubble.
+        if (global.WcWordPick) WcWordPick.forgetBubble(entry.bubble);
+        const step = t.live.step && typeof t.live.step === 'object' ? t.live.step : null;
+        // The line of the database's work leaves when the words start (chunk); Claude Code's stays.
+        if (step && (step.cc === true || !entry.text)) paintWork(entry, { cc: step.cc === true, line: step.line, label: step.label, name: step.name });
+        const requestId = 'follow:' + t.opId;
+        live.set(requestId, entry);
+        followedNow = { requestId, opId: String(t.opId), uid: t.uid ? String(t.uid) : null, text: entry.text, stepSeq: step ? step.seq : null };
+      }
+      // Сказанное голосом — под ним строки нет (syncFeet).
+      if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
+      if (t.origin) turn.dataset.origin = String(t.origin);
+      // Модель ответа (из денег беседы) — подпись кнопки модели.
+      if (t.model) turn.dataset.model = t.model;
+      // Уид реплики: по нему встаёт цена хода (paintMoney).
+      if (t.uid) turn.dataset.uid = String(t.uid);
+      if (t.authoredAt) turn.dataset.at = t.authoredAt;
+      if (t.threadKey) markApart(turn, t.threadKey);
+      if (profiChat) profiChat.paintAnswer(turn, turn.querySelector('.wc-bubble'), t.text, WcMarkdown, false);
+      // A development task of Lex still running (a «mac:N» row, streaming — Claude Code in the cloud or on the
+      // Mac): Stop under it, from the server's answer only (docs/spec/20-chat.md, «Стоп задания»).
+      const devTask = opts && opts.follow && global.LexMessage && LexMessage.devTaskOf
+        ? LexMessage.devTaskOf(t.uid, t.state) : null;
+      if (devTask && hooks.onDevStop) turn.appendChild(LexMessage.taskStop({ onStop: () => hooks.onDevStop(devTask) }));
+      return turn;
+    }
+  }
+  // A record of a feed of Extended Mind (Разбор, Обращения, Questions).
+  function emNode(t) {
+    const turn = emEntryTurn(t);
+    turn.dataset.origin = String(t.origin);
+    return turn;
+  }
+  if (global.LexMessage && global.LexMessage.cells) {
+    const C = global.LexMessage.cells;
+    // The feeds of Extended Mind; a feed that lays its turns out itself takes them before the cell (renderTurns).
+    C.register(['em_intake', 'em_request', 'em_question', 'em_status'], (t) => emNode(t));
+    // A chat of a person, a group or an agent (folder_*) and an order chat (profi_*): the message is the chat's own —
+    // lex-profi.js messageNode (the branch «who is this» too), callNode (a call with the client, В7.42). With no such
+    // chat open a turn of these kinds is drawn by its look, as an ordinary turn.
+    C.register(['folder_in', 'folder_out', 'folder_whois', 'profi_client', 'profi_sent', 'profi_notice'],
+      (t, ctx) => (ctx.chat ? ctx.chat.messageNode(t) : undefined));
+    C.register('profi_call', (t, ctx) => (ctx.chat && ctx.chat.callNode ? ctx.chat.callNode(t) : undefined));
+    // The main chat's kinds, the words of the system, and the looks (a kind the table does not know is a word of the system).
+    C.register(['text', 'voice', 'claude_code', 'news', 'mac', 'digest', 'call_summary', 'base_alert', 'base_ok',
+      'send_wait', 'send_failed', 'profi_draft', 'profi_call_draft', 'look:answer', 'look:system', 'look:own'], turnNode);
+  }
+
   const WcThread = {
     init(h) {
       hooks = h || {};
@@ -1172,8 +1279,8 @@
       }
       const old = [...elTurns.querySelectorAll('.wc-turn-em[data-uid]')].find((n) => n.dataset.uid === String(t.uid));
       if (t.deleted) { if (old) old.remove(); }
-      else if (old) old.replaceWith(emEntryTurn(t));
-      else elTurns.append(emEntryTurn(t));
+      else if (old) old.replaceWith(global.LexMessage.cell(t, { chat: profiChat }));
+      else elTurns.append(global.LexMessage.cell(t, { chat: profiChat }));
       remark();
       setEmpty(!elTurns.childElementCount);
       if (stickToBottom) requestAnimationFrame(() => scrollToBottom(false));
@@ -1234,121 +1341,23 @@
       // person), by the server's word on the turn or the list of lex-chat-money.js; the clean view of a chat of a person
       // reads it (lex-profi.js paintHidden), one rule with the iPhone (MessageKinds.isTalk).
       const sideOf = (t) => (global.LexChatMoney && global.LexChatMoney.kindTalk ? global.LexChatMoney.kindTalk(t.origin, t.talk) : null);
+      // Every turn is drawn by the one cell of a message (LexMessage.cell, lex-message.js): its kind names its drawer —
+      // the drawers of this file (turnNode, emNode, registered over the object), or the chat of a person, a group, an
+      // order or an agent (lex-profi.js messageNode, callNode).
+      const cellCtx = { chat: profiChat, opts: opts || {} };
       (turns || []).forEach((t) => {
-        const last = elTurns.lastElementChild;
-        drawTurn(t);
-        const node = elTurns.lastElementChild;
-        const talk = node && node !== last ? sideOf(t) : null;
-        if (talk !== null) node.dataset.talk = talk ? '1' : '0';
-      });
-      function drawTurn(t) {
         // The feed of questions: a question takes its place after the loop (paintQuestions), the
         // server's line after an answer is said by the line of its question.
         if (qFeed && t.origin === 'em_question' && t.uid) { qTurns.set(String(t.uid), t); return; }
         if (qFeed && t.origin === 'em_status') return;
         // The feed of requests: a record with its task takes its place after the loop (paintRequests).
         if (rFeed && t.origin === 'em_request' && t.uid && t.emEntry && t.emEntry.task) { rTurns.set(String(t.uid), t); return; }
-        if (t.origin && String(t.origin).indexOf('em_') === 0) {
-          const emTurn = emEntryTurn(t);
-          emTurn.dataset.origin = String(t.origin);
-          elTurns.append(emTurn);
-          return;
-        }
-        // The monitor's turns of an order chat: a message of the client, what went to him, a
-        // notice of Profi.
-        // A chat of a folder: the person's messages and Gennady's, from every messenger; in the chat of a new person
-        // also the branch «who is this» — the question of Lex, Gennady's word to it, a line of the system (folder_whois).
-        if (profiChat && (t.origin === 'profi_client' || t.origin === 'profi_sent' || t.origin === 'profi_notice'
-          || t.origin === 'folder_in' || t.origin === 'folder_out' || t.origin === 'folder_whois')) {
-          elTurns.append(profiChat.messageNode(t));
-          return;
-        }
-        // A call with the client of an order (В7.42): the block with its summaries, or a plate.
-        if (profiChat && t.origin === 'profi_call' && profiChat.callNode) {
-          elTurns.append(profiChat.callNode(t));
-          return;
-        }
-        // t.images is a list of ready object URLs — the backend resolved them
-        // from this browser's picture store while loading the conversation.
-        if (t.role === 'user') {
-          // Скрытая часть хода со словами («Word: "…"\nContext: "…"») уезжает
-          // учителю и лежит в беседе, но человеку показывать её нельзя: в
-          // живой ленте он видел только напечатанное, и перечитывание обязано
-          // вести себя так же. Правило общее с расширением (лента одна и та
-          // же: беседа из расширения читается здесь и наоборот).
-          let visible = global.WcWordPick ? WcWordPick.visibleText(t.text) : t.text;
-          let editText;
-          const bub = (t.bubble && t.bubble.pick) ? t.bubble : null;
-          const pp = (!bub && t.presetSlot) ? presetParts(t.later) : null;
-          if (bub) {
-            visible = global.LexWordPick.pickBubbleText(bub.pick, bub.rest);
-            editText = bub.rest;
-          } else if (pp && pp.line) {
-            visible = global.LexWordPick.presetBubbleText(pp);
-            editText = pp.phrase;
-          }
-          // Ход, от которого после этого ничего не осталось, — служебная
-          // инструкция выключенного лексического попапа, а не реплика
-          // человека. Пустой пузырь на её месте читался бы как «он ничего не
-          // сказал». Но картинка без слов — законный вопрос (см.
-          // ImageAttachment на iOS), и её дропать нельзя вместе с пустым
-          // текстом: без этой оговорки такой ход пропадал из ленты целиком —
-          // ни пузыря, ни картинки.
-          const hasImage = (Array.isArray(t.images) && t.images.length > 0)
-            || (Array.isArray(t.files) && t.files.length > 0);
-          if (!hasImage && global.WcWordPick && WcWordPick.isHiddenOnly(visible)) return;
-          const node = userTurn(visible, t.images, {
-            presetSlot: t.presetSlot || null, editText, files: t.files || null,
-            ...(bub ? { pick: bub.pick, rest: bub.rest } : {}),
-          });
-          if (t.uid) node.dataset.uid = String(t.uid);
-          if (t.authoredAt) node.dataset.at = t.authoredAt;
-          if (t.editable === true) node.dataset.editable = '1';
-          paintVersions(node, t);
-          elTurns.append(node);
-          if (t.threadKey) markApart(node, t.threadKey);
-        } else {
-          // An answer the server writes now (chat_turn_live.sql: running, its number, live): drawn as the
-          // stream — the dots or the words so far, the grey line of the current step — and followed to
-          // its end (wc-app.js followRunning). Only from the server's answer (opts.follow), never from
-          // this device's copy: a copy may keep as running an answer that ended long ago.
-          const running = !!(opts && opts.follow && t.live && t.opId) && t.origin !== 'news' && t.origin !== 'voice';
-          // An answer with no word (stopped before the first one, the model said nothing) is not drawn: the
-          // question stands alone (docs/spec/20-chat.md, «Остановка хода»).
-          if (!running && !String(t.text || '').trim() && t.origin !== 'news' && t.origin !== 'voice') return;
-          const { turn } = t.origin === 'news'
-            ? newsTurn(t.text, opts && opts.newsHead ? opts.newsHead() : null)
-            : assistantTurn(t.text);
-          if (running) {
-            turn.classList.add('is-streaming');
-            const entry = { turn, bubble: turn.querySelector('.wc-bubble'), text: String(t.text || '') };
-            // Its words are cut when it ends (done), as a stream's: every frame redraws the bubble.
-            if (global.WcWordPick) WcWordPick.forgetBubble(entry.bubble);
-            const step = t.live.step && typeof t.live.step === 'object' ? t.live.step : null;
-            // The line of the database's work leaves when the words start (chunk); Claude Code's stays.
-            if (step && (step.cc === true || !entry.text)) paintWork(entry, { cc: step.cc === true, line: step.line, label: step.label, name: step.name });
-            const requestId = 'follow:' + t.opId;
-            live.set(requestId, entry);
-            followedNow = { requestId, opId: String(t.opId), uid: t.uid ? String(t.uid) : null, text: entry.text, stepSeq: step ? step.seq : null };
-          }
-          // Сказанное голосом — под ним строки нет (syncFeet).
-          if (t.origin === 'voice') turn.classList.add('wc-turn-voice');
-          if (t.origin) turn.dataset.origin = String(t.origin);
-          // Модель ответа (из денег беседы) — подпись кнопки модели.
-          if (t.model) turn.dataset.model = t.model;
-          // Уид реплики: по нему встаёт цена хода (paintMoney).
-          if (t.uid) turn.dataset.uid = String(t.uid);
-          if (t.authoredAt) turn.dataset.at = t.authoredAt;
-          if (t.threadKey) markApart(turn, t.threadKey);
-          if (profiChat) profiChat.paintAnswer(turn, turn.querySelector('.wc-bubble'), t.text, WcMarkdown, false);
-          // A development task of Lex still running (a «mac:N» row, streaming — Claude Code in the cloud or on the
-          // Mac): Stop under it, from the server's answer only (docs/spec/20-chat.md, «Стоп задания»).
-          const devTask = opts && opts.follow && global.LexMessage && LexMessage.devTaskOf
-            ? LexMessage.devTaskOf(t.uid, t.state) : null;
-          if (devTask && hooks.onDevStop) turn.appendChild(LexMessage.taskStop({ onStop: () => hooks.onDevStop(devTask) }));
-          elTurns.append(turn);
-        }
-      }
+        const node = global.LexMessage.cell(t, cellCtx);
+        if (!node) return;
+        elTurns.append(node);
+        const talk = sideOf(t);
+        if (talk !== null) node.dataset.talk = talk ? '1' : '0';
+      });
       paintQuestions();
       paintRequests();
       remark();

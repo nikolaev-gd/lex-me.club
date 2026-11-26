@@ -3202,7 +3202,61 @@
     return mouseDown && host.matches(':hover');
   }
 
-  global.LexMessage = { message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
+  // ── One cell of a message (docs/spec/21-chat-canvas.md, «Одна ячейка сообщения», 26.11.2026) ─────────────────────
+  // Every turn of every chat of the page is drawn here: the kind of the turn — its `origin` (none is `text`), one of the
+  // table of the kinds of messages (MESSAGE_KINDS of lex-chat-money.js) — names its drawer. A drawer is given by the part
+  // that holds what it draws from (a chat of a person, a group, an order, an agent — lex-profi.js; the feeds and the
+  // main chat — webchat/wc-thread.js) and gets the turn and the context of the feed: draw(t, ctx) → a node to put at the
+  // end of the feed, `null` (the turn has nothing to show, or the feed took it to lay out itself), or `undefined` (not
+  // in this chat: the drawer of its look draws it — `look:answer`, `look:system`, `look:own`). A kind the table does not
+  // know is a word of the system (`look:system`); with no drawer of that either — a plate with its words. The table is
+  // read when a turn is drawn: lex-chat-money.js loads after this file, and the extension has no drawers at all.
+  const cellDrawers = new Map();
+  const cellKey = (origin) => (origin == null || origin === '' ? 'text' : String(origin));
+  const cellKinds = () => (global.LexChatMoney && global.LexChatMoney.MESSAGE_KINDS) || null;
+  const CELL_LOOKS = ['look:answer', 'look:system', 'look:own'];
+  function registerCell(origins, draw) {
+    for (const o of [].concat(origins)) cellDrawers.set(CELL_LOOKS.includes(o) ? o : cellKey(o), draw);
+  }
+  // The last word: a kind nobody draws is a plate of the system with its words, never lost.
+  function cellPlate(t) {
+    const root = make('div', 'wc-turn lex-cell-plate');
+    root.appendChild(notice({ body: document.createTextNode(String((t && t.text) || '')), at: t && t.authoredAt }));
+    if (t && t.uid) root.dataset.uid = String(t.uid);
+    if (t && t.origin) root.dataset.origin = String(t.origin);
+    if (t && t.authoredAt) root.dataset.at = t.authoredAt;
+    return root;
+  }
+  function drawCell(t, ctx) {
+    const key = cellKey(t && t.origin);
+    const kinds = cellKinds();
+    const known = !kinds || !!kinds[key];
+    const c = ctx || {};
+    const own = known ? cellDrawers.get(key) : null;
+    if (own) {
+      const node = own(t, c);
+      if (node !== undefined) return node;
+    }
+    const look = known && global.LexChatMoney ? global.LexChatMoney.kindLook(key) : 'system';
+    const byLook = cellDrawers.get(`look:${look}`) || cellDrawers.get('look:system');
+    // An unknown kind is a word of the system whoever wrote it: never a bubble of the person, never an answer of a model.
+    const node = byLook ? byLook(known ? t : Object.assign({}, t, { role: 'assistant' }), c) : undefined;
+    return node === undefined ? cellPlate(t) : node;
+  }
+  // The origins of the table that nobody draws (a test reads it: every kind has its drawer).
+  function missingCells() {
+    const kinds = cellKinds();
+    return kinds ? Object.keys(kinds).filter((k) => !cellDrawers.has(k)) : [];
+  }
+  // The origins drawn that the table does not know (the same test: a drawer only for a kind of the table).
+  function strayCells() {
+    const kinds = cellKinds();
+    return kinds ? [...cellDrawers.keys()].filter((k) => !CELL_LOOKS.includes(k) && !kinds[k]) : [];
+  }
+  const cells = { register: registerCell, draw: drawCell, key: cellKey, has: (o) => cellDrawers.has(cellKey(o)),
+    missing: missingCells, stray: strayCells };
+
+  global.LexMessage = { cells, cell: drawCell, message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, discussionFold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, orderWords, countdown,
