@@ -73,23 +73,12 @@
 .lex-profi-words > :first-child { margin-top: 0; }
 .lex-profi-words > :last-child { margin-bottom: 0; }
 
-/* A draft for the client (В7.20): the bubble of what went to the client on the right, up to 86 % of
- * the lane, a dashed edge, Copy in its corner (В7.22); the price, then the row of the send (В7.23):
- * 86 % of the lane, its right edge the bubble's, «Hold to send to …» (the rest) and «⋯» through 6;
- * a scheduled one — «Hold to send now» (the rest) and «Cancel» at its own width, through 6: halves
- * cut «Hold to send now» on a narrow screen. */
-.lex-profi-box { display: flex; flex-direction: column; align-items: flex-end; margin: 2px 0; text-align: left; }
-.lex-profi-box > .lex-bubble { max-width: 86%; }
-.lex-profi-box.is-writing > .lex-bubble { opacity: .75; }
-.lex-profi-box-price { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; }
-.lex-profi-box > .lex-profi-box-foot { width: 86%; }
-.lex-profi-box > .lex-profi-box-note { width: 86%; text-align: right; }
+/* A draft for the client (В7.20) is the one window of Lex (lex-draft-box.js, .lex-draft-box* of lex-message.css): the
+ * bubble on the right, up to 86 % of the lane, a dashed edge, Copy in its corner (В7.22); the price, then the row of the
+ * send (В7.23). Here only its place among the words of an answer. The row of buttons below (.lex-profi-box-foot) is the
+ * bot's «While you're busy» and the word to Lex on its way. */
+.lex-draft-box.lex-profi-box { margin: 2px 0; }
 .lex-profi-box-foot { display: flex; gap: 6px; margin-top: 6px; }
-.lex-profi-box > .lex-profi-box-foot { justify-content: flex-end; }
-.lex-profi-box > .lex-profi-box-foot > .lex-profi-btn { flex: 0 0 auto; padding: 0 16px; }
-/* A draft being changed (Edit → Save): «Cancel» at its own width and «Save» — the main button of the row —
- * taking the rest, where the row that sends stood. */
-.lex-profi-box > .lex-profi-box-foot > .lex-profi-btn.is-main { flex: 1 1 0; }
 .lex-profi-box-foot .lex-profi-btn {
   flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   min-width: 0; height: 44px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--bg-hover); font-size: 15px; font-weight: 650;
@@ -108,10 +97,11 @@
 .wc-profi-outbox[hidden] { display: none; }
 .lex-profi-outbox-item { display: flex; flex-direction: column; align-items: flex-end; margin-left: 44px; }
 .lex-profi-outbox-item .lex-bubble { max-width: 520px; }
-.lex-profi-outbox-item .lex-profi-box-note { text-align: right; }
-/* Under one's own text the buttons stand at their own width, on the right (the design). */
-.lex-profi-outbox-item .lex-profi-box-foot { justify-content: flex-end; }
-.lex-profi-outbox-item .lex-profi-box-foot .lex-profi-btn { flex: 0 0 auto; gap: 6px; padding: 0 16px; }
+.lex-profi-outbox-item > .lex-draft-box-note { margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.lex-profi-outbox-item > .lex-draft-box-note.is-error { color: var(--danger); }
+.lex-profi-outbox-item > .lex-draft-box-note:empty { display: none; }
+/* Under one's own text the buttons stand at their own width, on the right (the design): the row of the one window. */
+.lex-profi-outbox-item > .lex-draft-box-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
 /* «While you're busy» (busyNode): the countdown stands on Cancel as it does in an order message — the part and its
  * rules are in lex-message.css (В7.29), the seconds on the right, the ground of the time left under the words. */
 
@@ -157,6 +147,6 @@
 
 /* One message box in every chat (2026-11-13): what the box of an order chat or a chat of a person has — no row of
  * presets, no new chat, the voice only in an order chat — is the profile of the chat (lex-chat-profile.js, the classes
- * .lex-no-* of webchat/wc-app.css). No second version of an answer either (the server refuses it): the row under an
+ * data-profile-off of lex-composer.js). No second version of an answer either (the server refuses it): the row under an
  * answer here is Copy and «⋯» (wc-thread.js syncFeet gives it no model button and no Retry). */
 

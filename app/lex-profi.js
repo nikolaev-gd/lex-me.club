@@ -56,6 +56,8 @@
   // message-react) and the database of Gennady has the last word: this only keeps an item out of the menu of a message it
   // would refuse.
   const Profiles = () => global.LexChatProfile || null;
+  // The words of a send into a group the database does not send to (folder_group_send.sql), the same as the field's.
+  const GROUP_REFUSAL = 'Lex does not write to groups: answer in the messenger.';
   const emojiKey = (e) => String(e == null ? '' : e).replace(/\uFE0F/g, '').trim();
   const { make, button, newOpId } = global.LexSection;
 
@@ -235,134 +237,38 @@
   // server; none yet while the answer is being written (paler, no Copy, no row). A box that went shows
   // no copy of itself: what went stands in the chat as a message with its ticks.
   // A draft that answers one message of the client carries its quote (В7.35), as the client will see it.
-  // The text is the window's: the person may have changed it (Edit → Save, below).
-  function boxNode(text, win, deps, quote) {
-    const M = global.LexMessage;
-    const root = make('div', 'lex-profi-box');
-    if (win && win.state === 'sent') {
-      root.classList.add('is-sent');
-      const { note } = boxControls(win, deps);
-      root.appendChild(note);
-      return root;
-    }
-    if (!win) {
-      root.classList.add('is-writing');
-      const q = quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null;
-      root.appendChild(M.bubble({ side: 'out', tone: 'draft', text, quote: q }));
-      return root;
-    }
-    // What the person is typing into a box (Edit, not yet saved) lives in `deps.edits` (window → { text }),
-    // kept by the chat: a signal of the database redraws the answer, and the typed words must survive it.
-    const edits = deps.edits || new Map();
-    if (!canEdit(win)) edits.delete(win.id);
-    let shown = win.text != null ? win.text : text;
-    let line = '';
-    const quoteNode = () => (quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null);
-
-    function paintView() {
-      let note = null;
-      const copy = async () => {
-        const ok = await deps.copy(shown);
-        if (!ok && note) note.textContent = 'The browser refused the clipboard.';
-        return ok;
-      };
-      const kids = [M.bubble({ side: 'out', tone: 'draft', text: shown, copy, quote: quoteNode() })];
-      const price = priceLine(win.price);
-      if (price) kids.push(make('div', 'lex-profi-box-price', `Price: ${price}`));
-      const controls = boxControls(Object.assign({}, win, { text: shown }), deps, canEdit(win) ? startEdit : null);
-      note = controls.note;
-      if (line) note.textContent = line;
-      kids.push(controls.foot, note);
-      root.classList.remove('is-editing');
-      root.replaceChildren(...kids);
-    }
-
-    function startEdit() {
-      edits.set(win.id, { text: shown, fresh: true });
-      paintEdit();
-    }
-
-    // Edit → Save (Gennady, 2026-11-18): the bubble is the same, its words are a field; under it «Cancel» and
-    // «Save» stand in place of the row that sends. A tap on them sends nothing to anyone, so they are taps.
-    // Save writes the text into the box on the server (profi_box_text): Send, the time and every app read it
-    // from there. Escape cancels, Ctrl or Cmd with Enter saves.
-    function paintEdit() {
-      const entry = edits.get(win.id);
-      const old = entry.field;
-      const keep = !!entry.fresh || !!(old && old.isConnected && global.document.activeElement === old);
-      const caret = old && old.isConnected ? [old.selectionStart, old.selectionEnd] : null;
-      const note = make('div', 'lex-profi-box-note');
-      note.setAttribute('role', 'status');
-      const changed = () => {
-        const words = entry.text.trim();
-        return words !== '' && words !== shown.trim();
-      };
-      let busy = false;
-      const leave = () => {
-        edits.delete(win.id);
-        paintView();
-      };
-      const save = async () => {
-        if (busy || !changed()) return;
-        busy = true;
-        saveBtn.disabled = true;
-        cancelBtn.disabled = true;
-        note.textContent = 'Saving…';
-        let r = null;
-        try {
-          r = await deps.rpc('profi_box_text', { p_window: win.id, p_text: entry.text });
-        } catch (e) {
-          busy = false;
-          cancelBtn.disabled = false;
-          saveBtn.disabled = !changed();
-          note.textContent = 'Not saved. ' + ((e && e.message) || '');
-          return;
-        }
-        if (r && typeof r.text === 'string') shown = r.text;
-        line = r && r.saved === false ? 'Not saved: the text has already gone.' : '';
-        leave();
-        deps.refresh();
-      };
-      const ed = M.editField({
-        value: entry.text,
-        label: deps.folder ? 'Message to the person' : 'Message to the client',
-        onInput: (v) => {
-          entry.text = v;
-          saveBtn.disabled = busy || !changed();
-          if (note.textContent) note.textContent = '';
-        },
-        onKey: (e) => {
-          if (e.key === 'Escape') { e.preventDefault(); if (!busy) leave(); }
-          else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
-        },
+  // The text is the window's: the person may have changed it (Edit → Save). The window itself — its drawing, Edit, the
+  // line of a refusal, the press on its way — is the one window of Lex (LexDraftBox.windows, lex-draft-box.js); its
+  // presses go by the door of the chat (LexDraftBox.door: profi_* of an order chat, folder-send of a chat of the folders).
+  // A caller that brings no window of its own (a check page calling LexProfi.boxNode): one is made for it, with the door
+  // of its kind of chat.
+  function withWindows(deps) {
+    if (!deps.windows) deps.windows = global.LexDraftBox.windows({ refresh: () => Promise.resolve(deps.refresh && deps.refresh()), putBack: deps.putBack, copy: deps.copy });
+    if (!deps.door) {
+      const P = global.LexChatProfile;
+      const d = global.LexDraftBox.door({
+        profile: P ? P.profileOfKind(deps.folder ? 'person' : 'order') : null, kind: deps.folder ? 'folder' : 'profi',
+        rpc: deps.rpc, folderSend: deps.folderSend, chatKey: () => deps.chatKey || null, order: () => deps.order || null,
       });
-      entry.field = ed.field;
-      const bubble = M.bubble({ side: 'out', tone: 'draft', body: ed.body, quote: quoteNode() });
-      bubble.classList.add('is-editing');
-      const cancelBtn = button('lex-profi-btn', 'Cancel', () => { if (!busy) leave(); });
-      cancelBtn.dataset.role = 'edit-cancel';
-      const saveBtn = button('lex-profi-btn is-main', 'Save', save);
-      saveBtn.dataset.role = 'edit-save';
-      saveBtn.disabled = !changed();
-      const foot = make('div', 'lex-profi-box-foot');
-      foot.append(cancelBtn, saveBtn);
-      const kids = [bubble];
-      const price = priceLine(win.price);
-      if (price) kids.push(make('div', 'lex-profi-box-price', `Price: ${price}`));
-      kids.push(foot, note);
-      root.classList.add('is-editing');
-      root.replaceChildren(...kids);
-      if (keep) ed.focus();
-      if (caret && !entry.fresh) {
-        global.requestAnimationFrame(() => {
-          if (ed.field.isConnected) { try { ed.field.setSelectionRange(caret[0], caret[1]); } catch (_) { /* no selection */ } }
-        });
-      }
-      entry.fresh = false;
+      deps.door = () => d;
     }
+    return deps;
+  }
 
-    if (edits.has(win.id)) paintEdit(); else paintView();
-    return root;
+  function boxNode(text, win, deps0, quote) {
+    const M = global.LexMessage;
+    const deps = withWindows(deps0);
+    const quoteNode = () => (quote && M.quote ? M.quote(quote, { io: fileIo, onPress: deps.openQuote || null }) : null);
+    if (!win) {
+      return deps.windows.draw({ key: `writing:${text}`, root: 'lex-draft-box lex-profi-box', writing: true, words: text, quote: quoteNode }, {});
+    }
+    const view = boxView(win, deps);
+    view.root = 'lex-draft-box lex-profi-box';
+    view.words = win.text != null ? win.text : text;
+    view.quote = quoteNode;
+    view.price = priceLine(win.price) || null;
+    if (win.state === 'sent') view.none = true;
+    return deps.windows.draw(view, boxActs(win, deps));
   }
 
   // A box whose text may still change: nothing has gone out of it. The person's own text has its own Edit
@@ -392,13 +298,13 @@
     }
   }
 
-  // The buttons of a box and its line, from its state on the server. One set for the box in an
-  // answer of the model and for the person's own text at the end of the chat (outboxNode). What sends
-  // to the client goes by a hold only (В7.23, Gennady 16.11.2026: a tap sends nothing anywhere):
+  // The row of a box and its line, from its state on the server, as the one window draws them (LexDraftBox.windows).
+  // One set for the box in an answer of the model and for the person's own text at the end of the chat (outboxNode).
+  // What sends to the client goes by a hold only (В7.23, Gennady 16.11.2026: a tap sends nothing anywhere):
   //   may leave (ready) — «Hold to send to <client>»; failed with a retry — «Hold to send again»;
   //     a box of the model has «⋯» by it (and the right button on the send): «Schedule…» — the same
-  //     text at a time (lex-send-later.js) — and «Edit in the field» — the text into the field, to
-  //     change by hand and send by holding the arrow;
+  //     text at a time (lex-send-later.js), where the door of the chat has a time (an order chat) — and «Edit» — the
+  //     words changed in the box itself;
   //   scheduled — «Hold to send now» and «Cancel»: the box of the model waits for a send again, the
   //     person's own text leaves the chat and comes back into the field (deps.putBack). A box of the
   //     model keeps its «⋯» while it waits (Gennady, 20.11.2026): «Schedule…» changes the time, «Edit»
@@ -406,26 +312,19 @@
   //     (<client_text at="…">, profi_box_at.sql);
   //   the person's own text that did not leave — «Delete» as well.
   // «Cancel» and «Delete» work by a tap, as before: nothing goes to a person by them.
-  function boxControls(win, deps, onEdit) {
-    const foot = make('div', 'lex-profi-box-foot');
-    const note = make('div', 'lex-profi-box-note');
-    note.setAttribute('role', 'status');
+  function boxView(win, deps) {
     const open = win.state === 'ready' || (win.state === 'failed' && win.retry);
     const scheduled = win.state === 'scheduled';
-    const call = async (name, args, busy) => {
-      note.textContent = busy;
-      try {
-        const r = await deps.rpc(name, args);
-        deps.refresh();
-        return r || {};
-      } catch (e) {
-        note.textContent = 'Not done. ' + ((e && e.message) || '');
-        return null;
-      }
-    };
-    const cancel = async () => {
-      const r = await call('profi_send_cancel', { p_window: win.id }, 'Cancelling…');
-      if (r && r.state === 'removed' && r.text && deps.putBack) deps.putBack(r.text);
+    const door = deps.door();
+    const line = stateLine(win, boxWho(deps), deps.group);
+    const view = {
+      key: `win:${win.id}`,
+      data: { window: win.id, state: win.state },
+      editable: canEdit(win),
+      editLabel: deps.folder ? 'Message to the person' : 'Message to the client',
+      line: line ? { text: line } : null,
+      taps: [],
+      hold: null,
     };
     if (open || scheduled) {
       // Where it goes: the window says (`to`, a reply goes to the channel of the message it quotes);
@@ -437,52 +336,49 @@
       const group = deps.group != null ? `the group ${deps.group}`.trim() : null;
       const words = scheduled ? 'Hold to send now' : again ? 'Hold to send again' : group ? `Hold to send to ${group}` : name ? `Hold to send to ${name}` : 'Hold to send';
       const label = `Send${scheduled ? ' now' : again ? ' again' : ''} to ${group || name || (deps.folder ? 'the person' : 'the client')} on ${placeName(to)}. Hold to send`;
-      // «⋯» of a box of the model: the same box at a time, or its words changed in the box (Edit). A box of a
-      // folder chat goes at once (the queue of the database sends at once): Edit only.
-      const editItem = onEdit ? { label: 'Edit', icon: 'pencil', run: () => onEdit() } : null;
-      const items = open && !win.direct && deps.folder ? (editItem ? () => [editItem] : null) : (open || scheduled) && !win.direct ? () => {
-        const list = [{
+      view.hold = {
+        channel: to || 'profi', words, label, fit: !!win.direct,
+        busy: door.kind === 'profi' ? 'Going to the monitor…' : 'Sending…',
+        // «⋯» of a box of the model: the same box at a time, where the door of the chat has one (a box of a folder
+        // chat goes at once: the queue of the database sends at once). Edit is the window's own item.
+        items: !win.direct && door.schedules ? (press) => [{
           label: 'Schedule…',
           icon: 'clock',
           run: async () => {
             // A box that waits opens the sheet on its own time.
             const at = await global.LexSendLater.pick({ text: win.text, client: deps.client, at: scheduled ? win.sendAt : null });
-            if (!at) return;
-            await call('profi_send_at', { p_op_id: newOpId(), p_window: win.id, p_at: at.toISOString() }, 'Scheduling…');
+            if (at) press('Scheduling…', () => door.at(win, at));
           },
-        }];
-        if (editItem) list.push(editItem);
-        return list;
-      } : null;
-      // A box of a folder chat: its text goes by the Send of the chat (folder-send), tied to the box.
-      const sendFolderBox = async (send) => {
-        note.textContent = 'Sending…';
-        const r = typeof deps.sendBox === 'function' ? await deps.sendBox(win) : null;
-        if (!r) { send.disabled = false; note.textContent = stateLine(win, boxWho(deps), deps.group); return; }
-        deps.refresh();
-        note.textContent = r.state === 'queued' || r.state === 'sending' ? sendingLine(r.channel, deps.group) : '';
+        }] : null,
       };
-      const { send, more } = global.LexMessage.sendHold({
-        channel: to || 'profi', words, label, fit: !!win.direct, items,
-        onSend: async () => {
-          send.disabled = true;
-          if (deps.folder) return sendFolderBox(send);
-          const r = await call('profi_send', { p_op_id: newOpId(), p_window: win.id }, 'Going to the monitor…');
-          if (!r) { send.disabled = false; return; }
-          note.textContent = r.state === 'queued' ? sendingLine(r.channel) : '';
-        },
-      });
-      // The person's own text waiting for its time: «Cancel», then «Hold to send now» (the design).
-      if (scheduled && win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
-      foot.appendChild(send);
-      // A waiting box of the model: «Hold to send now», «Cancel», then «⋯» at the edge, where it stands by any box.
-      if (scheduled && !win.direct) foot.appendChild(button('lex-profi-btn', 'Cancel', cancel));
-      if (more) foot.appendChild(more);
+      // The person's own text waiting for its time: «Cancel», then «Hold to send now» (the design); a waiting box of the
+      // model: «Hold to send now», «Cancel», then «⋯» at the edge, where it stands by any box.
+      if (scheduled) view.taps.push({ label: 'Cancel', role: 'cancel', act: 'cancel', busy: 'Cancelling…', before: !!win.direct });
     }
-    if (win.direct && (win.state === 'failed' || win.state === 'ready')) foot.appendChild(button('lex-profi-btn', 'Delete', cancel));
-    note.textContent = stateLine(win, boxWho(deps), deps.group);
-    if (!foot.childElementCount) foot.hidden = true;
-    return { foot, note };
+    if (win.direct && (win.state === 'failed' || win.state === 'ready')) {
+      view.taps.push({ label: 'Delete', role: 'delete', act: 'cancel', busy: 'Deleting…', last: true });
+    }
+    return view;
+  }
+
+  // The presses of a box, by the door of its chat.
+  function boxActs(win, deps) {
+    const door = deps.door();
+    return {
+      // The box the server took is on its way: «Sending to Telegram…» («The monitor is sending it.» on Profi) stands
+      // under the row, off, until the chat read again draws its new state.
+      send: async () => {
+        const r = await door.send(win);
+        const going = r && r.ok !== false && !r.busy && (r.state === 'queued' || r.state === 'sending');
+        return going ? Object.assign({}, r, { after: sendingLine(r.channel || null, deps.group) }) : r;
+      },
+      text: async (words) => {
+        const r = await door.text(win, words);
+        if (r && typeof r.words === 'string') win.text = r.words;
+        return r;
+      },
+      cancel: () => door.cancel(win),
+    };
   }
 
   // The client as the button names him: the first word of his name («Дмитрий Петров» → «Дмитрий»).
@@ -503,33 +399,24 @@
   // The person's own text to the client, sent without the model (profi_send_text): it has no
   // answer of the model to stand in, so it stands at the end of the chat as an outgoing message
   // with its line and buttons, until what went to the client comes back into the chat. Which
-  // ones stand here the server says (`outbox`, profi_send_later.sql).
-  function outboxNode(win, deps) {
+  // ones stand here the server says (`outbox`, profi_send_later.sql). Its row and its line are the one window's
+  // (LexDraftBox.windows) with the person's own bubble in place of the draft.
+  function outboxNode(win, deps0) {
     const M = global.LexMessage;
-    const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item');
-    root.dataset.window = String(win.id);
-    const body = make('div', '', '');
-    body.textContent = win.text;
-    // Waiting for its time: paler, a dashed frame, a clock and the time where the ticks stand.
-    // No channel: the place is chosen at the moment it leaves.
-    let stamp = null;
-    if (win.state === 'scheduled' && win.sendAt) {
-      stamp = make('div', 'lex-stamp');
-      const t = make('span', 'lex-stamp-time lex-sl-when', '');
-      t.append(global.LexSendLater.icon('clock', 12), document.createTextNode(global.LexSendLater.stamp(win.sendAt)));
-      stamp.appendChild(t);
-    }
-    const bubble = M.bubble({ side: 'out', body, stamp });
-    if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
-    root.appendChild(bubble);
+    const deps = withWindows(deps0);
     // Not sent (17.11.2026): the common part of a message that did not go (LexMessage.unsent, the same as
     // under a word to Lex in the main chat) — «Not sent» and why, «Hold to retry» (a tap sends nothing to
     // the client, В7.23) when the monitor said a second sending is safe, «⋯» with Edit and Delete. It
     // stands until the person sends it again or deletes it (the server keeps it in `outbox`).
     if (win.state === 'failed' && M.unsent) {
-      root.classList.add('lex-unsent');
+      const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item lex-unsent');
+      root.dataset.window = String(win.id);
+      const body = make('div', '', '');
+      body.textContent = win.text;
+      root.appendChild(M.bubble({ side: 'out', body }));
+      const door = deps.door();
       const cancel = async () => {
-        try { await deps.rpc('profi_send_cancel', { p_window: win.id }); } catch (e) {
+        try { await door.cancel(win); } catch (e) {
           if (deps.notify) deps.notify('Not done. ' + ((e && e.message) || ''));
           return false;
         }
@@ -543,7 +430,8 @@
         onRetry: win.retry ? async () => {
           part.update({ sending: true });
           try {
-            await deps.rpc('profi_send', { p_op_id: newOpId(), p_window: win.id });
+            const r = await door.send(win);
+            if (r && r.ok === false) throw new Error(r.text || '');
           } catch (e) {
             part.update({ sending: false, note: 'Not sent again. ' + ((e && e.message) || '') });
             return;
@@ -559,9 +447,24 @@
       root.appendChild(part);
       return root;
     }
-    const { foot, note } = boxControls(win, deps);
-    root.append(note, foot);
-    return root;
+    // Waiting for its time: paler, a dashed frame, a clock and the time where the ticks stand.
+    // No channel: the place is chosen at the moment it leaves.
+    const body = make('div', '', '');
+    body.textContent = win.text;
+    let stamp = null;
+    if (win.state === 'scheduled' && win.sendAt) {
+      stamp = make('div', 'lex-stamp');
+      const t = make('span', 'lex-stamp-time lex-sl-when', '');
+      t.append(global.LexSendLater.icon('clock', 12), document.createTextNode(global.LexSendLater.stamp(win.sendAt)));
+      stamp.appendChild(t);
+    }
+    const bubble = M.bubble({ side: 'out', body, stamp });
+    if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
+    const view = boxView(win, deps);
+    view.root = 'lex-profi-msg is-sent lex-profi-outbox-item';
+    view.body = bubble;
+    view.noteFirst = true;
+    return deps.windows.draw(view, boxActs(win, deps));
   }
 
   // ── «While you're busy» (profi_busy.sql, 2026-11-19) ──────────────────────────────────────────────────
@@ -817,13 +720,13 @@
   // with that line goes to the agent (the page: wc-app.js sendWhois); there are no buttons.
 // folder — the chat of a person or a group of a folder of chats (Kolya, Other; folder_chats.sql): the same
   // messages, with no order over them. The person's chat has the model, the assistant in correspondence
-  // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by sendBox(win) → { state,
-  // channel } | null; holding the arrow, sendText(text, quoteUid) → true once the server took the text for the
-  // person (the edge function folder-send). The chat of a group is the same (Gennady, 21.11.2026): a tap goes to
+  // (assistant_folder_chats.sql): a tap gives the text to the model, its boxes go by the door of the chat
+  // (LexDraftBox.door, deps.folderSend(body) — the edge function folder-send); holding the arrow, sendText(text,
+  // quoteUid) → true once the server took the text for the person (the page sends it by the same door). The chat of a group is the same (Gennady, 21.11.2026): a tap goes to
   // the model, its boxes and holding the arrow send into the group itself, where the database of Gennady sends to
   // the groups of that messenger (data.send, folder_group_send.sql) — the menu, the box and the lines under the text
   // name the group, for every member of it reads the text (Gennady, 20.11.2026). Where it does not send, the model
-  // still works and a send into the group answers why (webchat/wc-app.js, sendToFolder, sendFolderBox).
+  // still works and a send into the group answers why (the door's closed(), webchat/wc-app.js sendToFolder).
   // A task chat of an agent works now (its mirror says so; a mark without a state is a working one, as its head says
   // «Working»): the live stage is the last line of its feed and the field's button is Stop (wc-app.js, 22.11.2026). The empty
   // chat of «New chat» (no chatKey) never works.
@@ -848,12 +751,32 @@
     let viewWrites = 0;
     // The first view the server gave this chat is taken as it is, or — opened by Reply yourself — told the server.
     let viewTaken = false;
-    // The words being typed into the boxes of the chat (Edit, not yet saved), by window: they stay while the
-    // answer is drawn again.
-    const edits = new Map();
+    // The boxes of the chat are the one window of Lex (LexDraftBox.windows): it keeps the words being typed into a box
+    // (Edit, not yet saved), the line of a refusal and a press on its way while the answer is drawn again.
+    const windows = global.LexDraftBox.windows({
+      refresh: () => Promise.resolve(deps.reload && deps.reload()),
+      putBack: deps.putBack, copy: deps.copy,
+    });
+    // The door of the chat: where its boxes and its held arrow send, by its profile (LexChatProfile.doorOf). One per
+    // kind of the chat, so that the number of a press that got no answer stays for the next press.
+    let doorNow = null;
+    const door = () => {
+      const profile = self.profile();
+      const kind = global.LexChatProfile ? global.LexChatProfile.doorOf(profile) : folder ? 'folder' : 'profi';
+      if (doorNow && doorNow.kind === kind) return doorNow;
+      doorNow = global.LexDraftBox.door({
+        profile, kind, rpc: deps.rpc, folderSend: deps.folderSend,
+        chatKey: () => (data && data.chatKey) || null,
+        order: () => deps.order,
+        // A chat of the folders the database does not send into now (a group of a messenger it does not send to, a chat
+        // in no folder): a press says why and sends nothing (folder_group_send.sql).
+        closed: () => (!data || data.send ? '' : data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.'),
+      });
+      return doorNow;
+    };
     const boxDeps = () => ({ rpc: deps.rpc, copy: deps.copy, refresh: deps.reload, notify: deps.notify,
       putBack: deps.putBack, replyTo: (data && data.replyTo) || null, client: (data && data.client) || null,
-      openQuote: (q) => self.openQuote(q), folder, sendBox: deps.sendBox, edits,
+      openQuote: (q) => self.openQuote(q), folder, windows, door,
       // the chat of a group: its whole title names where a box goes (every member reads it)
       group: folder && data && data.kind === 'group' ? String(data.title || data.client || '').trim() : null });
     // The look of a message (В7.35–В7.40). The messages of the monitor the screen drew, by uid (the sheet
@@ -1827,14 +1750,23 @@
             items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send', run: () => deps.sendText(text, quoteUid) }],
           };
         }
+        // The person's own text goes by the door of the chat (profi_send_text), as its boxes do; a refusal or no
+        // answer leaves the field as it is and says why.
         const send = async (at) => {
-          const r = await deps.rpc('profi_send_text', {
-            p_op_id: newOpId(), p_order: deps.order, p_text: text, p_at: at ? at.toISOString() : null,
-            ...(quoteUid ? { p_quote_uid: quoteUid } : {}),
-          });
+          let r = null;
+          try {
+            r = await door().direct(text, { quote: quoteUid, at });
+          } catch (e) {
+            if (deps.notify) deps.notify('Not sent. ' + ((e && e.message) || ''));
+            return false;
+          }
           deps.reload();
-          if (r && quoteUid && typeof deps.replyDone === 'function') deps.replyDone();
-          return !!r;
+          if (r && r.ok === false) {
+            if (deps.notify) deps.notify(`Not sent. ${r.text || ''}`.trim());
+            return false;
+          }
+          if (quoteUid && typeof deps.replyDone === 'function') deps.replyDone();
+          return true;
         };
         // A reply goes to the channel of the message it answers (profi_message_looks.sql); without a line of
         // a reply — where the client wrote last.
@@ -1842,17 +1774,17 @@
         const mark = global.LexMessage && global.LexMessage.channel(place || 'profi');
         return {
           head: `To ${data.client || 'the client'}, without Lex`,
+          // «Schedule…» — where the door of the chat has a time (an order chat: profi_send_text with p_at).
           items: [
             { label: `Send to ${self.attachedAddress(place) || placeName(place)} now`, icon: mark || 'send', run: () => send(null) },
-            {
-              label: 'Schedule…',
-              icon: 'clock',
-              run: async () => {
-                const at = await global.LexSendLater.pick({ text, client: data.client });
-                return at ? send(at) : false;
-              },
+          ].concat(door().schedules ? [{
+            label: 'Schedule…',
+            icon: 'clock',
+            run: async () => {
+              const at = await global.LexSendLater.pick({ text, client: data.client });
+              return at ? send(at) : false;
             },
-          ],
+          }] : []),
         };
       },
 
@@ -1866,6 +1798,9 @@
 
       // The profile of this chat (lex-chat-profile.js): what the server said with it, else the table's row by its key
       // and the kind of its folder. null — the table did not load: nothing of a channel is offered.
+      // The door of this chat (LexDraftBox.door): where its boxes and its held arrow send to the person.
+      door() { return door(); },
+
       profile() {
         const P = Profiles();
         return P && data ? P.profileOf(data.chatKey, data) : null;

@@ -323,6 +323,7 @@
       if (stage !== 'context_overflow' && stage !== 'body_too_large') return null;
       const e = new Error('LEX_CONTEXT_OVERFLOW');
       e.lexContextOverflow = true;
+      e.status = response.status; // an answer of the server, not a break (as lexProfiRefusedError)
       return e;
     }
 
@@ -374,6 +375,7 @@
       if (stage !== 'prompt') return null;
       const e = new Error('LEX_PROMPT_MISSING');
       e.lexPromptMissing = true;
+      e.status = response.status; // an answer of the server, not a break (as lexProfiRefusedError)
       return e;
     }
 
@@ -397,6 +399,7 @@
       if (stage !== 'preset_line') return null;
       const e = new Error('LEX_PRESET_NO_LINE');
       e.lexPromptMissing = true;
+      e.status = response.status; // an answer of the server, not a break (as lexProfiRefusedError)
       return e;
     }
 
@@ -421,6 +424,7 @@
       if (stage !== 'pricing') return null;
       const e = new Error(`LEX_MODEL_UNPRICED ${String((parsed && parsed.error) || '')}`.trim());
       e.lexModelUnpriced = true;
+      e.status = response.status; // an answer of the server, not a break (as lexProfiRefusedError)
       return e;
     }
 
@@ -443,6 +447,9 @@
       if (!(stage === 'profi' && response.status === 424) && !(stage === 'edit_fixed' && response.status === 409)) return null;
       const e = new Error(`LEX_PROFI_REFUSED ${String((parsed && parsed.error) || '')}`.trim());
       e.lexProfiRefused = true;
+      // The status goes with it: a refusal is an answer of the server, not a broken connection (the page's isBreak
+      // reads a stream end with no status as a break and then shows «Lex did not get this message.»).
+      e.status = response.status;
       return e;
     }
 
@@ -3021,6 +3028,8 @@
             // and re-running would just re-arm the same problem.
             const isPreviousIdFailure = useResponsesApi && initialResponseId
               && typeof err.status === 'number' && err.status >= 400 && err.status < 500
+              // A refusal of Lex's own server (LEX_*) carries its status too; a fuller history does not change it.
+              && !/^LEX_/.test(String(err.message || ''))
               && !controller.signal.aborted;
             if (!isPreviousIdFailure) throw err;
             console.warn(

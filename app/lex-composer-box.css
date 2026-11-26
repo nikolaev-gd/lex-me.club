@@ -223,3 +223,8 @@
 :is(.ytvocab-explain-panel, .ytvocab-pron-mini-chat) .ytvocab-chat-input-wrapper > .ytvocab-chat-mic-status:empty {
   display: none;
 }
+
+/* A part of the field the profile of the chat does not give (lex-composer.js paint: the presets, the microphone, the
+ * voice button, «new chat»): not drawn. The profile decides, not the kind of the chat (docs/spec/21-chat-canvas.md,
+ * «Поле ввода и отправка»). */
+[data-profile-off] { display: none !important; }

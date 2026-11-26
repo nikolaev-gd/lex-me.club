@@ -167,6 +167,12 @@
     ['reactableUid', 'profi:telegram:77:11', true],
     ['reactableUid', 'profi:max:1:2', false],
     ['reactableUid', 'profi:wa:79001234567@s.whatsapp.net:3EB0', true],
+    ['doorOfKind', 'order', 'profi'],
+    ['doorOfKind', 'person', 'folder'],
+    ['doorOfKind', 'group', 'folder'],
+    ['doorOfKind', 'main', 'brain'],
+    ['doorOfKind', 'agent', 'brain'],
+    ['doorOfKind', 'service', 'brain'],
   ];
 
   const TABLE = { kinds: KINDS, channels: CHANNELS, keys: KEYS, examples: EXAMPLES };
@@ -255,9 +261,21 @@
     return f[part] === true;
   }
 
+  // Where a message to a person from a chat of this profile goes — the door of its windows and of its held arrow
+  // (lex-draft-box.js `door`, the iPhone's `ChatProfile.door` and `WindowDoor`): 'profi' — an order chat of Profi.ru (the database
+  // functions of its boxes), 'folder' — a person or a group of the folders (the edge function folder-send), 'brain' — any
+  // other chat (a window of the base under an answer, brain-action). A chat whose arrow sends to nobody without the model
+  // (hold null) has only the windows of the base.
+  function doorOf(profile) {
+    if (!profile || profile.hold !== 'person') return 'brain';
+    return profile.kind === 'order' ? 'profi' : 'folder';
+  }
+  // The door of the row of a kind (the examples run it, here and on the iPhone: ChatProfile.door).
+  const doorOfKind = (kind) => doorOf(profileOfKind(kind));
+
   root.LexChatProfile = {
     KINDS, CHANNELS, KEYS, EXAMPLES, TABLE,
     kindOfKey, kindOf, profileOf, profileOfKind, channelOfUid, personalUid, editOf, editableUid, reactableUid,
-    serverEditable, serverReactable, offers, fieldHas,
+    serverEditable, serverReactable, offers, fieldHas, doorOf, doorOfKind,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

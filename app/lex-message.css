@@ -1509,6 +1509,8 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-draft-box { display: flex; flex-direction: column; align-items: flex-end; box-sizing: border-box; width: 100%; text-align: left; }
 .lex-draft-box > .lex-bubble { max-width: 86%; }
 .lex-draft-box.is-cancelled > .lex-bubble { opacity: .6; }
+/* No window yet (the answer is being written, lex-profi.js boxNode): paler, no Copy, no row. */
+.lex-draft-box.is-writing > .lex-bubble { opacity: .75; }
 .lex-draft-box > .lex-draft-box-info { width: 86%; margin-top: 6px; color: var(--fg-muted); font-size: 13px; text-align: right; }
 .lex-draft-box > .lex-draft-box-info + .lex-draft-box-info { margin-top: 2px; }
 .lex-draft-box > .lex-draft-box-foot { display: flex; justify-content: flex-end; gap: 6px; width: 86%; margin-top: 6px; }

@@ -528,10 +528,14 @@
     if (!r) throw new Error('No answer.');
     return state.conversationId === key ? r : Object.assign({}, r, { marks: null });
   }
-  const draftBoxes = global.LexDraftBox ? global.LexDraftBox.create({
-    send: (m) => draftCall({ op: 'send', turnUid: m.uid, kind: m.kind }),
-    text: (m, text) => draftCall({ op: 'text', turnUid: m.uid, kind: m.kind, text }),
-    cancel: (m) => draftCall({ op: 'cancel', turnUid: m.uid, kind: m.kind }),
+  // The windows of the base go by the one door of a message to a person (LexDraftBox.door, its kind 'brain'): the
+  // same answer, errors and repeat on no answer as a box of an order chat or of a chat of the folders.
+  const brainDoor = global.LexDraftBox && global.LexChatProfile
+    ? global.LexDraftBox.door({ profile: global.LexChatProfile.profileOfKind('main'), brain: draftCall }) : null;
+  const draftBoxes = brainDoor ? global.LexDraftBox.create({
+    send: (m) => brainDoor.send(m),
+    text: (m, text) => brainDoor.text(m, text),
+    cancel: (m) => brainDoor.cancel(m),
     apply: applyBrainMarks,
     copy: (text) => copyText(text),
   }) : null;
@@ -783,8 +787,8 @@
   // The field over a screen of an agent and a task chat of an agent — the agent's; an order chat and a chat of the
   // folders — the one the server brought with the chat (`profile` of profi_item, folder_item; the table by its key and
   // its folder's kind for an older server); a feed of the base, a news — their rows; everything else is the main chat.
-  // What the profile does not give is not drawn: the presets, the voice button and «new chat» are classes of the main
-  // column (lex-no-presets, lex-no-voice, lex-no-new-chat in wc-app.css), «+» asks takesFiles.
+  // What the profile does not give is not drawn: the field takes the profile (WcComposer.setProfile → LexComposer.paint:
+  // the presets, the microphone, the voice button, «new chat», the items of «+», the held arrow).
   function openProfile() {
     const P = global.LexChatProfile;
     if (!P) return null;
@@ -797,16 +801,8 @@
     return P.profileOfKind('main');
   }
   function paintFieldProfile() {
-    const main = document.querySelector('.wc-main');
     const p = openProfile();
-    if (!main || !p) return;
-    const has = (part) => global.LexChatProfile.fieldHas(p, part);
-    // Only a change is written: the column watches its own classes (wc-composer.js, and the observer below).
-    const set = (cls, on) => { if (main.classList.contains(cls) !== on) main.classList.toggle(cls, on); };
-    set('lex-no-presets', !has('presets'));
-    set('lex-no-voice', !has('voice'));
-    set('lex-no-new-chat', !has('newChat'));
-    if (main.dataset.chatKind !== p.kind) main.dataset.chatKind = p.kind;
+    if (p) WcComposer.setProfile(p);
   }
   // Every way into and out of a chat changes a class of the main column (is-profi-chat, is-agent-chat, is-em-feed,
   // is-news-chat, is-quick-agent): the profile is painted again after each. Started by boot().
@@ -1082,22 +1078,32 @@
         const r = await global.LexProfi.busyCommand(newsRpc, a.order, 'cancel', String(a.job || ''));
         return r.ok ? { ok: true } : { ok: false, why: String(r.error || '').slice(0, 200) };
       }
+      // A box sent and a reply written from a notification go by the one door of a message to a person
+      // (LexDraftBox.door) of the chat they belong to: an order chat — profi_*, a chat of the folders — folder-send.
+      const doorFor = (kind, key, order) => global.LexDraftBox.door({
+        profile: global.LexChatProfile.profileOfKind(kind), rpc: newsRpc,
+        folderSend: (body) => WcBus.call('WC_FOLDER_SEND', { body }),
+        chatKey: () => key || null, order: () => (order != null ? String(order) : null),
+      });
+      const done = (r) => (r && r.ok === false ? { ok: false, why: String(r.text || '').slice(0, 200) } : null);
       if (what === 'call_send') {
         if (!a.window) return { ok: false };
-        await newsRpc('profi_send', { p_op_id: global.LexProfi.newOpId(), p_window: String(a.window) });
-        return { ok: true };
+        const no = done(await doorFor('order', null, a.order).send({ id: String(a.window) }));
+        return no || { ok: true };
       }
       if (what === 'reply') {
         const text = String(a.text || '').trim();
         const key = String(a.chatKey || '');
         if (!text) return { ok: false };
+        let no = null;
         if (key.startsWith('__lex_profi__') && a.order) {
-          await newsRpc('profi_send_text', { p_op_id: global.LexProfi.newOpId(), p_order: String(a.order), p_text: text, p_at: null });
+          no = done(await doorFor('order', key, a.order).direct(text, {}));
         } else if (WcHistory.isFolderKey(key)) {
-          await WcBus.call('WC_FOLDER_SEND', { body: { chatKey: key, text, opId: global.LexFolders.newOpId() } });
+          no = done(await doorFor('person', key, null).direct(text, {}));
         } else {
           return { ok: false, why: 'This chat takes no reply from a notification.' };
         }
+        if (no) return no;
         // The chat on the screen shows its new message at once.
         if (key === state.conversationId) {
           if (key.startsWith('__lex_profi__')) refreshProfiChat().catch(() => {});
@@ -2130,7 +2136,7 @@
     if (told) WcBus.call('WC_PROFI_CHAT', { key: told, modelId: chat.data.modelId || null }).catch(() => {});
     main.classList.add('is-profi-chat');
     // A task chat of an agent takes only words: its field has no presets, no live voice, no picture or file in «+»
-    // (its profile: paintFieldProfile, takesFiles). The slot of the voice folds again by what the field holds.
+    // (its profile: paintFieldProfile → WcComposer.setProfile). The slot of the voice folds again by what the field holds.
     main.classList.toggle('is-agent-chat', isAgentChat(chat));
     paintFieldProfile();
     if (WcComposer.refresh) WcComposer.refresh();
@@ -2224,7 +2230,7 @@
       editText: (uid, text) => editSentText(uid, text),
       react: (uid, emoji) => reactSent(uid, emoji),
       notify: (text) => toast(text, { error: true }),
-      reload: () => { refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)); },
+      reload: () => refreshProfiChat().catch((e) => console.warn('[wc] order chat:', e && e.message)),
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
@@ -2371,9 +2377,10 @@
       editText: (uid, text) => editSentText(uid, text),
       react: (uid, emoji) => reactSent(uid, emoji),
       notify: (text) => toast(text, { error: true }),
-      reload: () => { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); },
+      reload: () => refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)),
       sendText: (text, quoteUid) => sendToFolder(chat, text, quoteUid),
-      sendBox: (win) => sendFolderBox(chat, win),
+      // The door of the chat (LexDraftBox.door): its boxes and the held arrow go to the person by folder-send.
+      folderSend: (body) => WcBus.call('WC_FOLDER_SEND', { body }),
       // The agent «Кто это» (В7.50, В7.54): a link of Lex in its words or a line of its message opens that chat; the
       // word that waits for Gennady puts the line «Reply to Lex» over the field (armReply), its word goes by send().
       go: (place) => { openLexLink(place).catch((e) => console.warn('[wc] link of Lex:', e && e.message)); },
@@ -2477,58 +2484,28 @@
   // sends it where he wrote last, or to the messenger of the message it answers; it stands under the
   // last message until it went. true — the server took it.
   const GROUP_REFUSAL = 'Lex does not write to groups: answer in the messenger.';
+  // The held arrow of a chat of a folder: the text to the person or the group now, by the door of the chat
+  // (LexDraftBox.door, folder-send): one number of the press for these words until the server answered them, so a press
+  // that got no answer does not go twice. A refusal (a group the database does not send into) says why. → true once the
+  // server took the text (the field is cleared then).
   async function sendToFolder(chat, text, quoteUid) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return false;
-    if (!chat.data.send) {
-      toast(chat.data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.', { error: true });
-      return false;
-    }
     let out;
-    const key = chat.data.chatKey;
     try {
-      out = await WcBus.call('WC_FOLDER_SEND', {
-        body: { chatKey: key, text: words, opId: global.LexFolders.sendOp(key, words, quoteUid), ...(quoteUid ? { quoteUid } : {}) },
-      });
+      out = await chat.door().direct(words, { quote: quoteUid || null });
     } catch (err) {
-      // No answer (err.network): the opId stays for the next press of these words — it does not go twice.
-      if (!(err && err.network)) global.LexFolders.sendSettled(key, words, quoteUid);
       toast('Not sent. ' + ((err && err.message) || ''), { error: true });
       return false;
     }
-    global.LexFolders.sendSettled(key, words, quoteUid);
+    if (out && out.ok === false) {
+      toast(out.text || 'Not sent.', { error: true });
+      return false;
+    }
     if (quoteUid && reply && reply.quoteUid === quoteUid) setReply(null);
-    if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
+    if (out && out.test) toast('The folder is in the test mode: the text went to your test chat.');
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
     return true;
-  }
-
-  // Send of a box of the assistant in a chat of a folder: its text goes by the Send of the chat (folder-send) with the
-  // number of the press «win:<box>» (a second try «win:<box>:<n>»), which ties the send to its box: the box shows the
-  // state of its send (lex_folder_windows_json). Word for word what the box holds. → { state, channel } | null.
-  async function sendFolderBox(chat, win) {
-    if (!chat || !chat.data || !win || !win.id || !String(win.text || '').trim()) return null;
-    // A group the database does not send into (2026-11-21): the box stands, its Send says why and sends nothing.
-    if (!chat.data.send) {
-      toast(chat.data.kind === 'group' ? GROUP_REFUSAL : 'This chat takes no messages now.', { error: true });
-      return null;
-    }
-    const tries = win.press ? (Number(String(win.press).split(':')[2]) || 1) + 1 : 1;
-    let out;
-    try {
-      out = await WcBus.call('WC_FOLDER_SEND', {
-        body: {
-          chatKey: chat.data.chatKey, text: win.text, opId: tries > 1 ? `win:${win.id}:${tries}` : `win:${win.id}`,
-          ...(win.quote && win.quote.uid ? { quoteUid: win.quote.uid } : {}),
-        },
-      });
-    } catch (err) {
-      toast('Not sent. ' + ((err && err.message) || ''), { error: true });
-      return null;
-    }
-    if (out && out.send && out.send.test) toast('The folder is in the test mode: the text went to your test chat.');
-    refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
-    return out && out.send ? out.send : { state: 'queued' };
   }
 
   // ── The agent «Кто это» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54) ─────────────────────────
@@ -3703,11 +3680,12 @@
 
   async function toggleVoice(opts) {
     await settingsReady;
-    // The field over the dimming of a screen of an agent: an agent takes only words.
-    if (quickAgentOn()) { toast(ONLY_WORDS); return; }
-    // A chat of a folder is the conversation with a person: Lex does not talk in it; an agent takes only words.
-    if (profiChat && profiChat.folder && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
-      toast(isAgentChat(profiChat) ? ONLY_WORDS : 'Voice talk with Lex is not in the chats of folders.');
+    // A chat whose profile has no talk by voice (a person, a group, an agent) has no voice button (LexComposer.paint); a
+    // way in from elsewhere is refused with the same words: an agent takes only words, a chat of a folder is the
+    // conversation with a person. A talk going on is let end.
+    const prof = openProfile();
+    if (prof && !global.LexChatProfile.fieldHas(prof, 'voice') && !(global.WcVoice && (WcVoice.active || WcVoice.connecting))) {
+      toast(prof.kind === 'agent' ? ONLY_WORDS : 'Voice talk with Lex is not in the chats of folders.');
       return;
     }
     // Push-to-talk is not a different transport — it is the same live session
@@ -4778,14 +4756,10 @@
       // Stop of an answer, or of the agent of the open task chat (its number 'agent:<chatKey>', stopFromField).
       onStop: stopFromField,
       onVoice: (o) => toggleVoice(o),
-      // A task chat of an agent takes only words (a file pasted into the field stops at the send).
-      onAttach: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pick()),
-      onAttachFile: () => (isAgentChat(profiChat) || quickAgentOn() ? toast(ONLY_WORDS, { error: true }) : WcAttach.pickFile()),
-      // «+» has a picture and a file where the profile of the chat gives them (a chat with an agent takes only words).
-      takesFiles: () => {
-        const p = openProfile();
-        return !p || global.LexChatProfile.fieldHas(p, 'image') || global.LexChatProfile.fieldHas(p, 'file');
-      },
+      // «+» offers a picture and a file only where the profile of the chat takes them (LexComposer.plusItems: a chat
+      // with an agent takes only words; a file pasted into the field there stops at the send).
+      onAttach: () => WcAttach.pick(),
+      onAttachFile: () => WcAttach.pickFile(),
       // Первый пункт меню «+»: к чему привязана беседа. Читается синхронно —
       // значение уже лежит наготове (syncAttachment выше).
       attachedPage: () => attachedPage,

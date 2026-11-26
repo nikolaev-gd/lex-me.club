@@ -1326,6 +1326,9 @@
     // An order chat of Profi.ru and a chat of a person or a group write with the same default
     // model as every chat (WC_TEXT_MODEL, 2026-11-25): no model of their own any more.
     const modelId = m.modelOverride || (native && native.model) || await activeModelId();
+    // An order chat of Profi.ru sends its tree and only the new message (below): 40a803474 took the model of order
+    // chats away together with this name, and every send threw «inProfi is not defined».
+    const inProfi = !!(profiChat && m.conversationId === profiChat.key);
     // Модель хода — ленте: ею подписана кнопка модели под ответом.
     WcBus.broadcast({ type: 'WC_TURN_MODEL', requestId: m.requestId, modelId });
 

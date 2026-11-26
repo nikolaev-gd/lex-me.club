@@ -25,6 +25,10 @@
   let hooks = {};
   // The field takes no text (a group, a chat that takes no messages now): setHint(…, true).
   let locked = false;
+  // What the field of the open chat has (LexComposer.parts of its profile, setProfile): the presets, the microphone,
+  // the voice button, «new chat», the items of «+», the held arrow. Until a chat gives its profile — the main chat's.
+  let parts = null;
+  const partsNow = () => parts || (parts = global.LexComposer.parts(null));
 
   // The words of the field changed — by a key, a dictation, a send, the window: the draft of the chat
   // the field belongs to is the window's (wc-app.js, lex-drafts.js). setText(…, { quiet: true }) — the
@@ -276,15 +280,7 @@
     if (elMic) elMic.disabled = locked;
     if (elPlus) elPlus.disabled = locked;
 
-    elSend.classList.toggle('is-stop', streaming);
-    elSend.title = streaming ? 'Stop' : 'Send';
-    elSend.setAttribute('aria-label', elSend.title);
-    const path = elSend.querySelector('path');
-    if (path) {
-      path.setAttribute('d', streaming
-        ? 'M7 7h10v10H7z'                 // a square: stop
-        : 'M12 19V5M5 12l7-7 7 7');       // an arrow: send
-    }
+    global.LexComposer.sendFace(elSend, { streaming });
 
     // The pills send, so they are dead while there is nothing to send and
     // while a turn is already streaming.
@@ -297,13 +293,12 @@
       : (voiceMode === 'ptt' ? 'Hold to talk' : 'Live conversation');
     elVoice.setAttribute('aria-label', elVoice.title);
 
-    // A window that hides the voice button has nothing in the slot while there
+    // A chat whose profile has no voice button has nothing in the slot while there
     // is nothing to send — the slot folds and the microphone ends the box; send
-    // unfolds it (wc-app.css, .wc-send-slot.is-folded). Every chat of this page
-    // has the voice conversation since 2026-11-13 (one box everywhere), the
-    // order chats of Profi.ru and the feeds of Extended Mind included.
+    // unfolds it (wc-app.css, .wc-send-slot.is-folded). What the chat has is its
+    // profile (LexComposer.folded), not a style of the page.
     const slot = elSend.parentElement;
-    if (slot) slot.classList.toggle('is-folded', !sending && getComputedStyle(elVoice).display === 'none');
+    if (slot) slot.classList.toggle('is-folded', global.LexComposer.folded(partsNow(), sending));
     // What can be sent decides the layout too (presets live in the row under
     // the text), so the box is laid out again after every such change.
     autoGrow();
@@ -984,7 +979,11 @@
       // around the field, the arrow gets a ring. An item that took the text clears the field;
       // one that did not (the person closed the sheet, the server refused) leaves it. A chat
       // without such ways has no hold at all: a long press sends as before.
-      const waysOf = (text) => (hooks.sendMenu && text ? hooks.sendMenu(text) : null);
+      // Only a chat whose profile has a hold has one (LexComposer.holdWays); the files in the field do not go without
+      // the model — the head of the menu says so, and they leave the field with the words.
+      const waysOf = (text) => (hooks.sendMenu && text
+        ? global.LexComposer.holdWays(partsNow(), hooks.sendMenu(text), { files: global.WcAttach ? WcAttach.count() : 0 })
+        : null);
       onLongPress(elSend, () => {
         const text = elInput.value.trim();
         const ways = waysOf(text);
@@ -1006,6 +1005,8 @@
               if (ok && elInput.value.trim() === text) {
                 elInput.value = '';
                 wasBegun = false;
+                // The field is cleared whole: its files went nowhere and are not left behind (the head said so).
+                if (ways.files && global.WcAttach && typeof WcAttach.clear === 'function') WcAttach.clear();
                 autoGrow();
                 syncButton();
                 changed();
@@ -1060,40 +1061,21 @@
       // привязку запечатывает сервер, и полоска показывалась ровно в том
       // случае, который в расширении теперь живёт в этом меню.
       elPlus.addEventListener('click', (e) => {
-        const items = [];
+        // What «+» offers is the profile of the chat (LexComposer.plusItems): the material of the conversation, a
+        // picture and a file where the chat takes them, the model. Built at EVERY opening: the conversation changes
+        // under the panel, and its binding with it.
         let att = null;
         try { att = hooks.attachedPage && hooks.attachedPage(); } catch (_) { att = null; }
-        if (att && att.url) {
-          items.push({
-            label: att.label,
-            icon: 'link',
-            iconUrl: att.iconUrl || null,
-            onSelect: () => { try { window.open(att.url, '_blank', 'noopener'); } catch (_) {} },
-          });
-        }
-        // A chat that takes only words (a chat with an agent) has no picture and no file in «+»: the items that
-        // would only refuse are not drawn (docs/spec/21-chat-canvas.md, «Виды чатов и их части»).
-        let files = true;
-        try { files = !hooks.takesFiles || hooks.takesFiles() !== false; } catch (_) { files = true; }
-        if (files) {
-          items.push({ label: 'Attach image', icon: 'image', onSelect: () => hooks.onAttach() });
-          // Any file (2026-11-17): a PDF, a document, a video, an archive — to the message, so that it
-          // can go on to people. A picture picked here goes the way of a picture (WcAttach.accept).
-          if (hooks.onAttachFile) items.push({ label: 'File', icon: 'file', onSelect: () => hooks.onAttachFile() });
-        }
-        // Модель по умолчанию для следующих вопросов — так же, как пункт «Text
-        // model» в меню «+» расширения. Меню моделей встаёт у кнопки «+».
         let tm = null;
         try { tm = hooks.textModel && hooks.textModel(); } catch (_) { tm = null; }
-        if (tm) {
-          const anchor = e.currentTarget;
-          items.push({
-            // Just the model and its level, «Opus 5.5 · high» (Gennady, 23.11.2026).
-            label: tm.label || 'Text model',
-            icon: 'spark',
-            onSelect: () => tm.open(anchor),
-          });
-        }
+        const items = global.LexComposer.plusItems(partsNow(), {
+          attached: att,
+          open: (url) => { try { window.open(url, '_blank', 'noopener'); } catch (_) {} },
+          image: () => hooks.onAttach(),
+          file: hooks.onAttachFile ? () => hooks.onAttachFile() : null,
+          model: tm,
+          anchor: e.currentTarget,
+        });
         // Меню открывается по обычному нажатию, значит и отклик обычный —
         // `tap`. `press` носит долгое удержание (onLongPress выше), и разница
         // между ними здесь смысловая: она говорит пальцу, каким жестом это
@@ -1132,13 +1114,6 @@
       // The window's size is the field's room and the box's width.
       global.addEventListener('resize', autoGrow);
       if (global.visualViewport) global.visualViewport.addEventListener('resize', autoGrow);
-      // Entering or leaving a chat that hides presets or the voice button (an
-      // order chat, a feed of Extended Mind) is a class on the page's main
-      // column: the box re-reads what it has.
-      const main = elForm.closest('.wc-main');
-      if (main && global.MutationObserver) {
-        new MutationObserver(syncButton).observe(main, { attributes: true, attributeFilter: ['class'] });
-      }
     },
 
     // Список заготовок из каталога. Зовёт enterApp() — там уже есть токен.
@@ -1155,6 +1130,19 @@
     // The attachment strip changes what "empty" means, so it has to be able to
     // ask for a re-check.
     refresh() { if (elSend) syncButton(); },
+
+    // The profile of the open chat (LexChatProfile; the page gives it at every way into and out of a chat): what the
+    // field has is drawn from it (LexComposer.paint), «+» and the held arrow read it.
+    setProfile(profile) {
+      parts = global.LexComposer.parts(profile);
+      global.LexComposer.paint({
+        root: elForm ? elForm.closest('.wc-main') : null,
+        presets: elModeSplit, mic: elMic, voice: elVoice,
+        newChat: document.getElementById('wc-new-chat'),
+      }, parts);
+      if (elSend) syncButton();
+    },
+    parts() { return partsNow(); },
 
     // Фокус. Правило — в общем модуле, здесь только повод.
     //
