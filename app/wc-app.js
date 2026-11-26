@@ -2920,6 +2920,7 @@
     const agent = Object.assign({}, read.agent, { state: 'waiting' });
     delete agent.stage;
     delete agent.stage_key;
+    delete agent.stage_text;
     // the mark the copy came with, for the end of the hold to put back
     return Object.assign({}, read, { agent, agentAsRead: read.agent });
   }
@@ -2966,10 +2967,14 @@
       live.readList().catch(() => {});
       return;
     }
+    // «Engine» under the models — an agent whose task chat is a session of Claude Code (26.11.2026)
+    const engineRow = global.WcAgents.engineChoice(agent, (engine) => {
+      live.saveEngine(agentKey, engine).catch((e) => console.warn('[wc] agent engine:', e && e.message));
+    });
     openModelMenu(anchor, global.WcAgents.modelId(agent), {}, (modelId) => {
       const [, model, effort] = modelId.split(':');
       live.saveModel(agentKey, model, effort).catch((e) => console.warn('[wc] agent model:', e && e.message));
-    }, null, 'anthropic');
+    }, engineRow, 'anthropic');
   }
 
 

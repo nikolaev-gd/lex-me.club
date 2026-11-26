@@ -53,6 +53,16 @@
   const actionWords = (x) => (x ? oneLine(x.subject) || KIND_WORDS[x.kind] || '' : '');
 
   // What the agent may notify about (В7.60: the menu with notes).
+  // The two engines of an agent's session (Gennady's words, 26.11.2026).
+  const ENGINES = [{ value: 'claude-subscription', label: 'Claude по подписке' }, { value: 'claude-key', label: 'Claude по ключу API' }];
+  const engineLabel = (e) => (ENGINES.find((x) => x.value === e) || ENGINES[0]).label;
+  // The row «Engine» under the models of the menu «Text model» of a task chat (model-picker-dropdown choiceRow): only an
+  // agent that has an engine; the list of the section holds it.
+  function engineChoice(agent, onChoose) {
+    if (!agent || !agent.engine) return null;
+    return { label: 'Engine', get: async () => ({ options: ENGINES.map((x) => ({ value: x.value, label: x.label })), current: agent.engine }), onChoose };
+  }
+
   const NOTIFY = [
     { value: 'all', label: 'Waits or fails', note: 'When it waits for you and when it fails' },
     { value: 'waiting', label: 'When it waits for me', note: 'Only when it needs your word' },
@@ -274,7 +284,7 @@
       const working = c.state !== 'waiting' && c.state !== 'closed';
       const row = S.row({
         id: c.chatKey, title: c.title || 'Chat',
-        sub: working ? S.agentState({ state: 'working', stage: c.stage }) : oneLine(c.last),
+        sub: working ? S.agentState({ state: 'working', stage: c.stage, text: c.stageText || null }) : oneLine(c.last),
         time: S.listTime(c.at), unread: { chat: c.chatKey },
         onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
       });
@@ -536,6 +546,7 @@
         make('div', `lex-agent-state${st.tone ? ` ${st.tone}` : ''}`, st.text));
       root.append(top, aboutBlock(a, p));
       const model = { model: p.model || a.model, effort: p.effort || a.effort };
+      const engine = p.engine || a.engine || null;
       const notify = p.notify || a.notify || 'all';
       const paused = p.paused != null ? !!p.paused : !!a.paused;
       const pauseMain = p.pause_main || a.pause_main || 'queue';
@@ -547,6 +558,9 @@
             const [, m, effort] = String(id).split(':');
             saveModel(a.key, m, effort);
           }) } }),
+        ...(engine ? [S.settingRow({ id: 'engine', title: 'Engine', menu: { value: engineLabel(engine),
+          onOpen: (anchor) => deps.menu(anchor, ENGINES.map((x) => ({ label: x.label, checked: x.value === engine,
+            onSelect: () => { saveEngine(a.key, x.value); } }))) } })] : []),
         S.settingRow({ id: 'notify', title: 'Notify me', note: 'What this agent may notify about', menu: {
           value: (NOTIFY.find((x) => x.value === notify) || NOTIFY[0]).label,
           onOpen: (anchor) => deps.menu(anchor, NOTIFY.map((x) => ({ label: x.label, note: x.note, checked: x.value === notify,
@@ -588,7 +602,7 @@
         return false;
       }
       const fresh = {};
-      for (const k of ['model', 'effort', 'paused', 'paused_at', 'notify', 'can_pause', 'pause_main']) if (got && got[k] !== undefined) fresh[k] = got[k];
+      for (const k of ['model', 'effort', 'engine', 'paused', 'paused_at', 'notify', 'can_pause', 'pause_main']) if (got && got[k] !== undefined) fresh[k] = got[k];
       const a = byKey.get(key);
       if (a) Object.assign(a, fresh);
       if (current && current.key === key && current !== a) Object.assign(current, fresh);
@@ -596,6 +610,17 @@
       paintPassport();
       await readList().catch((e) => console.warn('[agents] list:', e && e.message));
       return true;
+    }
+    // The engine of an agent whose task chat is a session of Claude Code (26.11.2026; the base gives `engine` only then):
+    // the subscription (the API key when its windows run out) or the API key alone. Only this screen of Gennady changes it.
+    function saveEngine(key, engine) {
+      const a = byKey.get(key);
+      if (!ENGINES.some((x) => x.value === engine) || (a && a.engine === engine)) return Promise.resolve(false);
+      return save(key, { engine }).then((ok) => {
+        const b = byKey.get(key);
+        if (ok && b) deps.toast(`${b.name || key}: ${engineLabel(b.engine)}`);
+        return ok;
+      });
     }
     function saveModel(key, model, effort) {
       if (!model) return Promise.resolve(false);
@@ -708,9 +733,10 @@
       arrow: () => frame.enter(),
       // The agent's model (the passport, «+ → Text model» in its chats): to the base, the list and the passport show it.
       saveModel,
+      saveEngine,
       readList,
     };
   }
 
-  global.WcAgents = { createSection, modelId, modelLabel, stateOf, sortAgents, KIND_WORDS, NOTIFY, PAUSE_NOTE };
+  global.WcAgents = { createSection, modelId, modelLabel, stateOf, sortAgents, KIND_WORDS, NOTIFY, PAUSE_NOTE, ENGINES, engineChoice };
 })(typeof window !== 'undefined' ? window : globalThis);

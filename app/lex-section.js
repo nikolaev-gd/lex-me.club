@@ -756,7 +756,7 @@
     const size = FACE_SIZES.includes(o.size) ? o.size : 48;
     const n = make('span', `lex-face is-${size}${o.quiet ? ' is-quiet' : ''}`);
     if (o.name) { n.setAttribute('role', 'img'); n.setAttribute('aria-label', o.name); } else n.setAttribute('aria-hidden', 'true');
-    if (key === 'profi-bot' && global.LexMessage && global.LexMessage.channel) {
+    if (key === 'profi-marketer' && global.LexMessage && global.LexMessage.channel) {
       const m = global.LexMessage.channel('profi');
       m.setAttribute('width', String(size));
       m.setAttribute('height', String(size));

@@ -1689,7 +1689,8 @@
           // A task chat of an agent that works (board AgChat): the last line of the feed is the live stage (В7.63).
           else if (agent() && agentWorks(data) && global.LexSection) {
             const live = make('div', 'wc-turn lex-profi-msg lex-agent-stage');
-            live.appendChild(global.LexSection.liveStage({ stage: data.agent.stage || null }));
+            // a session of Claude Code gives the step in words (stage_text, as the main chat's grey line)
+            live.appendChild(global.LexSection.liveStage({ stage: data.agent.stage || null, text: data.agent.stage_text || null }));
             items.push(live);
           } else if (agent() && data.agent && data.agent.state === 'closed' && M && M.notice) {
             // A closed task chat ends with the plate «Closed · HH:MM» (board AgChatWaiting, В7.3), as on the iPhone
