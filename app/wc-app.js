@@ -2387,6 +2387,10 @@
       armReply: (r) => armReply(r),
       // A task chat of an agent (board AgChat): its head opens the passport of the agent.
       agentPassport: (key) => openAgentPassport(key),
+      // A chat of a person (its profile: `card: 'person'`): the head opens the card of the person (lex-person.js, В7.41),
+      // the same door as an order chat's; a person deleted from Lex takes his chat off the list — the main page is shown.
+      person: (body) => WcBus.call('WC_PERSON', { body }),
+      onPersonGone: () => newConversation(),
     });
     chat.folder = true;
     chat.sectionId = sectionId;

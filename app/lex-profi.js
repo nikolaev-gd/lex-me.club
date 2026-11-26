@@ -1366,7 +1366,9 @@
           },
           at: () => t.authoredAt || null,
           host: () => root.parentElement,
-          reply: (part) => self.replyTo(uid, part),
+          // Reply where the profile of the chat offers it (`menu`: reply — a person, a group, an order chat; not a task
+          // chat of an agent).
+          get reply() { return self.offersItem('reply') ? (part) => self.replyTo(uid, part) : null; },
           // Edit of a message that went to a person (19.11.2026): read when the menu opens, as the window of WhatsApp
           // for editing closes 15 minutes after the send.
           get editSent() { return self.canEditSent(t) ? () => self.editSent(t) : null; },
@@ -1792,6 +1794,7 @@
       // or the person as it stands, at once, without the model — the first item of sendMenu, with no quote. null
       // — this chat sends to nobody (a group, a chat in no folder) or the message has no words.
       sendNow(text) {
+        if (!self.offersItem('sendNow')) return null;   // the profile of the chat: a person, a group, an order chat
         const menu = self.sendMenu(text, { plain: true });
         return menu && menu.items && menu.items[0] ? menu.items[0] : null;
       },
@@ -1804,6 +1807,12 @@
       profile() {
         const P = Profiles();
         return P && data ? P.profileOf(data.chatKey, data) : null;
+      },
+      // Does the profile of this chat offer this item of the menu of a message (reply, edit, react, sendNow)? No table
+      // or no chat — no.
+      offersItem(item) {
+        const profile = self.profile();
+        return !!profile && Profiles().offers(profile, item);
       },
 
       // «Edit» of a message that went to a person (19.11.2026): Gennady's own text, in a chat whose profile offers Edit,
@@ -1977,8 +1986,8 @@
           return link;
         };
         // A chat of a folder: the person (his photo, folder_photos.sql) or the group, and the messenger he
-        // wrote by last (a group: its own); the clean view (the talk with the assistant) for both; no card yet
-        // (it opens from an order chat).
+        // wrote by last (a group: its own); the clean view (the talk with the assistant) for both; the card of the
+        // person where the profile of the chat says so (`card: 'person'` — a person, not a group; personOpen).
         // A task chat of an agent (board AgChat, 22.11.2026): the face of the agent 40 (В7.56), the title of the chat, under it
         // «<the agent> · Working | Waiting for you | Closed» («Waiting for you» in yellow); a press opens the passport of
         // the agent (deps.agentPassport); no clean view.
@@ -2004,10 +2013,12 @@
           const words = make('div', 'lex-profi-person-words', '');
           words.append(make('div', 'lex-profi-person-name', name), make('div', 'lex-profi-person-channel', line));
           person.append(M.avatar(name, { photo: data && data.photo, io: fileIo }), words);
-          // «Who is this» (В7.52): the words the entry of the database brought (folder_open `brief`); no card to
-          // open from a chat of a folder yet, so the line is not pressed.
-          return { person, link: data && (data.kind === 'person' || data.kind === 'group') ? cleanButton() : null, open: null, who: name,
-            brief: M.brief(data && data.brief) };
+          // «Who is this» (В7.52): the words the entry of the database brought (folder_open `brief`); a press opens the
+          // card, as the name. A server that does not know the card of a chat of the folders yet (before
+          // person_card_folder.sql) refuses: the card shows what the chat itself knows, with nothing to press (`bare`).
+          const open = self.personOpen(name, { name, photo: (data && data.photo) || null, who: line || null });
+          return { person, link: data && (data.kind === 'person' || data.kind === 'group') ? cleanButton() : null, open, who: name,
+            brief: M.brief(data && data.brief, { onOpen: open }) };
         }
         const who = (data && data.client) || 'Client';
         const words = make('div', 'lex-profi-person-words', '');
@@ -2015,12 +2026,19 @@
         person.append(M.avatar(who, { photo: data && data.photo, io: fileIo }), words);
         // The photo and the name are one button of the window: it opens the card of the person
         // (lex-person.js, В7.41). null — the window gives no door of the card.
-        const open = global.LexPerson && deps.person && data && data.chatKey
-          ? () => global.LexPerson.open({ chatKey: data.chatKey, name: who, call: deps.person,
-            onGone: deps.onPersonGone, io: fileIo })
-          : null;
+        const open = self.personOpen(who, null);
         // «Who is this» (В7.52): the words kept on the order (profi_open `brief`); a press opens the card, as the name.
         return { person, link: cleanButton(), open, who, brief: M.brief(data && data.brief, { onOpen: open }) };
+      },
+
+      // What a press on the head opens: the card of the person (lex-person.js, В7.41) where the profile of the chat says
+      // `card: 'person'` — an order chat, a person of the folders — and the window gives the door of the card; else null.
+      // bare — what the card shows when the server refuses it (a chat of the folders); null — its words of the refusal.
+      personOpen(name, bare) {
+        const profile = self.profile();
+        if (!profile || profile.card !== 'person' || !global.LexPerson || !deps.person || !data || !data.chatKey) return null;
+        const key = data.chatKey;
+        return () => global.LexPerson.open({ chatKey: key, name, call: deps.person, onGone: deps.onPersonGone, io: fileIo, bare });
       },
 
       // «Who is this» of an order chat comes with the card of the person (the server asks the database and keeps

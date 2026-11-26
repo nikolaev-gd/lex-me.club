@@ -202,13 +202,14 @@
     return Object.assign({}, KINDS[k], { kind: k, channels: CHANNELS });
   }
 
-  // The profile of a chat: the server's when it sent one (its channels too), else the row of its kind here.
+  // The profile of a chat: the server's when it sent one (its channels too), else the row of its kind here. A part the
+  // server's row does not name (a server older than that part, e.g. `card`) is the table's for that kind.
   function profileOf(key, item) {
     const kind = kindOf(key, item);
     const server = item && item.profile && typeof item.profile === 'object' ? item.profile : null;
     const row = server && server.kind === kind && server.send ? server : KINDS[kind];
     const channels = server && server.channels && typeof server.channels === 'object' ? server.channels : CHANNELS;
-    return Object.assign({}, row, { kind, channels });
+    return Object.assign({}, KINDS[kind], row, { kind, channels });
   }
 
   // The channel of a message by its uid: its name, '' — no channel of a person (Profi.ru, a word to Lex).

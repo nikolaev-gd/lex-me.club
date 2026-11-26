@@ -1,7 +1,7 @@
 // lex-person.js — the card of a person (ios/Lex/STANDARD.md В7.41, Gennady 16.11.2026).
 //
-// A press on the photo or the name in the bar of an order chat of Profi.ru opens the card of the
-// person on the page and in the program for the Mac: the sheet in the middle (В7.15). The card is a
+// A press on the photo or the name in the bar of an order chat of Profi.ru, or of a chat of a person of the folders
+// (the profile of the chat says `card: 'person'`, 26.11.2026), opens the card of the person on the page and in the program for the Mac: the sheet in the middle (В7.15). The card is a
 // text about the person (Gennady, 16.11.2026, after the first card): on top the photo or the letter 96
 // (В7.12), the name 22/650 and who he is 15 `--fg-muted`; then «About» — his own text from his profile
 // in Telegram or Max, read only, with its place («From Telegram»); then «Your notes» — Gennady's own
@@ -15,11 +15,14 @@
 // adds later — is drawn as it comes, with no change here. Three questions go to the server: the card,
 // the notes, Mute/Delete/Restore.
 //
-//   LexPerson.open({ chatKey, name, call, onGone, io })
+//   LexPerson.open({ chatKey, name, call, onGone, io, bare })
 //     call(body) → Promise<{ card }>, refuses with Error(<words of the server>)
 //     io         — the files of the person's chats ({ blob(path) }, fileIo of lex-profi.js): the photo
 //                  the server keeps (`card.photo`) comes through it; none — the letter alone
 //     onGone()   — the sheet closed on a person deleted from Lex: his chat is off the list now
+//     bare       — { name, photo, who } of the chat itself: what a chat of the folders shows when the server refuses its
+//                  card (a server before person_card_folder.sql answers 404): the head only, nothing to press, no error.
+//                  None — the words of the refusal, as for an order chat.
 (function (global) {
   'use strict';
 
@@ -204,6 +207,8 @@
 
     for (const b of card.extra || []) if ((b.rows || []).length) root.appendChild(extraBlock(b));
 
+    // A bare card (o.bare of open): the server gave none, so nothing of it is pressed — no Mute, no Delete.
+    if (card.bare) return root;
     const acts = make('div', 'lex-person-block lex-person-acts');
     if (card.deleted) {
       root.appendChild(make('div', 'lex-person-note', 'Deleted from Lex. Restore brings the card and the chat back.'));
@@ -306,9 +311,16 @@
     }
 
     o.call({ op: 'card', chatKey: o.chatKey }).then((r) => {
+      if (!r || !r.card) throw new Error('The server of Lex sent no card.');
       card = r.card;
       paint();
-    }, (e) => {
+    }).catch((e) => {
+      if (o.bare) {
+        console.warn('[person] the card of', o.chatKey, 'did not come:', e && e.message);
+        card = { name: o.bare.name || o.name || '', photo: o.bare.photo || null, who: o.bare.who || null, bare: true };
+        paint();
+        return;
+      }
       busy.textContent = (e && e.message) || 'The server of Lex did not answer.';
     });
     return sheet;
