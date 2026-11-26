@@ -1003,7 +1003,8 @@
               let ok = false;
               const go = ways.files === 'go' && !!global.WcAttach && typeof WcAttach.forPerson === 'function';
               try {
-                const files = go ? await WcAttach.forPerson(global.WcAttach.chatKey || null) : null;
+                const key = go && typeof WcAttach.chatKey === 'function' ? WcAttach.chatKey() : null;   // set by wc-app.js
+                const files = go ? await WcAttach.forPerson(key) : null;
                 ok = await it.run(text, files && files.length ? { files } : {});
               } catch (err) {
                 toast((err && err.message) || 'Not sent.', { error: true });
