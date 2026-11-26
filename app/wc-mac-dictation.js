@@ -146,6 +146,8 @@
     }, extra || {});
     if (status === 'pending') { delete row.ended_at; delete row.seconds; delete row.audio_ms; }
     Object.keys(row).forEach((k) => { if (row[k] === null || row[k] === undefined) delete row[k]; });
+    // A recognized retry clears the reason of the failure before it («interrupted»): the base keeps a reason not sent.
+    if (status === 'ok' && !('reason' in row)) row.reason = null;
     try { await global.WcHistory.dictationAgent({ op: 'put', dictation: row }); }
     catch (e) { console.warn(TAG, 'log:', e && e.message); }
   }
