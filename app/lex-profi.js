@@ -994,7 +994,8 @@
       // o.still — a copy for the sheet of a message: no menu, a quote that does not open.
       messageNode(t, o) {
         // The branch «who is this» in the chat of a new person: the question of Lex, the word of Gennady to it, a line of the system.
-        if (t.origin === 'folder_whois') return self.whoisNode(t, o);
+        // a turn of a task chat of an agent (agent_word.sql) is drawn as the branch was before it, by its agent branch
+        if (t.origin === 'folder_whois' || t.origin === 'agent_word') return self.whoisNode(t, o);
         const M = global.LexMessage;
         // A chat of a folder: what the person wrote on the left (folder_in), Gennady's on the right
         // (folder_out), whichever messenger it went by.
@@ -1096,7 +1097,7 @@
         if (!still && by === 'gennady' && whoisWord && !whoisWord.before.includes(uid)) self.whoisSettle();
         const row = make('div', `wc-turn lex-profi-msg is-whois is-${by}`);
         if (uid) row.dataset.uid = uid;
-        row.dataset.origin = 'folder_whois';
+        row.dataset.origin = t.origin === 'agent_word' ? 'agent_word' : 'folder_whois';
         if (t.authoredAt) row.dataset.at = t.authoredAt;
         row.dataset.look = sigOf(uid);
         let words = String(t.text || '');

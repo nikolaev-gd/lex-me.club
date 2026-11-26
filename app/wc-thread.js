@@ -1037,7 +1037,7 @@
     // A chat of a person, a group or an agent (folder_*) and an order chat (profi_*): the message is the chat's own —
     // lex-profi.js messageNode (the branch «who is this» too), callNode (a call with the client, В7.42). With no such
     // chat open a turn of these kinds is drawn by its look, as an ordinary turn.
-    C.register(['folder_in', 'folder_out', 'folder_whois', 'profi_client', 'profi_sent', 'profi_notice'],
+    C.register(['folder_in', 'folder_out', 'folder_whois', 'agent_word', 'profi_client', 'profi_sent', 'profi_notice'],
       (t, ctx) => (ctx.chat ? ctx.chat.messageNode(t) : undefined));
     C.register('profi_call', (t, ctx) => (ctx.chat && ctx.chat.callNode ? ctx.chat.callNode(t) : undefined));
     // The main chat's kinds, the words of the system, and the looks (a kind the table does not know is a word of the system).

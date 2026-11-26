@@ -2658,7 +2658,7 @@
 
   // ── The section «Agents» (21.11.2026, wc-agents.js) ───────────────────────────────────────────────────
   // A folder for every agent of the base, a chat for every task of the agent. A task chat is a chat of a folder
-  // (folder_item, kind 'agent'): its words are the turns of the branch (origin folder_whois) — the agent's words as the
+  // (folder_item, kind 'agent'): its words are drawn as the turns of the branch (origin agent_word, before it folder_whois) — the agent's words as the
   // word of Lex (В7.50) without buttons, Gennady's as his word «To Lex», the system's as a plate. Every word of the
   // field goes to the agent (folder-agents, op say), nothing to a person or to the assistant; no files, presets or voice.
   // The arrow of the chat leads to the folder of its agent, the arrow of the folder to the list of the agents.

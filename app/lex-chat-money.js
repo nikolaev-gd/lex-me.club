@@ -625,7 +625,8 @@
     text: [true, null, 'answer'],                        // the main chat
     voice: [true, null, 'answer'],                       // a talk by voice (no row under it)
     claude_code: [true, null, 'answer'],                 // a step of Claude Code (by the API prices)
-    folder_whois: [true, null, 'own'],                   // the words of an agent of the base (profi:editor:<n>)
+    folder_whois: [true, null, 'own'],                   // «Кто это» in a chat of a person; an agent's word of before agent_word.sql
+    agent_word: [true, null, 'own'],                     // a turn of a task chat of an agent (profi:editor:<n>; look.agent.by)
     news: [false, 'the feed of news is written by the base, not by a step of a chat', 'own'],
     folder_in: [false, NO_MODEL + ': the words of a person', 'own'],
     folder_out: [false, NO_MODEL + ': the words of Gennady to a person', 'own'],
