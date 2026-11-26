@@ -206,7 +206,7 @@
   // client has not read it yet; the second stroke and both blue, he has. The server says which. It is
   // the common part of the stamp now (LexMessage.ticks, В7.2): under what went in every channel.
   const TICK_NS = 'http://www.w3.org/2000/svg';
-  const tickNode = (read) => global.LexMessage.ticks(read);
+  const tickNode = (status) => global.LexMessage.ticks(status);
 
   function priceLine(price) {
     if (!price) return '';
@@ -1011,10 +1011,11 @@
         if (notice) {
           node = M.notice({ channel: ch, at: t.authoredAt, body: linkedText(make('span', 'lex-notice-text', ''), t.text) });
         } else {
-          // The ticks under everything that went, in every channel (В7.2): the server's `delivery`; an
-          // older server — what Profi said it read (`readTurns`).
-          const read = look.delivery ? look.delivery === 'read' : new Set((data && data.readTurns) || []).has(uid);
-          const tail = out ? tickNode(read) : null;
+          // The ticks under everything that went, in every channel (В7.2): the server's step of the ladder
+          // (`status`), a server before it — `delivery`, an older one — what Profi said it read (`readTurns`).
+          const status = M.tickStatus(look, look.delivery)
+            || (new Set((data && data.readTurns) || []).has(uid) ? 'read' : 'sent');
+          const tail = out ? tickNode(status) : null;
           // An edited message says when its text was written (`editedAt`), as the canvas has it.
           const at = look.editedAt && !look.deletedAt ? look.editedAt : t.authoredAt;
           if (look.sticker && typeof look.sticker === 'object') {
@@ -2218,7 +2219,7 @@
       load: (order) => deps.rpc('profi_item', { p_order: order }).then((item) => remember(order, item)),
     });
     // the photo too: a new photo of the client is read again for the bar over the chat
-    const stampOf = (c) => [c.at, c.last, c.tick, c.unread, c.closed, c.photo || ''].join('|');
+    const stampOf = (c) => [c.at, c.last, c.tick, c.status || '', c.unread, c.closed, c.photo || ''].join('|');
     const keepOf = (order) => (item) => held.put(order, remember(order, item));
 
     // opts.showLex — the chat opens with the discussion shown: the notification of a draft after a call brings the
@@ -2287,12 +2288,13 @@
     // o — the main page of the people draws the line (lex-people.js): { from, fail, after, feed(order) }. A reply that
     // waits in the feed opens the feed, and the feed is a screen of this section: feed() shows it.
     function chatLine(c, o) {
+      const tick = global.LexMessage.tickStatus(c, c.tick);   // the step of the ladder, a server before it — `tick`
       const line = global.LexSection.row({
         lead: global.LexMessage.avatar(c.client || c.title, { photo: c.photo, io: fileIo, size: 48 }),
         title: c.title, sub: plainLinks(c.last || ''), dot: c.unread,
         onClick: () => (o && o.feed && c.feed ? o.feed(c.order)
           : openOrderOrFeed(c.order, o && o.from ? { from: o.from } : undefined, o && o.fail)),
-        end: c.tick ? tickNode(c.tick === 'read') : null,
+        end: tick ? tickNode(tick) : null,
         time: global.LexSection.listTime(c.at), pinned: !!c.pinned, bot: c.by === 'bot',
         muted: !!c.muted || global.LexSection.isMuted(c.chatKey) === true,
         unread: { order: c.order, number: true },

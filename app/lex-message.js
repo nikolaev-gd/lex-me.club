@@ -154,7 +154,8 @@
 //   reactions(list, o), forwarded(name), earlier(edits)   the pills of reactions, the line of a
 //                       forward, the earlier versions of an edited message
 //   sticker(o)          a sticker without a bubble and the pill «Sticker · time» under it
-//   ticks(read), setTicks(svg, read)   the ticks under what went, in every channel (В7.2)
+//   ticks(status), setTicks(svg, status)   the ticks under what went, in every channel (В7.2): the step of the
+//                       ladder sent | delivered | read | played (`status` from the server; true — read)
 //   messageSheet({ nodes, lit, onShow, onReply })   the insides of the sheet of a message: the
 //                       message in a frame with its neighbours, «Show in chat» and «Reply»
 //   messageIcon(name, size)   the marks of the menu of a message: 'reply', 'copy', 'earlier'
@@ -2638,12 +2639,31 @@
   }
 
   // The ticks of what went (В7.2): the tick of Profi's own list of chats — the same drawing, colours and
-  // size — under everything that went, in every channel (2026-11-16): one grey stroke, it went; the second
-  // stroke and both blue, read. The server says which (`delivery` of a message). setTicks(svg, read) —
-  // the same ticks turn blue in place.
+  // size — under everything that went, in every channel (2026-11-16). The server says the step of the ladder
+  // (`status` of a message and of a line, message_status_ladder.sql; docs/spec/60-server.md, «Галочки»):
+  // sent — one grey stroke; delivered — two grey; read — two blue; played — two blue. The page draws the
+  // step and keeps no list of what a messenger can say. A step it does not know is drawn as sent; a boolean
+  // is the old call (true — read). setTicks(svg, status) — the same ticks change in place.
   const TICK_GREY = '#838398';
   const TICK_BLUE = '#617EF8';
-  function ticks(read) {
+  const TICK_STEPS = {
+    sent: { two: false, blue: false, label: 'Sent' },
+    delivered: { two: true, blue: false, label: 'Delivered' },
+    read: { two: true, blue: true, label: 'Read' },
+    played: { two: true, blue: true, label: 'Played' },
+  };
+  function tickStep(status) {
+    if (status === true) return 'read';
+    return typeof status === 'string' && Object.prototype.hasOwnProperty.call(TICK_STEPS, status) ? status : 'sent';
+  }
+  // The step to draw from what the server gave: `status` (the ladder) first, then the old two-valued field
+  // (`delivery` of a message, `tick` of a line) of a server before the ladder; nothing — null, no ticks.
+  function tickStatus(o, old) {
+    if (!o) return null;
+    if (typeof o.status === 'string' && o.status) return o.status;
+    return typeof old === 'string' && old ? old : null;
+  }
+  function ticks(status) {
     const n = svg('0 -1 13 13', 16);
     n.removeAttribute('aria-hidden');
     n.setAttribute('role', 'img');
@@ -2652,17 +2672,20 @@
     for (const d of ['m.62 7.18 2.5 2.74L9.3 3.08', 'm6.21 9.92 6.17-6.84']) {
       n.appendChild(shape('path', { d, 'stroke-width': 1.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
     }
-    setTicks(n, read);
+    setTicks(n, status);
     return n;
   }
-  function setTicks(n, read) {
+  function setTicks(n, status) {
+    const step = tickStep(status);
+    const s = TICK_STEPS[step];
     const [first, second] = n.querySelectorAll('path');
-    first.setAttribute('stroke', read ? TICK_BLUE : TICK_GREY);
-    if (read) second.setAttribute('stroke', TICK_BLUE); else second.removeAttribute('stroke');
+    first.setAttribute('stroke', s.blue ? TICK_BLUE : TICK_GREY);
+    if (s.two) second.setAttribute('stroke', s.blue ? TICK_BLUE : TICK_GREY); else second.removeAttribute('stroke');
     second.setAttribute('stroke-dasharray', '10');
-    second.setAttribute('stroke-dashoffset', read ? '0' : '10');
-    n.dataset.read = read ? '1' : '0';
-    n.setAttribute('aria-label', read ? 'Read by the client' : 'Not read yet');
+    second.setAttribute('stroke-dashoffset', s.two ? '0' : '10');
+    n.dataset.read = s.blue ? '1' : '0';
+    n.dataset.status = step;
+    n.setAttribute('aria-label', s.label);
   }
 
   // The sheet of a message (В7.37): a press on a quote opens the common sheet В7.15 over the chat, which does
@@ -3260,6 +3283,6 @@
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, discussionFold, eyeOff, sparkle,
     sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, orderWords, countdown,
-    quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, messageSheet, messageIcon,
+    quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, tickStatus, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);
