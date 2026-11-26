@@ -1110,7 +1110,11 @@
       // настройках сессии, и сервер пишет его в строку расхода. Новой беседы
       // ещё нет — заводим её здесь (openForPaidWork), иначе деньги диктовки
       // не попали бы ни в одну беседу.
-      if (type === 'LEX_DICTATION_LIVE_START' && m) {
+      // The agent «Диктовка» (config.noChat) has no conversation: its money is not a chat's.
+      if (type === 'LEX_DICTATION_LIVE_START' && m && m.config && m.config.noChat) {
+        const { noChat: _n, ...config } = m.config;
+        m = Object.assign({}, m, { config });
+      } else if (type === 'LEX_DICTATION_LIVE_START' && m) {
         const key = await openForPaidWork();
         if (key) m = Object.assign({}, m, { config: Object.assign({}, m.config || {}, { chatKey: key }) });
       }
@@ -1171,7 +1175,10 @@
     // запасное имя — реестр моделей. Своя копия разошлась бы с ними на первой
     // же смене модели, что уже случилось однажды с прошитым
     // 'gpt-4o-mini-transcribe'.
-    const dict = await readDictationKnobs().catch(() => ({ model: null, knobs: {} }));
+    // m.dict — a dictation that is not the chat's (the agent «Диктовка» on the Mac, wc-mac-dictation.js): its own
+    // recognizer and knobs, and no chat of its own (m.noChat) — its money is not a conversation's.
+    const dict = (m.dict && typeof m.dict === 'object') ? { model: m.dict.model || null, knobs: m.dict.knobs || {} }
+      : await readDictationKnobs().catch(() => ({ model: null, knobs: {} }));
     const apiModel = global.LexDictationCatalog.normalize(dict.model, global.LexModelRegistry.defaultDictationModel);
     // Остальные ручки полосы «Диктовка» уезжают КАК ЕСТЬ, в meta: что из них
     // примет распознавалка, умолчания и несовместимые сочетания решает сервер.
@@ -1195,7 +1202,8 @@
     form.append('model', apiModel);
     // Беседа — открытая; новой ещё нет — заводится здесь (openForPaidWork):
     // деньги диктовки принадлежат беседе, в которую уйдёт надиктованное.
-    const convKey = await openForPaidWork();
+    const convKey = m.noChat ? null : await openForPaidWork();
+    const ref = m.noChat ? (m.ref || null) : (convKey || null);
     form.append('meta', JSON.stringify({
       sessionId,
       callType: 'dictation',
@@ -1212,7 +1220,7 @@
       // null здесь она читалась как «dictation:» — списание, привязанное ни к
       // чему. Расширение эту же грабку уже проходило. Видео тут нет вовсе, но
       // беседа есть, и назвать её — единственное осмысленное содержимое хвоста.
-      videoId: convKey || null,
+      videoId: ref,
       // Та же беседа полным ключом: сервер пишет её в строку расхода
       // (calls.chat_key), как у расширения.
       chatKey: convKey || null,
@@ -1225,11 +1233,11 @@
       const d = await global.LexDirectProviders.dictateFile(await directReady(), {
         model: apiModel, knobs: dict.knobs, blob: new Blob([bytes], { type: base }), base64: m.base64 || '', mime: base,
         fileName: 'recording.' + ext, durationMs: m.durationMs,
-        tag: { sessionId, surface: 'standalone', pageType: 'text', videoId: convKey || null, chatKey: convKey || null },
+        tag: { sessionId, surface: 'standalone', pageType: 'text', videoId: ref, chatKey: convKey || null },
       });
       // The provider's answer broke off after it began: no second job.
       if (d && d.failed) throw new Error('Dictation failed: ' + (d.error || 'the answer broke off') + '. Try again.');
-      if (d) return { ok: true, text: d.text, direct: true };
+      if (d) return { ok: true, text: d.text, direct: true, model: apiModel };
     }
     // Под-путь назван по действию человека: за ним и OpenAI, и Google, а
     // выбирает между ними сервер по имени модели.
@@ -1268,7 +1276,7 @@
         }
       }
       WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
-      return { ok: true, text: text.trim() };
+      return { ok: true, text: text.trim(), model: apiModel };
     }
     const bodyText = await resp.text();
     if (!resp.ok) {
@@ -1290,7 +1298,7 @@
     try { const j = JSON.parse(bodyText); text = (j && typeof j.text === 'string') ? j.text : ''; } catch (_) {}
     // Dictation costs money, so the balance on screen is now stale.
     WcBus.broadcast({ type: 'WC_BALANCE_CHANGED' });
-    return { ok: true, text };
+    return { ok: true, text, model: apiModel };
   });
 
   let profiChat = null;

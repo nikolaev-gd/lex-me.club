@@ -543,6 +543,9 @@
   // The section «Shopping list» (22.11.2026, supabase/functions/shopping): GET — the whole list; POST { op, lex, … } — a
   // change, the answer carries the whole list after it.
   const shopping = (body) => edge('shopping', body, body ? 'POST' : 'GET');
+  // The agent «Диктовка» (25.11.2026, supabase/functions/dictation-agent): {op: put | list | settings | settings_put, …}
+  // — the log of dictations and the agent's own settings in the base. No sound goes there.
+  const dictationAgent = (body) => edge('dictation-agent', body, 'POST');
   // Edit of a message that went to a person (19.11.2026): the new words for it, through the edge function message-edit.
   // → { edit: { state } }; a refusal (too late, not a text) comes as the error with the words of the database.
   const messageEdit = (body) => edge('message-edit', body);
@@ -792,6 +795,7 @@
     folderAgents,
     calendar,
     shopping,
+    dictationAgent,
     messageEdit,
     messageReact,
     emEarlier,
