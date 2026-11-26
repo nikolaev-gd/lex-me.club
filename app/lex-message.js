@@ -1847,9 +1847,9 @@
       Promise.resolve().then(() => o.onStop()).then(() => { wrap.hidden = true; }, (err) => {
         b.disabled = false;
         b.classList.remove('is-busy');
-        // The refusal in words under the button: the same on every surface, no toast needed.
-        const said = /"message"\s*:\s*"([^"]+)"/.exec(String((err && err.message) || ''));
-        why.textContent = 'Not stopped. ' + (said ? said[1] : ((err && err.message) || 'no answer'));
+        // The refusal in words under the button, the words of every Stop (LexStop.refusal, lex-stop.js; a place
+        // that does not load it — the extension — says the same without the server's JSON taken apart).
+        why.textContent = global.LexStop ? global.LexStop.refusal(err) : 'Not stopped. ' + ((err && err.message) || 'Try again.');
         why.hidden = false;
       });
     });

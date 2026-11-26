@@ -2806,7 +2806,7 @@
     }
     chat.whoisTaken();
     // A new word starts the agent anew: a Stop pressed a moment ago no longer draws this chat stopped.
-    if (!fresh) agentStopping.delete(chat.data.chatKey);
+    if (!fresh) stops.forget('agent', chat.data.chatKey);
     if (!fresh) { refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)); return; }
     // The new chat has its key: its draft goes (and the quote of the line with it), and the screen becomes the chat (the
     // arrow still to the folder).
@@ -2814,75 +2814,75 @@
     if (global.LexDrafts) global.LexDrafts.clear(key);
     if (out && out.chatKey && profiChat === chat) await openAgentChat(chat.data.agent, out.chatKey, () => profiChat === chat);
   }
-  // ── Stop of a working agent (Gennady, 22.11.2026: «Стоп всегда виден, пока идёт ход, и реально останавливает») ──────
-  // While the open task chat works (its mirror says «Working»), the button of the field is Stop, the same control as
-  // during an answer of an ordinary chat (WcComposer.setStreaming with the number 'agent:<chatKey>'); it stands after a
-  // return, a reload, a restart and on another device, for it is read from the chat's copy, not from this page. A press
-  // asks the base to stop (folder-agents, op stop): the chat flips at once — no «Working», no live stage, no Stop — and
-  // the answer of the server and its signal «folders» confirm it; a refusal brings Stop back and says why. The agent
-  // ending by itself takes Stop away by the same signal. The page's own answer of the model holds the button over it.
-  const AGENT_STOP = 'agent:';
-  // chatKey → the moment the flip ends: while a Stop is in its way, and a few seconds after, a copy read that still says
-  // «Working» (the relay of the base a moment behind) is drawn stopped.
-  const agentStopping = new Map();
+  // ── One Stop (lex-stop.js; docs/spec/21-chat-canvas.md, «Стоп») ───────────────────────────────────────────────────
+  // Whose the round button of the field stops is the profile of the chat (`stop`) and what goes on: the page's own answer
+  // of the model (turn), the agent of the open task chat while its copy says «Working» (agent; Gennady, 22.11.2026: «Стоп
+  // всегда виден, пока идёт ход, и реально останавливает»). The Stop under a running development task (task) is not the
+  // field's: its button stands under its row (LexMessage.taskStop) and goes through the same controller. One refusal for
+  // all: «Not stopped. <why>».
+  // The agent's Stop stands after a return, a reload, a restart and on another device, for it is read from the chat's copy,
+  // not from this page. A press asks the base (folder-agents, op stop): the chat flips at once — no «Working», no live
+  // stage, no Stop — and the answer of the server and its signal «folders» confirm it; a refusal brings Stop back and says
+  // why. The agent ending by itself takes Stop away by the same signal. The page's own answer holds the button over it.
+  const stops = global.LexStop.create({
+    doors: {
+      turn: () => stopStream(),
+      agent: (chatKey) => agentsCall({ op: 'stop', chatKey }),
+      // lex_dev_stop (dev_tasks.sql): the row says «остановлено» by itself through the feed.
+      task: (task) => WcHistory.rpc('lex_dev_stop', { p_task: task }),
+    },
+    changed: (who, key) => { if (who === 'agent') repaintAgentStop(key); },
+  });
   let agentStopKey = null;   // the chat whose Stop the button shows
+  // The copy of a task chat as it is drawn: while a Stop is held (on its way, and LexStop.AFTER_MS after: the relay of the
+  // base a moment behind) a copy that still says «Working» is drawn stopped; the hold over, as its last read says.
   function withAgentStop(data) {
-    const until = data && data.chatKey ? agentStopping.get(data.chatKey) : null;
-    if (!until) return data;
-    if (!global.LexProfi.agentWorks(data)) {
-      // The copy says it does not work: the flip is over (a press still in its way keeps it).
-      if (until !== Infinity) agentStopping.delete(data.chatKey);
-      return data;
+    if (!data || !data.chatKey) return data;
+    const read = data.agentAsRead ? Object.assign({}, data, { agent: data.agentAsRead, agentAsRead: undefined }) : data;
+    if (!stops.holding('agent', data.chatKey)) return read;
+    if (!global.LexProfi.agentWorks(read)) {
+      // The copy says it does not work: the hold is over (a press still in its way keeps it).
+      stops.settle('agent', data.chatKey);
+      return read;
     }
-    if (Date.now() > until) { agentStopping.delete(data.chatKey); return data; }
-    const agent = Object.assign({}, data.agent, { state: 'waiting' });
+    const agent = Object.assign({}, read.agent, { state: 'waiting' });
     delete agent.stage;
     delete agent.stage_key;
-    // the mark the copy came with, for a refusal to put back
-    return Object.assign({}, data, { agent, agentAsRead: data.agent });
+    // the mark the copy came with, for the end of the hold to put back
+    return Object.assign({}, read, { agent, agentAsRead: read.agent });
+  }
+  function repaintAgentStop(chatKey) {
+    const chat = profiChat;
+    if (!isAgentChat(chat) || chat.data.chatKey !== chatKey) return;
+    chat.data = withAgentStop(chat.data);
+    paintProfiBar();
+    paintProfiOutbox(chat);
+    paintAgentStop();
   }
   // chat — the chat on the screen (null: the screen is leaving it).
   function paintAgentStop(chat = profiChat) {
-    if (state.requestId) { agentStopKey = null; return; }
-    const key = isAgentChat(chat) && global.LexProfi.agentWorks(chat.data) ? chat.data.chatKey : null;
+    const P = global.LexChatProfile;
+    const profile = chat && chat.data && P ? P.profileOf(chat.data.chatKey, chat.data) : null;
+    const who = global.LexStop.fieldWho(profile, {
+      answering: !!state.requestId,
+      agentWorks: isAgentChat(chat) && global.LexProfi.agentWorks(chat.data),
+    });
+    if (who === 'turn') { agentStopKey = null; return; }   // the answer's own Stop holds the button
+    const key = who === 'agent' ? chat.data.chatKey : null;
     if (!key && !agentStopKey) return;
     agentStopKey = key;
-    WcComposer.setStreaming(!!key, key ? AGENT_STOP + key : undefined);
+    WcComposer.setStreaming(!!key, key ? global.LexStop.idOf('agent', key) : undefined);
   }
-  function stopFromField(requestId) {
-    if (typeof requestId === 'string' && requestId.startsWith(AGENT_STOP)) {
-      stopAgent(requestId.slice(AGENT_STOP.length)).catch((e) => console.warn('[wc] agent stop:', e && e.message));
-      return;
-    }
-    stopStream();
-  }
-  async function stopAgent(chatKey) {
+  // The round button of the field pressed while it is Stop: its number says whose (LexStop.parse).
+  function stopFromField(id) {
+    const { who, key } = global.LexStop.parse(id);
     const chat = profiChat;
-    if (!isAgentChat(chat) || chat.data.chatKey !== chatKey || agentStopping.get(chatKey) === Infinity) return;
-    const repaint = () => {
-      if (profiChat !== chat) return;
-      chat.data = withAgentStop(chat.data);
-      paintProfiBar();
-      paintProfiOutbox(chat);
-      paintAgentStop();
-    };
-    agentStopping.set(chatKey, Infinity);
-    repaint();
-    try {
-      await agentsCall({ op: 'stop', chatKey });
-    } catch (err) {
-      agentStopping.delete(chatKey);
-      // The base did not stop it: the chat is drawn as its last copy says (Stop back while it works).
-      if (profiChat === chat && chat.data.agentAsRead) {
-        chat.data = Object.assign({}, chat.data, { agent: chat.data.agentAsRead, agentAsRead: undefined });
-        repaint();
+    if (who === 'agent' && (!isAgentChat(chat) || chat.data.chatKey !== key)) return;
+    stops.stop(who, key).then((ok) => {
+      if (ok && who === 'agent' && profiChat === chat) {
+        refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
       }
-      toast('Not stopped. ' + ((err && err.message) || 'Try again.'), { error: true });
-      return;
-    }
-    agentStopping.set(chatKey, Date.now() + 15000);
-    repaint();
-    if (profiChat === chat) await refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+    }, (err) => toast(global.LexStop.refusal(err), { error: true }));
   }
   // The model of an agent (its folder, «+ → Text model» in its chats): the common menu of the models, Anthropic only;
   // the choice goes to the base (op settings), the list is read again and shows the new value.
@@ -4694,9 +4694,9 @@
     }).catch((err) => console.warn('[wc] the page on the device:', err && err.message));
   }
 
-  // Stop of a development task (lex_dev_stop, dev_tasks.sql): the row says «остановлено» by itself through the feed;
-  // a refusal is said under the button (LexMessage.taskStop).
-  const stopDevTask = (task) => WcHistory.rpc('lex_dev_stop', { p_task: task });
+  // Stop of a development task: the one controller (stops, lex-stop.js); a refusal is said under the button
+  // (LexMessage.taskStop), in the same words as the field's.
+  const stopDevTask = (task) => stops.stop('task', task);
 
   async function boot() {
     keepPageOnDevice();
@@ -4714,7 +4714,7 @@
       // An edit in place that brought not a word: the old message is back on the screen; why — in a line.
       onEditBack: (why) => { if (why) toast(why, { error: true }); },
       // «Send to … now» in the menu of a word to Lex: the answer still being written to it stops.
-      onStopCurrent: stopStream,
+      onStopCurrent: () => { stops.stop('turn', state.requestId); },
       // The thread got its first word or was cleared: the main page gives way or comes back.
       onEmpty: paintHome,
       // Stop under a running development task of Lex («mac:N»): the database stops it and rewrites its row.
@@ -4757,7 +4757,7 @@
       onSend: send,
       // Every change of the field is the draft of its chat (lex-drafts.js).
       onFieldChange: () => saveField(),
-      // Stop of an answer, or of the agent of the open task chat (its number 'agent:<chatKey>', stopFromField).
+      // Stop of an answer, or of the agent of the open task chat: whose — by its number (LexStop.parse, stopFromField).
       onStop: stopFromField,
       onVoice: (o) => toggleVoice(o),
       // «+» offers a picture and a file only where the profile of the chat takes them (LexComposer.plusItems: a chat
