@@ -6,8 +6,8 @@
 //
 // The section has no list of its own (20.11.2026): the chats of Profi.ru stand on the main page of the people (lex-people.js)
 // as lines this file draws (`line`), and a press opens a chat over that page. What is left of the section are the screens
-// the main page opens over itself — the chat of new orders, the bot's service chat, the settings and what they open (a
-// report) — and the first screen of the frame under them, which is never on the screen: `enter` puts one of them over it
+// the main page opens over itself — the chat of new orders, the settings and what they open (a report) — and the first
+// screen of the frame under them, which is never on the screen: `enter` puts one of them over it
 // before the section is shown, and the arrow of the first two screens leads out, to the main page (`root`).
 //
 // Everything that decides lives on the server: which chat stands where, which buttons an
@@ -16,8 +16,7 @@
 // A window gives:
 //   back                   the arrow of the window, see lex-back.js
 //   root()                 where the arrow of the first two screens leads, { title, go }: the main page of the
-//                          people, over which the feed of new orders, the bot's chat and the settings are
-//                          shown (lex-section.js, root)
+//                          people, over which the feed of new orders and the settings are shown (lex-section.js, root)
 //   showFeed(order)        show New orders at that order (or at its top) over the main page: the window shows the
 //                          section on that screen. A reply that waits there is not opened as a chat
 //   signals                the channel of the database's signals (lex-account-events.js): the
@@ -46,9 +45,6 @@
   // the screen says the monitor did not answer; the order's copy takes over after CANCEL_HOLD_S.
   const CANCEL_WAIT_S = 5;
   const CANCEL_HOLD_S = 30;
-  // How many of the bot's last messages its chat shows (profi_bot_chat): a service chat is read from its end.
-  const BOT_LIMIT = 200;
-  const BOT_TITLE = 'Бот Профи';
   // What a chat may do — Edit and a reaction by the channel of a message (its window, a personal chat), the items of the
   // menu of a message — is the one table of the profiles of chats (supabase/functions/_shared/lex-chat-profile.js,
   // docs/spec/21-chat-canvas.md, «Профиль чата»); the chat brings its profile from the server (`profile` of profi_item
@@ -2488,11 +2484,22 @@
       return { node, cd };
     }
 
+    // An order of New orders is a message of the one cell (LexMessage.cell, docs/spec/21-chat-canvas.md, «Одна ячейка
+    // сообщения»): its kind is `profi_order` of the table of the kinds of messages, its drawer is this feed's (orderNode —
+    // the order with its buttons and countdown); the feed gives the drawer the item behind the turn.
+    function orderCell(it) {
+      let cd = null;
+      const turn = { role: 'assistant', origin: 'profi_order', uid: `order:${it.order}`, authoredAt: it.at || null,
+        text: [it.title, it.description].filter(Boolean).join('\n\n'), order: it };
+      const node = global.LexMessage.cell(turn, { orders: (x) => { const r = orderNode(x); cd = r.cd; return r.node; } });
+      return { node, cd };
+    }
+
     // One order drawn again in its place: opened, folded, pressed.
     function repaintOrder(order) {
       const el = feedEls.get(order);
       if (!el || !el.n.isConnected) return;
-      const { node, cd } = orderNode(el.it);
+      const { node, cd } = orderCell(el.it);
       node.dataset.at = el.it.at || '';
       el.n.replaceWith(node);
       feedEls.set(order, { it: el.it, n: node, cd });
@@ -2549,7 +2556,7 @@
     function drawFeed(r, fresh) {
       const { body } = frame;
       if (frame.screen !== 'feed') return;
-      // A selection, an open menu or Select among the orders: drawn once they are free, as the bot's chat.
+      // A selection, an open menu or Select among the orders: drawn once they are free.
       const old = body.querySelector(':scope > .lex-profi-lane');
       const LM = global.LexMessage;
       if (old && LM.isBusy && LM.isBusy(old)) {
@@ -2568,7 +2575,7 @@
       if (!items.length) { body.appendChild(make('div', 'lex-profi-empty', 'No orders yet.')); return; }
       const lane = make('div', 'lex-bubbles lex-profi-lane');
       for (const it of items) {
-        const { node, cd } = orderNode(it);
+        const { node, cd } = orderCell(it);
         node.dataset.at = it.at || '';
         feedEls.set(it.order, { it, n: node, cd });
         lane.appendChild(node);
@@ -2605,68 +2612,6 @@
     }
     function syncHead() {
       if (deps.head) deps.head(frame.isShown() && frame.screen === 'feed' ? feedHead() : null);
-    }
-
-    // ── the bot's service chat ───────────────────────────────────────────────
-    // What the bot tells Gennady about itself — it stopped, a captcha, money is low, a Mac took over — in order, the
-    // last at the bottom (profi_bot_chat.sql, 19.11.2026). Nothing is written here: the bot reads no answers, so
-    // the screen has no field, as the chat of new orders has none. A message is a bubble of the other side with the
-    // time under it; the day stands between two days (В7.14). The chat the person has open is read — the number of
-    // its unread goes by itself (the page tells the server which screen is open, webchat/wc-app.js, presenceKey).
-    let lastBot = null;
-    let botWaits = false;
-    async function paintBot() {
-      if (frame.screen !== 'bot') return;
-      if (lastBot && !frame.body.childElementCount) drawBot(lastBot);
-      await readKept('profi_bot_chat', { p_limit: BOT_LIMIT }, (r) => {
-        if (!r) return;
-        lastBot = r;
-        drawBot(r);
-      }, () => !lastBot);
-    }
-
-    function drawBot(r) {
-      const { body } = frame;
-      if (frame.screen !== 'bot') return;
-      // A chat opens on its end and a message that comes sets it there again; a reader who has scrolled up to the old lines
-      // stays where they were.
-      const M = global.LexMessage;
-      // A selection, an open menu or Select in the chat: it is not drawn again now — the redraw would take them away.
-      // The newest read is drawn once the message is free (lexmessagefree).
-      const old = body.querySelector(':scope > .lex-profi-lane');
-      if (old && M.isBusy && M.isBusy(old)) {
-        if (!botWaits) {
-          botWaits = true;
-          document.addEventListener('lexmessagefree', () => { botWaits = false; drawBot(lastBot); }, { once: true });
-        }
-        return;
-      }
-      const stick = !body.childElementCount || feedAtEnd(body);
-      const was = body.scrollTop;
-      body.replaceChildren();
-      const items = (r && r.messages) || [];
-      if (!items.length) { body.appendChild(make('div', 'lex-profi-empty', 'The bot has not written yet.')); return; }
-      const lane = make('div', 'lex-bubbles lex-profi-lane');
-      for (const m of items) {
-        const node = M.bubble({ side: 'in', text: m.text || '', stamp: M.stamp({ at: m.at }) });
-        node.dataset.at = m.at || '';
-        // A word of the system (docs/spec/21-chat-canvas.md, «Виды чатов и их части»): the common menu — Copy and Select,
-        // nothing of a model and no Reply (the bot reads no answers).
-        if (M.attachMenu) {
-          M.attachMenu(node, {
-            side: 'in',
-            text: () => m.text || '',
-            body: node.querySelector('.lex-bubble-text') || node,
-            who: () => 'Бот Профи',
-            at: () => m.at || null,
-            host: lane,
-          });
-        }
-        lane.appendChild(node);
-      }
-      M.mark(lane);
-      body.appendChild(lane);
-      body.scrollTop = stick ? body.scrollHeight : was;
     }
 
     // ── settings: the rest of the bot's menu ─────────────────────────────────
@@ -2783,7 +2728,6 @@
     function paint() {
       const { screen } = frame;
       if (screen === 'feed') return paintFeed().catch(quiet('feed'));
-      if (screen === 'bot') return paintBot().catch(quiet('bot'));
       if (screen === 'settings') paintSettings();
       else if (screen === 'report') return paintReport();
       return null;
@@ -2826,7 +2770,6 @@
             const { screen } = frame;
             if (screen === 'settings') paint();
             else if (screen === 'feed') await paintFeed();
-            else if (screen === 'bot') await paintBot();
           })());
         }
         if (deps.onChange) reads.push(deps.onChange());
@@ -2893,8 +2836,9 @@
         this.unwatch();
         if (deps.head) deps.head(null);
       },
-      // The screen of the section now ('feed', 'bot', …): the page tells the server which screen is open, the list of
-      // new orders and the bot's chat have a number of unread of their own (webchat/wc-app.js, presenceKey).
+      // The screen of the section now ('feed', 'settings', …): the page tells the server which screen is open, the list of
+      // new orders has a number of unread of its own (webchat/wc-app.js, presenceKey). The bot's service chat is no screen
+      // of the section since 26.11.2026: an ordinary chat of the one feed (webchat/wc-app.js, openBotChat).
       get screen() { return frame.screen; },
       // A press on an order outside the feed, or a notification about a message of an order chat (opts.fresh): the chat of
       // the order, or New orders at it while its reply waits there. The chat opens over the main page when opts.from is
@@ -2902,17 +2846,15 @@
       openOrder: openOrderOrFeed,
       // The line of an order chat as the main page of the people draws it.
       line: chatLine,
-      // The ways in from outside (the line of New orders or of the bot's chat on the main page, its gear, a notification):
-      // the screens of the section start over on the one asked for — 'feed' (at `order`, or at its top), 'bot' or
-      // 'settings' — so that the arrow leads out of the section, to the main page (lex-section.js, root). It is said
+      // The ways in from outside (the line of New orders on the main page, its gear, a notification): the screens of the
+      // section start over on the one asked for — 'feed' (at `order`, or at its top) or 'settings' — so that the arrow leads out of the section, to the main page (lex-section.js, root). It is said
       // before the section is on the screen, and the first screen of the section is never seen on the way.
       enter(screen, order) {
         frame.reset();
         if (screen === 'feed') {
           focusOrder = order || null;
           frame.push({ id: 'feed', title: feedTitle() });
-        } else if (screen === 'bot') frame.push({ id: 'bot', title: BOT_TITLE });
-        else {
+        } else {
           // order — here the block to stand at («notifications»: the row Profi.ru of Settings → Notifications).
           kinds = null;
           focusBlock = order || null;
@@ -2920,6 +2862,12 @@
         }
       },
     };
+  }
+
+  // The drawer of an order of New orders in the one cell (LexMessage.cells): the feed that draws it gives the order behind
+  // the turn (ctx.orders, drawFeed); anywhere else it is drawn by its look (`own`) as an ordinary turn of its words.
+  if (global.LexMessage && global.LexMessage.cells) {
+    global.LexMessage.cells.register('profi_order', (t, ctx) => (ctx && ctx.orders && t.order ? ctx.orders(t.order) : undefined));
   }
 
   // boxNode — also for the check of a box on a page of its own (dev-tools/check-profi-box.mjs).

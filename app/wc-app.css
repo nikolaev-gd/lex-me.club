@@ -1383,6 +1383,8 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
  * the one field of the page (.wc-composer-wrap, class is-quick on .wc-main) over the dimming, with «New chat · Lex» over
  * it and the keys under it on a wide window. Look — wc-quick.js; what a press does — wc-app.js (openQuick). */
 .wc-main.is-home:not(.is-quick) .wc-composer-wrap { display: none; }
+/* A chat of the kind `service` (the bot's service chat): no field — its profile has none (lex-chat-profile.js). */
+.wc-main[data-chat-kind="service"]:not(.is-quick) .wc-composer-wrap { display: none; }
 .wc-main.is-section.is-quick .wc-composer-wrap { display: block; }
 .wc-main.is-quick .wc-composer-wrap {
   z-index: 14;

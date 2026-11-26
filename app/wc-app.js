@@ -231,7 +231,14 @@
   // The kind by the key is the table of the profiles of chats (lex-chat-profile.js): a feed, the questions, a chat of
   // the folders, an order chat.
   const INCOMING_KINDS = ['feed', 'questions', 'person', 'order'];
-  const isIncomingKey = (key) => !!key && !!global.LexChatProfile && INCOMING_KINDS.includes(global.LexChatProfile.kindOfKey(key));
+  // The service chat of the Profi.ru bot (docs/spec/21-chat-canvas.md, «Слова бота Профи — ходы чата»): since 26.11.2026 an
+  // ordinary chat of the one feed — the bot's words are turns of this chat (profi_bot_turns.sql), drawn by the one cell as
+  // words of the system. Its kind is `service` of the table of profiles: no field, Copy and Select in the menu of a message.
+  // It is a chat where messages come without the person: «Новые» and the day lines as in an order chat.
+  const BOT_KEY = '__lex_profi_bot__';
+  const isServiceKey = (key) => key === BOT_KEY;
+  const isIncomingKey = (key) => !!key && (isServiceKey(key)
+    || (!!global.LexChatProfile && INCOMING_KINDS.includes(global.LexChatProfile.kindOfKey(key))));
   let visit = null;   // { key, since }
   async function beginVisit(key) {
     if (visit && visit.key === key) return;
@@ -364,8 +371,11 @@
     const current = () => openSeq === mine && !(opts && opts.wanted && !opts.wanted());
     // The chat stands on the screen: the first frame of it, from the copy or from the answer.
     let stood = false;
+    // Read anew where it stands (a signal of its answers): the chat is on the screen already — its arrow back, its field
+    // and the main page under it stay as they are (before 26.11.2026 a word that came cleared the arrow back).
+    const reread = !!(opts && opts.again) && state.conversationId === id && !sectionOn;
     const stand = (r, again, kept) => {
-      if (!stood) {
+      if (!stood && !reread) {
         // The field is this chat's from now: the last chat's words go to its draft, this one's come.
         takeField(id);
         leaveSection();
@@ -407,7 +417,7 @@
       if (copy && copy.ok && current()) stand(copy, false, true);
       else copy = null;
     }
-    const again = !!(opts && opts.again) && state.conversationId === id;
+    const again = reread || (!!(opts && opts.again) && state.conversationId === id);
     let r;
     try {
       r = await answer;
@@ -416,6 +426,7 @@
       return;
     }
     if (!r || !r.ok) { if (current() && !copy) toast('The chat did not open', { error: true }); return; }
+    if (isServiceKey(id) && !(r.turns || []).length) r.turns = await botTurnsBefore();
     if (!current()) return;
     if (loaded) beginVisitFrom(id, loaded.since);
     else await beginVisit(id);
@@ -430,6 +441,24 @@
       return;
     }
     stand(r, !!copy || again);
+  }
+
+  // The bot's words on a server before profi_bot_turns.sql (its chat has no turns there): read from its table
+  // (profi_bot_chat, the same answer before and after) and drawn as the turns of the chat would be — one cell, one feed.
+  async function botTurnsBefore() {
+    try {
+      const b = await newsRpc('profi_bot_chat', { p_limit: 200 });
+      return ((b && b.messages) || []).map((m) => ({ role: 'assistant', origin: 'profi_bot', uid: `bot:${m.id}`,
+        text: String(m.text || ''), authoredAt: m.at || null }));
+    } catch (err) {
+      console.warn('[wc] bot chat:', err && err.message);
+      return [];
+    }
+  }
+  // The bot's chat opens as any chat, over the main page (its line under New orders, a notification of «Alerts», the place
+  // the Mac app kept): the arrow leads back to the main page.
+  async function openBotChat(wanted) {
+    await openConversation(BOT_KEY, { wanted, back: people.hasTabs ? mainTarget() : undefined });
   }
 
   // ── The database's signals (2026-11-13) ─────────────────────────────────
@@ -693,7 +722,7 @@
     WcSidebar.close();
     await section.live.show({ back: !!(opts && opts.back) });
   }
-  // A screen of Profi.ru over the main page: 'feed' (at `order`, or at its top), 'bot' or 'settings'. The arrow leads back to
+  // A screen of Profi.ru over the main page: 'feed' (at `order`, or at its top) or 'settings'. The arrow leads back to
   // the main page (lex-profi.js, enter). wanted — see showSection.
   const showProfi = (screen, order, wanted) => showSection('profi', { enter: (live) => live.enter(screen, order), wanted });
   // ── The main page: the chats with people (lex-people.js) ───────────────────
@@ -712,7 +741,7 @@
     // The chat of new orders, the bot's chat and the settings are screens of Profi.ru: they open over the main page, and the
     // arrow leads back to it.
     showFeed: (order) => showProfi('feed', order || null),
-    showBot: () => showProfi('bot'),
+    showBot: () => openBotChat(),
     notify: (text) => toast(text, { error: true }),
     gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
     // The archive of the main page: the arrow of the window leads back to the list (lex-people.js, chat_archive.sql).
@@ -766,6 +795,12 @@
     bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
     people.setActive(on);
     if (on && !was && listBody) listBody.scrollTop = homeScroll;
+    // The bot's service chat: its kind (no field, the profile `service`) and its head in the bar.
+    const bot = !sectionOn && isServiceKey(state.conversationId);
+    if (main.classList.contains('is-service-chat') !== bot) {
+      main.classList.toggle('is-service-chat', bot);
+      paintBotHead(bot);
+    }
     paintCapsule();
   }
 
@@ -778,7 +813,9 @@
   // start a chat with that agent; the voice — with Lex (an agent takes only words). Nothing of the screen goes to the
   // chat. In an open chat there is no capsule: its own field stands.
   let quick = null;   // { home, agent, section, before } while the field stands over a dimmed screen
-  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat);
+  // A chat with no field (the bot's service chat) is out of a chat for the capsule too: it has nothing to write in.
+  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat)
+    || (!sectionOn && isServiceKey(state.conversationId));
   // The field over the dimming begins a chat with an agent: what the field offers is that agent's (its model in
   // «+ → Text model», words only — no voice, no picture, no file).
   const quickAgentOn = () => (quick && quick.agent) || null;
@@ -797,6 +834,7 @@
     if (quickAgentOn()) return P.profileOfKind('agent');
     if (profiChat && profiChat.data) return P.profileOf(profiChat.data.chatKey, profiChat.data);
     if (has('is-em-feed')) return P.profileOfKind(P.kindOfKey(state.conversationId) === 'questions' ? 'questions' : 'feed');
+    if (has('is-service-chat') && !quick) return P.profileOfKind('service');
     if (has('is-news-chat')) return P.profileOfKind('news');
     return P.profileOfKind('main');
   }
@@ -954,8 +992,6 @@
     // The list of new orders is a screen of its own for the server: open, it takes the
     // notifications about orders off every device (2026-11-13).
     if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'feed') return '__lex_profi_orders__';
-    // The bot's service chat is a screen of its own for the server too: open, it reads the alerts (19.11.2026).
-    if (sectionOn === 'profi' && SECTIONS.profi.live && SECTIONS.profi.live.screen === 'bot') return '__lex_profi_bot__';
     // The calendar on the screen takes its notifications as read on every device (unread_counts.sql: the key of the
     // calendar is the section «calendar»).
     if (sectionOn === 'calendar') return '__lex_calendar__';
@@ -1187,8 +1223,8 @@
       return;
     }
     // An alert of the Profi.ru bot: its service chat, over the main page.
-    if (kind === 'profi_alert' || key === '__lex_profi_bot__') {
-      await showProfi('bot', null, wanted);
+    if (kind === 'profi_alert' || key === BOT_KEY) {
+      await openBotChat(wanted);
       return;
     }
     if (WcHistory.isEmFeedKey(key)) {
@@ -2115,11 +2151,37 @@
     const { main, person } = profiEls();
     main.classList.toggle('is-profi-feed', !!nodes);
     if (nodes) {
+      delete person.dataset.bot;
       person.replaceChildren(...nodes);
       person.hidden = false;
     } else if (!profiChat) {
       person.replaceChildren();
       person.hidden = true;
+    }
+  }
+  // The head of the bot's service chat in the bar, as an order chat shows its client: the mark of Lex, «Бот Профи» (the
+  // line under New orders draws the same, lex-people.js). It presses nothing: the bot has no card. Off — only the bot's
+  // own head goes; a head another screen put there meanwhile stays.
+  function paintBotHead(on) {
+    const { main, person } = profiEls();
+    const M = global.LexMessage;
+    if (on && M) {
+      const words = document.createElement('div');
+      words.className = 'lex-profi-person-words';
+      const name = document.createElement('div');
+      name.className = 'lex-profi-person-name';
+      name.textContent = 'Бот Профи';
+      words.appendChild(name);
+      person.replaceChildren(M.avatarBrand(), words);
+      person.onclick = null;
+      person.dataset.bot = '1';
+      person.hidden = false;
+    } else if (person.dataset.bot) {
+      delete person.dataset.bot;
+      if (!profiChat && !main.classList.contains('is-profi-feed')) {
+        person.replaceChildren();
+        person.hidden = true;
+      }
     }
   }
   function enterProfiChat(chat) {
@@ -4501,6 +4563,14 @@
         });
       }, 300);
     });
+    // The bot's service chat on a server before profi_bot_turns.sql: a word of the bot comes with the signal «profi» only
+    // (with the migration the signal «chat» above reads it, as any chat). Read again where it stands.
+    signals.follow(['profi'], () => {
+      if (sectionOn || !isServiceKey(state.conversationId)) return;
+      WcThread.whenFree('bot', () => {
+        if (!sectionOn && isServiceKey(state.conversationId)) openConversation(BOT_KEY, { again: true }).catch(() => {});
+      });
+    });
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.
@@ -4638,10 +4708,10 @@
   function placeNow() {
     const live = sectionOn === 'profi' && SECTIONS.profi.live;
     if (live && live.screen === 'feed') return { kind: 'profi_order' };
-    if (live && live.screen === 'bot') return { kind: 'profi_alert', chatKey: '__lex_profi_bot__' };
     if (sectionOn) return null;
     const key = state.conversationId;
     if (!key) return null;
+    if (isServiceKey(key)) return { kind: 'profi_alert', chatKey: BOT_KEY };
     // The key of an order chat ends in the number of its session, not of the order: the order is the open chat's own.
     if (key.startsWith('__lex_profi__')) {
       const order = profiChat && !profiChat.folder && profiChat.data && profiChat.data.chatKey === key ? profiChat.order : '';
