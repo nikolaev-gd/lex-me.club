@@ -3,20 +3,26 @@
 //
 // ── Who does what ───────────────────────────────────────────────────────────
 // The Mac program (macos/Sources/LexShell/Dictation*.swift) owns what a page cannot: the global keys (right Cmd+Space,
-// right Opt+Space), the pill «В эфире», the dot at the mouse, and the paste into the field of another program. This
-// page owns the rest — the microphone, the recognizer, the text — with the same parts as the microphone of the
-// field (wc-composer.js): the recognizer catalog (lex-dictation-catalog.js), a file (WAV for the recognizers that need
-// it) or a live session (lex-dictation-live.js), the direct mode (the sound goes from the Mac straight to the provider,
+// right Opt+Space), the pill «В эфире», the dot at the mouse, the paste into the field of another program — and, since
+// 26.11.2026, the microphone for every recognizer that takes a file: it records from the press itself, as Scribe did
+// (the page's getUserMedia woke up late and the first words were lost), and keeps the file on disk. This page owns
+// the rest — the recognizer and the text, and the microphone of a LIVE recognizer — with the same parts as the
+// microphone of the field (wc-composer.js): the recognizer catalog (lex-dictation-catalog.js), a file or a live
+// session (lex-dictation-live.js), the direct mode (the sound goes from the Mac straight to the provider,
 // LexDirectProviders through WC_DICTATE / LEX_DICTATION_LIVE_*). Its recognizer and knobs are the AGENT's (the base,
 // supabase/functions/dictation-agent), not the chat microphone's; its money belongs to no conversation (noChat).
 //
 // ── The words between them ───────────────────────────────────────────────────
-// Mac → page: window.LexMacDictation.start({clientId, app, appId}) · stop() · cancel() · settings().
+// Mac → page: feed(id, piece) · recognize({clientId, app, appId, mimeType, durationMs, at, reason}) — a file the Mac
+//   recorded itself (every recognizer that takes a file); log({clientId, status, audioMs, …}) — a row without a
+//   recognition; drop(id) — ✕ while recognizing, the late answer is dropped and logged «cancelled»;
+//   start({clientId, app, appId}) · stop() · cancel() — a LIVE recognizer, the page records; settings().
 // Page → Mac: lexshell.postMessage({word: 'dictation', event, …}):
-//   settings {keys_on, model}     — what the agent's settings say (read on load and after every dictation);
-//   state {phase}                 — 'recording' (the sound is being written), 'busy' (recognizing), 'idle';
-//   level {v}                     — the loudness 0…1, 20 times a second while recording;
-//   alarm {kind}                  — 'nosound' (the microphone ended or went mute), 'quiet' (12 s at the floor);
+//   settings {keys_on, model, live, wavRate, maxRecordMs} — the agent's settings and the recognizer's route (read on
+//                                   load and after every dictation): the Mac picks WAV / m4a before the press;
+//   state {phase}                 — live only: 'recording', 'busy' (recognizing), 'idle';
+//   level {v}                     — live only: the loudness 0…1, 20 times a second while recording;
+//   alarm {kind}                  — live only: 'nosound' (the microphone ended or went mute), 'quiet' (12 s at the floor);
 //   result {clientId, text}       — the text to paste; error {clientId, message} — no text, and why.
 // After a result or a failure the page writes the dictation's row to the base's log (op «put»).
 //
@@ -46,7 +52,13 @@
       const r = await global.WcHistory.dictationAgent({ op: 'settings' });
       settings = { model: r.model || null, knobs: (r.knobs && typeof r.knobs === 'object') ? r.knobs : {}, keys_on: !!r.keys_on, version: r.version };
       settingsAt = Date.now();
-      tell('settings', { keys_on: settings.keys_on, model: settings.model });
+      // The Mac records the file itself from the press (Dictation.swift): it must know the format before it.
+      let route = null;
+      try { route = await global.LexDictationCatalog.route(settings.model, global.LexModelRegistry.defaultDictationModel); }
+      catch (e) { console.warn(TAG, 'route:', e && e.message); }
+      const ok = !!(route && route.ok);
+      tell('settings', { keys_on: settings.keys_on, model: ok ? route.model : settings.model, live: ok ? !!route.live : false,
+        wavRate: ok && route.wavRate ? route.wavRate : null, maxRecordMs: ok && route.maxRecordMs ? route.maxRecordMs : null });
     } catch (e) {
       console.warn(TAG, 'settings:', e && e.message);
     }
@@ -249,8 +261,60 @@
     return true;
   }
 
+  // ── A file the Mac recorded (the recognizers that take a file) ───────────────
+  // The Mac writes the sound from the press itself (AVAudioRecorder, the way Scribe did — the page's microphone woke
+  // up late and the first words were lost) and hands the finished file here in base64 pieces: feed(id, piece)…,
+  // then recognize({clientId, app, appId, mimeType, durationMs, at, reason}). The answer goes back by the words
+  // result / error with the same clientId; the log row is written here as for the page's own recording.
+  const parts = new Map();
+  // ✕ on the pill while recognizing: the answer that comes later is not the text — the row says «cancelled».
+  const dropped = new Set();
+  function drop(id) { dropped.add(id); return true; }
+  function feed(id, piece) {
+    const a = parts.get(id) || [];
+    a.push(String(piece || ''));
+    parts.set(id, a);
+    return 'ok';
+  }
+
+  async function recognize(o) {
+    const id = o.clientId;
+    const base64 = (parts.get(id) || []).join('');
+    parts.delete(id);
+    const d = { clientId: id, app: o.app || null, appId: o.appId || null, at: Number(o.at) || Date.now(),
+      audioMs: o.durationMs || null, stoppedAt: Date.now(), cancelled: false };
+    const s = await readSettings(false);
+    const route = await global.LexDictationCatalog.route(s.model, global.LexModelRegistry.defaultDictationModel);
+    if (!route.ok) {
+      finish(d, null, route.gate === 'login' ? 'Sign in to Lex to dictate.' : 'No list of recognizers: ' + (route.error || ''));
+      return false;
+    }
+    // A live recognizer chosen after the press: the file goes to the default file recognizer.
+    d.model = route.live ? null : route.model;
+    try {
+      const r = await global.WcBus.call('WC_DICTATE', { base64, mimeType: o.mimeType || 'audio/wav', durationMs: d.audioMs,
+        requestId: id, dict: { model: d.model, knobs: route.live ? {} : (s.knobs || {}) }, noChat: true, ref: 'mac-dictation:' + id });
+      const text = ((r && r.text) || '').trim();
+      if (dropped.delete(id)) { d.cancelled = true; finish(d, null, null); return true; }
+      if (!text && o.reason) finish(d, null, o.reason);
+      else finish(d, text, null);
+    } catch (e) {
+      if (dropped.delete(id)) { d.cancelled = true; finish(d, null, null); return true; }
+      finish(d, null, (e && e.message) || String(e));
+    }
+    return true;
+  }
+
+  // A row for what never reached a recognizer (✕ on the Mac's own recording, a microphone that did not start).
+  async function log(o) {
+    const d = { clientId: o.clientId, app: o.app || null, appId: o.appId || null, at: Date.now() - (o.audioMs || 0),
+      audioMs: o.audioMs || null, model: settings && settings.model };
+    await journal(d, o.status || 'cancelled', o.reason ? { reason: String(o.reason).slice(0, 500) } : null);
+    return true;
+  }
+
   global.LexMacDictation = Object.freeze({
-    start, stop, cancel,
+    start, stop, cancel, feed, recognize, drop, log,
     settings: () => readSettings(true),
     busy: () => !!cur,
   });
