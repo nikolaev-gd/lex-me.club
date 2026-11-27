@@ -2552,8 +2552,10 @@
   // written reaches the server a few hundred milliseconds after the screen, and reading it back
   // then would cut its tail (docs/BACKLOG.md, «Чат заказа на странице может показать ответ модели
   // недописанным»).
+  // A row mac:<N> of a development task (lex_cc_row_put) is written over and over in place: its words count too, so a
+  // read of the open chat draws its new step (2026-11-28; before, only a new row reached the screen).
   const monitorWords = (turns) => new Map((turns || [])
-    .filter((t) => t.uid && /^(profi|folder)_/.test(t.origin || ''))
+    .filter((t) => t.uid && (/^(profi|folder)_/.test(t.origin || '') || /^mac:/.test(String(t.uid))))
     // a call (В7.42) draws from its view in the turn: a summary or a transcript that came changes the view
     .map((t) => [String(t.uid), (t.text || '') + (t.origin === 'profi_call' ? JSON.stringify(t.attachments || null) : '')]));
   function makeProfiChat(order, data, keep, opts) {
