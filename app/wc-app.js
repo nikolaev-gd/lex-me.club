@@ -1165,6 +1165,10 @@
   function hereTarget() {
     if (sectionOn && SECTIONS[sectionOn]) return sectionTarget(sectionOn);
     const id = state.conversationId;
+    // A task chat of an agent stands again over the folder of its agent, with its own arrow to that folder.
+    const agentKey = agentKeyOf(profiChat);
+    const agentChat = agentKey && profiChat.data.chatKey;
+    if (agentChat) return { title: profiChat.data.title || 'Chat', go: () => openAgentFrom(agentKey, agentChat) };
     if (id && !profiChat && !homeOn()) {
       const titleEl = document.querySelector('#wc-chat-title .wc-chat-title-main') || document.getElementById('wc-chat-title');
       const title = (titleEl && titleEl.textContent.trim()) || 'Chat';
@@ -2778,6 +2782,10 @@
       if (!sectionOn) host.hidden = true;
       if (live) { live.closeAside(); live.pick(null); }
       main.classList.remove('is-agents-log');
+      // The window narrowed under a task chat: the folder beside it has gone, and the arrow it held (the folder to the
+      // list) acts on nothing on the screen. The chat takes its own way back again, to the folder of its agent.
+      const key = !sectionOn && isAgentChat(profiChat) ? agentKeyOf(profiChat) : null;
+      if (key) sectionBack.cameFrom(agentTarget((live && live.agent(key)) || { key, name: (profiChat.data.agent && profiChat.data.agent.name) || key }));
     }
     if (!on || !live || live.aside.hidden) main.classList.remove('is-agents-log');
     splitOn = on;

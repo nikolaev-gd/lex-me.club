@@ -552,7 +552,12 @@
       paintHead(top().head);
       tools.hidden = stack.length > 1 || !!top().head;
       root.classList.toggle('is-inner', stack.length > 1);
-      if (!opts.back) return;
+      // The arrow is the window's, one for everything on the screen: a section that is not on the screen does not write
+      // it. A chat opened over a hidden section has its own way back, and a read of the section meanwhile (its list
+      // answering late at the start of the Mac app, a model chosen in the chat) once put the section's own «back» there
+      // — the press took the hidden section to its list, the arrow went, the chat stayed (27.11.2026). The section
+      // writes the arrow when it comes on the screen (enter).
+      if (!opts.back || !isShown()) return;
       const out = opts.root ? opts.root() : null;
       if (stack.length > 2 || (stack.length === 2 && !out)) opts.back.cameFrom({ title: stack[stack.length - 2].title, go: pop });
       else if (out) opts.back.cameFrom({ title: out.title, go: () => { reset(); return out.go(); } });
