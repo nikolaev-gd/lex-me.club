@@ -2776,6 +2776,7 @@
       signals,
       rpc: newsRpc,
       call: agentsCall,
+      kept,
       openChat: (agent, chatKey, wanted) => openAgentChat(agent, chatKey, wanted),
       ask: (agent, run) => { askAboutRun(agent, run).catch((e) => console.warn('[wc] ask about a run:', e && e.message)); },
       pickModel: (anchor, modelId, onPick) => openModelMenu(anchor, modelId, {}, onPick, null, 'anthropic'),

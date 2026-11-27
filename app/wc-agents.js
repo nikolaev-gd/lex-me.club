@@ -33,6 +33,8 @@
 //   signals              the channel of the database's signals (lex-account-events.js)
 //   rpc(name, args)      a function of the database (lex_agent_chats, lex_agent_archived, chat_act)
 //   call(body)           the edge function folder-agents: null — the list of the agents, { op, … } — the rest
+//   kept(name, args)     the copy this device keeps of an answer (lex-reads.js; the call layer keeps the answers of
+//                        lex_agent_chats, lex_agent_archived and folder-agents — the list, about, screen, the first runs)
 //   openChat(agent, chatKey, wanted)   a press on a task chat
 //   ask(agent, run)      a press on the bubble of a line of the journal: a new chat with the quote of the line
 //   pickModel(anchor, modelId, onPick(modelId))   the common menu of the models, Anthropic only
@@ -142,10 +144,124 @@
     let chats = [];
     // The archived task chats of the open folder (lex_agent_archived); null — not read yet.
     let archivedChats = null;
-    // What the list says under a waiting agent: the last word of its waiting chat (its folder, read when it waits).
+    // Every folder read so far, by the agent's key: { chats, archived, raw } — the folder opens again from here at once.
+    const folders = new Map();
+    // What the list says under a waiting agent: the last word of its waiting chat (its folder, read ahead or opened).
     const waitWords = new Map();
-    // The passport of an agent as the base gave it (op about), by key.
+    // The passport of an agent as the base gave it (op about), by key; aboutRaw — the answer as it came, to compare.
     const about = new Map();
+    const aboutRaw = new Map();
+    // The first page of the journal of each agent read so far: { got, raw }.
+    const runsFirst = new Map();
+    // The list of the agents as it came last, to compare.
+    let listRaw = null;
+    const keptOf = deps.kept || (() => Promise.resolve(null));
+    // LexReads.twice with the server asked only once the copy is on the screen (or known to be none): the first frame
+    // never waits for the network, and no request goes before it.
+    function twice(copy, answer, show) {
+      let drawn;
+      const after = new Promise((r) => { drawn = r; });
+      return global.LexReads.twice(
+        async () => {
+          let v = null;
+          try { v = await copy(); } finally { if (v == null) drawn(); }
+          return v;
+        },
+        async () => { await after; return answer(); },
+        (v, isFresh, same) => { try { show(v, isFresh, same); } finally { if (!isFresh) drawn(); } });
+    }
+
+    // ── when a screen asks the server (27.11.2026) ─────────────────────────────────────────────────────────────
+    // Every screen of the section draws at once from what this window holds, else from the copy of this device, and asks
+    // the server only when what it holds may be old: a signal «folders» or «unread» came since it was read (an own screen
+    // of an agent: a signal «agent_screen» of that agent), the window came back on the screen or to the network, the channel
+    // opened again without the journal, or it is older than a minute. A press that changes nothing asks nothing; a new
+    // window holds nothing in memory, so its first opening of a screen draws the copy and asks once.
+    const MAX_AGE_MS = 60000;
+    let signalled = 0;
+    let woken = 0;
+    const screenSignals = new Map();
+    const readAt = new Map();
+    const reading = new Map();
+    const stats = { net: 0, skipped: 0, signals: 0, wakes: 0, aheadMax: 0 };
+    const epochOf = (key) => (key.startsWith('screen:') ? `${woken}/s${screenSignals.get(key.slice(7)) || 0}` : `${woken}/${signalled}`);
+    function fresh(key) {
+      const r = readAt.get(key);
+      return !!r && r.epoch === epochOf(key) && Date.now() - r.at < MAX_AGE_MS;
+    }
+    // One read of a key at a time; a press while it goes waits for the same answer (a change of this window — force —
+    // asks anew: the read on its way may have left before the change).
+    function once(key, run, force) {
+      if (reading.has(key) && !force) return reading.get(key);
+      const epoch = epochOf(key);
+      const p = run().then((v) => { readAt.set(key, { epoch, at: Date.now() }); return v; })
+        .finally(() => { reading.delete(key); });
+      reading.set(key, p);
+      return p;
+    }
+    const asked = (call, n) => (...a) => { stats.net += n || 1; return call(...a); };
+    const sameAs = (raw, v) => { try { return raw === JSON.stringify(v); } catch (_) { return false; } };
+    const rawOf = (v) => { try { return JSON.stringify(v); } catch (_) { return null; } };
+    if (deps.signals && typeof deps.signals.on === 'function') {
+      const bump = () => { signalled += 1; stats.signals += 1; };
+      deps.signals.on('folders', bump);
+      deps.signals.on('unread', bump);
+      deps.signals.on('agent_screen', (p) => {
+        const k = p && p.agent;
+        if (k) screenSignals.set(k, (screenSignals.get(k) || 0) + 1);
+      });
+      if (typeof deps.signals.onLive === 'function') {
+        deps.signals.onLive((live, info) => { if (live && !(info && info.caughtUp)) { woken += 1; stats.wakes += 1; } });
+      }
+    }
+    if (global.document && global.addEventListener) {
+      global.document.addEventListener('visibilitychange', () => {
+        if (global.document.visibilityState === 'visible') { woken += 1; stats.wakes += 1; }
+      });
+      global.addEventListener('online', () => { woken += 1; stats.wakes += 1; });
+    }
+
+    // Read ahead (27.11.2026): while the list is on the screen, the folder and the own screen of every agent whose copy is
+    // not fresh, never more than two requests at once; the first page of the journal while the screen of an agent is on
+    // the screen. A folder is read ahead when the window holds nothing of it or its agent's line in the list is not the
+    // one it was read under (a signal of another chat makes every copy old, and the agents send one every few seconds:
+    // reading all of them at each would load the server; a press on such an agent draws what is held and reads after).
+    const lineAtRead = new Map();
+    const queue = [];
+    const queued = new Set();
+    let running = 0;
+    let aheadEpoch = null;
+    function pump() {
+      while (running < 2 && queue.length) {
+        const job = queue.shift();
+        queued.delete(job.key);
+        if (fresh(job.key)) continue;
+        running += 1;
+        stats.aheadMax = Math.max(stats.aheadMax, running);
+        job.run().catch((e) => console.warn('[agents] ahead:', e && e.message)).finally(() => { running -= 1; pump(); });
+      }
+    }
+    function later(key, run) {
+      if (queued.has(key) || reading.has(key) || fresh(key)) return;
+      queued.add(key);
+      queue.push({ key, run });
+      pump();
+    }
+    function ahead(keys) {
+      if (!frame.isShown() || frame.screen !== 'home') return;
+      if (!keys) {
+        const e = epochOf('list');
+        if (aheadEpoch === e) return;
+        aheadEpoch = e;
+      }
+      for (const a of agents) {
+        if (keys && !keys.has(a.key)) continue;
+        if (!folders.has(a.key) || lineAtRead.get(a.key) !== rawOf(a)) later(`folder:${a.key}`, () => readFolderOf(a.key, { one: true }));
+        const ctl = a.screen && global.LexAgentScreen ? screenOf(a) : null;
+        if (ctl) later(`screen:${a.key}`, () => readScreenOf(a.key));
+      }
+    }
+    function aheadRuns(a) { if (a && a.key) later(`runs:${a.key}`, () => readRunsOf(a.key)); }
     // The agent's own screen (wc-agent-screen.js), by key: read when its main screen or its passport opens.
     const screens = new Map();
     function screenOf(a) {
@@ -175,11 +291,20 @@
       events: ['folders', 'unread', 'agent_screen'],
       check: (signal) => look(signal),
       onBack: (id) => {
-        if (id === 'home') { current = null; readList().catch((e) => console.warn('[agents] back:', e && e.message)); }
-        if (id === 'agent') { paintHead(); readFolder().catch((e) => console.warn('[agents] folder:', e && e.message)); }
-        if (id === 'archived') readFolder().catch((e) => console.warn('[agents] archive:', e && e.message));
+        if (id === 'home') {
+          current = null;
+          if (listStale) paintList();
+          readList().then(() => ahead()).catch((e) => console.warn('[agents] back:', e && e.message));
+        }
+        if (id === 'agent') {
+          paintHead();
+          if (folderStale) paintFolder();
+          readFolder().catch((e) => console.warn('[agents] folder:', e && e.message));
+          aheadRuns(current);
+        }
+        if (id === 'archived') { paintArchived(); readFolder().catch((e) => console.warn('[agents] archive:', e && e.message)); }
         if (id === 'passport') paintPassport();
-        if (id === 'screen') paintMain();
+        if (id === 'screen') { paintMain(); if (current) readScreenOf(current.key).catch((e) => console.warn('[agents] screen:', e && e.message)); }
         told();
       },
     });
@@ -232,8 +357,13 @@
         if (deps.toast) deps.toast((e && e.message) || 'It did not work.', true);
       }
     }
+    // A list or a folder taken while another screen stands on top is painted when it comes back (listStale, folderStale):
+    // what did not change is not painted again, and the place in it stays.
+    let listStale = false;
+    let folderStale = false;
     function paintList() {
       const body = frame.screen === 'home' ? frame.body : null;
+      listStale = !body;
       if (!body) return;
       const list = make('div', 'lex-section-list');
       for (const a of agents) {
@@ -245,19 +375,12 @@
       if (!agents.length) body.replaceChildren(S.emptyState({ section: 'agents', title: 'No agents yet' }));
       say('');
     }
-    // The last word of the chat that waits, for the line of a waiting agent: read from its folder, once per change.
-    async function readWaitWords() {
-      const want = agents.filter((a) => stateOf(a) === 'waiting');
-      await Promise.all(want.map(async (a) => {
-        const got = await deps.rpc('lex_agent_chats', { p_agent: a.key }).catch(() => null);
-        const c = (Array.isArray(got) ? got : []).find((x) => x && x.state === 'waiting' && x.last);
-        if (c) waitWords.set(a.key, oneLine(c.last));
-      }));
-      if (want.length) paintList();
-    }
-    async function readList() {
-      let got;
-      try { got = await deps.call(null); } catch (e) { refused(e); return; }
+    // The list as it came (the copy of this device, then the server): the agents whose line changed are read ahead.
+    function takeList(got) {
+      if (sameAs(listRaw, got)) return;
+      const before = new Map(agents.map((a) => [a.key, rawOf(a)]));
+      const had = listRaw != null;
+      listRaw = rawOf(got);
       agents = sortAgents(Array.isArray(got && got.agents) ? got.agents.filter((a) => a && a.key) : []);
       byKey.clear();
       for (const a of agents) byKey.set(a.key, a);
@@ -266,7 +389,14 @@
       if (frame.screen === 'agent') paintHead();
       if (frame.screen === 'screen') paintMainHead();
       if (frame.screen === 'passport') paintPassport();
-      readWaitWords().catch((e) => console.warn('[agents] waiting words:', e && e.message));
+      if (had) ahead(new Set(agents.filter((a) => before.get(a.key) !== rawOf(a)).map((a) => a.key)));
+    }
+    async function readList(opts) {
+      if (!(opts && opts.force) && listRaw != null && fresh('list')) { stats.skipped += 1; return; }
+      try {
+        await once('list', () => twice(() => (listRaw == null ? keptOf('folder_agents', {}) : null), asked(() => deps.call(null)),
+          (got) => takeList(got)), opts && opts.force);
+      } catch (e) { refused(e); }
     }
 
     // ── the head of the screen of an agent (board AgF2HeadA) ─────────────────────────────────────────────────
@@ -346,7 +476,7 @@
         return;
       }
       if (mute) return;
-      readFolder().catch((e) => console.warn('[agents] folder:', e && e.message));
+      readFolder({ force: true }).catch((e) => console.warn('[agents] folder:', e && e.message));
     }
     // The row «Archived» at the top of the folder: the face of the archive, the gray number of the archived chats.
     function archivedRow(n) {
@@ -388,6 +518,7 @@
       return L.arrange(chats, order, { at: (c) => c.at, created: (c) => c.created, name: (c) => c.title || 'Chat' });
     }
     function paintFolder() {
+      folderStale = frame.screen !== 'agent';
       if (frame.screen !== 'agent' || !current) return;
       const list = make('div', 'lex-section-list');
       if (archivedChats && archivedChats.length) list.appendChild(archivedRow(archivedChats.length));
@@ -411,22 +542,48 @@
         r.classList.toggle('is-picked', !!chatKey && !!main && main.dataset.id === chatKey);
       }
     }
-    async function readFolder() {
-      const a = current;
-      if (!a) return;
-      // The archive of the folder beside it: a base without it answers nothing, and the folder has no row «Archived».
-      const [got, arch] = await Promise.all([
-        deps.rpc('lex_agent_chats', { p_agent: a.key }),
-        deps.rpc('lex_agent_archived', { p_agent: a.key }).catch(() => null),
-      ]);
-      if (!current || current.key !== a.key) return;
-      chats = Array.isArray(got) ? got.filter((c) => c && c.chatKey) : [];
-      archivedChats = Array.isArray(arch) ? arch.filter((c) => c && c.chatKey) : (archivedChats || []);
-      const w = chats.find((c) => c.state === 'waiting' && c.last);
-      if (w) waitWords.set(a.key, oneLine(w.last));
-      paintFolder();
-      paintArchived();
+    // A folder as it came, [chats, archived]: what the window holds of it, and the screen on top when it is this folder.
+    function takeFolder(key, pair) {
+      const [got, arch] = pair || [];
+      const old = folders.get(key);
+      const list = Array.isArray(got) ? got.filter((c) => c && c.chatKey) : [];
+      // A base without the archive answers nothing, and the folder has no row «Archived».
+      const off = Array.isArray(arch) ? arch.filter((c) => c && c.chatKey) : (old ? old.archived : []);
+      const raw = rawOf([list, off]);
+      if (old && old.raw === raw) return;
+      folders.set(key, { chats: list, archived: off, raw });
+      const w = list.find((c) => c.state === 'waiting' && c.last);
+      const word = w ? oneLine(w.last) : null;
+      const wordWas = waitWords.get(key) || null;
+      if (word) waitWords.set(key, word);
+      if (current && current.key === key) {
+        chats = list;
+        archivedChats = off;
+        paintFolder();
+        paintArchived();
+      }
+      if (word !== wordWas && word) paintList();
     }
+    // The folder of an agent: the copy at once (when the window holds nothing of it), the server after it — only when what
+    // is held may be old. one — the two functions one after the other (reading ahead: one request of it at a time).
+    function readFolderOf(key, opts) {
+      const o = opts || {};
+      if (!o.force && folders.has(key) && fresh(`folder:${key}`)) { stats.skipped += 1; return Promise.resolve(); }
+      const args = { p_agent: key };
+      lineAtRead.set(key, rawOf(byKey.get(key)));
+      const both = asked(async () => {
+        const archived = () => deps.rpc('lex_agent_archived', args).catch(() => null);
+        if (o.one) { const got = await deps.rpc('lex_agent_chats', args); return [got, await archived()]; }
+        return Promise.all([deps.rpc('lex_agent_chats', args), archived()]);
+      }, 2);
+      const copy = async () => {
+        if (folders.has(key)) return null;
+        const [got, arch] = await Promise.all([keptOf('lex_agent_chats', args), keptOf('lex_agent_archived', args)]);
+        return got == null ? null : [got, arch];
+      };
+      return once(`folder:${key}`, () => twice(copy, both, (pair) => takeFolder(key, pair)), o.force);
+    }
+    function readFolder(opts) { return current ? readFolderOf(current.key, opts) : Promise.resolve(); }
     // ── the agent's own main screen (the contract «Scribe в Lex», p. 1) ─────────────────────────────────────────
     // The head: the name in the middle (the passport), Activity at the left, «Chats» at the right — the folder of its
     // task chats. The body: the blocks of place «main» (Scribe: the totals and the history), read from the base.
@@ -456,6 +613,20 @@
       if (!ctl) return;
       ctl.paintMain(frame.body);
     }
+    // The own screen of an agent: the copy at once (when the window holds nothing of it), the server after it — only when
+    // what is held may be old. Taken anew, it stands in place on the main screen and in the passport.
+    function readScreenOf(key, opts) {
+      const a = byKey.get(key) || (current && current.key === key ? current : { key, screen: true });
+      const ctl = screenOf(a);
+      if (!ctl) return Promise.resolve();
+      if (!(opts && opts.force) && ctl.has() && fresh(`screen:${key}`)) { stats.skipped += 1; return Promise.resolve(); }
+      const copy = () => (ctl.has() ? null : keptOf('folder_agents_screen', { agent: key }));
+      return once(`screen:${key}`, () => twice(copy, asked(() => ctl.fetch()), (got) => {
+        if (!ctl.take(got)) return;
+        ctl.repaint();
+        if (frame.screen === 'passport' && current && current.key === key) paintPassport();
+      }));
+    }
     function openMain(a) {
       current = a;
       push({ id: 'screen', title: a.name || a.key, head: mainHead(a) });
@@ -463,18 +634,22 @@
       body.replaceChildren();
       const ctl = screenOf(a);
       if (!ctl) return;
-      ctl.read().then(() => { if (frame.body === body) ctl.paintMain(body); })
+      ctl.paintMain(body);
+      readScreenOf(a.key)
         .catch((e) => { if (e && e.status) say(String(e.message || ''), true); else console.warn('[agents] screen:', e && e.message); });
+      aheadRuns(a);
     }
 
     function openFolder(a) {
       current = a;
       order = L.load(orderKey(a));
-      chats = [];
-      archivedChats = null;
+      const f = folders.get(a.key);
+      chats = f ? f.chats : [];
+      archivedChats = f ? f.archived : null;
       push({ id: 'agent', title: a.name || a.key, head: folderHead(a) });
-      frame.body.replaceChildren();
+      if (f) paintFolder(); else frame.body.replaceChildren();
       readFolder().catch((e) => say(`The chats did not come. ${(e && e.message) || ''}`.trim(), true));
+      aheadRuns(a);
     }
 
     // ── the journal «Activity» (board AgF2Log) ────────────────────────────────────────────────────────────────
@@ -509,6 +684,21 @@
       row.appendChild(ask);
       return row;
     }
+    // The first page of the journal of an agent: the copy at once (when the window holds nothing of it), the server after
+    // it — only when what is held may be old. The journal on the screen takes a page that is not what it drew.
+    const RUNS_PAGE = 30;
+    let logView = null;
+    function readRunsOf(key, opts) {
+      if (!(opts && opts.force) && runsFirst.has(key) && fresh(`runs:${key}`)) { stats.skipped += 1; return Promise.resolve(); }
+      const copy = () => (runsFirst.has(key) ? null : keptOf('folder_agents_runs', { agent: key }));
+      return once(`runs:${key}`, () => twice(copy, asked(() => deps.call({ op: 'runs', agent: key, limit: RUNS_PAGE })), (got) => {
+        if (!got || typeof got !== 'object') return;
+        const old = runsFirst.get(key);
+        if (old && sameAs(old.raw, got)) return;
+        runsFirst.set(key, { got, raw: rawOf(got) });
+        if (logView && logView.key === key) logView.first(got);
+      }));
+    }
     // The journal painted into a body: a screen of the frame (a narrow window) or the frame beside the folder (aside).
     function logInto(host, a) {
       const list = make('div', 'lex-section-list lex-agents-runs');
@@ -516,35 +706,54 @@
       host.replaceChildren(list, end);
       let before = null;
       let done = false;
-      let reading = false;
+      let paging = false;
       let lastDay = '';
+      let drawn = false;
       const M = global.LexMessage;
+      function add(got) {
+        const runs = Array.isArray(got && got.runs) ? got.runs.filter((r) => r && r.id) : [];
+        for (const r of runs) {
+          const day = M && M.dayOf ? M.dayOf(r.at) : '';
+          if (day && day !== lastDay) { list.appendChild(M.dayLine(r.at)); lastDay = day; }
+          list.appendChild(runLine(a, r));
+        }
+        before = (got && got.next_before) || null;
+        done = !before || !runs.length;
+        if (done && !list.childElementCount) host.replaceChildren(S.emptyState({ face: S.agentFace(a.key, { size: 48, quiet: true }), title: 'Nothing done yet' }));
+      }
+      // The first page from the start: drawn from what is held, drawn again when the server's differs.
+      function first(got) {
+        if (!host.isConnected) return;
+        list.replaceChildren();
+        host.replaceChildren(list, end);
+        lastDay = '';
+        drawn = true;
+        add(got);
+        tail();
+      }
+      // The end still on the screen (a short page): one more.
+      function tail() { if (!done && end.isConnected && end.getBoundingClientRect().top < window.innerHeight) more(); }
       async function more() {
-        if (reading || done || !host.isConnected) return;
-        reading = true;
+        if (paging || done || !drawn || !before || !host.isConnected) return;
+        paging = true;
         try {
-          const got = await deps.call({ op: 'runs', agent: a.key, ...(before ? { before } : {}), limit: 30 });
-          const runs = Array.isArray(got && got.runs) ? got.runs.filter((r) => r && r.id) : [];
-          for (const r of runs) {
-            const day = M && M.dayOf ? M.dayOf(r.at) : '';
-            if (day && day !== lastDay) { list.appendChild(M.dayLine(r.at)); lastDay = day; }
-            list.appendChild(runLine(a, r));
-          }
-          before = (got && got.next_before) || null;
-          done = !before || !runs.length;
-          if (done && !list.childElementCount) host.replaceChildren(S.emptyState({ face: S.agentFace(a.key, { size: 48, quiet: true }), title: 'Nothing done yet' }));
+          add(await deps.call({ op: 'runs', agent: a.key, before, limit: RUNS_PAGE }));
         } catch (e) {
           if (e && e.status) say(String(e.message || ''));
           else console.warn('[agents] runs:', e && e.message);
-        } finally { reading = false; }
-        // The end still on the screen (a short page): one more.
-        if (!done && end.isConnected && end.getBoundingClientRect().top < window.innerHeight) more();
+        } finally { paging = false; }
+        tail();
       }
+      logView = { key: a.key, first };
+      if (runsFirst.has(a.key)) first(runsFirst.get(a.key).got);
       if (typeof IntersectionObserver !== 'undefined') {
         const seen = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) more(); }, { root: null, rootMargin: '400px' });
         seen.observe(end);
       }
-      return more();
+      return readRunsOf(a.key).catch((e) => {
+        if (e && e.status) say(String(e.message || ''));
+        else console.warn('[agents] runs:', e && e.message);
+      });
     }
     // A press on «Activity»: a narrow window — a screen over the folder; a wide one — the frame beside it, in the place of
     // the chat (the window shows it: deps.onScreen('log-aside')).
@@ -643,19 +852,27 @@
       frame.body.replaceChildren(root);
       frame.body.scrollTop = keep;
     }
-    async function readAbout(a) {
-      let got;
-      try { got = await deps.call({ op: 'about', agent: a.key }); } catch (e) { refused(e); return; }
-      if (got && typeof got === 'object') about.set(a.key, got);
-      paintPassport();
+    // The settings of an agent: the copy at once (when the window holds nothing of them), the server after it — only when
+    // what is held may be old.
+    async function readAbout(a, opts) {
+      const key = a.key;
+      if (!(opts && opts.force) && about.has(key) && fresh(`about:${key}`)) { stats.skipped += 1; return; }
+      const copy = () => (about.has(key) ? null : keptOf('folder_agents_about', { agent: key }));
+      try {
+        await once(`about:${key}`, () => twice(copy, asked(() => deps.call({ op: 'about', agent: key })), (got) => {
+          if (!got || typeof got !== 'object' || sameAs(aboutRaw.get(key), got)) return;
+          aboutRaw.set(key, rawOf(got));
+          about.set(key, got);
+          paintPassport();
+        }));
+      } catch (e) { refused(e); }
     }
     function openPassport(a) {
       current = byKey.get(a.key) || a;
       push({ id: 'passport', title: a.name || a.key, head: { title: '' } });
       paintPassport();
       readAbout(current).catch((e) => console.warn('[agents] about:', e && e.message));
-      const ctl = screenOf(current);
-      if (ctl) ctl.read().then(() => paintPassport()).catch((e) => console.warn('[agents] screen:', e && e.message));
+      if (screenOf(current)) readScreenOf(current.key).catch((e) => console.warn('[agents] screen:', e && e.message));
     }
     // A setting to the base: true — the base took it, and the passport and the list show what it answered.
     async function save(key, patch) {
@@ -674,7 +891,7 @@
       if (current && current.key === key && current !== a) Object.assign(current, fresh);
       if (about.has(key)) Object.assign(about.get(key), fresh);
       paintPassport();
-      await readList().catch((e) => console.warn('[agents] list:', e && e.message));
+      await readList({ force: true }).catch((e) => console.warn('[agents] list:', e && e.message));
       return true;
     }
     // The engine of an agent whose task chat is a session of Claude Code (26.11.2026; the base gives `engine` only then):
@@ -699,7 +916,8 @@
 
     // ── the instruction and the memory (boards AgInstruction, AgMemory): read only ────────────────────────────
     async function ensureAbout(a) {
-      if (!about.has(a.key)) await readAbout(a);
+      if (about.has(a.key)) readAbout(a).catch((e) => console.warn('[agents] about:', e && e.message));
+      else await readAbout(a);
       return aboutOf(a);
     }
     async function openInstruction(a) {
@@ -739,9 +957,10 @@
     }
 
     // The screen on top read again (a signal, the section shown again); a task chat on the screen reads itself.
+    // Each read asks the server only when what it holds may be old (a signal came: it is).
     async function readScreen() {
       if (frame.screen === 'agent' || frame.screen === 'archived') await Promise.all([readFolder(), readList()]);
-      else if (frame.screen === 'screen' && current && screenOf(current)) await Promise.all([screenOf(current).refresh(), readList()]);
+      else if (frame.screen === 'screen' && current && screenOf(current)) await Promise.all([readScreenOf(current.key), readList()]);
       else await readList();
     }
     async function look(signal) {
@@ -749,8 +968,7 @@
       if (signal && signal.event === 'agent_screen') {
         const key = signal.payload && signal.payload.agent;
         if (frame.isShown() && current && current.key === key && (frame.screen === 'screen' || frame.screen === 'passport')) {
-          const ctl = screenOf(current);
-          if (ctl) await ctl.refresh();
+          if (screenOf(current)) await readScreenOf(key);
         }
         return;
       }
@@ -772,8 +990,9 @@
         if (!(opts && opts.back)) { frame.reset(); current = null; }
         frame.enter();
         told();
+        if (frame.screen === 'home' && listRaw != null) paintList();
         try { await readScreen(); } catch (e) { console.warn('[agents] show:', e && e.message); }
-        if (frame.isShown()) frame.watch();
+        if (frame.isShown()) { frame.watch(); ahead(); }
       },
       // The server names the section: its list is read before it is shown (and the model of an agent is known in its chats).
       async warm() { if (!frame.isShown()) await readList(); },
@@ -822,6 +1041,8 @@
       saveModel,
       saveEngine,
       readList,
+      // What the reads did so far (the checks of the section: dev-tools, a press that changes nothing asks nothing).
+      stats: () => Object.assign({}, stats, { reading: reading.size, queued: queue.length }),
     };
   }
 

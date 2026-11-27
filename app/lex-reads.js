@@ -66,6 +66,14 @@
     people_home: {},                                      // the tabs of the people: every chat of them in one list
     today: {},                                            // the blocks «Today» over them: the edge function today (GET)
     folder_item: { by: ['p_chat_key'], limit: 60 },       //   a chat of it with its messages
+    // Agents (27.11.2026): every screen of the section draws its first frame from its copy; the edge function
+    // folder-agents is kept by its call in wc-history.js (the list, op about, op screen, the first page of op runs)
+    folder_agents: {},                                    //   the list of the agents
+    folder_agents_about: { by: ['agent'], limit: 40 },    //   the settings of an agent
+    folder_agents_screen: { by: ['agent'], first: ['block', 'before', 'q'], limit: 10 }, //   its own screen, all its blocks
+    folder_agents_runs: { by: ['agent'], first: ['before'], limit: 40 },  //   its journal «Activity», the first page
+    lex_agent_chats: { by: ['p_agent'], limit: 40 },      //   the folder of an agent: its task chats
+    lex_agent_archived: { by: ['p_agent'], limit: 40 },   //   the archived ones of the folder
     lex_folder_turns: { by: ['p_chat_key'], first: ['p_before_uid'], limit: 40 }, //   its messages
     news_feed: {},                                        // News: its first letters and the place in them
     news_settings: {},                                    //   its settings
@@ -95,11 +103,9 @@
     'lex_chat_seen',
     // what became of a message after a broken connection (chat_turn_fate.sql): asked live, never kept
     'lex_op_state',
-    // the folder of an agent (the section «Agents», agents_section.sql): asked live when the folder opens and on a signal
-    'lex_agent_chats',
-    // the archives of the lists (chat_archive.sql): the archived chats of the main page, of the panel and of the folder
-    // of an agent — asked live when the archive is opened or its row counted
-    'people_archived', 'list_archived_chats', 'lex_agent_archived',
+    // the archives of the lists (chat_archive.sql): the archived chats of the main page and of the panel — asked live
+    // when the archive is opened or its row counted (the folder of an agent keeps its own: KEPT, lex_agent_archived)
+    'people_archived', 'list_archived_chats',
     // the draft of every chat: lex-drafts.js keeps its own copy on the device, with its own rule
     'lex_draft_put', 'lex_drafts',
     // stamps and changes: is there something new, what changed since

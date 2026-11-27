@@ -533,7 +533,16 @@
   const folderWhois = (body) => edge('folder-whois', body);
   // The section «Agents» (21.11.2026, supabase/functions/folder-agents): GET — the agents of the base with this account's
   // numbers; POST { op: chat | say | read | settings, … } — a new task chat, a word into one, «read», the agent's model.
-  const folderAgents = (body) => edge('folder-agents', body, body ? 'POST' : 'GET');
+  // The answers its screens show are kept here for their first frame (LexReads.KEPT, 27.11.2026), as `today` below: the
+  // list, the settings (about), the own screen (screen: a block's further page or search is not kept) and the first page
+  // of the journal (runs without `before`).
+  const AGENT_KEPT = { about: 'folder_agents_about', screen: 'folder_agents_screen', runs: 'folder_agents_runs' };
+  async function folderAgents(body) {
+    const out = await edge('folder-agents', body, body ? 'POST' : 'GET');
+    const name = body ? AGENT_KEPT[body.op] : 'folder_agents';
+    if (name && out && typeof out === 'object') copies.keep(name, body || {}, out);
+    return out;
+  }
   // The blocks «Today» over the tabs of the main page (lex-today.js): one read of the edge function today, kept for the
   // first frame (LexReads.KEPT, `today`) here, where the page calls the server, as every kept answer is.
   async function today() {

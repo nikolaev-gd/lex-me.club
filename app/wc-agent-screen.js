@@ -19,7 +19,7 @@
 // ({ok, block}) or the line goes ({ok, removed}). The Mac's own presses go to the program (LexMacDictation.act, the
 // word `agent`). A signal `agent_screen` {agent} — the open screen reads its first page and the totals again.
 //
-// create(deps) → { read(), cardBlocks(), paintMain(host), refresh(), blocks() }
+// create(deps) → { read(), fetch(), take(answer) → changed, repaint(), cardBlocks(), paintMain(host), refresh(), blocks(), has() }
 //   deps.agent            the agent's key
 //   deps.call(body)       folder-agents (op screen / screen_act)
 //   deps.menu(anchor, items)  the page's menu (WcUI.menu)
@@ -84,12 +84,23 @@
     const say = (text, error) => { if (deps.toast) deps.toast(text, error); };
     const opId = () => (S.newOpId ? S.newOpId() : String(Date.now()));
 
-    async function read() {
-      const got = await deps.call({ op: 'screen', agent: deps.agent });
-      if (!got || !Array.isArray(got.blocks)) return null;
+    // The whole screen from the base (the first page of every list) — or from the copy of this device (wc-agents.js
+    // reads it through LexReads.twice): take(got) puts it in place, true when it is not what the screen held.
+    const fetchScreen = () => deps.call({ op: 'screen', agent: deps.agent });
+    let taken = null;
+    function take(got) {
+      if (!got || !Array.isArray(got.blocks)) return false;
+      let raw = null;
+      try { raw = JSON.stringify(got); } catch (_) { raw = null; }
+      if (raw && raw === taken && screen) return false;
+      taken = raw;
       screen = got;
       // A list keeps its search and its further pages; its first page is the fresh one.
       for (const b of blocks()) if (b.kind === 'list') mergeFirst(b);
+      return true;
+    }
+    async function read() {
+      take(await fetchScreen());
       return screen;
     }
 
@@ -111,6 +122,7 @@
         return null;
       }
       if (got && got.block && got.block.id) {
+        taken = null;
         const i = screen.blocks.findIndex((x) => x && x.id === got.block.id);
         if (i >= 0) screen.blocks[i] = got.block; else screen.blocks.push(got.block);
         if (got.block.kind === 'list') mergeFirst(got.block);
@@ -369,6 +381,10 @@
     // A signal or a press elsewhere: the screen once more (the first page and the totals); a search reads itself.
     async function refresh() {
       await read();
+      repaint();
+    }
+    // The blocks taken anew stand in every place they are drawn: the main screen in place, the passport by onChange.
+    function repaint() {
       for (const h of hosts) {
         if (!h.isConnected) continue;
         for (const b of blocks().filter((x) => x.place === 'main')) {
@@ -390,7 +406,8 @@
     const sh = shell();
     if (sh && typeof sh.onShell === 'function') sh.onShell(() => { if (deps.onChange) deps.onChange(); });
 
-    return { read, cardBlocks, paintMain, refresh, blocks, get rev() { return screen ? screen.rev : null; } };
+    return { read, fetch: fetchScreen, take, repaint, cardBlocks, paintMain, refresh, blocks, has: () => !!screen,
+      get rev() { return screen ? screen.rev : null; } };
   }
 
   global.LexAgentScreen = { create };
