@@ -516,6 +516,7 @@ button { font: inherit; color: inherit; }
    and the field, nothing else — no panel, no main page with its tabs, no pencil of a new chat. The three lines and
    the arrow back go by the one rule of the solo view (data-lex-solo="1", lex-section.css, В7.76). Both marks are put
    by the head of index.html from the address, so the first frame is already so. */
+html[data-lex-window="chat"] .wc-rail,
 html[data-lex-window="chat"] .wc-sidebar,
 html[data-lex-window="chat"] .wc-scrim,
 html[data-lex-window="chat"] .wc-home,
@@ -572,7 +573,7 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-today, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
+.wc-sections, .wc-rail, .wc-section-head, .wc-today, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-surface: var(--bg-surface);
   --lex-section-bubble: var(--bg-bubble);
@@ -593,6 +594,8 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
   --lex-section-plate: var(--bg-hover);
   --lex-section-attention-wash: var(--attention-wash);
   --lex-section-line-strong: var(--line-strong);
+  /* The ground of the rail (В7.88): the window's own. */
+  --lex-section-ground: var(--bg);
 }
 
 .wc-sidebar-title {
@@ -656,6 +659,26 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 .wc-today > * { flex: 0 0 auto; width: 100%; max-width: 720px; margin-left: auto; margin-right: auto; }
 .wc-main.is-home.has-today .wc-home { padding-top: 0; }
 .wc-main.is-home .wc-thread { display: none; }
+
+/* ── The wide window (iteration 2 of docs/PLAN-HOME-TODAY-FLOW.md; ios/Lex/STANDARD.md В7.88, В7.89) ──────────────
+ * From 900 (wc-app.js, RAIL_WIDE; never in the window of one chat, and only for an account with chats of people) the
+ * rail stands on the left, 74, the whole height, and everything else right of it: the panel of the chats of Lex comes out
+ * right of the rail and slides out under it, its dimming leaves the rail free, and the entries of the sections are not
+ * in the panel (they are on the rail). Narrower — as without the rail: the blocks over the list, the panel by ≡. */
+.wc-rail { flex: 0 0 74px; position: relative; z-index: 31; box-sizing: border-box; height: 100%; padding-top: env(safe-area-inset-top); }
+.wc-rail[hidden] { display: none; }
+.wc-root.has-rail .wc-sidebar { left: 74px; width: min(calc(84vw - 74px), var(--sidebar-w)); }
+.wc-root.has-rail.is-sidebar-collapsed .wc-sidebar { transform: translateX(calc(-100% - 96px)); }
+.wc-root.has-rail .wc-scrim { left: 74px; }
+.wc-root.has-rail .wc-sections { display: none !important; }
+/* The board «Today» (lex-today.js, layout 'board') takes the column under the bar whole: its head stands in the bar by
+ * the three lines (#wc-section-head), its three columns scroll each inside itself. No list of the people, no tabs, no
+ * capsule and no gear of Profi.ru under it. */
+.wc-today.is-board { flex: 1 1 auto; max-height: none; padding: var(--wc-topbar-h, 52px) 0 0; overflow: hidden; scrollbar-gutter: auto; }
+.wc-today.is-board > * { flex: 1 1 auto; max-width: none; margin: 0; }
+.wc-main.is-board .wc-home,
+.wc-main.is-board .wc-people-tabs,
+.wc-main.is-board .wc-people-gear { display: none !important; }
 .wc-people-gear svg { width: 21px; height: 21px; }
 
 .wc-convs-group {

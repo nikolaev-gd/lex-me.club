@@ -37,14 +37,27 @@
 //   openCalendar(at)     the section Calendar (at — the start of an event pressed, ms, or null)
 //   openShopping()       the section Shopping list
 //   onShown(on)          the cards stand on the screen or not (the window makes room for them)
-// create(deps) gives: setActive(on), warm(), lookNow(), shown, answer.
+// and for the board (a wide window, below):
+//   head(node | null)    the head of the board (LexSection.boardHead) into the bar of the window, or out of it
+//   openAgents()         the section Agents, on its list
+//   openNews(row)        a letter of News (a row of `news.rows`: its first unread card `card` opens its chat)
+//   checkShopping(id, done)  the purchase marked bought (or not) — the same change as the section Shopping list makes
+// create(deps) gives: setActive(on), setLayout('blocks' | 'board'), warm(), lookNow(), shown, answer, layout.
+//
+// The board (iteration 2 of docs/PLAN-HOME-TODAY-FLOW.md; docs/spec/20-chat.md, «Главная на компьютере») is the same
+// read, the same answer and the same signals drawn on the whole window of 900 and wider: three columns of cards with
+// nothing folded — «Waiting for you», all of it; «Day», the whole day by the hours (what is over in the colours of what
+// is not looked at now) and under it «Shopping list · N» with every purchase to buy and its circle; «Agents» (the agents
+// at work with their stage, then what they did without Gennady since the start of the day) and «News» (the unread
+// letters, only when there are some). Its head — the date of Moscow and «Today» — stands in the bar of the window.
 (function (global) {
   'use strict';
 
   // The signals of the sources (docs/PLAN-HOME-TODAY-FLOW.md, «Под капотом»): the chats of the people (unread, chats,
   // profi, folders), the questions (em), the calendar and the shopping list, and those the section Agents reads again
   // on (webchat/wc-agents.js: folders, unread, agent_screen).
-  const EVENTS = ['unread', 'chats', 'profi', 'folders', 'em', 'calendar', 'shopping', 'agent_screen'];
+  // The board reads on the signal of News too (lex-news.js: news).
+  const EVENTS = ['unread', 'chats', 'profi', 'folders', 'em', 'calendar', 'shopping', 'agent_screen', 'news'];
   const FOLD = 3;
   const DAY_MAX = 3;
 
@@ -76,17 +89,49 @@
       if (!e || typeof e !== 'object') return false;
       const start = ms(e.at);
       // An event of the whole day without an end lasts the day of its start.
-      const end = ms(e.end) != null ? ms(e.end) : (e.all_day === true && start != null ? start + 24 * 3600 * 1000 : start);
+      const end = start == null ? null : endOf(e);
       return end != null && end > t;
     }).slice(0, DAY_MAX);
   }
   // The day of the answer is today: its events say something of today (a copy of another day says nothing).
   const isToday = (day, now) => !!(day && typeof day === 'object' && day.day === moscowDay(now));
+  // The end of an event: its end; an event of the whole day without one lasts the day of its start; else its start.
+  const endOf = (e) => {
+    const start = ms(e.at);
+    return ms(e.end) != null ? ms(e.end) : (e.all_day === true && start != null ? start + 24 * 3600 * 1000 : start);
+  };
+  // The board's day: every event of today, the past ones too (`day.all`; an older answer has only what is left —
+  // `day.events`), each with `past`. None from a copy of another day.
+  function dayAll(day, now) {
+    if (!day || typeof day !== 'object') return [];
+    const t = now instanceof Date ? now.getTime() : Number(now);
+    if (day.day !== moscowDay(t)) return [];
+    const list = Array.isArray(day.all) ? day.all : (Array.isArray(day.events) ? day.events : []);
+    return list.filter((e) => e && typeof e === 'object' && ms(e.at) != null).map((e) => {
+      const end = endOf(e);
+      return Object.assign({}, e, { past: end != null && end <= t });
+    });
+  }
+  // «Friday, 27 November»: the day of Moscow in English words.
+  let moscowWords = null;
+  function dayWords(at) {
+    const d = at instanceof Date ? at : new Date(at);
+    try {
+      if (!moscowWords) moscowWords = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Moscow', weekday: 'long', day: 'numeric', month: 'long' });
+      const p = Object.fromEntries(moscowWords.formatToParts(d).map((x) => [x.type, x.value]));
+      return `${p.weekday}, ${p.day} ${p.month}`;
+    } catch (_) {
+      const m = new Date(d.getTime() + 3 * 3600 * 1000);
+      const W = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const M = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${W[m.getUTCDay()]}, ${m.getUTCDate()} ${M[m.getUTCMonth()]}`;
+    }
+  }
 
   // The parts of an answer taken into what the screen holds: a part that failed keeps what was there. The agents fail
   // on their own inside «waiting» (`failed` names "agents", the rest of «waiting» came): the agents' lines the screen
-  // held stay among the new ones, by their time.
-  const PARTS = ['waiting', 'day', 'shopping'];
+  // held stay among the new ones, by their time — and the part `agents` of the board stays as it was too.
+  const PARTS = ['waiting', 'day', 'shopping', 'news', 'agents'];
   const timeOf = (r) => ms(r && r.at) || 0;
   function merge(held, v) {
     const out = Object.assign({}, held || {});
@@ -110,7 +155,9 @@
     const S = global.LexSection;
     const host = deps.host;
     let active = false;
-    let held = null;        // what the screen holds: { sections, waiting, day, shopping }, parts merged by merge()
+    let layout = 'blocks';  // 'blocks' — over the list of the people; 'board' — the board on the whole window
+    let held = null;        // what the screen holds: { sections, waiting, day, shopping, news, agents }, by merge()
+    const ticked = new Set();   // the purchases marked on the board, drawn bought until an answer no longer has them
     let drawn = '';         // the last answer drawn, as text: an equal answer draws nothing again
     let open = false;       // «Show all N» pressed
     let shown = false;
@@ -197,7 +244,121 @@
       return card;
     }
 
+    // ── the board ─────────────────────────────────────────────────────────────
+    function boardDay(day, shopping, sections, now) {
+      const rows = [];
+      const list = sections.calendar !== false ? dayAll(day, now) : [];
+      const ahead = list.findIndex((e) => !e.past && e.all_day !== true);
+      const nearest = ahead >= 0 ? ahead : list.findIndex((e) => !e.past);
+      list.forEach((e, i) => {
+        const time = e.all_day === true ? 'all day' : hm(ms(e.at));
+        rows.push(S.dayLine({
+          time, title: oneLine(e.title), now: i === nearest, past: e.past,
+          label: `${time}, ${oneLine(e.title)}${i === nearest ? ', next' : ''}${e.past ? ', over' : ''}`,
+          onClick: () => deps.openCalendar(ms(e.at)),
+        }));
+      });
+      let next = null;
+      if (sections.shopping !== false && shopping) {
+        if (Array.isArray(shopping.items) && global.LexChecklist) {
+          const items = shopping.items.filter((x) => x && x.id != null && String(x.text || '').trim());
+          if (items.length) {
+            const body = S.make('div', 'lex-check lex-today-check');
+            for (const it of items) {
+              const id = String(it.id).toLowerCase();
+              const r = global.LexChecklist.row({
+                text: oneLine(it.text), done: ticked.has(id),
+                onCircle: () => tick(id),
+                onText: () => deps.openShopping(),
+              });
+              r.el.dataset.id = id;
+              body.appendChild(r.el);
+            }
+            next = { title: 'Shopping list', count: items.filter((x) => !ticked.has(String(x.id).toLowerCase())).length, body };
+          }
+        } else if (Number(shopping.count) > 0) {
+          // An older answer: the line of the shopping list, as in the blocks.
+          rows.push(S.shoppingLine({ count: shopping.count, first: shopping.first, onClick: () => deps.openShopping() }));
+        }
+      }
+      if (sections.calendar === false) {
+        if (!next && !rows.length) return null;
+        const alone = S.todayCard({ title: 'Shopping list', count: next ? next.count : 0, rows, fold: Infinity });
+        if (next) { next.body.classList.add('lex-today-next'); alone.appendChild(next.body); }
+        return alone;
+      }
+      const card = S.todayCard({
+        title: 'Day', link: { label: 'Calendar', onClick: () => deps.openCalendar(null) },
+        rows, fold: Infinity, next,
+      });
+      // Nothing left today: the grey line under the day (a copy of another day says nothing of today).
+      if (isToday(day, now) && !list.some((e) => !e.past)) {
+        const empty = S.make('div', 'lex-today-empty', 'Nothing else today.');
+        const after = card.querySelector('.lex-today-rows');
+        card.insertBefore(empty, after ? after.nextSibling : card.querySelector('.lex-today-head.is-next'));
+      }
+      return card;
+    }
+    // A purchase marked on the board: drawn bought at once, the change goes the section's way; a press again takes it back.
+    function tick(id) {
+      const done = !ticked.has(id);
+      if (done) ticked.add(id); else ticked.delete(id);
+      paint();
+      Promise.resolve(deps.checkShopping ? deps.checkShopping(id, done) : null).catch((e) => {
+        console.warn('[today] shopping:', e && e.message);
+        if (done) ticked.delete(id); else ticked.add(id);
+        paint();
+      });
+    }
+    function agentsCard(a) {
+      const rows = [];
+      for (const r of Array.isArray(a.working) ? a.working : []) {
+        if (!r || !r.key) continue;
+        rows.push(S.agentRow({
+          key: r.key, name: r.title || r.key, time: at(r), state: 'working', stage: r.stage || null, text: oneLine(r.stageText) || null,
+          id: `board:working:${r.chatKey || r.key}`, onClick: () => deps.openAgent(r.key, r.chatKey || null),
+        }));
+      }
+      for (const r of Array.isArray(a.done) ? a.done : []) {
+        if (!r || !r.key) continue;
+        rows.push(S.agentRow({
+          key: r.key, name: r.title || r.key, time: at(r), state: 'idle', text: oneLine(r.text),
+          id: `board:done:${r.key}:${r.run || r.at || ''}`, onClick: () => deps.openAgent(r.key, null),
+        }));
+      }
+      return S.todayCard({
+        title: 'Agents', link: { label: 'Agents', onClick: () => deps.openAgents && deps.openAgents() },
+        rows, empty: 'No agents at work today.', fold: Infinity,
+      });
+    }
+    function newsCard(n) {
+      const list = (Array.isArray(n.rows) ? n.rows : []).filter((r) => r && r.id != null);
+      if (!list.length) return null;
+      const count = Number(n.count) > 0 ? Math.floor(Number(n.count)) : list.length;
+      const rows = list.map((r) => S.row({
+        lead: S.sectionFace('news', { size: 48 }),
+        title: oneLine(r.title) || 'News', sub: oneLine(r.sub), time: at(r),
+        id: `board:news:${r.id}`, onClick: () => deps.openNews && deps.openNews(r),
+      }));
+      return S.todayCard({ title: 'News', countText: `${count} new`, rows, fold: Infinity });
+    }
+    function boardCards(now) {
+      const sections = held.sections && typeof held.sections === 'object' ? held.sections : {};
+      const one = held.waiting ? S.todayCard({
+        title: 'Waiting for you', count: Number.isFinite(Number(held.waiting.count)) ? Number(held.waiting.count) : undefined,
+        rows: (Array.isArray(held.waiting.rows) ? held.waiting.rows : []).map(waitLine).filter(Boolean),
+        empty: 'Nothing is waiting for you.', fold: Infinity,
+      }) : null;
+      const two = (held.day || held.shopping) ? boardDay(held.day, held.shopping, sections, now) : null;
+      const three = [];
+      if (sections.agents !== false && held.agents && typeof held.agents === 'object') three.push(agentsCard(held.agents));
+      if (sections.news !== false && held.news && typeof held.news === 'object') three.push(newsCard(held.news));
+      return S.board([[one], [two], three]);
+    }
+
     function paint() {
+      host.classList.toggle('is-board', layout === 'board');
+      if (layout === 'board') { paintBoard(); return; }
       const cards = [];
       // What comes into the empty place keeps its height: measured as it stands, before it is taken.
       if (active && settled && !hold && host.querySelector('.lex-today-place, .lex-skel-today')) hold = host.offsetHeight;
@@ -214,10 +375,31 @@
       const on = cards.length > 0 || (active && hold > 0);
       host.hidden = !on;
       host.style.minHeight = active && hold > 0 ? `${hold}px` : '';
+      if (deps.head) deps.head(null);
       if (on !== shown) {
         shown = on;
         if (deps.onShown) deps.onShown(on);
       }
+    }
+    // The board stands whole while the main page is on the screen: nothing known yet — the three columns with empty
+    // places (no word, no motion), as the blocks hold theirs.
+    function paintBoard() {
+      host.style.minHeight = '';
+      if (!active) {
+        host.replaceChildren();
+        host.hidden = true;
+        if (deps.head) deps.head(null);
+        if (shown) { shown = false; if (deps.onShown) deps.onShown(false); }
+        return;
+      }
+      const now = new Date();
+      if (deps.head) deps.head(S.boardHead({ date: dayWords(now), title: 'Today' }));
+      if (!settled || !held) {
+        const P = S.TODAY_PLACE;
+        host.replaceChildren(settled ? S.board([[], [], []]) : S.board([[S.todayPlace(P.waiting)], [S.todayPlace(P.day)], [S.todayPlace(P.day)]]));
+      } else host.replaceChildren(boardCards(now));
+      host.hidden = false;
+      if (!shown) { shown = true; if (deps.onShown) deps.onShown(true); }
     }
 
     // ── reading ───────────────────────────────────────────────────────────────
@@ -231,7 +413,13 @@
       const P = S.TODAY_PLACE;
       const heights = [P.waiting, P.day];
       wait = K.ladder(host, {
-        skeleton: () => { let i = 0; return K.list(() => K.todayCard(heights[i++]), heights.length); },
+        // The board keeps its three columns: a skeleton card stands where each empty card stood (paintBoard).
+        skeleton: () => {
+          // Each in a list of one, as the blocks' cards stand: the list is what breathes them (lex-skeleton.css).
+          if (layout === 'board') return S.board([P.waiting, P.day, P.day].map((h) => [K.list(() => K.todayCard(h), 1)]));
+          let i = 0;
+          return K.list(() => K.todayCard(heights[i++]), heights.length);
+        },
         put: (n) => { if (!settled && active) host.replaceChildren(n); },
         shown: () => active && !host.hidden,
         empty: () => null,
@@ -240,7 +428,9 @@
     // Something is known: the held height is taken as the place stands (empty cards or their skeleton), then the
     // skeleton gives way — not before it stood its 200 ms.
     function settle(draw) {
-      if (active && !hold && host.querySelector('.lex-today-place, .lex-skel-today')) hold = host.offsetHeight;
+      // Only the blocks hold a height (the board fills the window): a board measured here would hold the blocks of a
+      // window narrowed later at the height of the whole window.
+      if (active && layout !== 'board' && !hold && host.querySelector('.lex-today-place, .lex-skel-today')) hold = host.offsetHeight;
       const w = wait;
       wait = null;
       if (w) w.done(draw); else draw();
@@ -258,6 +448,11 @@
         const text = textOf(v);
         if (isFresh && text !== null && text === drawn) { if (!was) settle(paint); return; }
         held = merge(held, v);
+        // A purchase marked on the board leaves the marks when the answer no longer has it to buy.
+        if (isFresh && ticked.size && held.shopping && Array.isArray(held.shopping.items)) {
+          const left = new Set(held.shopping.items.map((x) => String(x && x.id).toLowerCase()));
+          for (const id of [...ticked]) if (!left.has(id)) ticked.delete(id);
+        }
         if (isFresh) drawn = text;
         if (!was) settle(paint); else paint();
       })).catch((e) => {
@@ -292,6 +487,15 @@
           paint();
         }
       },
+      // 'board' on a wide window, 'blocks' over the list of the people: the same answer drawn again in the other way.
+      setLayout(l) {
+        l = l === 'board' ? 'board' : 'blocks';
+        if (layout === l) return;
+        layout = l;
+        hold = 0;
+        paint();
+      },
+      get layout() { return layout; },
       // Read at the start, so that the first showing of the main page has the blocks.
       warm() { return reload().catch((e) => console.warn('[today] warm:', e && e.message)); },
       lookNow() { if (active) frame.lookNow(); },
@@ -300,5 +504,5 @@
     };
   }
 
-  global.LexToday = { create, dayEvents, moscowDay, merge, EVENTS };
+  global.LexToday = { create, dayEvents, dayAll, dayWords, moscowDay, merge, EVENTS };
 })(typeof window !== 'undefined' ? window : globalThis);

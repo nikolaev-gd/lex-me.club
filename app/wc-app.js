@@ -744,6 +744,95 @@
   let sectionOn = null;
   // The entries of the sections in the menu of chats (LexSection.entries): the open section's line stands chosen.
   let entries = { setActive() {} };
+  // ── The wide window: the rail and the modes Today and Flow (iteration 2 of docs/PLAN-HOME-TODAY-FLOW.md) ─────────
+  // From 900 (not in the window of one chat, and only for an account with chats of people — the main page is theirs) the
+  // rail stands on the left (LexSection.rail, В7.88): the mark of Lex opens and closes the panel of the chats of Lex (the
+  // role of ≡ there, В7.76), Today and Flow switch the main page, the entries of the sections open a section in the place
+  // of the content whole, Settings — the sheet of the settings. The main page in the mode Today is the board (lex-today.js,
+  // layout 'board'), in the mode Flow — the list of the people with its tabs and the capsule, without the blocks. The mode
+  // changes only by the rail and ⌘1 / ⌘2 of the Mac app: a chat opened from the board stands in Today, and its arrow
+  // back leads to the main page in that mode. The page in a browser starts on Today; the Mac app — on the mode it was
+  // left on (MODE_KEY, the account's). Narrower than 900 — no rail: the blocks over the list, as before.
+  const RAIL_WIDE = '(min-width: 900px)';
+  const railMq = global.matchMedia && !soloChat ? global.matchMedia(RAIL_WIDE) : { matches: false, addEventListener() {} };
+  railMq.addEventListener('change', () => paintHome());
+  const MODE_KEY = 'lexModeKept';
+  let mode = 'today';
+  let rail = null;
+  let railSections = [];
+  const railOn = () => !!railMq.matches && !soloChat && people.hasTabs;
+  // The board stands: the main page, the wide window, the mode Today.
+  const boardOn = () => railOn() && mode === 'today' && homeOn();
+  // Only the Mac app opens on the mode it was left in; the page of a browser always starts on Today (decision of
+  // iteration 2). Not keepsPlace(): since 27.11.2026 the browser keeps its place too (the chat it was in).
+  const keepsMode = () => !!global.__lexShell && !soloChat;
+  function keptMode() {
+    if (!keepsMode()) return 'today';
+    try {
+      const k = JSON.parse(global.localStorage.getItem(MODE_KEY) || 'null');
+      return k && k.account === placeAccount() && (k.mode === 'flow' || k.mode === 'today') ? k.mode : 'today';
+    } catch (_) { return 'today'; }
+  }
+  function keepMode() {
+    if (!keepsMode()) return;
+    try { global.localStorage.setItem(MODE_KEY, JSON.stringify({ mode, account: placeAccount() })); } catch (_) { /* no storage */ }
+  }
+  // Today or Flow: on the main page it changes there; from a section or a chat — back to the main page in that mode.
+  function goMode(m) {
+    mode = m === 'flow' ? 'flow' : 'today';
+    keepMode();
+    WcSidebar.close();
+    if (homeOn() && !sectionOn) { paintHome(); return; }
+    newConversation().catch((e) => console.warn('[wc] mode:', e && e.message));
+  }
+  // An entry of a section, in the panel or on the rail.
+  function pickSection(id) {
+    if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
+    else if (SECTIONS[id]) showSection(id).catch((e) => console.warn('[wc] section:', e && e.message));
+  }
+  function ensureRail() {
+    if (rail) return rail;
+    const mark = document.createElement('span');
+    mark.setAttribute('aria-hidden', 'true');
+    if (global.LexBrandMark) mark.innerHTML = global.LexBrandMark.svgMarkup(28);
+    rail = global.LexSection.rail(document.getElementById('wc-rail'), {
+      mark,
+      onLex: () => WcSidebar.toggle(),
+      onMode: (m) => goMode(m),
+      onPick: (id) => pickSection(id),
+      onSettings: () => { WcSidebar.close(); openSettings(); },
+    });
+    rail.setSections(railSections);
+    paintFlowDot();
+    return rail;
+  }
+  // The dot of Flow: something unread in the chats of the people (the sections of the people in the numbers of the unread).
+  function paintFlowDot() {
+    if (!rail) return;
+    const u = (global.LexSection.unread() || {}).sections || {};
+    rail.setFlowDot(Object.keys(u).some((id) => people.isPeople(id) && Number(u[id]) > 0));
+  }
+  // Asked from applyHome: the rail stands or not, and what on it is chosen — the open section's entry (the folder of an
+  // agent beside its chat is the section Agents), else the mode.
+  function paintRail() {
+    const root = document.getElementById('wc-root');
+    const host = document.getElementById('wc-rail');
+    if (!root || !host) return;
+    const on = railOn();
+    root.classList.toggle('has-rail', on);
+    host.hidden = !on;
+    if (!on) return;
+    ensureRail().setActive({ mode, section: sectionOn || (splitOn ? 'agents' : null) });
+  }
+  // ⌘1 — Today, ⌘2 — Flow: only in the Mac app and only with the rail (in Chrome these keys switch the tabs).
+  document.addEventListener('keydown', (e) => {
+    if (!global.__lexShell || !railOn() || e.repeat || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey) return;
+    const m = e.code === 'Digit1' || e.key === '1' ? 'today' : e.code === 'Digit2' || e.key === '2' ? 'flow' : null;
+    if (!m) return;
+    e.preventDefault();
+    e.stopPropagation();
+    goMode(m);
+  }, true);
   function sectionEls() {
     return {
       main: document.querySelector('.wc-main'),
@@ -873,8 +962,48 @@
       showSection('shopping', { wanted: todayWanted(), from: mainTarget() })
         .catch((e) => console.warn('[wc] today shopping:', e && e.message));
     },
-    onShown: (on) => { const main = document.querySelector('.wc-main'); if (main) main.classList.toggle('has-today', on); },
+    onShown: (on) => { const main = document.querySelector('.wc-main'); if (main) main.classList.toggle('has-today', on && today.layout === 'blocks'); },
+    // The board (a wide window, the mode Today): its head in the bar, «Agents ›», a letter of News, a purchase marked.
+    head: paintBoardHead,
+    openAgents: () => {
+      showSection('agents', { wanted: todayWanted(), from: mainTarget() })
+        .catch((e) => console.warn('[wc] today agents:', e && e.message));
+    },
+    openNews: (row) => {
+      const wanted = todayWanted();
+      openNewsLetter(row, wanted).catch((e) => toast('The news did not open. ' + ((e && e.message) || ''), { error: true }));
+    },
+    checkShopping: (id, done) => ensureSection('shopping').check(id, done),
   });
+  // A letter of News from the board: its first unread card opens its chat, as a press on the card in the feed does
+  // (open_news_item marks it read); the arrow leads back to the main page. A row without a card — the section News.
+  async function openNewsLetter(row, wanted) {
+    if (!row || !row.card) { await showSection('news', { wanted, from: mainTarget() }); return; }
+    const r = await newsRpc('open_news_item', { p_op_id: global.LexSection.newOpId(), p_item_id: String(row.card) });
+    if (!wanted() || !r || !r.chatKey) return;
+    await openConversation(r.chatKey, { wanted, back: mainTarget() });
+    if (wanted() && state.conversationId === r.chatKey && r.title) WcHeader.setTitle(r.title);
+  }
+  // The head of the board in the bar, by the three lines (В7.89; the slot of the heads of News and Calendar): it is taken
+  // away only while it is still the board's — a section that came puts its own head there first.
+  let boardHeadNode = null;
+  function paintBoardHead(node) {
+    const main = document.querySelector('.wc-main');
+    const slot = document.getElementById('wc-section-head');
+    if (!main || !slot) return;
+    if (!node) {
+      if (!boardHeadNode) return;
+      const mine = slot.contains(boardHeadNode);
+      boardHeadNode = null;
+      main.classList.remove('is-board-head');
+      if (mine) { slot.replaceChildren(); slot.hidden = true; }
+      return;
+    }
+    boardHeadNode = node;
+    main.classList.add('is-board-head');
+    slot.replaceChildren(node);
+    slot.hidden = false;
+  }
   // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
   // a person. The first message sent takes the page away (the thread is not empty then, WcThread.onEmpty).
   function homeOn() {
@@ -911,15 +1040,22 @@
     const was = main.classList.contains('is-home');
     const listBody = host.querySelector('.lex-section-body');
     if (was && !on && listBody) homeScroll = listBody.scrollTop;
-    const showTabs = on && people.hasTabRow;
+    // A wide window (the rail): the mode Today is the board in the place of the list and its tabs, Flow — the list with
+    // no blocks over it. Narrower — the blocks over the list.
+    const wide = railOn();
+    const board = on && wide && mode === 'today';
+    const showTabs = on && !board && people.hasTabRow;
     main.classList.toggle('is-home', on);
-    host.hidden = !on;
+    main.classList.toggle('is-board', board);
+    host.hidden = !on || board;
     tabsHost.hidden = !showTabs;
     // The bar has a line of tabs of its own under its buttons (the feed «Разбор» has one too).
     bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
-    people.setActive(on);
-    // The blocks «Today» stand over the list only on the main page, and follow the server only there.
-    today.setActive(on);
+    people.setActive(on && !board);
+    // The blocks «Today» stand over the list only on the main page, and follow the server only there; on a wide window
+    // they are the board, and only in the mode Today.
+    today.setLayout(wide ? 'board' : 'blocks');
+    today.setActive(on && (!wide || mode === 'today'));
     if (on && !was && listBody) listBody.scrollTop = homeScroll;
     // The bot's service chat: its kind (no field, the profile `service`) and its head in the bar.
     const bot = !sectionOn && isServiceKey(state.conversationId);
@@ -927,6 +1063,7 @@
       main.classList.toggle('is-service-chat', bot);
       paintBotHead(bot);
     }
+    paintRail();
     paintCapsule();
   }
 
@@ -985,7 +1122,8 @@
     return (live && typeof live.currentAgent === 'function' && live.currentAgent()) || null;
   }
   function paintCapsule() {
-    if (global.WcQuick) WcQuick.capsule(!quick && outOfChat());
+    // The board has no capsule (the design of the wide window): a new chat is the panel's «New chat».
+    if (global.WcQuick) WcQuick.capsule(!quick && outOfChat() && !boardOn());
   }
   async function openQuick(mode) {
     if (quick || !outOfChat()) return;
@@ -1069,11 +1207,11 @@
       paintHome();
       // An entry only for a section this page opens: a section the server names before its screen is built here has none.
       const buttons = (Array.isArray(list) ? list : []).filter((s) => s && !people.isPeople(s.id) && SECTIONS[s.id]);
-      entries = global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => {
-        if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
-        else if (SECTIONS[id]) showSection(id);
-      });
+      entries = global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => pickSection(id));
       entries.setActive(sectionOn);
+      // The same entries on the rail of a wide window.
+      railSections = buttons;
+      if (rail) rail.setSections(buttons);
     };
     let drawn = null;
     let sections = null;
@@ -1145,6 +1283,7 @@
   function takeUnread(u) {
     if (global.LexSection) global.LexSection.setUnread(u);
     people.repaintTabs();
+    paintFlowDot();
     const n = macBadgeOf(u);
     if (n != null) shellBadge(Number(n) || 0);
   }
@@ -2844,7 +2983,8 @@
   // agent stand on the left, 440; on the right — the chat picked in the folder, with its own field, or, while none is
   // picked, an empty place with the mark of Lex and the capsule at its bottom right (no chat is made before a word goes);
   // «Activity» puts the journal there. The arrow leads the folder back to the list.
-  const SPLIT_WIDE = '(min-width: 1024px)';
+  // 1024 of the content and the rail's 74 (the rail stands on every window from 900).
+  const SPLIT_WIDE = '(min-width: 1098px)';
   // A window of one chat has no folder beside it, however wide.
   const wideMq = global.matchMedia && !soloChat ? global.matchMedia(SPLIT_WIDE) : { matches: false, addEventListener() {} };
   wideMq.addEventListener('change', () => paintHome());
@@ -4705,6 +4845,8 @@
         if (!sectionOn && isServiceKey(state.conversationId)) openConversation(BOT_KEY, { again: true }).catch(() => {});
       });
     });
+    // The mode of the wide window the Mac app was left on (the browser starts on Today).
+    mode = keptMode();
     loadSections();
 
     // ВСЁ ОСТАЛЬНОЕ В ЭТОЙ ФУНКЦИИ ЧИТАЕТ ХРАНИЛИЩЕ, ПОЭТОМУ ПРОВЕРКА ПЕРВОЙ.

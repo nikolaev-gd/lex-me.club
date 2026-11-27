@@ -468,6 +468,16 @@
       },
       stopOpening() { frame.stopOpening(); },
       focusNew() { fresh.focus(); },
+      // The board «Today» (lex-today.js) marks a purchase bought, or takes the mark back: the same change as the circle
+      // of its row here, in the same queue, with the number of its command. The section need not be on the screen nor
+      // have read the list: the change goes as it is, and the server's answer is the list.
+      check(id, done) {
+        const key = String(id || '').toLowerCase();
+        if (!key) return Promise.resolve();
+        ops.push({ command: newId(), op: 'check', id: key, done: done !== false });
+        paint();
+        return send();
+      },
     };
   }
 

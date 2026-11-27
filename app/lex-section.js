@@ -1226,8 +1226,10 @@
   // A card on the ground (--bg-surface, radius 10): the head 44 — the title 13/600 grey on the left, on the right the
   // number (13/600 grey, figures of one width; none at zero) or a link «Calendar ›» with a zone of 44; under it the
   // common lines of a list; more than `fold` lines — the first `fold` and a line «Show all N» that opens the card in
-  // place («Show less» folds it); no line — one grey line of the empty. o: { title, count, link: { label, onClick },
-  // rows: [nodes], empty: 'Nothing …', fold (3), open, onToggle(open) }.
+  // place («Show less» folds it); no line — one grey line of the empty. o: { title, count, countText (words in the place
+  // of the number: «3 new»), link: { label, onClick }, rows: [nodes], empty: 'Nothing …', fold (3; Infinity — never
+  // folded, the board), open, onToggle(open), next: { title, count, body } — a second head in the same card and the node
+  // under it (the board: «Shopping list · N» and its checklist under the day) }.
   const TODAY_FOLD = 3;
   function todayCard(o) {
     o = o || {};
@@ -1240,19 +1242,32 @@
       const link = button('lex-today-link', `${o.link.label} ›`, () => o.link.onClick && o.link.onClick());
       link.setAttribute('aria-label', o.link.label);
       head.appendChild(link);
-    } else if (n) head.appendChild(make('span', 'lex-today-count', String(n)));
+    } else if (o.countText) head.appendChild(make('span', 'lex-today-count', String(o.countText)));
+    else if (n) head.appendChild(make('span', 'lex-today-count', String(n)));
     card.appendChild(head);
     card.setAttribute('aria-label', o.title || '');
+    // A second head in the same card and what stands under it (the board: «Shopping list · N» under the day, its checklist).
+    const tail = () => {
+      const x = o.next;
+      if (!x || !x.title) return;
+      const h = make('div', 'lex-today-head is-next');
+      h.appendChild(make('h3', 'lex-today-title', x.title));
+      const k = Math.max(0, Math.floor(Number(x.count) || 0));
+      if (k) h.appendChild(make('span', 'lex-today-count', String(k)));
+      card.appendChild(h);
+      if (x.body) { x.body.classList.add('lex-today-next'); card.appendChild(x.body); }
+    };
     const rows = (Array.isArray(o.rows) ? o.rows : []).filter(Boolean);
     if (!rows.length) {
       if (o.empty) card.appendChild(make('div', 'lex-today-empty', o.empty));
+      tail();
       return card;
     }
     const list = make('div', 'lex-section-list lex-today-rows');
     rows.forEach((r) => list.appendChild(r));
     card.appendChild(list);
     const fold = Number(o.fold) > 0 ? Math.floor(Number(o.fold)) : TODAY_FOLD;
-    if (rows.length <= fold) return card;
+    if (rows.length <= fold) { tail(); return card; }
     let open = !!o.open;
     const more = button('lex-today-more', '', () => {
       open = !open;
@@ -1266,6 +1281,7 @@
     }
     paint();
     card.appendChild(more);
+    tail();
     return card;
   }
 
@@ -1287,9 +1303,11 @@
   // one width; 8 right of it the plate (the plate: --bg-hover, radius 10, 6 10 inside), the title 14/600 in one line. The nearest
   // (`now`: the first one not past) — the plate in the wash of «look here», the time in --attention. What is past is not
   // drawn at all (the caller leaves it out). o: { time, title, now, label (what a reader of the screen hears), onClick }.
+  // `past` (the board of «Today» on a wide window, which draws the whole day): an event that is over — the time and the
+  // title in the colours of what is not looked at now.
   function dayLine(o) {
     o = o || {};
-    const b = button(`lex-dayline${o.now ? ' is-now' : ''}`, null, () => o.onClick && o.onClick());
+    const b = button(`lex-dayline${o.now ? ' is-now' : ''}${o.past && !o.now ? ' is-past' : ''}`, null, () => o.onClick && o.onClick());
     b.append(make('span', 'lex-dayline-time', o.time || ''), make('span', 'lex-dayline-plate', o.title || ''));
     b.setAttribute('aria-label', o.label || `${o.time || ''}, ${o.title || ''}`);
     return b;
@@ -1311,6 +1329,125 @@
     });
   }
 
+  // ══ The parts of the wide window of 27.11.2026 (ios/Lex/STANDARD.md, В7.88–В7.89; iteration 2 of
+  // docs/PLAN-HOME-TODAY-FLOW.md) ═══════════════════════════════════════════════════════════════════════════════
+  // The page and the Mac app in a window from 900: the rail on the left (the modes Today and Flow, the entries of the
+  // sections, Settings) and the board «Today» on the whole window. The iPhone has neither: its screen is never that wide.
+
+  // The marks of the rail that are not marks of a section (viewBox 24, a line): Today — the sun, Flow — the tray, Settings
+  // — the gear of the panel's footer. Not in MARKS: the iPhone draws no rail, and MARKS is compared path by path with it.
+  const RAIL_MARKS = {
+    today: ['M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0', 'M12 2v2', 'M12 20v2', 'M2 12h2', 'M20 12h2', 'M5 5l1.4 1.4', 'M17.6 17.6L19 19', 'M5 19l1.4-1.4', 'M17.6 6.4L19 5'],
+    flow: ['M4 13l2.5-8h11L20 13v6H4z', 'M4 13h5l1 2h4l1-2h5'],
+    settings: ['M10.08 4.34 L11.01 2.45 L12.99 2.45 L13.92 4.34 L16.06 5.22 L18.05 4.55 L19.45 5.95 L18.78 7.94 L19.66 10.08 L21.55 11.01 L21.55 12.99 L19.66 13.92 L18.78 16.06 L19.45 18.05 L18.05 19.45 L16.06 18.78 L13.92 19.66 L12.99 21.55 L11.01 21.55 L10.08 19.66 L7.94 18.78 L5.95 19.45 L4.55 18.05 L5.22 16.06 L4.34 13.92 L2.45 12.99 L2.45 11.01 L4.34 10.08 L5.22 7.94 L4.55 5.95 L5.95 4.55 L7.94 5.22 Z', 'M8.9 12a3.1 3.1 0 1 0 6.2 0a3.1 3.1 0 1 0 -6.2 0'],
+  };
+
+  // ── В7.88 the rail ───────────────────────────────────────────────────────────
+  // 74 wide, the whole height of the window, the ground of the window. From the top: the mark of Lex (a button 44: it
+  // opens and closes the panel of the chats of Lex — the role of the three lines on a wide window, В7.76); Today and Flow
+  // — the switch of the modes; a line 34; the entries of the sections in the order and with the titles of В7.62 (the same
+  // sections the server names to the panel), a yellow dot 8 at an entry with something unread, no number (В7.48);
+  // Settings at the bottom. An item: 62 wide, at least 44 high, radius 10, the mark 19 by a line 1.8 and the word 9.5/600
+  // under it, 3 between, the word in two lines at most, by the middle («Shopping list», «Extended Mind» — the titles of
+  // В7.62 are not shortened); at rest --fg-muted, under the cursor --bg-hover, the chosen one --bg-active and --fg.
+  // rail(host, o) — o: { mark (the node of the mark of Lex), onLex(), onMode('today' | 'flow'), onPick(id), onSettings() }
+  // → { setSections([{ id, title }]), setActive({ mode, section }), setFlowDot(on), lex (the button of the mark) }.
+  function rail(host, o) {
+    o = o || {};
+    host.replaceChildren();
+    host.classList.add('lex-rail');
+    host.setAttribute('role', 'navigation');
+    host.setAttribute('aria-label', 'Lex');
+    const item = (cls, paths, word, label, onClick) => {
+      const b = button(`lex-rail-item${cls ? ` ${cls}` : ''}`, null, onClick);
+      const icon = make('span', 'lex-rail-icon');
+      icon.appendChild(markSvg(paths, 19, 1.8));
+      b.append(icon, make('span', 'lex-rail-word', word));
+      b.setAttribute('aria-label', label || word);
+      b.title = label || word;
+      return b;
+    };
+    const lex = button('lex-rail-lex', null, () => o.onLex && o.onLex());
+    lex.setAttribute('aria-label', 'Chats');
+    lex.title = 'Chats';
+    if (o.mark) lex.appendChild(o.mark);
+    const today = item('is-mode', RAIL_MARKS.today, 'Today', 'Today', () => o.onMode && o.onMode('today'));
+    today.dataset.mode = 'today';
+    const flow = item('is-mode', RAIL_MARKS.flow, 'Flow', 'Flow', () => o.onMode && o.onMode('flow'));
+    flow.dataset.mode = 'flow';
+    // The dot of Flow: something unread in the chats of the people (В7.48: a waiting chat that is read gives none).
+    const flowDot = make('span', 'lex-section-count is-dot lex-rail-dot');
+    flowDot.setAttribute('aria-label', 'Unread');
+    flowDot.hidden = true;
+    flow.appendChild(flowDot);
+    const sep = make('span', 'lex-rail-sep');
+    sep.setAttribute('aria-hidden', 'true');
+    const box = make('div', 'lex-rail-entries');
+    const gap = make('span', 'lex-rail-gap');
+    const settings = item('is-settings', RAIL_MARKS.settings, 'Settings', 'Settings', () => o.onSettings && o.onSettings());
+    host.append(lex, today, flow, sep, box, gap, settings);
+    let now = { mode: null, section: null };
+    const api = {
+      lex,
+      setSections(sections) {
+        box.replaceChildren();
+        const list = (Array.isArray(sections) ? sections : []).filter((s) => s && s.id);
+        const place = (s) => { const i = ENTRY_ORDER.indexOf(s.id); return i < 0 ? ENTRY_ORDER.length : i; };
+        list.map((s, i) => ({ s, i })).sort((a, b) => place(a.s) - place(b.s) || a.i - b.i).forEach(({ s }) => {
+          const title = ENTRY_TITLES[s.id] || s.title || s.id;
+          const b = item('is-entry', MARKS.section[s.id] || MARKS.section.agents, title, title, () => o.onPick && o.onPick(s.id));
+          b.dataset.section = s.id;
+          b.dataset.unreadHost = '';
+          const num = count({ section: s.id });
+          b.appendChild(num);
+          b.classList.toggle('has-dot', !num.hidden);
+          box.appendChild(b);
+        });
+        sep.hidden = !box.childElementCount;
+        api.setActive(now);
+      },
+      // The open section's entry is chosen; no section — the mode of what stands (the board, the list, a chat opened
+      // from one of them).
+      setActive(x) {
+        now = { mode: (x && x.mode) || null, section: (x && x.section) || null };
+        const mark = (b, on) => {
+          b.classList.toggle('is-active', on);
+          if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+        };
+        host.querySelectorAll('.lex-rail-item.is-entry').forEach((b) => mark(b, !!now.section && b.dataset.section === String(now.section)));
+        const entry = !!now.section && !!box.querySelector(`[data-section="${String(now.section).replace(/"/g, '')}"]`);
+        mark(today, !entry && now.mode === 'today');
+        mark(flow, !entry && now.mode === 'flow');
+      },
+      setFlowDot(on) {
+        flowDot.hidden = !on;
+        flow.classList.toggle('has-dot', !!on);
+      },
+    };
+    return api;
+  }
+
+  // ── В7.89 the board «Today» ──────────────────────────────────────────────────
+  // The head of the board stands in the bar of the window by the three lines, as the head of a section (В7.18): the date
+  // 13 grey over «Today» 18/650. boardHead({ date, title }) → the node.
+  function boardHead(o) {
+    o = o || {};
+    const n = make('div', 'lex-board-head');
+    n.append(make('span', 'lex-board-date', o.date || ''), make('h2', 'lex-board-title', o.title || 'Today'));
+    return n;
+  }
+  // The board: columns of one width, 12 between them and around them; a column is one card or several, 12 between, and
+  // scrolls inside itself when it does not fit. board([[cards], …]) → the node.
+  function board(columns) {
+    const n = make('div', 'lex-board');
+    for (const cards of Array.isArray(columns) ? columns : []) {
+      const col = make('div', 'lex-board-col');
+      for (const c of Array.isArray(cards) ? cards : [cards]) if (c) col.appendChild(c);
+      n.appendChild(col);
+    }
+    return n;
+  }
+
   // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, chatUnread, isMuted, markMuted, isAgentMuted, markAgentMuted,
@@ -1318,5 +1455,6 @@
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
     groupLabel, orderButton, toggle, settingRow, settingsBlock, kindsList, kindsSummary,
     kindPositions: { POSITIONS: KIND_POSITIONS, positionOf: kindPositionOf, choicesOf: kindChoicesOf, planOf: kindPlanOf },
-    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES, todayCard, todayPlace, dayLine, shoppingLine, TODAY_FOLD, TODAY_PLACE };
+    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES, todayCard, todayPlace, dayLine, shoppingLine, TODAY_FOLD, TODAY_PLACE,
+    rail, RAIL_MARKS, board, boardHead };
 })(typeof window !== 'undefined' ? window : globalThis);
