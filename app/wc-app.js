@@ -5025,8 +5025,17 @@
     // page draws its own answer: the next signal after it brings the row. An order chat of Profi
     // shows the row when opened again (its section reads it on its own signal).
     let ccRowTimer = null;
+    let folderRowTimer = null;
     signals.follow(['chat'], (signal) => {
       const key = signal && signal.payload && String(signal.payload.chat || '');
+      // A row mac:<N> of a development task in a chat of a folder (a task chat of an agent): every write of it comes
+      // with this signal (lex_cc_row_put), and the open folder chat reads itself, as at the signal «folders» about it
+      // (2026-11-28) — so the folders need no signal of their own at each step (agent_chat_dev_row_quiet.sql).
+      if (key && WcHistory.isFolderKey(key) && /^mac:/.test(String(signal.payload.uid || ''))) {
+        clearTimeout(folderRowTimer);
+        folderRowTimer = setTimeout(() => { refreshFolderChat({ payload: { chatKey: key } }).catch(() => {}); }, 300);
+        return;
+      }
       if (!key || key !== state.conversationId || key.startsWith('__lex_profi__') || WcHistory.isFolderKey(key)) return;
       // An answer the server writes (chat_turn_fate.sql): this page's own is on the screen by its
       // stream; a let-go number has nothing to show. Another device's answer grows here.
