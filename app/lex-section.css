@@ -613,3 +613,132 @@ button.lex-section-head { cursor: pointer; }
 button.lex-corner-lines,
 button.lex-corner-back { flex: none; width: 44px; height: 44px; }
 html[data-lex-solo="1"] :is(.lex-corner-lines, .lex-corner-back) { display: none !important; }
+
+/* ── The parts of «Today» (ios/Lex/STANDARD.md В7.84–В7.86, 27.11.2026) ─────────────────────────
+ * The card of a block of «Today» — the head 44 (the title 13/600 grey, the number or a link with a zone of 44 on the
+ * right), the common lines of a list inside, «Show all N» / «Show less» under the first three, one grey line when
+ * there is nothing — and the line of the scale of a day: the time in a column of 44, the plate, the nearest one in
+ * the wash of «look here». The line of the shopping list is the common line (.lex-shopline on its button). */
+.lex-today {
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--lex-section-surface, rgba(127, 127, 127, .08));
+}
+.lex-today + .lex-today { margin-top: 12px; }
+.lex-today-head { display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; }
+.lex-today-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+}
+.lex-today-count {
+  flex: 0 0 auto;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.lex-today-link {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  box-sizing: border-box;
+  margin: 0 -12px 0 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--lex-section-soft, inherit);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-today-link:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-today-rows { padding: 0 12px 2px; }
+.lex-today-rows > [hidden] { display: none; }
+.lex-today-empty { padding: 0 12px 14px; color: var(--lex-section-faint, rgba(127, 127, 127, .8)); font-size: 14px; line-height: 20px; }
+.lex-today-more {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 44px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 12px;
+  border: 0;
+  border-top: 1px solid var(--lex-section-line, rgba(127, 127, 127, .25));
+  background: transparent;
+  color: var(--lex-section-soft, inherit);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+.lex-today-more:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
+.lex-dayline {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: var(--lex-section-fg, inherit);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lex-dayline-time {
+  flex: 0 0 44px;
+  color: var(--lex-section-muted, rgba(127, 127, 127, .95));
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.lex-dayline-plate {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--lex-section-plate, rgba(127, 127, 127, .12));
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  transition: background-color 120ms ease;
+}
+.lex-dayline:hover .lex-dayline-plate { background: var(--lex-section-active, rgba(127, 127, 127, .2)); }
+.lex-dayline.is-now .lex-dayline-time { color: var(--lex-section-attention, var(--attention, #9a6a00)); font-weight: 600; }
+.lex-dayline.is-now .lex-dayline-plate { background: var(--lex-section-attention-wash, rgba(242, 193, 75, .18)); }
+.lex-dayline.is-now:hover .lex-dayline-plate { box-shadow: inset 0 0 0 1px var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-dayline:focus-visible { outline: none; }
+.lex-dayline:focus-visible .lex-dayline-plate { box-shadow: inset 0 0 0 2px var(--lex-section-line-strong, rgba(127, 127, 127, .5)); }

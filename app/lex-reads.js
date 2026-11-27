@@ -11,7 +11,9 @@
 //
 // One place. The copy is written where the window calls the server (webchat/wc-history.js on the
 // page, the background of the extension: chat-history-server.js and background.js): every answer
-// to a name in KEPT is kept, whoever asked for it, and nothing else writes a copy. A screen shows a kept name through twice(): the copy first, the answer after. A new server
+// to a name in KEPT is kept, whoever asked for it, and nothing else writes a copy. A name in KEPT
+// may be an edge function as well as a function of the database: `today` (GET /functions/v1/today)
+// is kept by its call in wc-history.js. A screen shows a kept name through twice(): the copy first, the answer after. A new server
 // function goes into KEPT or into CALLS on purpose: dev-tools/test-lex-reads.mjs fails on a name
 // in neither list, on the page and on the iPhone alike, and on the two surfaces' lists differing.
 //
@@ -60,6 +62,7 @@
     lex_em_question_item: { by: ['p_item'], limit: 60 },  //   a question with its chat
     lex_em_feed_turns: { by: ['p_chat_key'], limit: 10 }, //   a feed read as a chat
     people_home: {},                                      // the tabs of the people: every chat of them in one list
+    today: {},                                            // the blocks «Today» over them: the edge function today (GET)
     folder_item: { by: ['p_chat_key'], limit: 60 },       //   a chat of it with its messages
     lex_folder_turns: { by: ['p_chat_key'], first: ['p_before_uid'], limit: 40 }, //   its messages
     news_feed: {},                                        // News: its first letters and the place in them

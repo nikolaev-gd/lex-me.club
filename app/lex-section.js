@@ -1180,6 +1180,87 @@
     return api;
   }
 
+  // ══ The parts of «Today» of 27.11.2026 (ios/Lex/STANDARD.md, В7.84–В7.86) ═══════════════════════════════════════
+  // The blocks of «Today» (lex-today.js; docs/PLAN-HOME-TODAY-FLOW.md, iteration 1): a card per block, the line of the
+  // scale of a day, the line of the shopping list. The iPhone draws the same in Parts/TodayCard.swift, DayLine.swift,
+  // ShoppingLine.swift.
+
+  // ── В7.84 the card of a block ────────────────────────────────────────────────
+  // A card on the ground (--bg-surface, radius 10): the head 44 — the title 13/600 grey on the left, on the right the
+  // number (13/600 grey, figures of one width; none at zero) or a link «Calendar ›» with a zone of 44; under it the
+  // common lines of a list; more than `fold` lines — the first `fold` and a line «Show all N» that opens the card in
+  // place («Show less» folds it); no line — one grey line of the empty. o: { title, count, link: { label, onClick },
+  // rows: [nodes], empty: 'Nothing …', fold (3), open, onToggle(open) }.
+  const TODAY_FOLD = 3;
+  function todayCard(o) {
+    o = o || {};
+    const card = make('section', 'lex-today');
+    const head = make('div', 'lex-today-head');
+    const title = make('h3', 'lex-today-title', o.title || '');
+    head.appendChild(title);
+    const n = Math.max(0, Math.floor(Number(o.count) || 0));
+    if (o.link && o.link.label) {
+      const link = button('lex-today-link', `${o.link.label} ›`, () => o.link.onClick && o.link.onClick());
+      link.setAttribute('aria-label', o.link.label);
+      head.appendChild(link);
+    } else if (n) head.appendChild(make('span', 'lex-today-count', String(n)));
+    card.appendChild(head);
+    card.setAttribute('aria-label', o.title || '');
+    const rows = (Array.isArray(o.rows) ? o.rows : []).filter(Boolean);
+    if (!rows.length) {
+      if (o.empty) card.appendChild(make('div', 'lex-today-empty', o.empty));
+      return card;
+    }
+    const list = make('div', 'lex-section-list lex-today-rows');
+    rows.forEach((r) => list.appendChild(r));
+    card.appendChild(list);
+    const fold = Number(o.fold) > 0 ? Math.floor(Number(o.fold)) : TODAY_FOLD;
+    if (rows.length <= fold) return card;
+    let open = !!o.open;
+    const more = button('lex-today-more', '', () => {
+      open = !open;
+      paint();
+      if (o.onToggle) o.onToggle(open);
+    });
+    function paint() {
+      rows.forEach((r, i) => { r.hidden = !open && i >= fold; });
+      more.textContent = open ? 'Show less' : `Show all ${rows.length}`;
+      more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    paint();
+    card.appendChild(more);
+    return card;
+  }
+
+  // ── В7.85 the line of the scale of a day ─────────────────────────────────────
+  // At least 44 high, the whole line is the button: on the left the column 44 — the time of the start 12 grey, figures of
+  // one width; 8 right of it the plate (the plate: --bg-hover, radius 10, 6 10 inside), the title 14/600 in one line. The nearest
+  // (`now`: the first one not past) — the plate in the wash of «look here», the time in --attention. What is past is not
+  // drawn at all (the caller leaves it out). o: { time, title, now, label (what a reader of the screen hears), onClick }.
+  function dayLine(o) {
+    o = o || {};
+    const b = button(`lex-dayline${o.now ? ' is-now' : ''}`, null, () => o.onClick && o.onClick());
+    b.append(make('span', 'lex-dayline-time', o.time || ''), make('span', 'lex-dayline-plate', o.title || ''));
+    b.setAttribute('aria-label', o.label || `${o.time || ''}, ${o.title || ''}`);
+    return b;
+  }
+
+  // ── В7.86 the line of the shopping list ──────────────────────────────────────
+  // The common line of a list (В7.34): the quiet face of the section 48, «Shopping list · N», the first names after a
+  // comma in one line. No number on the right, no dot: a purchase is not an unread. o: { count, first: [names], onClick }.
+  function shoppingLine(o) {
+    o = o || {};
+    const n = Math.max(0, Math.floor(Number(o.count) || 0));
+    const first = (Array.isArray(o.first) ? o.first : []).map((x) => String(x || '').trim()).filter(Boolean);
+    return row({
+      lead: sectionFace('shopping', { size: 48 }),
+      title: `Shopping list · ${n}`,
+      sub: first.join(', '),
+      onClick: o.onClick,
+      cls: 'lex-shopline',
+    });
+  }
+
   // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, chatUnread, isMuted, markMuted, isAgentMuted, markAgentMuted,
@@ -1187,5 +1268,5 @@
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
     groupLabel, orderButton, toggle, settingRow, settingsBlock, kindsList, kindsSummary,
     kindPositions: { POSITIONS: KIND_POSITIONS, positionOf: kindPositionOf, choicesOf: kindChoicesOf, planOf: kindPlanOf },
-    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES };
+    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES, todayCard, dayLine, shoppingLine, TODAY_FOLD };
 })(typeof window !== 'undefined' ? window : globalThis);

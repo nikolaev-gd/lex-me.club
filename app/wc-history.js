@@ -534,6 +534,13 @@
   // The section «Agents» (21.11.2026, supabase/functions/folder-agents): GET — the agents of the base with this account's
   // numbers; POST { op: chat | say | read | settings, … } — a new task chat, a word into one, «read», the agent's model.
   const folderAgents = (body) => edge('folder-agents', body, body ? 'POST' : 'GET');
+  // The blocks «Today» over the tabs of the main page (lex-today.js): one read of the edge function today, kept for the
+  // first frame (LexReads.KEPT, `today`) here, where the page calls the server, as every kept answer is.
+  async function today() {
+    const out = await edge('today', null, 'GET');
+    if (out && typeof out === 'object') copies.keep('today', {}, out);
+    return out;
+  }
   // The section «Calendar» (22.11.2026, supabase/functions/calendar): sub '' | '/item' | '/people' | '/settings', the query of
   // a read; a body — a POST {op, lex: {command}, …} to the calendar itself. A refusal comes as the error with its words.
   function calendar(sub, query, body) {
@@ -793,6 +800,7 @@
     folderSend,
     folderWhois,
     folderAgents,
+    today,
     calendar,
     shopping,
     dictationAgent,

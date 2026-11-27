@@ -23,7 +23,7 @@
 //                        the main page, null — the archive closed
 //   gear(on)             the gear of Profi.ru in the bar of the page
 //   onSelect(id)         a tab was chosen
-// create(deps) gives: setSections(list), select(id), toAll(), setActive(on), repaintTabs(), warm(), selected, hasTabs,
+// create(deps) gives: setSections(list), select(id), toAll(), setActive(on), repaintTabs(), warm(), line(c), selected, hasTabs,
 // hasTabRow.
 //
 // The Archive (2026-11-23, chat_archive.sql): the chats put into it are not in the list; at its top a row «Archived» —
@@ -313,6 +313,9 @@
       repaintTabs() { if (tabbed().length) paintTabs(); },
       // The list is read at the start, so that the first showing of the main page has it.
       warm() { return reload(); },
+      // The line of one chat of a person (an element of people_home), drawn and opened by its section as in the list:
+      // the blocks «Today» over the tabs draw the chats that wait for Gennady with it (lex-today.js). null — no section.
+      line: (c) => (c && typeof c === 'object' ? lineOf(c) : null),
       isPeople: isPeopleSection,
     };
   }

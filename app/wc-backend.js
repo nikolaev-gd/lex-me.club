@@ -2000,6 +2000,8 @@
   WcBus.on('WC_FOLDER_WHOIS', (m) => WcHistory.folderWhois(m.body));
   // The section «Agents»: the list (no body), a new task chat, a word, «read», the agent's model (folder-agents).
   WcBus.on('WC_FOLDER_AGENTS', (m) => WcHistory.folderAgents((m && m.body) || null));
+  // The blocks «Today» of the main page (lex-today.js): one read of the edge function today, the copy kept by it.
+  WcBus.on('WC_TODAY', () => WcHistory.today());
   // The section «Calendar»: a read of the calendar (sub, query) or a write (body) through the edge function calendar. The
   // section reads again on the signal «calendar» of the base (its frame follows the channel of signals), never on a timer.
   WcBus.on('WC_CALENDAR', (m) => WcHistory.calendar((m && m.sub) || '', (m && m.query) || null, (m && m.body) || null));

@@ -720,7 +720,11 @@
     main.classList.add('is-section');
     paintHome();
     WcSidebar.close();
-    await section.live.show({ back: !!(opts && opts.back) });
+    const showing = section.live.show({ back: !!(opts && opts.back) });
+    // opts.from — the arrow of the window leads there (a block «Today» of the main page opened the section): put after the
+    // section came on the screen, which clears the arrow, and before its read is answered.
+    if (opts && opts.from) sectionBack.cameFrom(opts.from);
+    await showing;
   }
   // A screen of Profi.ru over the main page: 'feed' (at `order`, or at its top) or 'settings'. The arrow leads back to
   // the main page (lex-profi.js, enter). wanted — see showSection.
@@ -751,6 +755,43 @@
     },
   });
   document.getElementById('wc-people-gear').addEventListener('click', () => { showProfi('settings'); });
+  // ── The blocks «Today» over the main page (lex-today.js; docs/PLAN-HOME-TODAY-FLOW.md, iteration 1) ──────────────
+  // «Waiting for you» and «Day» stand first in the column, under the bar with the tabs (#wc-today, out of the list of
+  // the people: the tabs of the page lie in the bar of the window, and the list keeps its own scroll under the blocks).
+  // Only on the main page, so only for an account with chats of people: an account without them never asks the service.
+  // A line opens what it opens at its own place; the arrow back leads to the main page, as after a notification.
+  let todayPress = 0;
+  const todayWanted = () => { const mine = ++todayPress; return () => mine === todayPress; };
+  const today = global.LexToday.create({
+    host: document.getElementById('wc-today'),
+    read: (show) => global.LexReads.twice(() => kept('today', {}), () => WcBus.call('WC_TODAY'), show),
+    signals,
+    line: (c) => people.line(c),
+    openAgent: (key, chatKey) => {
+      const wanted = todayWanted();
+      // The task chat over the folder of its agent, its arrow to that folder — as a press in the section Agents.
+      (chatKey ? openAgentFrom(key, chatKey, wanted)
+        : showSection('agents', { enter: (live) => { live.enter(key); }, back: true, wanted }))
+        .catch((e) => toast('The chat did not open. ' + ((e && e.message) || ''), { error: true }));
+    },
+    showFeed: () => { showProfi('feed', null, todayWanted()).catch((e) => console.warn('[wc] today feed:', e && e.message)); },
+    openQuestions: () => {
+      const wanted = todayWanted();
+      openEmFeed('question', wanted, null, mainTarget())
+        .catch((e) => toast('The feed did not open. ' + ((e && e.message) || ''), { error: true }));
+    },
+    openCalendar: (at) => {
+      const wanted = todayWanted();
+      showSection('calendar', {
+        enter: (live) => { if (at != null && live.reveal) live.reveal({ start: at }); }, wanted, from: mainTarget(),
+      }).catch((e) => console.warn('[wc] today calendar:', e && e.message));
+    },
+    openShopping: () => {
+      showSection('shopping', { wanted: todayWanted(), from: mainTarget() })
+        .catch((e) => console.warn('[wc] today shopping:', e && e.message));
+    },
+    onShown: (on) => { const main = document.querySelector('.wc-main'); if (main) main.classList.toggle('has-today', on); },
+  });
   // The main page is on the screen: an account that has chats with people, a new empty chat of Lex, no section, no chat of
   // a person. The first message sent takes the page away (the thread is not empty then, WcThread.onEmpty).
   function homeOn() {
@@ -794,6 +835,8 @@
     // The bar has a line of tabs of its own under its buttons (the feed «Разбор» has one too).
     bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
     people.setActive(on);
+    // The blocks «Today» stand over the list only on the main page, and follow the server only there.
+    today.setActive(on);
     if (on && !was && listBody) listBody.scrollTop = homeScroll;
     // The bot's service chat: its kind (no field, the profile `service`) and its head in the bar.
     const bot = !sectionOn && isServiceKey(state.conversationId);
@@ -969,8 +1012,8 @@
       const live = ensureSection(s.id);
       if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
     }
-    // The one list of the people is read too, so that the first opening of the panel has it.
-    if (people.hasTabs) people.warm();
+    // The one list of the people is read too, so that the first opening of the panel has it; and the blocks «Today» over it.
+    if (people.hasTabs) { people.warm(); today.warm(); }
   }
 
   // ── What is on the screen, for the iPhone's notifications (2026-11-11) ────

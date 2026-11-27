@@ -519,6 +519,7 @@ button { font: inherit; color: inherit; }
 html[data-lex-window="chat"] .wc-sidebar,
 html[data-lex-window="chat"] .wc-scrim,
 html[data-lex-window="chat"] .wc-home,
+html[data-lex-window="chat"] .wc-today,
 html[data-lex-window="chat"] .wc-people-tabs,
 html[data-lex-window="chat"] .wc-people-gear,
 html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
@@ -571,7 +572,7 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
+.wc-sections, .wc-today, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-surface: var(--bg-surface);
   --lex-section-bubble: var(--bg-bubble);
@@ -588,6 +589,10 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
   --lex-section-hover:  var(--bg-hover);
   --lex-section-danger: var(--danger);
   --lex-section-attention: var(--attention);
+  /* The parts of «Today» (В7.85): the plate of a line of the day, the nearest one in the wash of «look here». */
+  --lex-section-plate: var(--bg-hover);
+  --lex-section-attention-wash: var(--attention-wash);
+  --lex-section-line-strong: var(--line-strong);
 }
 
 .wc-sidebar-title {
@@ -632,6 +637,24 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 .wc-home[hidden] { display: none; }
 .wc-home .lex-section-body { padding: 0 16px calc(var(--wc-composer-h, 88px) + 12px); scrollbar-gutter: stable; }
 .wc-home .lex-section-empty { padding: 18px 0; color: var(--fg-faint); font-size: 13px; }
+/* The blocks «Today» (lex-today.js, В7.84–В7.86) stand first in the column, under the bar, and the list of the people
+ * under them: the blocks take at most half of the column and scroll in it, so «Show all N» never eats the list; the
+ * list keeps its own scroll and its place. */
+.wc-today {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  height: auto;
+  max-height: 50%;
+  min-height: 0;
+  padding: calc(var(--wc-topbar-h, 52px) + 8px) 16px 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.wc-today[hidden] { display: none; }
+.wc-today > * { flex: 0 0 auto; width: 100%; max-width: 720px; margin-left: auto; margin-right: auto; }
+.wc-main.is-home.has-today .wc-home { padding-top: 0; }
 .wc-main.is-home .wc-thread { display: none; }
 .wc-people-gear svg { width: 21px; height: 21px; }
 
