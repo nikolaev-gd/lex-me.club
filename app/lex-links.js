@@ -5,7 +5,7 @@
 // lex-links.css; the iPhone has the same rules in `LexLinks.swift`.
 //
 // Two things are a link:
-//   «[caption](https://…)»  — the caption opens the address (the bot of Profi and the models write so);
+//   «[caption](https://…)»  — the caption opens the address (the Profi agent and the models write so);
 //   a bare address          — «https://…», «http://…» or «www.site.tld…», as a person pastes it in
 //                             Telegram. It is shown as it is written and opens itself.
 //

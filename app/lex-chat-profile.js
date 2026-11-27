@@ -77,7 +77,7 @@
       field: { presets: false, plus: ['model'], mic: true, voice: false, newChat: false },
       send: 'agent', hold: null, stop: 'agent', price: 'step', menu: [], ticks: false, talk: false, card: 'agent', fold: false,
     },
-    // A chat that is read only: the service chat of the bot of Profi.ru, New orders. Copy and Select, nothing else.
+    // A chat that is read only: the service chat of the Profi agent, New orders. Copy and Select, nothing else.
     service: {
       field: null,
       send: 'none', hold: null, stop: null, price: 'none', menu: [], ticks: false, talk: false, card: null, fold: false,

@@ -175,7 +175,7 @@
 }
 .lex-section .lex-section-row.is-wrap .lex-section-row-title { -webkit-line-clamp: 3; }
 /* A line of a chat (В7.34): the pin 14 and the time 12 at the right end of the title, 6 apart; the
-   digits of the time one width; «Bot:» before the last message of the bot in the soft colour. */
+   digits of the time one width; «Agent:» before the last message of the bot in the soft colour. */
 .lex-section .lex-section-row.is-chat .lex-section-row-top { align-items: center; gap: 6px; }
 .lex-section .lex-section-row-pin { flex: 0 0 auto; display: flex; width: 14px; height: 14px; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
 .lex-section .lex-section-row-pin svg { display: block; width: 14px; height: 14px; }
@@ -191,7 +191,7 @@
   font-variant-numeric: tabular-nums;
 }
 .lex-section .lex-section-row-bot { color: var(--lex-section-soft, var(--lex-section-fg, #1d1d1f)); }
-/* What the agent «Кто это» waits for in the chat (В7.54): «Lex:» before the headline of its word, as «Bot:» stands; in
+/* What the agent «Кто это» waits for in the chat (В7.54): «Lex:» before the headline of its word, as «Agent:» stands; in
    the colour of attention when it waits for a word of Gennady, in the colour of the words for an attach done by itself. */
 .lex-section .lex-section-row-lex { color: var(--lex-section-fg, var(--fg, #1d1d1f)); }
 .lex-section .lex-section-row-lex.is-ask { color: var(--attention, #9a6a00); }

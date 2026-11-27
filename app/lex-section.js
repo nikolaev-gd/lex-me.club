@@ -130,7 +130,7 @@
   // lines), end (a node at the right end of the sub line), more (the menu of the dots), id and
   // cls (of the main button), onClick. A line of a chat (В7.34) has more: time (at the right end
   // of the title, listTime), pinned (the pin before the time) and bot (the last message is the
-  // bot's: «Bot:» before it), and lead — the photo or the letter of the person 48 at the left
+  // bot's: «Agent:» before it), and lead — the photo or the letter of the person 48 at the left
   // (LexMessage.avatar, В7.12; New orders — LexMessage.avatarMark), 12 before the words; the dot of
   // the unread then stands left of the photo. Its menu is the menu of a chat (lex-chat-menu.js).
   // unread — what the number of the unread of the line counts (В7.48): { chat: key }, { order: number }
@@ -181,7 +181,7 @@
       const lex = o.lex && typeof o.lex === 'object' && String(o.lex.text || '').trim() ? o.lex : null;
       const own = () => (lex
         ? [make('span', `lex-section-row-lex${lex.kind === 'attached' ? '' : ' is-ask'}`, 'Lex:'), ' ', String(lex.text).trim()]
-        : [...(o.bot ? [make('span', 'lex-section-row-bot', 'Bot:'), ' '] : []), o.sub || '']);
+        : [...(o.bot ? [make('span', 'lex-section-row-bot', 'Agent:'), ' '] : []), o.sub || '']);
       if (o.draft) draftSub(n, o.draft, own);
       else n.append(...own());
       return n;
@@ -751,7 +751,7 @@
 
   // ── В7.56 the face of an agent ──────────────────────────────────────────────
   // A square with rounded corners, the mark of the agent by a line in the middle, half of the side. Sizes 40, 48, 96
-  // (radius 10, 12, 18). People are circles (В7.12), agents and services are squares. The bot of Profi.ru has the mark
+  // (radius 10, 12, 18). People are circles (В7.12), agents and services are squares. The Profi agent has the mark
   // of Profi.ru (LexMessage.channel); an agent without a mark of its own — the mark of the section Agents.
   // o: { size: 40 | 48 | 96, name (what a reader of the screen hears), quiet (on a ground of --bg-raised — a menu, a
   // banner — and in the empty state: the face lies on the hover wash, the mark in grey) }.
@@ -1033,7 +1033,7 @@
           nodes.push(settingsBlock(kinds.map((k) => rowOf(k))));
         } else if (o.link && g.group === o.link.group) {
           nodes.push(settingsBlock([settingRow({
-            title: g.title, note: 'The bot\'s messages are set in its own settings', id: `group|${g.group}`,
+            title: g.title, note: 'The agent\'s messages are set in its own settings', id: `group|${g.group}`,
             go: { value: kindsSummary(kinds), onClick: () => o.link.onOpen() },
           })]));
         } else {

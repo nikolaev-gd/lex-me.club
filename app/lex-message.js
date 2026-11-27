@@ -1537,7 +1537,7 @@
   }
 
   // ── The message of an order (В7.29) ─────────────────────────────────────────
-  // One order — one message, as the bot of Profi writes it in Telegram (Gennady, 14.11.2026, the
+  // One order — one message, as the Profi agent writes it in Telegram (Gennady, 14.11.2026, the
   // canvas «New orders: 3 варианта», board 2). The grey part is what the client sent, the blue part
   // what the bot answers; a band in the yellow of «look here» on top when the order waits for a
   // decision the bot is not sure of. A done order stands folded in three lines; the whole of it is the
@@ -2337,12 +2337,12 @@
   // The marks of the items of a message's menu (В7.36): 'reply', 'copy', 'earlier'.
   const messageIcon = (name, size) => strokes(MESSAGE_ICONS[name] || COPY_D, size || 16);
 
-  // Who said the quoted message: mine — «You» (Gennady's word on the canvas); the bot's — its name or «Bot»,
-  // as «Bot:» in the line of a chat (В7.34); the other person — his name.
+  // Who said the quoted message: mine — «You» (Gennady's word on the canvas); the bot's — its name or «Agent»,
+  // as «Agent:» in the line of a chat (В7.34); the other person — his name.
   function quoteName(q) {
     if (q.who === 'me') return 'You';
     const name = String(q.name || '').trim();
-    return name || (q.who === 'bot' ? 'Bot' : 'Client');
+    return name || (q.who === 'bot' ? 'Agent' : 'Client');
   }
   // The second line of a quote: the start of the message in one line, or what it was.
   const QUOTE_KINDS = { voice: 'Voice message', photo: 'Photo', video: 'Video', file: 'File', sticker: 'Sticker' };

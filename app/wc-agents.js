@@ -77,7 +77,7 @@
     { value: 'waiting', label: 'When it waits for me', note: 'Only when it needs your word' },
     { value: 'none', label: 'Never', note: 'No notifications from this agent' },
   ];
-  // What the pause stops (pause_main of the base): the bot of Profi.ru, the teacher, the assistant go on with their main work.
+  // What the pause stops (pause_main of the base): the Profi agent, the teacher, the assistant go on with their main work.
   const PAUSE_NOTE = {
     queue: 'Stops its work and chats. Catches up after.',
     skip: 'Stops its work and chats. Skipped work is not redone.',

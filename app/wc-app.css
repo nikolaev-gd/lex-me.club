@@ -54,7 +54,7 @@
   --bg-face:       #f0f0f1;
 
   --fg:            #1d1d1f;
-  /* Secondary text that still reads at a glance: «Bot:» in a line of a chat (В7.34). */
+  /* Secondary text that still reads at a glance: «Agent:» in a line of a chat (В7.34). */
   --fg-soft:       rgba(0, 0, 0, .62);
   --fg-muted:      rgba(0, 0, 0, .56);
   --fg-faint:      rgba(0, 0, 0, .40);

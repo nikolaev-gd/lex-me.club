@@ -231,7 +231,7 @@
   // The kind by the key is the table of the profiles of chats (lex-chat-profile.js): a feed, the questions, a chat of
   // the folders, an order chat.
   const INCOMING_KINDS = ['feed', 'questions', 'person', 'order'];
-  // The service chat of the Profi.ru bot (docs/spec/21-chat-canvas.md, «Слова бота Профи — ходы чата»): since 26.11.2026 an
+  // The service chat of the Profi agent (docs/spec/21-chat-canvas.md, «Слова Агента Профи — ходы чата»): since 26.11.2026 an
   // ordinary chat of the one feed — the bot's words are turns of this chat (profi_bot_turns.sql), drawn by the one cell as
   // words of the system. Its kind is `service` of the table of profiles: no field, Copy and Select in the menu of a message.
   // It is a chat where messages come without the person: «Новые» and the day lines as in an order chat.
@@ -1226,7 +1226,7 @@
         (text) => toast(text, { error: true }));
       return;
     }
-    // An alert of the Profi.ru bot: its service chat, over the main page.
+    // An alert of the Profi agent: its service chat, over the main page.
     if (kind === 'profi_alert' || key === BOT_KEY) {
       await openBotChat(wanted);
       return;

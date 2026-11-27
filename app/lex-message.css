@@ -1138,7 +1138,7 @@
 .lex-btn.has-icon > svg { flex: 0 0 auto; width: 16px; height: 16px; }
 
 /* ── The message of an order (В7.29, 2026-11-14) ───────────────────────────────
- * One order — one message, as the bot of Profi writes it in Telegram: the bubble of the other
+ * One order — one message, as the Profi agent writes it in Telegram: the bubble of the other
  * person across the whole lane (the lane has one sender, as a channel), the corner 6 bottom left,
  * all inside cut by its edge. On top, when the order waits for a decision it is not sure of — a band
  * in the yellow of «look here»; then the grey part, what the client sent: the title (a link to the

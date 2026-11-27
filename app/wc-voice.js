@@ -129,9 +129,9 @@
     model: 'This voice model is not available for a conversation here.',
     // Промпт по указателям не нашёлся (424) — тот же текст, что у чата.
     prompt: 'The teacher’s instructions are not published yet. Try again later.',
-    // Чат заказа, для которого бот Профи ещё не прислал инструкцию (424 'profi'): голос
+    // Чат заказа, для которого Агент Профи ещё не прислал инструкцию (424 'profi'): голос
     // там говорит с ней. Тот же смысл, что у отказа письменного хода.
-    profi: 'The bot has not sent its model and instruction for this chat yet. You were not charged.',
+    profi: 'The Profi agent has not sent its model and instruction for this chat yet. You were not charged.',
     generic: 'Could not start the conversation. Please try again.',
   };
   // Реплика разговора не дошла до сервера и после повторов (voice/call-server.js):

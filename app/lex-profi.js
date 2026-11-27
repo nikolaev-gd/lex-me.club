@@ -484,7 +484,7 @@
   // chat), is cancelled, or is taken into a box. `busy` of profi_open says the state and what it holds:
   //   waiting    the countdown: «Goes at 14:05», Cancel with the seconds on it (В7.29) and Edit; at zero —
   //              «Sending now…», the buttons gone (the bot has the text);
-  //   rewriting  the client wrote more, the bot writes the text again: Cancel;
+  //   rewriting  the client wrote more, the agent writes the text again: Cancel;
   //   cancelled, not_sent   the text stays and Edit; what the bot says about it (`reason`) is its own words,
   //              Russian, shown as they are.
   // Edit takes the text into a box of the chat (the same box as the draft after a call): the bot stops the
@@ -516,7 +516,7 @@
       const r = await rpc('profi_busy_command', { p_op_id: newOpId(), p_order: String(order), p_kind: kind, p_job: job || '' });
       if (!r || !r.ok) return { ok: false, error: busyRefusal(r && r.error) };
       const res = await busyResult(rpc, r.id, BUSY_WAIT_S);
-      return res.ok ? { ok: true } : { ok: false, error: res.error || 'The bot did not take it.' };
+      return res.ok ? { ok: true } : { ok: false, error: res.error || 'The agent did not take it.' };
     } catch (e) {
       return { ok: false, error: (e && e.message) || 'The command did not go.' };
     }
@@ -576,9 +576,9 @@
       const line = talk.pending || talk.refused || (
         going ? 'Sending now…'
           : b.state === 'waiting' ? (b.retry ? `It did not go${b.reason ? `: ${b.reason}` : ''}. Trying again.` : '')
-          : b.state === 'rewriting' ? 'The client wrote more: the bot writes the text again.'
+          : b.state === 'rewriting' ? 'The client wrote more: the agent writes the text again.'
           : b.state === 'cancelled' ? 'Cancelled: it will not go.'
-          : b.reason || 'The bot did not send it.');
+          : b.reason || 'The agent did not send it.');
       const note = make('div', 'lex-profi-box-note', line);
       note.setAttribute('role', 'status');
       const foot = make('div', 'lex-profi-box-foot');
@@ -2284,7 +2284,7 @@
     }
 
     // A line of a chat (В7.34): the photo or the letter of the client 48 (В7.12), the name and the
-    // order, the time, the pin of a pinned one; the last message, «Bot:» before the bot's; the tick of
+    // order, the time, the pin of a pinned one; the last message, «Agent:» before the bot's; the tick of
     // Profi when Gennady or the bot wrote last.
     // o — the main page of the people draws the line (lex-people.js): { from, fail, after, feed(order) }. A reply that
     // waits in the feed opens the feed, and the feed is a screen of this section: feed() shows it.
@@ -2658,7 +2658,7 @@
 
       const auto = block('Sending');
       auto.appendChild(make('div', 'lex-profi-line', st.auto
-        ? 'The bot sends a reply by itself when it is sure.' : 'A reply goes only when you press Send.'));
+        ? 'The agent sends a reply by itself when it is sure.' : 'A reply goes only when you press Send.'));
       auto.appendChild(button('lex-profi-btn', st.auto ? 'Turn auto-send off' : 'Turn auto-send on',
         run(st.auto ? 'auto_off' : 'auto_on', {}, 'Done.')));
       if (st.noMoney) {
