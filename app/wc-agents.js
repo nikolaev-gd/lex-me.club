@@ -202,6 +202,26 @@
     const asked = (call, n) => (...a) => { stats.net += n || 1; return call(...a); };
     const sameAs = (raw, v) => { try { return raw === JSON.stringify(v); } catch (_) { return false; } };
     const rawOf = (v) => { try { return JSON.stringify(v); } catch (_) { return null; } };
+    // A list drawn anew under the eyes (a quiet answer of the server, 27.11.2026): what is on the screen stays where it
+    // was — the first line seen keeps its height in the scroller (WebKit has no scroll anchoring, and a list replaced as a
+    // whole leaves Chrome's nothing to hold). At the very top nothing is held: a new line on top comes into view.
+    function keepPlace(scroller, draw) {
+      if (!scroller || !(scroller.scrollTop > 0) || !scroller.isConnected) { draw(); return; }
+      const ROW = '.lex-section-row-main[data-id]';
+      const top = scroller.getBoundingClientRect().top;
+      let id = null;
+      let off = 0;
+      for (const el of scroller.querySelectorAll(ROW)) {
+        const r = el.getBoundingClientRect();
+        if (r.bottom > top) { id = el.dataset.id; off = r.top - top; break; }
+      }
+      draw();
+      if (id == null) return;
+      const el = Array.from(scroller.querySelectorAll(ROW)).find((x) => x.dataset.id === id);
+      if (!el) return;
+      const moved = el.getBoundingClientRect().top - top - off;
+      if (Math.abs(moved) >= 1) scroller.scrollTop += moved;
+    }
     if (deps.signals && typeof deps.signals.on === 'function') {
       const bump = () => { signalled += 1; stats.signals += 1; };
       deps.signals.on('folders', bump);
@@ -259,9 +279,38 @@
         if (!folders.has(a.key) || lineAtRead.get(a.key) !== rawOf(a)) later(`folder:${a.key}`, () => readFolderOf(a.key, { one: true }));
         const ctl = a.screen && global.LexAgentScreen ? screenOf(a) : null;
         if (ctl) later(`screen:${a.key}`, () => readScreenOf(a.key));
+        aheadAbout(a);
       }
     }
     function aheadRuns(a) { if (a && a.key) later(`runs:${a.key}`, () => readRunsOf(a.key)); }
+    // The settings ahead (27.11.2026): the copy of this device into the window (a read of the device, no request), the
+    // server only for an agent with no copy — so the settings open whole in their first frame, as every screen of the
+    // section. One agent at a time, after the frame on the screen is drawn (a copy carries the whole instruction: reading
+    // all of them at once held the first frames of the list); `first` — the agent whose screen just opened goes first.
+    // Once held, the settings are asked again only when they open and may be old (readAbout).
+    const aboutWant = [];
+    let aboutBusy = false;
+    function aheadAbout(a, first) {
+      if (!a || !a.key || about.has(a.key)) return;
+      const i = aboutWant.indexOf(a.key);
+      if (i >= 0 && !first) return;
+      if (i >= 0) aboutWant.splice(i, 1);
+      if (first) aboutWant.unshift(a.key); else aboutWant.push(a.key);
+      if (!aboutBusy) { aboutBusy = true; setTimeout(nextAbout, 30); }
+    }
+    async function nextAbout() {
+      const key = aboutWant.shift();
+      if (key == null) { aboutBusy = false; return; }
+      if (!about.has(key)) {
+        let got = null;
+        try { got = await keptOf('folder_agents_about', { agent: key }); } catch (_) { got = null; }
+        if (!about.has(key)) {
+          if (got && typeof got === 'object') takeAbout(key, got);
+          else later(`about:${key}`, () => readAbout(byKey.get(key) || { key }, { quiet: true }));
+        }
+      }
+      setTimeout(nextAbout, 20);
+    }
     // The agent's own screen (wc-agent-screen.js), by key: read when its main screen or its passport opens.
     const screens = new Map();
     function screenOf(a) {
@@ -371,9 +420,28 @@
         agentMenu(row, a);
         list.appendChild(row);
       }
-      body.replaceChildren(list);
-      if (!agents.length) body.replaceChildren(S.emptyState({ section: 'agents', title: 'No agents yet' }));
+      keepPlace(body, () => {
+        body.replaceChildren(list);
+        if (!agents.length) body.replaceChildren(S.emptyState({ section: 'agents', title: 'No agents yet' }));
+      });
       say('');
+    }
+    // The last word of the waiting chat of a folder: what the list says under its waiting agent.
+    function waitWord(list) {
+      const w = (Array.isArray(list) ? list : []).find((c) => c && c.state === 'waiting' && c.last);
+      return w ? oneLine(w.last) : null;
+    }
+    // The list from the copy of this device: the words of its waiting agents come from the copies of their folders before
+    // the list is drawn (27.11.2026), so its first frame says what it will say after the server's answer — not the name of
+    // the task first and the agent's last word a second later. Only the words: the folders themselves are read as before.
+    async function primeWords(got) {
+      const list = Array.isArray(got && got.agents) ? got.agents.filter((a) => a && a.key && stateOf(a) === 'waiting') : [];
+      await Promise.all(list.filter((a) => !waitWords.has(a.key)).map(async (a) => {
+        let chatsKept = null;
+        try { chatsKept = await keptOf('lex_agent_chats', { p_agent: a.key }); } catch (_) { chatsKept = null; }
+        const word = waitWord(chatsKept);
+        if (word && !waitWords.has(a.key)) waitWords.set(a.key, word);
+      }));
     }
     // The list as it came (the copy of this device, then the server): the agents whose line changed are read ahead.
     function takeList(got) {
@@ -394,7 +462,13 @@
     async function readList(opts) {
       if (!(opts && opts.force) && listRaw != null && fresh('list')) { stats.skipped += 1; return; }
       try {
-        await once('list', () => twice(() => (listRaw == null ? keptOf('folder_agents', {}) : null), asked(() => deps.call(null)),
+        const copy = async () => {
+          if (listRaw != null) return null;
+          const got = await keptOf('folder_agents', {});
+          if (got) await primeWords(got);
+          return got;
+        };
+        await once('list', () => twice(copy, asked(() => deps.call(null)),
           (got) => takeList(got)), opts && opts.force);
       } catch (e) { refused(e); }
     }
@@ -497,7 +571,7 @@
       }
       const list = make('div', 'lex-section-list');
       for (const c of archivedChats) list.appendChild(chatLine(c));
-      frame.body.replaceChildren(list);
+      keepPlace(frame.body, () => frame.body.replaceChildren(list));
       pick(deps.openKey ? deps.openKey() : null);
     }
     // The order of the folder (В7.73): Group by Date updated | Date created | None, Sort by Last updated | Date created |
@@ -532,7 +606,7 @@
           line: 'New chat below starts one.' }));
         return;
       }
-      frame.body.replaceChildren(list);
+      keepPlace(frame.body, () => frame.body.replaceChildren(list));
       pick(deps.openKey ? deps.openKey() : null);
     }
     // The line of the chat open beside the folder (a wide window) stands picked.
@@ -552,17 +626,16 @@
       const raw = rawOf([list, off]);
       if (old && old.raw === raw) return;
       folders.set(key, { chats: list, archived: off, raw });
-      const w = list.find((c) => c.state === 'waiting' && c.last);
-      const word = w ? oneLine(w.last) : null;
+      const word = waitWord(list);
       const wordWas = waitWords.get(key) || null;
-      if (word) waitWords.set(key, word);
+      if (word) waitWords.set(key, word); else waitWords.delete(key);
       if (current && current.key === key) {
         chats = list;
         archivedChats = off;
         paintFolder();
         paintArchived();
       }
-      if (word !== wordWas && word) paintList();
+      if (word !== wordWas) paintList();
     }
     // The folder of an agent: the copy at once (when the window holds nothing of it), the server after it — only when what
     // is held may be old. one — the two functions one after the other (reading ahead: one request of it at a time).
@@ -638,6 +711,7 @@
       readScreenOf(a.key)
         .catch((e) => { if (e && e.status) say(String(e.message || ''), true); else console.warn('[agents] screen:', e && e.message); });
       aheadRuns(a);
+      aheadAbout(a, true);
     }
 
     function openFolder(a) {
@@ -650,6 +724,7 @@
       if (f) paintFolder(); else frame.body.replaceChildren();
       readFolder().catch((e) => say(`The chats did not come. ${(e && e.message) || ''}`.trim(), true));
       aheadRuns(a);
+      aheadAbout(a, true);
     }
 
     // ── the journal «Activity» (board AgF2Log) ────────────────────────────────────────────────────────────────
@@ -700,6 +775,8 @@
       }));
     }
     // The journal painted into a body: a screen of the frame (a narrow window) or the frame beside the folder (aside).
+    // The lines drawn are held (`held`, newest first): a quiet first page from the server takes the place of the first
+    // page only — the pages read further down stay, and so does the place on the screen (27.11.2026).
     function logInto(host, a) {
       const list = make('div', 'lex-section-list lex-agents-runs');
       const end = make('div', 'lex-agents-runs-end');
@@ -709,26 +786,55 @@
       let paging = false;
       let lastDay = '';
       let drawn = false;
+      let pages = 0;
+      let held = [];
       const M = global.LexMessage;
-      function add(got) {
-        const runs = Array.isArray(got && got.runs) ? got.runs.filter((r) => r && r.id) : [];
-        for (const r of runs) {
-          const day = M && M.dayOf ? M.dayOf(r.at) : '';
-          if (day && day !== lastDay) { list.appendChild(M.dayLine(r.at)); lastDay = day; }
-          list.appendChild(runLine(a, r));
-        }
-        before = (got && got.next_before) || null;
-        done = !before || !runs.length;
-        if (done && !list.childElementCount) host.replaceChildren(S.emptyState({ face: S.agentFace(a.key, { size: 48, quiet: true }), title: 'Nothing done yet' }));
+      const runsOf = (got) => (Array.isArray(got && got.runs) ? got.runs.filter((r) => r && r.id) : []);
+      function line(r) {
+        const day = M && M.dayOf ? M.dayOf(r.at) : '';
+        if (day && day !== lastDay) { list.appendChild(M.dayLine(r.at)); lastDay = day; }
+        list.appendChild(runLine(a, r));
       }
-      // The first page from the start: drawn from what is held, drawn again when the server's differs.
+      function emptyIfNone() {
+        if (done && !held.length) host.replaceChildren(S.emptyState({ face: S.agentFace(a.key, { size: 48, quiet: true }), title: 'Nothing done yet' }));
+      }
+      // A further page: its lines below, those already held skipped (a first page taken while it was on its way).
+      function add(got) {
+        const ids = new Set(held.map((r) => r.id));
+        const runs = runsOf(got).filter((r) => !ids.has(r.id));
+        for (const r of runs) line(r);
+        held = held.concat(runs);
+        before = (got && got.next_before) || null;
+        done = !before || !runsOf(got).length;
+        pages += 1;
+        emptyIfNone();
+      }
+      // The first page: drawn from what is held, drawn again when the server's differs. With further pages read, the new
+      // first page stands over the held lines older than its last one, and the next page still starts where it did.
       function first(got) {
         if (!host.isConnected) return;
-        list.replaceChildren();
-        host.replaceChildren(list, end);
-        lastDay = '';
+        const page = runsOf(got);
+        let runs = page;
+        const deeper = drawn && pages > 1;
+        if (deeper) {
+          const ids = new Set(page.map((r) => r.id));
+          const lastAt = page.length ? Date.parse(page[page.length - 1].at) || 0 : Infinity;
+          runs = page.concat(held.filter((r) => !ids.has(r.id) && (Date.parse(r.at) || 0) <= lastAt));
+        }
+        keepPlace(host, () => {
+          list.replaceChildren();
+          host.replaceChildren(list, end);
+          lastDay = '';
+          for (const r of runs) line(r);
+        });
+        held = runs;
         drawn = true;
-        add(got);
+        if (!deeper) {
+          before = (got && got.next_before) || null;
+          done = !before || !page.length;
+          pages = 1;
+        }
+        emptyIfNone();
         tail();
       }
       // The end still on the screen (a short page): one more.
@@ -854,18 +960,23 @@
     }
     // The settings of an agent: the copy at once (when the window holds nothing of them), the server after it — only when
     // what is held may be old.
+    // quiet — a read ahead: a refusal does not stand in the status line of whatever screen is on top.
+    function takeAbout(key, got) {
+      if (!got || typeof got !== 'object' || sameAs(aboutRaw.get(key), got)) return;
+      aboutRaw.set(key, rawOf(got));
+      about.set(key, got);
+      if (current && current.key === key) paintPassport();
+    }
     async function readAbout(a, opts) {
       const key = a.key;
       if (!(opts && opts.force) && about.has(key) && fresh(`about:${key}`)) { stats.skipped += 1; return; }
       const copy = () => (about.has(key) ? null : keptOf('folder_agents_about', { agent: key }));
       try {
-        await once(`about:${key}`, () => twice(copy, asked(() => deps.call({ op: 'about', agent: key })), (got) => {
-          if (!got || typeof got !== 'object' || sameAs(aboutRaw.get(key), got)) return;
-          aboutRaw.set(key, rawOf(got));
-          about.set(key, got);
-          paintPassport();
-        }));
-      } catch (e) { refused(e); }
+        await once(`about:${key}`, () => twice(copy, asked(() => deps.call({ op: 'about', agent: key })), (got) => takeAbout(key, got)));
+      } catch (e) {
+        if (opts && opts.quiet) throw e;
+        refused(e);
+      }
     }
     function openPassport(a) {
       current = byKey.get(a.key) || a;
