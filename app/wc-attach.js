@@ -361,31 +361,64 @@
     paint();
   }
 
+  // One upload of a file of the field (В7.49). It starts at the moment of the choice and its promise stays on the entry
+  // (f.wait → the record or null): the message does not wait for it any more — the bubble stands at the press and the
+  // send waits for the files itself (wc-app.js, 27.11.2026: «sending a file is instant, like a text»). On the field a
+  // failure takes the card off and says why; a file the message took already (f.taken) is that message's: its failure
+  // is said under the bubble (not sent, Retry), not here.
+  function uploadEntry(f, chatKey) {
+    const F = global.LexFileAttach;
+    f.busy = true;
+    f.reason = null;
+    f.wait = (async () => {
+      const up = await F.webPost(f.file, chatKey);
+      if (f.gone) {
+        // Taken off while it uploaded: the object the server just wrote goes too.
+        if (up.ok) F.webDrop(up.path).catch(() => {});
+        return null;
+      }
+      f.busy = false;
+      if (!up.ok) {
+        f.reason = up.reason || 'failed';
+        if (!f.taken) {
+          const i = files.indexOf(f);
+          if (i >= 0) files.splice(i, 1);
+          fileFails++;
+          paint();
+          toast(F.refusal(up.reason), { error: true });
+        }
+        return null;
+      }
+      f.rec = F.record(up, f.file);
+      f.mime = f.rec.mime;
+      if (!f.taken) paint();
+      return f.rec;
+    })();
+    return f.wait;
+  }
+
   async function acceptFile(file) {
     const F = global.LexFileAttach;
     const why = F.check(file, pending.length + files.length);
     if (why) { toast(F.refusal(why), { error: true }); return; }
-    const f = { id: ++fileSeq, name: file.name || 'file', mime: file.type || '', bytes: file.size, busy: true, rec: null };
+    const f = { id: ++fileSeq, name: file.name || 'file', mime: file.type || '', bytes: file.size, busy: true, rec: null, file };
     files.push(f);
+    uploadEntry(f, (WcAttach.chatKey && WcAttach.chatKey()) || null);
     paint();
-    const up = await F.webPost(file, (WcAttach.chatKey && WcAttach.chatKey()) || null);
-    if (f.gone) {
-      // Taken off while it uploaded: the object the server just wrote goes too.
-      if (up.ok) F.webDrop(up.path).catch(() => {});
-      return;
-    }
-    if (!up.ok) {
-      const i = files.indexOf(f);
-      if (i >= 0) files.splice(i, 1);
-      fileFails++;
-      paint();
-      toast(F.refusal(up.reason), { error: true });
-      return;
-    }
-    f.rec = F.record(up, file);
-    f.mime = f.rec.mime;
-    f.busy = false;
-    paint();
+    await f.wait;
+  }
+
+  // What a message keeps of a file of its own (wc-app.js): the record once it is in the bucket; until then the bytes
+  // (the File) and the promise of its upload. Out of the field from this moment.
+  function entryOf(f) {
+    f.taken = true;
+    return {
+      name: f.name, mime: f.mime, bytes: f.bytes, rec: f.rec || null, file: f.file || null,
+      wait: f.wait || Promise.resolve(f.rec || null),
+      get busy() { return !f.rec && !f.reason && !f.gone; },
+      get reason() { return f.reason; },
+      cancel() { if (!f.rec) f.gone = true; },
+    };
   }
 
   function chipFor(att) {
@@ -556,12 +589,74 @@
       return new Promise((r) => readyWaits.push(() => r(fileFails === at)));
     },
 
-    // The records of the files of this message, handed to the sender and taken off the field.
+    // The files of this message, handed to the sender and taken off the field — uploaded or still on their way
+    // (27.11.2026: the message does not wait for its files before it stands in the chat). Each: { name, mime, bytes,
+    // rec (the record once in the bucket, else null), file (the bytes), wait (→ the record or null), busy, reason,
+    // cancel() }.
     takeFiles() {
-      const out = files.filter((f) => f.rec).map((f) => f.rec);
+      const out = files.map(entryOf);
       files.length = 0;
       paint();
       return out;
+    },
+
+    // A file of a message that did not upload, once more (Retry of a message not sent): its bytes from memory (the
+    // File) or from this page's store (keepBlob, a reload ago). → a fresh entry as takeFiles gives, or null when the
+    // bytes are not on this device any more.
+    async uploadAgain(e, chatKey) {
+      if (!e) return null;
+      if (e.rec && e.rec.path) return entryOf({ name: e.name, mime: e.mime, bytes: e.bytes, rec: e.rec, busy: false });
+      let file = e.file || null;
+      if (!file && e.blob) {
+        let row = null;
+        try { row = await get(e.blob); } catch (_) { row = null; }
+        if (row && row.blob) file = new File([row.blob], e.name || 'file', { type: e.mime || row.mime || '' });
+      }
+      if (!file) return null;
+      const f = { id: ++fileSeq, name: e.name || file.name || 'file', mime: e.mime || file.type || '', bytes: e.bytes || file.size, busy: true, rec: null, file, taken: true };
+      uploadEntry(f, chatKey || null);
+      return entryOf(f);
+    },
+
+    // The bytes of a file still on its way, kept in this page's store under a key, so a message that did not go
+    // survives a reload with what it needs for Retry (wc-app.js, the store of unsent messages). Big files are not
+    // kept (the store holds 100 MB in all): → the key or null.
+    async keepBlob(file) {
+      if (!file || !file.size || file.size > 25 * 1024 * 1024) return null;
+      const key = 'file_' + ((global.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now() + '_' + Math.random());
+      try { await put({ key, blob: file, mime: file.type || '', bytes: file.size, ts: Date.now() }); return key; } catch (_) { return null; }
+    },
+    async dropBlob(key) {
+      if (!key) return;
+      try {
+        await withDb((d) => new Promise((resolve) => {
+          const tx = d.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).delete(key);
+          tx.oncomplete = resolve;
+          tx.onerror = resolve;
+        }));
+      } catch (_) { /* nothing kept: nothing to drop */ }
+    },
+
+    // «Edit» of a message that did not go: its files back on the field — an uploaded one by its record, one that did
+    // not upload from its bytes (it uploads again, its card with the common ring meanwhile).
+    async putBack(list) {
+      for (const e of Array.isArray(list) ? list : []) {
+        if (!e) continue;
+        if (files.length + pending.length >= global.LexFileAttach.MAX_COUNT) break;
+        if (e.rec && e.rec.path) {
+          files.push({ id: ++fileSeq, name: e.name || e.rec.name || 'file', mime: e.rec.mime || e.mime || '', bytes: e.rec.bytes || e.bytes || 0, busy: false, rec: e.rec });
+          paint();
+          continue;
+        }
+        let file = e.file || null;
+        if (!file && e.blob) {
+          let row = null;
+          try { row = await get(e.blob); } catch (_) { row = null; }
+          if (row && row.blob) file = new File([row.blob], e.name || 'file', { type: e.mime || row.mime || '' });
+        }
+        if (file) acceptFile(file);
+      }
     },
 
     // Handed to the sender and cleared: the strip's job ends where the turn
@@ -645,6 +740,43 @@
         out.unshift({ kind: 'image', path: a.path, mime: a.mime || 'image/jpeg' });
       }
       return out;
+    },
+
+    // The same for a text that stands in the chat at the press (27.11.2026): everything of the field is taken off it
+    // NOW — { list: the cards to draw at once ([{kind, name, mime, bytes}]), done(): → the records as forPerson gives
+    // them, throwing Error(words) when one did not get into the bucket, files: the entries (Retry, Edit), images }.
+    takeForPerson(chatKey) {
+      const ents = files.map(entryOf);
+      const pics = pending.slice();
+      files.length = 0;
+      pending.length = 0;
+      paint();
+      const list = pics.map((a) => ({ kind: 'image', name: 'Photo', mime: a.mime || 'image/jpeg', bytes: 0 }))
+        .concat(ents.map((e) => ({ kind: 'file', name: e.name, mime: e.mime, bytes: e.bytes })));
+      const done = async () => {
+        const out = [];
+        for (const a of pics) {
+          if (!a.path) {
+            const up = await WcAttach.upload(a.key, chatKey);
+            if (!up.ok) throw new Error('The picture did not upload. Check the connection and try again.');
+            a.path = up.path;
+          }
+          out.push({ kind: 'image', path: a.path, mime: a.mime || 'image/jpeg' });
+        }
+        for (let i = 0; i < ents.length; i++) {
+          let e = ents[i];
+          let rec = e.rec || await e.wait;
+          if (!rec) {
+            // A file that failed before: its bytes go once more (Retry calls done() again).
+            const again = e.failed ? await WcAttach.uploadAgain(e, chatKey) : null;
+            if (again) { ents[i] = again; e = again; rec = await again.wait; }
+          }
+          if (!rec) { e.failed = true; throw new Error(global.LexFileAttach.refusal(e.reason)); }
+          out.push({ kind: 'file', path: rec.path, mime: rec.mime || e.mime || '', ...(rec.bytes ? { bytes: rec.bytes } : {}), ...(rec.name ? { name: rec.name } : {}) });
+        }
+        return out;
+      };
+      return { list, done, files: ents, images: pics };
     },
 
     // The field's pictures and files went to a person (forPerson): off the field, kept in the bucket — the program that

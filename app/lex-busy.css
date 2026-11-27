@@ -56,12 +56,13 @@
 
 /* A common button that waits by a state of its own screen (`.is-busy` of LexMessage.button and the quiet word of a
  * question, lex-message.js: the screen draws it again while it waits): the same ring in place of the words, after the
- * same 500 ms. The card of a file over the field while it uploads (LexMessage.fileChip, В7.49) — the same ring on its mark; any
+ * same 500 ms. The card of a file over the field while it uploads (LexMessage.fileChip, В7.49) and the card of a file in the bubble of a
+ * message that waits for it (LexMessage.files with `busy`, 27.11.2026) — the same ring on its mark; any
  * other word that waits by its own state (`.is-lex-late-busy`: «Show the whole transcript» of a call) — the same. */
-.lex-btn.is-busy, .lex-q-quiet.is-busy, .is-lex-late-busy, .lex-file-chip.is-busy .lex-file-icon { position: relative; }
-.lex-btn.is-busy > *, .lex-q-quiet.is-busy, .is-lex-late-busy, .lex-file-chip.is-busy .lex-file-icon > * { animation: lex-busy-late-hide 0s linear .5s both; }
+.lex-btn.is-busy, .lex-q-quiet.is-busy, .is-lex-late-busy, .lex-file-chip.is-busy .lex-file-icon, .lex-file.is-busy .lex-file-icon { position: relative; }
+.lex-btn.is-busy > *, .lex-q-quiet.is-busy, .is-lex-late-busy, .lex-file-chip.is-busy .lex-file-icon > *, .lex-file.is-busy .lex-file-icon > * { animation: lex-busy-late-hide 0s linear .5s both; }
 .lex-q-quiet.is-busy, .is-lex-late-busy { animation-name: lex-busy-late-clear; }
-.lex-btn.is-busy::after, .lex-q-quiet.is-busy::after, .is-lex-late-busy::after, .lex-file-chip.is-busy .lex-file-icon::after {
+.lex-btn.is-busy::after, .lex-q-quiet.is-busy::after, .is-lex-late-busy::after, .lex-file-chip.is-busy .lex-file-icon::after, .lex-file.is-busy .lex-file-icon::after {
   content: '';
   position: absolute;
   top: 50%;
@@ -107,6 +108,6 @@
 /* Less motion: the ring stands, the word only appears. */
 @media (prefers-reduced-motion: reduce) {
   .lex-busy-ring { animation: none; }
-  .lex-btn.is-busy::after, .lex-q-quiet.is-busy::after, .is-lex-late-busy::after, .lex-file-chip.is-busy .lex-file-icon::after { animation: lex-busy-late-show 0s linear .5s both; }
+  .lex-btn.is-busy::after, .lex-q-quiet.is-busy::after, .is-lex-late-busy::after, .lex-file-chip.is-busy .lex-file-icon::after, .lex-file.is-busy .lex-file-icon::after { animation: lex-busy-late-show 0s linear .5s both; }
   .lex-busy-word { animation-duration: 1ms; }
 }

@@ -471,13 +471,17 @@
 
   // The files that go with the person's own text of a chat of the folders (folder_send_files.sql, `files` of a send):
   // the cards of the field (LexMessage.fileChip), with no cross — they are on their way with the words. null — none.
-  function outboxFiles(list) {
+  // o.busy — the files of a text that stands at the press and waits for them (localSend): the same cards, with no path
+  // yet, paler, the common ring on the mark after 500 ms.
+  function outboxFiles(list, o) {
     const M = global.LexMessage;
-    const items = (Array.isArray(list) ? list : []).filter((f) => f && f.path);
+    const busy = !!(o && o.busy);
+    const items = (Array.isArray(list) ? list : []).filter((f) => f && (f.path || busy || f.local));
     if (!items.length || !M || typeof M.fileChip !== 'function') return null;
     const root = make('div', 'lex-profi-outbox-files');
     for (const f of items) {
-      root.appendChild(M.fileChip({ name: f.name || (f.kind === 'image' ? 'Photo' : ''), mime: f.mime || '', bytes: f.bytes || 0 }));
+      root.appendChild(M.fileChip({ name: f.name || (f.kind === 'image' ? 'Photo' : ''), mime: f.mime || '', bytes: f.bytes || 0 },
+        busy ? { busy: true } : undefined));
     }
     return root;
   }
@@ -880,6 +884,10 @@
     // { text, at, state: 'sending' | 'taken', before: the uids of his words the chat had, quoteUid }.
     let whoisWord = null;
     let whoisWordTimer = 0;
+    // Texts to the person of a chat of the folders that stand at the end of the chat from the press (27.11.2026: a
+    // text with files does not wait for them): { text, files, state: 'queued' | 'taken' | 'failed', note, seen,
+    // onRetry, onEdit, onDelete } — until the server's outbox brings the same text (taken, then a fresh reading).
+    const localSends = [];
     // The host of the outbox the chat painted last (the timer and the word repaint it themselves).
     let outboxHost = null;
     // What a message is drawn from: its look, its open earlier text, what Profi said the client read. A turn of the branch
@@ -1352,6 +1360,29 @@
         return root;
       },
 
+      // A text to the person with its files, at the end of the chat at the press (wc-app.js sendToFolder, pending): the
+      // bubble as the server's outbox draws it, with the clock «In the queue» (В7.2) while its files upload and the
+      // text goes; the server took it — it stays until the chat is read again (then the server's own item stands in
+      // its place); it did not go — the common part of a text not sent (В7.47) under it. → the item (localSet,
+      // localDrop).
+      localSend(o) {
+        const item = Object.assign({ text: '', files: [], state: 'queued' }, o || {});
+        localSends.push(item);
+        self.repaintOutbox();
+        return item;
+      },
+      localSet(item, patch) {
+        if (!item) return;
+        Object.assign(item, patch || {});
+        if (item.state === 'taken') item.seen = data;
+        self.repaintOutbox();
+      },
+      localDrop(item) {
+        const i = localSends.indexOf(item);
+        if (i >= 0) localSends.splice(i, 1);
+        self.repaintOutbox();
+      },
+
       // The outbox painted again where the chat painted it last, if that is still the outbox of this chat.
       repaintOutbox() {
         if (outboxHost && outboxHost.__profiChat === self && outboxHost.isConnected) self.paintOutbox(outboxHost);
@@ -1621,7 +1652,9 @@
             body.textContent = s.text || '';
             const fl = outboxFiles(s.files);
             if (fl) body.appendChild(fl);
-            root.appendChild(M.bubble({ side: 'out', body }));
+            // In the queue, not gone yet (В7.2): the clock where the ticks will stand; gone — the message with its tick.
+            const going = (s.state === 'queued' || s.state === 'sending') && M.ticks;
+            root.appendChild(M.bubble({ side: 'out', body, stamp: going ? M.stamp({ timeText: '', tail: M.ticks('queued') }) : null }));
             // Not sent (17.11.2026): the common part, the same as under a word to Lex in the main chat. It
             // stands until the person sends it again (Retry — the same words anew, then the failed one goes
             // from the chat) or deletes it (folder_send_drop); before, it went ten minutes after the failure.
@@ -1664,6 +1697,38 @@
             root.appendChild(note);
             return root;
           });
+          // The texts of this page's presses that the server's outbox does not show yet (localSend). One the server took
+          // goes with the first reading after that: the server's own item stands there now, in the same place and size.
+          for (let i = localSends.length - 1; i >= 0; i--) {
+            if (localSends[i].state === 'taken' && localSends[i].seen !== data) localSends.splice(i, 1);
+          }
+          for (const l of localSends) {
+            const root = make('div', 'lex-profi-msg is-sent lex-profi-outbox-item is-local');
+            const body = make('div', '', '');
+            body.textContent = l.text || '';
+            const fl = outboxFiles(l.files, { busy: l.state === 'queued' });
+            if (fl) body.appendChild(fl);
+            const going = l.state !== 'failed' && M.ticks;
+            root.appendChild(M.bubble({ side: 'out', body, stamp: going ? M.stamp({ timeText: '', tail: M.ticks('queued') }) : null }));
+            if (l.state === 'failed' && M.unsent) {
+              root.classList.add('lex-unsent');
+              let part = null;
+              part = M.unsent({
+                note: [sendPlace({ channel: (data && data.replyTo) || null }) ? `to ${sendPlace({ channel: (data && data.replyTo) || null })}` : '', l.note || ''].filter(Boolean).join(' · '),
+                onRetry: typeof l.onRetry === 'function' ? async () => { part.update({ sending: true }); await l.onRetry(); } : null,
+                onEdit: typeof l.onEdit === 'function' ? () => l.onEdit() : null,
+                onDelete: () => { if (typeof l.onDelete === 'function') l.onDelete(); else self.localDrop(l); },
+              });
+              root.appendChild(part);
+            } else {
+              const note = make('div', 'lex-profi-box-note');
+              note.setAttribute('role', 'status');
+              const place = sendPlace({ channel: (data && data.replyTo) || null });
+              note.textContent = `${place ? `Sending to ${place}` : 'Sending'}…`;
+              root.appendChild(note);
+            }
+            items.push(root);
+          }
           // The word to Lex of the branch «who is this» the press put here, until the chat draws it.
           if (whoisWord) items.push(self.whoisWordItem());
           // A task chat of an agent that works (board AgChat): the last line of the feed is the live stage (В7.63).
@@ -1765,14 +1830,14 @@
               group: true,
               head: `To the group ${data.title || data.client || ''}`.trim() + ': everyone in it will read this',
               items: [{ label: `Send to the ${where ? placeName(where) + ' ' : ''}group now`, icon: sign || 'send',
-                run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra) }) }].concat(later),
+                now: true, run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra), pending: (extra && extra.pending) || null }) }].concat(later),
             };
           }
           const at = self.attachedAddress(where);
           return {
             head: `To ${data.client || data.title || 'the person'}, without Lex`,
             items: [{ label: `Send to ${at || (where ? placeName(where) : 'the person')} now`, icon: sign || 'send',
-              run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra) }) }].concat(later),
+              now: true, run: (_t, extra) => deps.sendText(text, quoteUid, { files: filesOf(extra), pending: (extra && extra.pending) || null }) }].concat(later),
           };
         }
         // The person's own text goes by the door of the chat (profi_send_text), as its boxes do; a refusal or no

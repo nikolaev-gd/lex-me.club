@@ -2727,7 +2727,7 @@
       react: (uid, emoji) => reactSent(uid, emoji),
       notify: (text) => toast(text, { error: true }),
       reload: () => refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message)),
-      sendText: (text, quoteUid, opts) => sendToFolder(chat, text, quoteUid, opts && opts.at, opts && opts.files),
+      sendText: (text, quoteUid, opts) => sendToFolder(chat, text, quoteUid, opts && opts.at, opts && opts.files, opts && opts.pending),
       // The door of the chat (LexDraftBox.door): its boxes and the held arrow go to the person by folder-send.
       folderSend: (body) => WcBus.call('WC_FOLDER_SEND', { body }),
       // The agent «Кто это» (В7.50, В7.54): a link of Lex in its words or a line of its message opens that chat; the
@@ -2846,9 +2846,13 @@
   // at — a Date: the text waits in Lex for that time and leaves by itself (folder-send with sendAt); it stands at the end
   // of the chat as scheduled, with Cancel (lex-profi.js paintOutbox). files — the pictures and files of the field, in the
   // bucket already (WcAttach.forPerson): they go with the words (LexChatProfile.filesOf).
-  async function sendToFolder(chat, text, quoteUid, at, files) {
+  // pending — the text and its files taken off the field at the press (WcAttach.takeForPerson, 27.11.2026): it stands
+  // at the end of the chat at once (chat.localSend: the clock «In the queue»), its files upload, then it goes as any
+  // text; a file that did not upload or a refusal of the server — not sent, under it Retry, Edit and Delete (В7.47).
+  async function sendToFolder(chat, text, quoteUid, at, files, pending) {
     const words = String(text || '').trim();
     if (!words || !chat || !chat.data) return false;
+    if (pending && typeof chat.localSend === 'function') return sendToFolderNow(chat, words, quoteUid, pending);
     let out;
     try {
       out = await chat.door().direct(words, { quote: quoteUid || null, at: at || null,
@@ -2865,6 +2869,43 @@
     if (out && out.test) toast('The folder is in the test mode: the text went to your test chat.');
     refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
     return true;
+  }
+
+  async function sendToFolderNow(chat, words, quoteUid, pending) {
+    const local = chat.localSend({ text: words, files: pending.list });
+    if (quoteUid && reply && reply.quoteUid === quoteUid) setReply(null);
+    WcThread.scrollToEnd();
+    const failed = (note) => chat.localSet(local, {
+      state: 'failed', note,
+      onRetry: () => { chat.localSet(local, { state: 'queued' }); return go(); },
+      onEdit: () => {
+        chat.localDrop(local);
+        WcComposer.setText(words);
+        WcComposer.focus();
+        WcAttach.putBack(pending.files);
+      },
+      onDelete: () => {
+        chat.localDrop(local);
+        for (const e of pending.files) if (e && e.rec && e.rec.path && global.LexFileAttach) LexFileAttach.webDrop(e.rec.path).catch(() => {});
+      },
+    });
+    const go = async () => {
+      let recs;
+      try { recs = await pending.done(); } catch (err) { failed((err && err.message) || 'The file did not upload.'); return false; }
+      let out;
+      try {
+        out = await chat.door().direct(words, { quote: quoteUid || null, ...(recs.length ? { files: recs } : {}) });
+      } catch (err) {
+        failed((err && err.message) || 'Try again.');
+        return false;
+      }
+      if (out && out.ok === false) { failed(out.text || 'Try again.'); return false; }
+      if (out && out.test) toast('The folder is in the test mode: the text went to your test chat.');
+      chat.localSet(local, { state: 'taken' });
+      refreshFolderChat().catch((e) => console.warn('[wc] folder chat:', e && e.message));
+      return true;
+    };
+    return go();
   }
 
   // ── The agent «Кто это» (19.11.2026, В7.50; no buttons since 21.11.2026, В7.54) ─────────────────────────
@@ -3387,9 +3428,15 @@
     if (openWait === w) openWait = null;
     // A word to Lex in an order chat brings the discussion back: its answer must be seen.
     if (profiChat && profiChat.clean) { profiChat.setClean(false); paintProfiBar(); }
-    const images = WcAttach.take();
-    // Files of this message (lex-file-attach.js): uploaded already, their records go with the turn.
-    const files = WcAttach.takeFiles();
+    // Retry of a message with a picture that waited for its files brings its pictures (unsentPart, waitFiles).
+    const images = (opts && Array.isArray(opts.images)) ? opts.images : WcAttach.take();
+    // Files of this message (lex-file-attach.js): uploaded or still on their way — the bubble does not wait for them
+    // (27.11.2026, «sending a file is instant, like a text»): it stands at the press with their cards, the clock «In the
+    // queue» under it, and the turn goes once they are in the bucket (waitFiles below). Retry of a message that did not
+    // go brings its own (opts.files, unsentPart).
+    const fileEnts = (opts && Array.isArray(opts.files)) ? opts.files : WcAttach.takeFiles();
+    let files = fileEnts.filter((e) => e && e.rec).map((e) => e.rec);
+    const waitsFiles = fileEnts.some((e) => e && !e.rec);
     // Слова, выбранные нажатием в ленте, забираются ЗДЕСЬ — в единственный
     // момент, когда набор перестаёт быть состоянием и становится репликой.
     // Наружу выходят две разные строки: `visible` — то, что человек увидит в
@@ -3401,7 +3448,7 @@
     const turn = global.WcWordPick
       ? WcWordPick.takeTurn(text)
       : { visible: String(text || '').trim(), sent: String(text || '').trim(), picks: null };
-    if (!turn.visible && !images.length && !files.length) return;
+    if (!turn.visible && !images.length && !fileEnts.length) return;
     // 'native' or nothing. The mode rides with the turn rather than living as
     // page state: it is chosen per message (by which button was pressed), not
     // switched on and left on.
@@ -3421,7 +3468,12 @@
     // revoked and remade: it points at the same Blob, and revoking it here
     // would blank the picture the reader just sent.
     // Слот заготовки — на пузырь: «Edit» такого вопроса уйдёт той же заготовкой.
-    WcThread.appendUser(turn.visible, images.map((i) => i.previewUrl).filter(Boolean), { presetSlot: mode ? slotId : null, files });
+    // A file still on its way: its card from what this page knows (name, type, size), paler, the common ring after
+    // 500 ms (LexMessage.files with busy); the picture with its size, so its place is its own from the first frame.
+    const shownFiles = fileEnts.map((e) => e.rec || { kind: 'file', name: e.name, mime: e.mime, bytes: e.bytes, busy: true });
+    const userNode = WcThread.appendUser(turn.visible,
+      images.filter((i) => i.previewUrl).map((i) => ({ src: i.previewUrl, width: i.width, height: i.height })),
+      { presetSlot: mode ? slotId : null, files: shownFiles });
     // Заготовка в режиме «отдельный разговор» — подпись «учитель этого не
     // видит» сразу; кадр сервера её подтвердит или снимет (WcThread.settleApart).
     if (mode && opts && opts.presetMode === 'separate') WcThread.markLastUserApart(null);
@@ -3460,22 +3512,47 @@
     opOfRequest.set(requestId, opId);
     const pressedAt = Date.now();
     // Kept on this device from this moment, until the server has it (restoreUnsent). A message
-    // with pictures is not kept: the pictures live only in this page.
-    const kept = (images.length || files.length) ? null : {
+    // with pictures is not kept: the pictures live only in this page. A message with files is (27.11.2026): the records
+    // of the uploaded ones, and of one still on its way its bytes in this page's store (WcAttach.keepBlob), so it is
+    // in the chat after a reload, as not sent, with Retry.
+    const kept = images.length ? null : {
       id: opId, chatKey: state.conversationId || null, text: turn.visible,
-      at: new Date(pressedAt).toISOString(), state: 'sending',
+      at: new Date(pressedAt).toISOString(), state: waitsFiles ? 'uploading' : 'sending',
       opts: { mode, slotId, modelId, presetMode: (mode && opts && opts.presetMode) || null },
+      ...(fileEnts.length ? { files: fileEnts.map(keptFile) } : {}),
     };
-    if (kept) { outbox.set(requestId, kept); if (kept.chatKey) unsentPut(kept); }
-    WcThread.beginAssistant(requestId);
+    if (kept) {
+      outbox.set(requestId, kept);
+      if (fileEnts.length) unsentFiles.set(opId, fileEnts);
+      if (kept.chatKey) unsentPut(kept);
+      if (waitsFiles) keepBlobsOf(kept, fileEnts, requestId);
+    }
+    // The answer's place is taken now (leaving the chat, Stop and the end of the request are the same as for any turn),
+    // but no dots stand under the bubble until it went: it waits for its files (WcThread.unqueue).
+    WcThread.beginAssistant(requestId, waitsFiles ? { queued: true } : undefined);
     WcComposer.setStreaming(true, requestId);
+    if (waitsFiles) {
+      // A message with a picture is not kept on the device (its pictures live only in this page), but if its files do not
+      // go it still stands not sent with Retry while the page lives — with the same pictures and files (waitFiles).
+      const memo = kept ? null : {
+        id: opId, chatKey: null, text: turn.visible, at: new Date(pressedAt).toISOString(), state: 'uploading',
+        opts: { mode, slotId, modelId, presetMode: (mode && opts && opts.presetMode) || null },
+        files: fileEnts.map(keptFile), images,
+      };
+      if (memo) unsentFiles.set(opId, fileEnts);
+      const recs = await waitFiles(requestId, userNode, fileEnts, kept, memo);
+      if (!recs) return;
+      files = recs;
+      if (state.requestId === requestId) WcThread.unqueue(requestId);
+    }
 
     try {
       const r = await WcBus.call('WC_SEND', {
         requestId,
         opId,
         pressedAt,
-        conversationId: state.conversationId,
+        // The chat of the press: a message that waited for its files goes to it even if the person left it meanwhile.
+        conversationId: waitsFiles ? conv0 : state.conversationId,
         // Со скрытой частью — учителю нужен отрывок, в котором стоят выбранные
         // слова. Она же ложится в беседу: повтор хода и следующие реплики
         // обязаны видеть ровно то, что видела модель. В ленте её не показывает
@@ -3501,7 +3578,7 @@
       });
       // The first message is what mints the key. Adopt it so the next message
       // in this conversation lands in the same thread.
-      if (r && r.conversationId && !state.conversationId) {
+      if (r && r.conversationId && !state.conversationId && (!waitsFiles || fieldKey === key0)) {
         state.conversationId = r.conversationId;
         WcSidebar.setActive(r.conversationId);
         adoptFieldKey(r.conversationId);
@@ -3718,6 +3795,9 @@
 
   function stopStream() {
     if (!state.requestId) return;
+    // A message still waiting for its files: Stop keeps it from going (nothing reached the model) — it stays not sent.
+    const q = queuedSends.get(state.requestId);
+    if (q) { q.stop(); return; }
     // Вместе с «стопом» уезжает ЧИСЛО: сколько знаков ответа человек успел
     // увидеть. Считается ДО обрыва — после него лента уже закрыта и спрашивать
     // будет не у чего.
@@ -3845,22 +3925,129 @@
   const unsentPut = (item) => unsentEdit((l) => l.filter((i) => i.id !== item.id).concat([item]));
   const unsentDrop = (id) => unsentEdit((l) => l.filter((i) => i.id !== id));
 
+  // ── A message that waits for its files (27.11.2026) ─────────────────────────────────────────────────────────────
+  // «Sending a file is instant, like a text» (Gennady): the bubble stands at the press, the turn goes once its files are
+  // in the bucket — the server needs their paths with the turn. Meanwhile the clock «In the queue» stands under it
+  // (WcThread.markQueued), the arrow is Stop; a file that did not upload — the message is not sent (В7.47), Retry
+  // uploads only what did not get there. The bubble lives on this device before the server: the kept message has the
+  // records of its files and the bytes of the ones still on their way (WcAttach.keepBlob).
+  const queuedSends = new Map();   // requestId → { turn, chatKey, stop() } of a message waiting for its files
+  const unsentFiles = new Map();   // opId → the entries of its files in this page (their bytes, for Retry and Edit)
+  const QUEUE_STOPPED_NOTE = 'Stopped before it went.';
+  // Messages with a picture whose files did not go while their chat was not open: the bubble, not sent, stands at the
+  // end of its chat when the person comes back (restoreUnsent). They are not kept on the device: the pictures are not.
+  const strandedTurns = [];   // { chatKey, turn }
+  const keptFile = (e) => ({ name: e.name || '', mime: e.mime || '', bytes: e.bytes || 0, rec: e.rec || null });
+  async function keepBlobsOf(kept, ents, requestId) {
+    // A new chat with no key yet keeps nothing on the device (as a text does), so its bytes are not kept either.
+    if (!kept.chatKey) return;
+    let changed = false;
+    for (let i = 0; i < ents.length; i++) {
+      const e = ents[i];
+      if (!e || e.rec || !e.file || !kept.files[i]) continue;
+      const key = await WcAttach.keepBlob(e.file);
+      if (key) { kept.files[i].blob = key; changed = true; }
+    }
+    if (changed && outbox.get(requestId) === kept && kept.chatKey && kept.state !== 'failed') unsentPut(kept);
+  }
+  function dropKeptBlobs(item) {
+    for (const f of (item && Array.isArray(item.files)) ? item.files : []) if (f && f.blob) WcAttach.dropBlob(f.blob);
+  }
+  // → the records of the files once all are in the bucket; null — the message did not go (a file did not upload, or
+  // Stop): it is marked not sent here.
+  async function waitFiles(requestId, turn, ents, kept, memo) {
+    let wake = null;
+    const stopped = new Promise((r) => { wake = r; });
+    const q = { turn, chatKey: kept ? kept.chatKey : (state.conversationId || null), stopped: false };
+    q.stop = () => { q.stopped = true; ents.forEach((e) => { if (e && typeof e.cancel === 'function') e.cancel(); }); wake(); };
+    queuedSends.set(requestId, q);
+    WcThread.markQueued(turn, true);
+    const all = Promise.all(ents.map((e, i) => Promise.resolve(e.rec || e.wait).then((r) => {
+      const held = kept || memo;
+      if (r && held && held.files && held.files[i]) held.files[i].rec = r;
+      return r;
+    })));
+    const recs = await Promise.race([all, stopped.then(() => null)]);
+    queuedSends.delete(requestId);
+    if (recs && recs.every(Boolean)) {
+      if (kept) {
+        kept.state = 'sending';
+        if (outbox.get(requestId) === kept && kept.chatKey) unsentPut(kept);
+      }
+      WcThread.setTurnFiles(turn, recs);
+      WcThread.markQueued(turn, 'sent');
+      return recs;
+    }
+    const bad = ents.find((e) => e && !e.rec && e.reason);
+    WcThread.markQueued(turn, false);
+    // Nothing is on its way any more: a file not in the bucket stands as a plain card, without the ring of work.
+    WcThread.setTurnFiles(turn, ents.map((e) => (e && e.rec) || { kind: 'file', name: e.name, mime: e.mime, bytes: e.bytes, local: true }));
+    WcThread.cancelLive(requestId);
+    if (state.requestId === requestId) { state.requestId = null; WcComposer.setStreaming(false); }
+    leftChats.delete(requestId);
+    opOfRequest.delete(requestId);
+    if (memo) outbox.set(requestId, memo);
+    const away = !!(turn && !turn.isConnected);
+    // The bubble is painted not sent even while its chat is not open: a kept message comes back from the device's store,
+    // one with a picture — this very node (strandedTurns).
+    onUnsent({ requestId, turn: turn || null,
+      note: q.stopped ? QUEUE_STOPPED_NOTE : global.LexFileAttach.refusal(bad && bad.reason) });
+    if (away && memo && q.chatKey) strandedTurns.push({ chatKey: q.chatKey, turn });
+    return null;
+  }
+  // The files of a kept message for Retry: the ones in the bucket by their records, the others uploaded again from
+  // their bytes (this page's memory, or its store after a reload). null — the bytes of one are not on this device.
+  async function filesForRetry(item) {
+    const list = unsentFiles.get(item.id) || item.files || [];
+    const out = [];
+    for (const e of list) {
+      const n = await WcAttach.uploadAgain(e, item.chatKey || null);
+      if (!n) { out.forEach((x) => x.cancel()); return null; }
+      out.push(n);
+    }
+    return out;
+  }
+
   // The options of the part for one kept message, with what its buttons do.
   function unsentPart(item, turn) {
-    const forget = () => { if (item.id) unsentDrop(item.id); WcThread.removeTurn(turn); };
+    const forget = () => {
+      if (item.id) unsentDrop(item.id);
+      const st = strandedTurns.findIndex((x) => x.turn === turn);
+      if (st >= 0) strandedTurns.splice(st, 1);
+      WcThread.removeTurn(turn);
+    };
     return {
       note: item.note || UNSENT_LOST_NOTE,
       money: !!item.money,
       gateRaw: item.gateRaw || null,
       sending: false,
-      onRetry: () => {
+      onRetry: async () => {
         if (state.requestId) { toast('Wait until the answer is written.'); return; }
+        const withFiles = Array.isArray(item.files) && item.files.length;
+        const ents = withFiles ? await filesForRetry(item) : [];
+        if (!ents) { toast('The file is not on this device any more: attach it again.', { error: true }); return; }
         forget();
-        send(item.text, Object.assign({}, item.opts || {}, item.id ? { opId: item.id } : {}));
+        dropKeptBlobs(item);
+        send(item.text, Object.assign({}, item.opts || {}, item.id ? { opId: item.id } : {}, ents.length ? { files: ents } : {},
+          Array.isArray(item.images) && item.images.length ? { images: item.images } : {}));
       },
       onTopUp: item.money ? () => WcTopup.open({ onPaid: refreshAccount }) : null,
-      onEdit: () => { forget(); WcComposer.setText(item.text || ''); WcComposer.focus(); },
-      onDelete: forget,
+      onEdit: () => {
+        const list = unsentFiles.get(item.id) || item.files || [];
+        forget();
+        WcComposer.setText(item.text || '');
+        WcComposer.focus();
+        // Its files back on the field too: uploaded ones by their records, the others upload again.
+        if (list.length) WcAttach.putBack(list).then(() => dropKeptBlobs(item));
+      },
+      onDelete: () => {
+        const list = unsentFiles.get(item.id) || item.files || [];
+        forget();
+        // What reached the bucket goes from it: the message never went.
+        for (const f of list) if (f && f.rec && f.rec.path && global.LexFileAttach) LexFileAttach.webDrop(f.rec.path).catch(() => {});
+        dropKeptBlobs(item);
+        if (item.id) unsentFiles.delete(item.id);
+      },
     };
   }
 
@@ -3896,6 +4083,11 @@
     if (!key || !r || !Array.isArray(r.turns)) return;
     const have = new Set(r.turns.map((t) => t && t.uid).filter(Boolean));
     const going = new Set([...outbox.values()].map((i) => i.id));
+    // A message of this chat still waiting for its files in this page (the person left and came back): its bubble with
+    // the clock is at the end again.
+    for (const q of queuedSends.values()) if (q.chatKey === key && q.turn && !q.turn.isConnected) WcThread.appendNode(q.turn);
+    // Each paint of the chat (its copy, then the server's read) puts them back: they leave the list by their own buttons.
+    for (const st of strandedTurns) if (st.chatKey === key && !st.turn.isConnected) WcThread.appendNode(st.turn);
     const now = Date.now();
     const show = [];
     // What this page has just written is read back, not an older state.
@@ -3909,6 +4101,12 @@
       const fate = await WcHistory.opState(item.id).catch(() => null);
       if (fate && fate.status === 'begun') { unsentDrop(item.id); continue; }
       if (fate && fate.status === 'pending') continue;
+      // Its files were still on their way when the page that sent it went (a reload, a closed window): it never went.
+      if (item.state === 'uploading') {
+        item.state = 'failed';
+        item.note = UNSENT_LOST_NOTE;
+        unsentPut(item);
+      }
       if (item.state !== 'failed') {
         if (now - Date.parse(item.at) < UNSENT_LOST_MS) continue;
         item.state = 'failed';
@@ -3921,7 +4119,11 @@
     // A word Lex did not take stays on the screen in the clean view too, with why (lex-unsent, lex-profi.css): the view of
     // the chat is not changed for it.
     for (const item of show) {
-      const turn = WcThread.appendUnsent(item.text, { at: item.at, presetSlot: (item.opts && item.opts.mode) ? item.opts.slotId : null }, null);
+      // Its files: the ones in the bucket as links, the others as cards of what this device keeps (not links).
+      const fl = (Array.isArray(item.files) ? item.files : [])
+        .map((f) => f && (f.rec || { kind: 'file', name: f.name, mime: f.mime, bytes: f.bytes, local: true })).filter(Boolean);
+      const turn = WcThread.appendUnsent(item.text, { at: item.at, presetSlot: (item.opts && item.opts.mode) ? item.opts.slotId : null,
+        ...(fl.length ? { files: fl } : {}) }, null);
       WcThread.paintUnsent(turn, unsentPart(item, turn));
     }
   }
@@ -5230,7 +5432,7 @@
         const rid = msg.requestId;
         setTimeout(() => {
           const kept = outbox.get(rid);
-          if (kept) { outbox.delete(rid); unsentDrop(kept.id); }
+          if (kept) { outbox.delete(rid); unsentDrop(kept.id); dropKeptBlobs(kept); unsentFiles.delete(kept.id); }
         }, 0);
         // An answer of a chat the person left: the thread forgets it; that chat open again
         // now shows it as the server wrote it.

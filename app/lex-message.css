@@ -343,7 +343,7 @@
 .lex-file-chip .lex-file { min-width: 0; cursor: default; }
 .lex-file-chip .lex-file-icon { background: var(--bg-active); }
 .lex-file-chip .lex-file-name { max-width: 200px; }
-.lex-file-chip.is-busy .lex-file { opacity: .6; }
+.lex-file-chip.is-busy .lex-file, .lex-file.is-busy { opacity: .6; }
 .lex-file-chip-x {
   flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0;
   border: 0; border-radius: 22px; background: transparent; color: var(--fg-muted); cursor: pointer;

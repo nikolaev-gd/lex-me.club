@@ -283,6 +283,30 @@
     return place;
   }
 
+  // A picture of one's own message: an address, or { src, width, height } (the strip knows the size at the press, the
+  // server's record keeps it). With the size its place is its own from the first frame — 220 at most each way, the
+  // ratio kept (wc-app.css, .wc-turn-images img) — so nothing under it moves as the picture is decoded or comes back
+  // from the server (27.11.2026). The size rides on the node for a bubble drawn again (setLastUserPreset).
+  const TURN_IMAGE_MAX = 220;
+  function turnImage(x) {
+    const p = typeof x === 'string' ? { src: x } : x;
+    if (!p || !p.src) return null;
+    const img = el('img', { src: p.src, alt: '' });
+    const w = Number(p.width) || 0;
+    const h = Number(p.height) || 0;
+    if (w > 0 && h > 0) {
+      const k = Math.min(1, TURN_IMAGE_MAX / w, TURN_IMAGE_MAX / h);
+      img.width = Math.max(1, Math.round(w * k));
+      img.height = Math.max(1, Math.round(h * k));
+      img.style.aspectRatio = `${w} / ${h}`;
+      img.dataset.w = String(w);
+      img.dataset.h = String(h);
+    }
+    return img;
+  }
+  const imagesOfNode = (node) => [...node.querySelectorAll('.wc-turn-images img')]
+    .map((i) => ({ src: i.src, width: Number(i.dataset.w) || 0, height: Number(i.dataset.h) || 0 })).filter((p) => p.src);
+
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
@@ -304,7 +328,7 @@
     if (global.WcWordPick && !profiChat) WcWordPick.ready(bubble, text, pick ? 'pick' : 'text');
     const parts = [];
     if (images && images.length) {
-      parts.push(el('.wc-turn-images', {}, images.map((src) => el('img', { src, alt: '' }))));
+      parts.push(el('.wc-turn-images', {}, images.map(turnImage).filter(Boolean)));
     }
     // Files of the message (2026-11-17): the cards of В7.21 over the bubble, at the right edge; a
     // press opens the file (an address of an hour from the storage, LexFileAttach.webIo).
@@ -1461,7 +1485,7 @@
       if (!old || !old.dataset.presetSlot) return;
       const pp = presetParts(later);
       if (!pp || !pp.line) return;
-      const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
+      const imgs = imagesOfNode(old);
       const node = userTurn(global.LexWordPick.presetBubbleText(pp), imgs,
         { presetSlot: old.dataset.presetSlot, editText: pp.phrase, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
@@ -1477,7 +1501,7 @@
       const all = [...elTurns.querySelectorAll('.wc-turn-user')];
       const old = all.pop();
       if (!old || !old.dataset.presetSlot || !pick) return;
-      const imgs = [...old.querySelectorAll('.wc-turn-images img')].map((i) => i.src).filter(Boolean);
+      const imgs = imagesOfNode(old);
       const node = userTurn(global.LexWordPick.pickBubbleText(pick, rest), imgs,
         { presetSlot: old.dataset.presetSlot, editText: rest, pick, rest, files: filesOfNode(old) });
       if (old.dataset.uid) node.dataset.uid = old.dataset.uid;
@@ -1518,6 +1542,51 @@
       stickToBottom = true;
       elJump.hidden = true;
       scrollToBottom(false);
+      return node;
+    },
+
+    // ── A message that waits for its files (27.11.2026) ──────────────────────
+    // The bubble stands at the press; until its files are in the bucket and the turn is handed to the server, the
+    // clock «In the queue» (LexMessage.ticks('queued'), В7.2) stands in the row under it, where the time is, and the
+    // row is seen without the mouse. Gone — the clock is the tick «Sent» for 1 s (as a button that is done, В7.74),
+    // then the row is as under any message of one's own (the chat with the model has no ladder of ticks).
+    markQueued(turn, on) {
+      if (!turn) return;
+      const row = turn.querySelector(':scope > .wc-turn-foot > .lex-answer-row');
+      let mark = row && row.querySelector(':scope > .lex-ticks');
+      clearTimeout(turn._lexSentTimer);
+      if (on === 'sent') {
+        if (!mark) { turn.classList.remove('is-queued'); return; }
+        global.LexMessage.setTicks(mark, 'sent');
+        turn._lexSentTimer = setTimeout(() => { mark.remove(); turn.classList.remove('is-queued'); }, 1000);
+        return;
+      }
+      turn.classList.toggle('is-queued', !!on);
+      if (!on) { if (mark) mark.remove(); return; }
+      if (!row || !global.LexMessage || typeof global.LexMessage.ticks !== 'function') return;
+      if (!mark) {
+        mark = global.LexMessage.ticks('queued');
+        const time = row.querySelector(':scope > .lex-answer-row-time');
+        if (time) time.after(mark); else row.prepend(mark);
+      } else global.LexMessage.setTicks(mark, 'queued');
+    },
+    // The files of that bubble are in the bucket: their cards become links, in the same place and size.
+    setTurnFiles(turn, files) {
+      const old = turn && turn.querySelector(':scope > div > .lex-files');
+      if (!old || !global.LexMessage || !global.LexFileAttach) return;
+      const node = global.LexMessage.files(files, global.LexFileAttach.webIo, { free: true });
+      if (!node) return;
+      try { node.dataset.files = JSON.stringify(files); } catch (_) {}
+      old.replaceWith(node);
+    },
+    // Back in the chat of a message still waiting for its files: the same bubble at the end of the chat again.
+    appendNode(turn) {
+      if (!turn) return;
+      setEmpty(false);
+      elTurns.append(turn);
+      paintQuestionTime(turn);
+      if (profiChat) profiChat.paintHidden(elTurns);
+      maybeStick();
     },
 
     // ── A message Lex did not take ──────────────────────────────────────────
@@ -1661,11 +1730,29 @@
       turn.dataset.at = new Date().toISOString();
       elTurns.append(turn);
       if (profiChat) profiChat.dress(elTurns);
+      // A message that waits for its files (wc-app.js waitFiles): the place of the answer is taken, but nothing is seen
+      // there — no dots — until the message went (unqueue).
+      if (opts && opts.queued) turn.hidden = true;
       live.set(requestId, { turn, bubble, text: '' });
       // Пока ответ пишется, «заново» под ним не место — и под предыдущим тоже,
       // он больше не последний.
       syncFeet();
       maybeStick();
+    },
+
+    // The message of this answer went (its files are in the bucket): the dots stand under it now.
+    unqueue(requestId) {
+      const entry = live.get(requestId);
+      if (!entry || !entry.turn.hidden) return;
+      entry.turn.hidden = false;
+      maybeStick();
+    },
+    // It did not go (a file did not upload, Stop while it waited): the place of its answer goes, nothing else.
+    cancelLive(requestId) {
+      const entry = live.get(requestId);
+      if (entry) { entry.turn.remove(); live.delete(requestId); }
+      left.delete(requestId);
+      syncFeet();
     },
 
     // The model works with the database (Extended Mind): one grey line above the answer

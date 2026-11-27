@@ -51,7 +51,9 @@
 //                       parts know no server: io = { blob(path) → Promise<object URL | null>,
 //                       link(path, { download }) → Promise<address | null> } comes from the page. None — null
 //   files(list, io, { free: true })   the same files outside a bubble: the person's own message in a
-//                       chat of Lex (2026-11-17), over his bubble at the right edge
+//                       chat of Lex (2026-11-17), over his bubble at the right edge; an item with `busy` and no
+//                       path is a file of a message that waits for it (27.11.2026): its card from name, type and
+//                       size, no link, paler, the common ring on its mark after 500 ms
 //   fileChip({ name, mime, bytes }, { busy, onRemove })   a file over the composer before the
 //                       message goes (В7.49): the card of a document, the common ring after 500 ms while busy, a cross 44
 //   bubble({ …, media })   `media` (photos, files) stands over the text, as in Telegram; a bubble of
@@ -1295,7 +1297,13 @@
 
   function fileCard(f, io) {
     const missing = f.missing && MISSING[f.missing];
-    const root = make(missing ? 'div' : 'a', `lex-file${missing ? ' is-missing' : ''}`);
+    // `busy` — the file of a message that waits for it (27.11.2026): drawn at the press from what the device knows (name,
+    // type, size), not a link yet; the common ring on its mark after 500 ms (lex-busy.css), paler as over the field.
+    // `local` — such a file of a message that did not go, kept on this device: the same card, not a link, no ring.
+    const busy = !missing && !!f.busy && !f.path;
+    const here = busy || (!missing && !!f.local && !f.path);
+    const root = make(missing || here ? 'div' : 'a', `lex-file${missing ? ' is-missing' : ''}${busy ? ' is-busy' : ''}`);
+    if (busy) root.setAttribute('aria-busy', 'true');
     const icon = make('span', 'lex-file-icon');
     const doc = svg('0 0 24 24', 22);
     doc.appendChild(shape('path', { d: 'M6 2.5h8l4.5 4.5v14.5H6z', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linejoin': 'round' }));
@@ -1307,7 +1315,7 @@
       ? [sizeText(f.bytes), missing].filter(Boolean).join(' · ')
       : [typeText(f), sizeText(f.bytes)].filter(Boolean).join(' · ')));
     root.append(icon, body);
-    if (!missing) {
+    if (!missing && !here) {
       root.setAttribute('aria-label', `Open ${f.name || 'the file'}`);
       // A PDF, a picture and a video open in the browser; anything else is saved under its own name.
       const shows = /^(application\/pdf|image\/|video\/|audio\/|text\/plain)/.test(String(f.mime || ''));
@@ -1318,7 +1326,7 @@
 
   function files(list, io, opts) {
     const items = (Array.isArray(list) ? list : []).filter((f) => f && typeof f === 'object'
-      && ((typeof f.path === 'string' && f.path) || (f.missing && MISSING[f.missing])));
+      && ((typeof f.path === 'string' && f.path) || (f.missing && MISSING[f.missing]) || f.busy || f.local));
     if (!items.length) return null;
     // `free` — the files stand outside a bubble (the person's own message in a chat of Lex, over
     // his bubble at the right edge).
@@ -1327,7 +1335,7 @@
     if (shots.length) root.appendChild(storedPhotos(shots, io));
     for (const f of items) {
       if (shots.includes(f)) continue;
-      if (f.missing) root.appendChild(fileCard(f, io));
+      if (f.missing || ((f.busy || f.local) && !f.path)) root.appendChild(fileCard(f, io));
       else if (f.kind === 'voice' || f.kind === 'audio') root.appendChild(voice(f, io));
       else if (f.kind === 'video') root.appendChild(video(f, io));
       else root.appendChild(fileCard(f, io));

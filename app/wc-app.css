@@ -1285,6 +1285,9 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
 
 .wc-turn-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
 .wc-turn-images img { max-width: 220px; max-height: 220px; border-radius: 12px; border: 1px solid var(--line); }
+/* With its size known (wc-thread.js turnImage) the place is the picture's own from the first frame; a narrow lane makes
+   it smaller, the ratio kept. */
+.wc-turn-images img[width] { height: auto; object-fit: cover; }
 
 .wc-turn-foot {
   display: flex;
@@ -1321,6 +1324,8 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
 }
 /* A message Lex did not take has its own buttons under it (LexMessage.unsent): its foot is hidden (wc-thread.js). */
 .wc-turn-foot[hidden] { display: none; }
+/* The place of an answer whose message still waits for its files (wc-thread.js beginAssistant, queued). */
+.wc-turn[hidden] { display: none; }
 /* A foot without a row (a voice answer: only the developer's price, or nothing) keeps no room for one. */
 .wc-turn-foot:not(:has(> .lex-answer-row)) { min-height: 0; }
 /* Where the row shows. The last answer of the lane — always (Copy and Retry at hand, as in claude.ai). Every other
@@ -1338,7 +1343,10 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
 .wc-turn.is-touched > .wc-turn-foot > .lex-answer-row,
 .wc-turn > .wc-turn-foot > .lex-answer-row:focus-within,
 .wc-turn > .wc-turn-foot > .lex-answer-row:has(> .lex-msg-more.is-open),
-.wc-turn > .wc-turn-foot > .lex-answer-row:has(> .is-copied) {
+.wc-turn > .wc-turn-foot > .lex-answer-row:has(> .is-copied),
+/* A message that waits for its files (wc-thread.js markQueued): the clock «In the queue» where the time is — seen without
+   the mouse. */
+.wc-turn-user.is-queued > .wc-turn-foot > .lex-answer-row {
   visibility: visible;
   opacity: 1;
   transition: opacity 0.12s ease, visibility 0s;

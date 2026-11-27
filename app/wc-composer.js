@@ -304,25 +304,15 @@
     autoGrow();
   }
 
-  let submitWaits = false;   // a send waiting for its file (submit below)
   async function submit(opts) {
     if (streaming) {
       if (currentRequestId) hooks.onStop(currentRequestId);
       return;
     }
     if (!canSend()) return;
-    // A file still on its way to the server: the message waits for it — it goes with the file's
-    // path (lex-file-attach.js), and a message without the file would be another message.
-    // So the send waits for the upload (В7.49, 27.11.2026): the card of the file holds the common ring after 500 ms —
-    // the one sign; the composer itself shows no ring (В7.74) — and the message goes once the file is on the server, no
-    // refusal to press again.
-    if (global.WcAttach && typeof WcAttach.busy === 'function' && WcAttach.busy() && typeof WcAttach.ready === 'function') {
-      if (submitWaits) return;
-      submitWaits = true;
-      let ok = false;
-      try { ok = await WcAttach.ready(); } finally { submitWaits = false; }
-      return ok ? submit(opts) : undefined;
-    }
+    // A file still on its way to the server does not hold the press (27.11.2026, «sending a file is instant, like a
+    // text»): the message stands in the chat at once with the file's card and the clock «In the queue», and goes once
+    // the file is in the bucket — the window waits for it (wc-app.js waitFiles), not the field.
     // Обычная отправка при взведённой заготовке уходит через неё — как нажатие
     // её пилюли (там же проверка промпта и строки).
     if (!(opts && opts.mode) && armedPresetSlot) {
@@ -993,6 +983,15 @@
       const waysOf = (text) => (hooks.sendMenu && text
         ? global.LexComposer.holdWays(partsNow(), hooks.sendMenu(text), { files: global.WcAttach ? WcAttach.count() : 0 })
         : null);
+      // The words a held send took leave the field (and, where the door keeps no files, its files too).
+      const clearHeld = (dropFiles) => {
+        elInput.value = '';
+        wasBegun = false;
+        if (dropFiles && global.WcAttach && typeof WcAttach.clear === 'function') WcAttach.clear();
+        autoGrow();
+        syncButton();
+        changed();
+      };
       onLongPress(elSend, () => {
         const text = elInput.value.trim();
         const ways = waysOf(text);
@@ -1009,6 +1008,16 @@
             run: async () => {
               let ok = false;
               const go = ways.files === 'go' && !!global.WcAttach && typeof WcAttach.forPerson === 'function';
+              // «Send … now» with files (27.11.2026): the text and its files leave the field at the press and stand at
+              // the end of the chat with the clock — the window waits for the files (wc-app.js sendToFolder, pending), not
+              // the field; a text that did not go has Edit there, which brings the words and files back.
+              if (go && it.now && typeof WcAttach.takeForPerson === 'function') {
+                const key = typeof WcAttach.chatKey === 'function' ? WcAttach.chatKey() : null;
+                const pending = WcAttach.takeForPerson(key);
+                if (elInput.value.trim() === text) clearHeld(false);
+                try { await it.run(text, { pending }); } catch (err) { toast((err && err.message) || 'Not sent.', { error: true }); }
+                return;
+              }
               try {
                 const key = go && typeof WcAttach.chatKey === 'function' ? WcAttach.chatKey() : null;   // set by wc-app.js
                 const files = go ? await WcAttach.forPerson(key) : null;
@@ -1018,14 +1027,9 @@
               }
               if (ok && go) WcAttach.sent();   // they went with the words: kept in the bucket for the sender
               if (ok && elInput.value.trim() === text) {
-                elInput.value = '';
-                wasBegun = false;
                 // The field is cleared whole: in an order chat its files went nowhere and are not left behind (the head
                 // said so).
-                if (ways.files === 'stay' && global.WcAttach && typeof WcAttach.clear === 'function') WcAttach.clear();
-                autoGrow();
-                syncButton();
-                changed();
+                clearHeld(ways.files === 'stay');
               }
             },
           })),

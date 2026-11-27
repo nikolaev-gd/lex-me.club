@@ -712,7 +712,10 @@
       // Ни ключа, ни пути не хватило — картинки нет нигде. Реплика остаётся с
       // текстом и молчит про картинку, которую показать нечем: это лучше
       // сломанной рамки.
-      if (url) t.images = [url];
+      // With the size the server's record keeps (attach_to_turn): the picture's place is its own from the first frame.
+      const w = Number((srv && srv.width) || (ref && ref.width)) || 0;
+      const h = Number((srv && srv.height) || (ref && ref.height)) || 0;
+      if (url) t.images = [w > 0 && h > 0 ? { src: url, width: w, height: h } : url];
     }
     // Старые картинки этой переписки довозим на сервер по нескольку за
     // открытие — тем же ленивым правилом, что и расширение, и по той же
