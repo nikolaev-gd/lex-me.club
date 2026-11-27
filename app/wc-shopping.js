@@ -20,6 +20,7 @@
 //   back                 the arrow of the window (lex-back.js)
 //   signals              the channel of the database's signals (lex-account-events.js)
 //   call(body)           the edge function shopping: null — read the list, { op, … } — a change
+//   kept()               the copy of the list this device kept (lex-reads.js, `shopping`), or null
 //   confirm(title, text, o)   the common question (WcUI.confirm)
 (function (global) {
   'use strict';
@@ -238,7 +239,8 @@
         if (next.textContent !== label.textContent) { label.replaceWith(next); label = next; }
         if (head.parentNode !== boughtHost.parentNode || head.nextSibling !== boughtHost) box.insertBefore(head, boughtHost);
       } else head.remove();
-      empty.hidden = l.todo.length > 0 || l.bought.length > 0;
+      // Nothing known yet (no copy, no answer): no «Nothing to buy» — the ladder of loading holds the place.
+      empty.hidden = !server || l.todo.length > 0 || l.bought.length > 0;
       const waiting = ops.filter((o) => !o.hold).length;
       if (offline && waiting) frame.say(waiting === 1 ? 'No network: 1 change waits to be sent.' : `No network: ${waiting} changes wait to be sent.`);
       else frame.say(l.mode === 'sample' ? 'Test list of a stand.' : '');
@@ -280,10 +282,29 @@
       }
     }
 
+    // The copy this device kept draws the list at once (lex-reads.js, `shopping`; the update after it is never a wait,
+    // LexBusy.settle); no copy — the one ladder of loading (lex-skeleton.js, В7.87): nothing for 500 ms, then the
+    // skeleton of its lines, the word of the head at 3 s, at 10 s the empty state with Retry.
     async function read() {
-      const j = await deps.call(null);
-      server = listOf(j);
-      paint();
+      if (!server && deps.kept) {
+        const c = await deps.kept().catch(() => null);
+        if (c && typeof c === 'object' && !server) {
+          server = listOf(c);
+          paint();
+          if (frame.isShown() && global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
+        }
+      }
+      const K = global.LexSkeleton;
+      const wait = !server && K ? K.ladder(box, {
+        skeleton: () => K.list(K.settingRow, 4),
+        put: (n) => box.insertBefore(n, fresh.el),
+        shown: () => frame.isShown(),
+        retry: () => { look().catch(() => {}); },
+      }) : null;
+      let j;
+      try { j = await deps.call(null); } catch (e) { if (wait) wait.fail(e); throw e; }
+      const take = () => { server = listOf(j); paint(); };
+      if (wait) wait.done(take); else take();
     }
 
     // The look of the open section and its signal: what waits goes, then the list is read.

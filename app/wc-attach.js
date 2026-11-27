@@ -325,6 +325,8 @@
   // the server has it. A picture keeps its own way above (one per message, sent to the model).
   const files = [];
   let fileSeq = 0;
+  const readyWaits = [];   // WcAttach.ready(): resolved by paint() once no file uploads
+  let fileFails = 0;       // uploads that did not reach the server (a wait of ready() over one sends nothing)
 
   function fileChipFor(f) {
     return global.LexMessage.fileChip({ name: f.name, mime: f.mime, bytes: f.bytes }, {
@@ -339,6 +341,7 @@
     }
     elStrip.replaceChildren(...nodes);
     elStrip.hidden = !nodes.length;
+    if (readyWaits.length && !files.some((f) => f.busy)) readyWaits.splice(0).forEach((r) => r());
     WcComposer.refresh();
     // What the field holds changed: the draft of the chat keeps it (wc-app.js, lex-drafts.js).
     if (typeof WcAttach.onChange === 'function') {
@@ -374,6 +377,7 @@
     if (!up.ok) {
       const i = files.indexOf(f);
       if (i >= 0) files.splice(i, 1);
+      fileFails++;
       paint();
       toast(F.refusal(up.reason), { error: true });
       return;
@@ -543,6 +547,14 @@
     count() { return pending.length + files.length; },
     // A file still uploading — the message waits.
     busy() { return files.some((f) => f.busy); },
+    // Resolves once no file of the field is uploading (В7.49, 27.11.2026): the message waits for its file instead of
+    // a refusal — the card shows the common ring after 500 ms meanwhile (lex-message.css, .lex-file-chip.is-busy).
+    // It resolves false when a file of the wait did not upload (the toast said why): then nothing goes.
+    ready() {
+      if (!files.some((f) => f.busy)) return Promise.resolve(true);
+      const at = fileFails;
+      return new Promise((r) => readyWaits.push(() => r(fileFails === at)));
+    },
 
     // The records of the files of this message, handed to the sender and taken off the field.
     takeFiles() {
@@ -617,9 +629,9 @@
     // every file by its record (in the bucket already) and the picture uploaded now (once: its path stays on it, so a
     // second press does not upload it again) — [{kind, path, mime, bytes?, name?}]. Nothing is taken off the field:
     // the caller takes it once the server took the text (sent()), or leaves it there after a refusal. Throws
-    // Error(words) when a file is still uploading or the picture did not get into the bucket.
+    // Error(words) when the picture did not get into the bucket; a file still uploading is waited for (ready()).
     async forPerson(chatKey) {
-      if (files.some((f) => f.busy)) throw new Error('Wait until the file has uploaded.');
+      if (!(await WcAttach.ready())) throw new Error('The file did not upload. Try again.');
       const out = files.filter((f) => f.rec && f.rec.path).map((f) => ({
         kind: 'file', path: f.rec.path, mime: f.rec.mime || f.mime || '', ...(f.rec.bytes || f.bytes ? { bytes: f.rec.bytes || f.bytes } : {}),
         ...(f.rec.name || f.name ? { name: f.rec.name || f.name } : {}),

@@ -326,7 +326,8 @@
    his bubble at the right edge, the same cards. */
 .lex-files.lex-files-free { margin-bottom: 6px; align-items: flex-end; }
 /* A file over the composer (В7.49, 2026-11-17): the card of В7.21 on the plate of the field, with a
-   cross 44 at its right; while it uploads — «Uploading…» under the name and the card paler. */
+   cross 44 at its right; while it uploads — the card paler and, after 500 ms, the common ring 14 on its mark (В7.74:
+   the ring of lex-busy.css, its late show and its turn). */
 .lex-file-chip {
   display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-height: 52px;
   padding: 4px 0 4px 4px; border-radius: 14px; background: var(--lex-plate); color: var(--fg);
@@ -1614,7 +1615,8 @@ a.lex-order-title:hover { text-decoration: underline; }
   color: var(--fg-soft, var(--lex-plate-fg)); cursor: pointer;
   -webkit-user-select: none; user-select: none;
 }
-.lex-more-btn::after { content: ''; position: absolute; inset: -12px -6px; }
+/* The hit area 44; a word that waits (`.is-lex-late-busy`, disabled) gives its ::after to the common ring (lex-busy.css). */
+.lex-more-btn:not(.is-lex-late-busy)::after { content: ''; position: absolute; inset: -12px -6px; }
 .lex-more-btn:hover { text-decoration: underline; }
 .lex-more-btn:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; border-radius: 4px; }
 .lex-more-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }

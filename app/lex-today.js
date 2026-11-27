@@ -10,6 +10,9 @@
 // move while they come: nothing known yet (the copy and the answer on their way, or no copy at all) — two empty cards
 // (LexSection.todayPlace) stand at the height of the folded blocks at their fullest; what comes into that place keeps the
 // area at least that high while the main page stays on the screen (`hold`), from the next showing it hugs the cards.
+// The empty place climbs the one ladder of loading (lex-skeleton.js, В7.87): from 500 ms the skeletons of the two
+// cards stand in it at the same heights (LexSkeleton.todayCard), the word of the head comes at 3 s; what comes takes
+// their place by a fade of 120 ms, and nothing under them moves.
 // Nothing to show once something is known (an answer with no part, a read that failed with no copy) — the held place
 // stands empty while the page is on the screen, and from the next showing there are no blocks. The blocks follow the signals of the database through the frame of a section
 // (LexSection.createFrame: watch, lookNow, the ladder of a failed read), only while the main page is on the screen —
@@ -197,7 +200,7 @@
     function paint() {
       const cards = [];
       // What comes into the empty place keeps its height: measured as it stands, before it is taken.
-      if (active && settled && !hold && host.querySelector('.lex-today-place')) hold = host.offsetHeight;
+      if (active && settled && !hold && host.querySelector('.lex-today-place, .lex-skel-today')) hold = host.offsetHeight;
       if (active && !settled) {
         const P = S.TODAY_PLACE;
         cards.push(S.todayPlace(P.waiting), S.todayPlace(P.day));
@@ -219,23 +222,47 @@
 
     // ── reading ───────────────────────────────────────────────────────────────
     let reading = null;
+    // The ladder of the empty place (lex-skeleton.js): climbed only while the main page is on the screen and nothing is
+    // known; the skeleton stands in the place of the two empty cards, at their heights.
+    let wait = null;
+    function climb() {
+      const K = global.LexSkeleton;
+      if (wait || settled || !active || !K) return;
+      const P = S.TODAY_PLACE;
+      const heights = [P.waiting, P.day];
+      wait = K.ladder(host, {
+        skeleton: () => { let i = 0; return K.list(() => K.todayCard(heights[i++]), heights.length); },
+        put: (n) => { if (!settled && active) host.replaceChildren(n); },
+        shown: () => active && !host.hidden,
+        empty: () => null,
+      });
+    }
+    // Something is known: the held height is taken as the place stands (empty cards or their skeleton), then the
+    // skeleton gives way — not before it stood its 200 ms.
+    function settle(draw) {
+      if (active && !hold && host.querySelector('.lex-today-place, .lex-skel-today')) hold = host.offsetHeight;
+      const w = wait;
+      wait = null;
+      if (w) w.done(draw); else draw();
+    }
     function reload() {
       if (reading) return reading;
+      climb();
       reading = Promise.resolve(deps.read((v, isFresh) => {
         const was = settled;
         if (isFresh) settled = true;
-        if (!v || typeof v !== 'object') { if (!was && settled) paint(); return; }
+        if (!v || typeof v !== 'object') { if (!was && settled) settle(paint); return; }
         // The copy draws the first frame only while the screen holds nothing; the server's answer takes its place.
         if (!isFresh && held) return;
         settled = true;
         const text = textOf(v);
-        if (isFresh && text !== null && text === drawn) { if (!was) paint(); return; }
+        if (isFresh && text !== null && text === drawn) { if (!was) settle(paint); return; }
         held = merge(held, v);
         if (isFresh) drawn = text;
-        paint();
+        if (!was) settle(paint); else paint();
       })).catch((e) => {
         // Nothing came: the empty place goes (what the screen held, if anything, stays).
-        if (!settled) { settled = true; paint(); }
+        if (!settled) { settled = true; settle(paint); }
         throw e;
       }).finally(() => { reading = null; });
       return reading;
@@ -255,9 +282,11 @@
           frame.watch();
           // What the screen held is drawn again first: an event over since the last drawing goes.
           paint();
+          climb();
           reload().catch((e) => { console.warn('[today] read:', e && e.message); frame.lookNow(); });
         } else {
           frame.unwatch();
+          if (wait) { wait.stop(); wait = null; }
           // The held height is of one showing: the next one hugs the cards.
           hold = 0;
           paint();

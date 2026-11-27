@@ -211,11 +211,14 @@
     // back. The rows are LexSection.kindsList, the same as in the settings of Profi.ru. The sections and kinds come from
     // the server (`lex_notification_modes`), the same screen as the iPhone's.
     async openNotifications(ctx) {
-      const say = el('.wc-notify-say', { text: 'Reading…' });
+      // The list stands from the copy this device kept (lex-reads.js, `lex_notification_modes`); no copy — the ladder
+      // of loading with the skeleton of its rows (lex-skeleton.js), never a word of its own.
+      const say = el('.wc-notify-say', { text: '' });
       const tell = (text, error) => { say.textContent = text || ''; say.classList.toggle('is-error', !!error); };
       let handle = null;
       const list = LexSection.kindsList({
         rpc: ctx.rpc, menu: (anchor, items) => WcUI.menu(anchor, items), tell,
+        kept: ctx.kept ? () => ctx.kept('lex_notification_modes', {}) : null,
       });
       handle = sheet('wc-settings', 'Notifications', [
         el('.wc-notify-intro', { text: 'For each kind: how Lex tells you.' }), say, list.node]);

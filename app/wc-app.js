@@ -351,6 +351,40 @@
   let openWait = null;   // { id, done: Promise of true once the answer is in }
   // The settings of the start (enterApp): a turn waits for them, nothing on the screen does.
   let settingsReady = Promise.resolve();
+  // ── Read ahead on a hover (the system of loading, 27.11.2026) ─────────────
+  // The pointer of a mouse rests on the line of a chat with Lex or on the entry of a section longer than 200 ms: that
+  // chat or section is read now, into the copy (lex-reads.js) — a press after it opens from the copy, with no ladder.
+  // Once in 30 s per line; a finger reads nothing ahead (a touch is the press itself).
+  const HOVER_MS = 200;
+  const AHEAD_AGAIN_MS = 30000;
+  const aheadAt = new Map();
+  let hoverOn = null;
+  let hoverTimer = 0;
+  function readAhead(el) {
+    const chat = el.dataset.chat || '';
+    const sec = el.dataset.section || '';
+    const key = chat ? `chat:${chat}` : `section:${sec}`;
+    if (Date.now() - (aheadAt.get(key) || 0) < AHEAD_AGAIN_MS) return;
+    aheadAt.set(key, Date.now());
+    if (chat) {
+      if (chat === state.conversationId) return;
+      WcBus.call('WC_READ_AHEAD', { id: chat }).catch(() => {});
+    } else if (sec && SECTIONS[sec] && SECTIONS[sec].build && sec !== sectionOn) {
+      const live = ensureSection(sec);
+      if (live && live.warm) live.warm().catch(() => {});
+    }
+  }
+  document.addEventListener('pointerover', (e) => {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    const el = e.target && e.target.closest ? e.target.closest('.wc-conv[data-chat], .lex-entry[data-section]') : null;
+    if (el === hoverOn) return;
+    clearTimeout(hoverTimer);
+    hoverOn = el;
+    if (el) hoverTimer = setTimeout(() => { if (hoverOn === el) readAhead(el); }, HOVER_MS);
+  });
+
+  // The first frame of a chat came (frame() of openConversation): the launch is waiting for it (placeFirstFrame).
+  let onFramed = null;
   async function openConversation(id, opts) {
     // Leaving a conversation mid-answer does not cut the answer (Gennady, 2026-11-16: «нужно,
     // чтобы всегда отвечала»): the page stops showing it, the server writes it to its end, and
@@ -390,6 +424,8 @@
       if (opts && opts.profi) enterProfiChat(opts.profi);
       WcSidebar.setActive(id);
       WcSidebar.close();
+      // The launch waits for this frame (placeFirstFrame): the skeleton of the launch goes over the chat itself.
+      if (onFramed) { const f = onFramed; onFramed = null; f(); }
     };
     const stand = (r, again, kept) => {
       frame();
@@ -1441,6 +1477,8 @@
       back: sectionBack,
       signals,
       call: calendarCall,
+      // The copy of the days this device kept (lex-reads.js, `calendar`): the first frame of the section.
+      kept: (span) => kept('calendar', span),
       head: paintCalendarHead,
       tabs: (o) => WcUI.tabs(o),
     });
@@ -2161,20 +2199,20 @@
     D.put(key, { text, reply: (d && d.reply) || rep || null });
   }
 
-  // «Earlier entries» on the top of a feed that has more on the server.
+  // The earlier history of a feed that has more on the server: read when the reader reaches its top (wc-thread.js
+  // earlierPlace, three skeletons of bubbles while it comes).
   function emEarlierOf(r) {
     const key = state.conversationId;
-    // A chat of a folder: «Earlier messages» reads one page more of its past.
+    // A chat of a folder: one page more of its past.
     if (r && r.folderMore && WcHistory.isFolderKey(key)) {
       const more = async () => {
         await WcBus.call('WC_FOLDER_EARLIER', { key });
         const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
         if (!again || !again.ok || state.conversationId !== key) return;
         if (profiChat) profiChat.words = monitorWords(again.turns);
-        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, keepFirst: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
         followRunning();
       };
-      more.label = 'Earlier messages';
       return more;
     }
     if (!r || !r.emMore || !WcHistory.isEmFeedKey(key)) return null;
@@ -2182,7 +2220,7 @@
       await WcBus.call('WC_EM_EARLIER', { key });
       const again = await WcBus.call('WC_LOAD_CONVERSATION', { id: key });
       if (again && again.ok && state.conversationId === key) {
-        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
+        WcThread.renderTurns(again.turns, { newsHead, keepPlace: true, keepFirst: true, emEarlier: emEarlierOf(again), incoming: incomingOpts(), follow: true });
         followRunning();
       }
     };
@@ -2404,6 +2442,8 @@
       // The card of the person (lex-person.js, В7.41): its server door; a new name re-reads the chat;
       // a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
+      // The card this device kept (lex-reads.js, `person_card`): it stands at once, the server's card takes its place.
+      personKept: (key) => kept('person_card', { p_chat_key: key }),
       onPersonGone: () => newConversation(),
       // The message of the agent «Кто это» that attached the client's messenger (В7.54): a line of it opens a chat of
       // Lex; the line «Reply to Lex» over the field takes a word to the agent (send(), sendWhois).
@@ -2560,6 +2600,8 @@
       // A chat of a person (its profile: `card: 'person'`): the head opens the card of the person (lex-person.js, В7.41),
       // the same door as an order chat's; a person deleted from Lex takes his chat off the list — the main page is shown.
       person: (body) => WcBus.call('WC_PERSON', { body }),
+      // The card this device kept (lex-reads.js, `person_card`): it stands at once, the server's card takes its place.
+      personKept: (key) => kept('person_card', { p_chat_key: key }),
       onPersonGone: () => newConversation(),
     });
     chat.folder = true;
@@ -2899,6 +2941,8 @@
       back: sectionBack,
       signals,
       call: shoppingCall,
+      // The copy of the list this device kept (lex-reads.js, `shopping`): the first frame of the section.
+      kept: () => kept('shopping', {}),
       confirm: (title, text, o) => WcUI.confirm(title, text, o),
     });
   }
@@ -4079,6 +4123,8 @@
       account: state.account,
       onSignOut: signOut,
       rpc: newsRpc,
+      // The copies this device kept (lex-reads.js): the screen of notifications stands from its copy.
+      kept,
       // The row «Profi.ru» of Settings → Notifications: the settings of the section, at the block «Notifications».
       openProfiSettings: () => showProfi('settings', 'notifications'),
     });
@@ -4726,6 +4772,9 @@
     // есть. Запертый навсегда скелет хуже неполного экрана.
     try {
       await Promise.all([firstFrameOf(refreshAccount), firstFrameOf(refreshConversations)]);
+      // The place it was left (the chat of the last time, from its copy): its first frame stands before the skeleton of
+      // the launch goes — the first thing seen is that chat, not the main page that gives way to it.
+      await placeFirstFrame();
     } finally {
       hideBoot();
       composerReady = true;
@@ -4740,8 +4789,18 @@
       WcComposer.focus({ raiseKeyboard: !homeOn() });
       caretThenReveal();
       askShellForPush();
-      restoreScreenPlace();
     }
+  }
+
+  // The kept place opened, until its first frame (the frame of its chat, or the end of the opening), at most 1.5 s: a
+  // place that opens no chat (a section, New orders) or a server that is slow does not keep the launch waiting.
+  function placeFirstFrame() {
+    return new Promise((done) => {
+      const end = () => { clearTimeout(t); onFramed = null; done(); };
+      const t = setTimeout(end, 1500);
+      onFramed = end;
+      Promise.resolve().then(() => restoreScreenPlace()).then(end, end);
+    });
   }
 
   // The first frame of a reading: done when it called onFirst (its copy is on the screen) or when
@@ -4788,10 +4847,11 @@
   // loads next opens it: after a reload for a new page, after his «Reload page», after the app was
   // quit and started (a release that replaces the app does that). Left on the main page or in
   // another section — the main page. The place is the account's: another account starts at the main
-  // page. A press on a notification that started the app comes after and wins. The browser page
-  // starts at the main page as before.
+  // page. A press on a notification that started the app comes after and wins. Since 27.11.2026 (the system of
+  // loading) the browser page keeps its place too, and the first frame of every launch is that chat from its copy,
+  // as on the iPhone (placeFirstFrame).
   const PLACE_KEY = 'lexPlaceKept';
-  const keepsPlace = () => !!global.__lexShell && !soloChat;
+  const keepsPlace = () => !soloChat;
   const placeAccount = () => { try { const x = WcAuth.session(); return (x && x.user && x.user.id) || ''; } catch (_) { return ''; } };
   function placeNow() {
     const live = sectionOn === 'profi' && SECTIONS.profi.live;
@@ -4831,8 +4891,7 @@
   function restoreScreenPlace() {
     // A window of one chat: that chat, and nothing kept.
     if (soloChat) {
-      openFromNotification(soloChat).catch((e) => console.warn('[wc] the chat of the window:', e && e.message));
-      return;
+      return openFromNotification(soloChat).catch((e) => console.warn('[wc] the chat of the window:', e && e.message));
     }
     let kept = null;
     try { kept = JSON.parse(global.localStorage.getItem(PLACE_KEY) || 'null'); } catch (_) { kept = null; }
@@ -4842,7 +4901,7 @@
     if (old.kind === 'profi_message' && String(old.chatKey || '') === `__lex_profi__${old.order}`) { placeReady = true; keepScreenPlace(); return; }
     placeSaid = JSON.stringify(kept);
     // Until the kept chat is on the screen the main page of the start is not the place.
-    openFromNotification(kept.place)
+    return openFromNotification(kept.place)
       .catch((e) => console.warn('[wc] place:', e && e.message))
       .then(() => { placeReady = true; });
   }

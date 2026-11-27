@@ -192,6 +192,9 @@
     });
     const out = await resp.json().catch(() => null);
     if (!resp.ok) throw new Error((out && out.error) || ('The server of Lex answered ' + resp.status + '.'));
+    // Every card that came is kept for the next opening (LexReads.KEPT, `person_card`): a read, an Edit, a mark.
+    const key = (body && body.chatKey) || (out && out.card && out.card.chatKey);
+    if (key && out && out.card) copies.keep('person_card', { p_chat_key: key }, out);
     return out;
   }
 
@@ -466,7 +469,7 @@
       || (typeof d.answered_at === 'string' && !!d.answered_at) || !!answer;
     return { answered, answer };
   }
-  // «Earlier entries»: the next reading of this feed takes one page more.
+  // The earlier history (the reader reached the top of the feed): the next reading takes one page more.
   function emEarlier(key) { emLimits.set(key, (emLimits.get(key) || EM_PAGE) + EM_PAGE); }
 
   // ── The chats of the folders (Kolya, Other) ───────────────────────────────
@@ -552,13 +555,22 @@
   }
   // The section «Calendar» (22.11.2026, supabase/functions/calendar): sub '' | '/item' | '/people' | '/settings', the query of
   // a read; a body — a POST {op, lex: {command}, …} to the calendar itself. A refusal comes as the error with its words.
-  function calendar(sub, query, body) {
+  // The read of the days (no sub, no body) is kept for the first frame (LexReads.KEPT, `calendar`, by its from and to).
+  async function calendar(sub, query, body) {
     const q = query ? new URLSearchParams(Object.entries(query).filter(([, v]) => v != null)).toString() : '';
-    return edge(`calendar${sub || ''}${q ? `?${q}` : ''}`, body || null, body ? 'POST' : 'GET');
+    const out = await edge(`calendar${sub || ''}${q ? `?${q}` : ''}`, body || null, body ? 'POST' : 'GET');
+    if (!sub && !body && query && out && typeof out === 'object') copies.keep('calendar', { from: query.from, to: query.to }, out);
+    return out;
   }
   // The section «Shopping list» (22.11.2026, supabase/functions/shopping): GET — the whole list; POST { op, lex, … } — a
   // change, the answer carries the whole list after it.
-  const shopping = (body) => edge('shopping', body, body ? 'POST' : 'GET');
+  // The whole list — after a read and after a change alike — is kept for the first frame (LexReads.KEPT, `shopping`).
+  async function shopping(body) {
+    const out = await edge('shopping', body, body ? 'POST' : 'GET');
+    const list = body ? out && out.list && Object.assign({ mode: out.mode }, out.list) : out;
+    if (list && typeof list === 'object') copies.keep('shopping', {}, list);
+    return out;
+  }
   // The agent «Диктовка» (25.11.2026, supabase/functions/dictation-agent): {op: put | list | settings | settings_put, …}
   // — the log of dictations and the agent's own settings in the base. No sound goes there.
   const dictationAgent = (body) => edge('dictation-agent', body, 'POST');

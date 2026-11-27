@@ -809,8 +809,9 @@
     n.setAttribute('aria-hidden', 'true');
     return n;
   }
+  // The spinner of a running agent is the same common ring (27.11.2026): `lex-spin` only names it and sets 12 or 14.
   function spinner(size) {
-    const n = make('span', `lex-spin is-${size === 14 ? 14 : 12}`);
+    const n = make('span', `lex-busy-ring is-inline lex-spin is-${size === 14 ? 14 : 12}`);
     n.setAttribute('aria-hidden', 'true');
     return n;
   }
@@ -1034,6 +1035,9 @@
   //   tell(text, error)     the line of the screen; '' clears it
   //   only: 'profi'         the kinds of that group only, under no title (the block has its own)
   //   link: { group, onOpen }  a group drawn as one row with the chevron, «6 on · 3 off», that opens the screen where its kinds are
+  //   kept()           optional: the copy this device kept (lex-reads.js, `lex_notification_modes`) — the list stands from
+  //                    it at once; with no copy the ladder of loading (lex-skeleton.js) holds the place: the skeleton of
+  //                    the rows from 500 ms, the word of the head at 3 s, Retry at 10 s
   // Returns { node, load() }. The sections and the kinds come from the server, so a new kind shows without a new build.
   function kindsList(o) {
     const node = make('div');
@@ -1109,11 +1113,28 @@
       }
     }
     async function load() {
+      let shown = false;
+      if (o.kept) {
+        const c = await Promise.resolve(o.kept()).catch(() => null);
+        if (Array.isArray(c)) {
+          paint(c);
+          shown = true;
+          if (global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
+        }
+      }
+      const K = global.LexSkeleton;
+      const wait = !shown && K ? K.ladder(node, {
+        skeleton: () => K.list(K.settingRow, 6),
+        shown: () => node.isConnected,
+        retry: () => { load(); },
+      }) : null;
       try {
-        paint(await o.rpc('lex_notification_modes', {}));
+        const fresh = await o.rpc('lex_notification_modes', {});
+        if (wait) wait.done(() => paint(fresh)); else paint(fresh);
         o.tell('');
       } catch (_) {
-        o.tell('Could not read the settings. Close this screen and open it again.', true);
+        if (wait) { wait.fail(); return; }
+        if (!shown) o.tell('Could not read the settings. Close this screen and open it again.', true);
       }
     }
     return { node, load };

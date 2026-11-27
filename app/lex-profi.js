@@ -455,6 +455,10 @@
       const t = make('span', 'lex-stamp-time lex-sl-when', '');
       t.append(global.LexSendLater.icon('clock', 12), document.createTextNode(global.LexSendLater.stamp(win.sendAt)));
       stamp.appendChild(t);
+    } else if ((win.state === 'queued' || win.state === 'sending') && M.ticks) {
+      // In the queue, not gone yet (В7.2, 27.11.2026): the clock where the ticks will stand; the queue sent it — the
+      // message stands in the chat with its tick.
+      stamp = M.stamp({ timeText: '', tail: M.ticks('queued') });
     }
     const bubble = M.bubble({ side: 'out', body, stamp });
     if (win.state === 'scheduled') bubble.classList.add('is-scheduled');
@@ -1211,7 +1215,7 @@
           // This very order chat: the line opens the card of the person, as the bar over the chat does (В7.41).
           return global.LexPerson && deps.person && data && data.chatKey
             ? () => global.LexPerson.open({ chatKey: data.chatKey, name: (data && data.client) || 'Client', call: deps.person,
-              onGone: deps.onPersonGone, io: fileIo })
+              kept: deps.personKept, onGone: deps.onPersonGone, io: fileIo })
             : null;
         }
         return typeof deps.go === 'function' ? () => deps.go(place) : null;
@@ -2081,7 +2085,7 @@
         const profile = self.profile();
         if (!profile || profile.card !== 'person' || !global.LexPerson || !deps.person || !data || !data.chatKey) return null;
         const key = data.chatKey;
-        return () => global.LexPerson.open({ chatKey: key, name, call: deps.person, onGone: deps.onPersonGone, io: fileIo, bare });
+        return () => global.LexPerson.open({ chatKey: key, name, call: deps.person, kept: deps.personKept, onGone: deps.onPersonGone, io: fileIo, bare });
       },
 
       // «Who is this» of an order chat comes with the card of the person (the server asks the database and keeps

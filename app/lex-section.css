@@ -69,7 +69,6 @@
   color: var(--lex-section-fg, inherit);
   font-weight: 500;
 }
-@keyframes lex-section-spin { to { transform: rotate(360deg); } }
 
 .lex-section .lex-section-body {
   position: relative;
@@ -367,19 +366,10 @@
 .lex-face.is-service { background: transparent; }
 .lex-face.is-service > svg { display: block; width: 100%; height: 100%; }
 
-/* The spinner of a running agent: a ring of the line with its top in the soft grey. */
-.lex-spin {
-  flex: 0 0 auto;
-  display: inline-block;
-  box-sizing: border-box;
-  border: 2px solid var(--lex-section-line, rgba(127, 127, 127, .25));
-  border-top-color: var(--lex-section-soft, currentColor);
-  border-radius: 50%;
-  animation: lex-section-spin .8s linear infinite;
-}
-.lex-spin.is-12 { width: 12px; height: 12px; }
-.lex-spin.is-14 { width: 14px; height: 14px; }
-@media (prefers-reduced-motion: reduce) { .lex-spin { animation: none; } }
+/* The spinner of a running agent is the common ring of lex-busy.css (`lex-busy-ring is-inline`, its turn and its
+   reduced motion); `.lex-spin` only gives it 12 or 14. */
+.lex-busy-ring.lex-spin.is-12 { width: 12px; height: 12px; }
+.lex-busy-ring.lex-spin.is-14 { width: 14px; height: 14px; }
 
 /* В7.57 the state line of an agent: the second line of a line of the list, 14. */
 .lex-astate { display: inline; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }

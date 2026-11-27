@@ -80,8 +80,12 @@
 .lex-skel-news .lex-skel-news-card { width: 100%; max-width: 100%; border-radius: 18px 18px 18px 6px; }
 .lex-skel-news .is-kicker { width: 30%; }
 
-/* A card «Today» (В7.84): only the place of its size. */
+/* A card «Today» (В7.84): only the place of its size; two of them stand 12 apart, as the cards do. Inside a list it
+ * breathes itself (the list is its root of the phase). */
 .lex-skel-today { border-radius: 10px; background: var(--bg-bubble, var(--lex-dark-bubble)); }
+.lex-skel-list > .lex-skel-today + .lex-skel-today { margin-top: 12px; }
+.lex-skel .lex-skel.lex-skel-today { animation: lex-skel-breathe 1.6s ease-in-out infinite; animation-delay: var(--lex-skel-phase, 0ms); }
+.is-lex-word .lex-skel .lex-skel.lex-skel-today { animation: none; }
 
 /* The real thing in place of the skeleton: a fade of 120 ms, nothing moves. */
 .lex-skel-swap > * { animation: lex-skel-in .12s ease-out both; }
@@ -89,5 +93,5 @@
 @media (prefers-reduced-motion: reduce) {
   .lex-skel, .lex-skel-swap > * { animation-duration: 1ms; }
   .lex-skel .lex-skel-bar, .lex-skel .lex-skel-circle, .lex-skel .lex-skel-bubble, .lex-skel .lex-skel-order-answer,
-  .lex-skel.lex-skel-today { animation: none; }
+  .lex-skel.lex-skel-today, .lex-skel .lex-skel.lex-skel-today { animation: none; }
 }

@@ -670,6 +670,14 @@
     ]);
     return adoptConversation(m.id, conv, money);
   });
+  // A chat read ahead (a hover over its line longer than 200 ms, wc-app.js readAhead): the same reads as its opening,
+  // so their copies are written (lex-reads.js) and the opening after it stands from them; nothing is adopted — the open
+  // chat stays the context of the next turn.
+  WcBus.on('WC_READ_AHEAD', async (m) => {
+    if (!m || !m.id) return false;
+    await Promise.all([WcHistory.conversation(m.id), WcHistory.money(m.id).catch(() => null)]);
+    return true;
+  });
   WcBus.on('WC_ADOPT_CONVERSATION', async (m) => adoptConversation(
     m.id, WcHistory.conversationOf(m.id, m.conversation), WcHistory.moneyOf(m.money, m.marks)));
 
@@ -1873,7 +1881,7 @@
     emFeed = m && m.key ? { key: m.key, sessionId: m.sessionId != null ? Number(m.sessionId) : null } : null;
     return true;
   });
-  // «Earlier entries»: the next reading of the feed takes one page more.
+  // The earlier history (the reader reached the top of the feed): the next reading of the feed takes one page more.
   WcBus.on('WC_EM_EARLIER', (m) => { if (m && m.key) WcHistory.emEarlier(m.key); return true; });
 
   // К чему привязана беседа — страница или видео. null, если ни к чему.

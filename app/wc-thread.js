@@ -231,6 +231,58 @@
     try { return f ? JSON.parse(f.dataset.files) : null; } catch (_) { return null; }
   }
 
+  // ── The earlier history (the system of loading, 27.11.2026) ──────────────────────────────────────────────────
+  // The first turn of the feed seen on the screen and how far below the top of the screen it stands.
+  function firstOnScreen() {
+    const top = elThread.getBoundingClientRect().top;
+    const node = [...elTurns.querySelectorAll('.wc-turn[data-uid]')].find((n) => n.getBoundingClientRect().bottom > top);
+    return node ? { uid: node.dataset.uid, dy: node.getBoundingClientRect().top - top } : null;
+  }
+  // That turn back at the same place on the screen; false — it is not in the feed any more.
+  function anchorBack(a) {
+    const node = [...elTurns.querySelectorAll('.wc-turn[data-uid]')].find((n) => n.dataset.uid === a.uid);
+    if (!node) return false;
+    const top = elThread.getBoundingClientRect().top;
+    elThread.scrollTop += (node.getBoundingClientRect().top - top) - a.dy;
+    return true;
+  }
+  // Something grew above the turns (the skeleton of the earlier history): the first turn on the screen does not move.
+  function growAbove(add) {
+    const a = firstOnScreen();
+    add();
+    if (a) anchorBack(a);
+  }
+  function earlierPlace(more) {
+    const place = el('.wc-earlier', {}, []);
+    let busy = false;
+    const load = () => {
+      if (busy || !place.isConnected) return;
+      busy = true;
+      const K = global.LexSkeleton;
+      const wait = K ? K.ladder(place, {
+        skeleton: () => K.bubbles(3),
+        put: (n) => growAbove(() => place.append(n)),
+        empty: (why) => {
+          const S = global.LexSection;
+          if (!S || !S.emptyState) return null;
+          return S.emptyState({ section: 'agents', title: why === 'offline' ? 'No network' : 'Not loaded',
+            line: why === 'offline' ? 'It loads when the network is back.' : 'The earlier messages did not come.',
+            action: { label: 'Retry', onClick: () => { if (wait) wait.stop(); busy = false; load(); } } });
+        },
+      }) : null;
+      Promise.resolve().then(() => more()).then(
+        () => { if (wait) wait.stop(); busy = false; },
+        () => { if (wait) wait.fail(); });
+    };
+    if (typeof IntersectionObserver === 'function') {
+      const watch = new IntersectionObserver((seen) => {
+        if (seen.some((x) => x.isIntersecting)) load();
+      }, { root: elThread, rootMargin: '200px 0px 0px 0px' });
+      watch.observe(place);
+    }
+    return place;
+  }
+
   function userTurn(text, images, opts) {
     const bubble = el('.wc-bubble', { text });
     if (opts && typeof opts.editText === 'string') bubble.dataset.editText = opts.editText;
@@ -1316,6 +1368,9 @@
       // Read before the old turns go: the frame that brings a chat just opened to its end may
       // not have run yet, and the place of that moment is not where the person reads.
       const keptTop = opts && opts.keepPlace && !stickToBottom ? elThread.scrollTop : null;
+      // The earlier history came over the first message (opts.keepFirst): that message stays where it stood on the
+      // screen — measured now, put back after the layout.
+      const anchor = opts && opts.keepFirst ? firstOnScreen() : null;
       if (!(opts && opts.keepPlace)) backTop = null;
       incoming = (opts && opts.incoming) || null;
       // Прежние пузыри сейчас исчезнут — набор выбранных слов держится за них
@@ -1328,13 +1383,8 @@
       // An order chat begins with its order, as the first message of the client (lex-profi.js firstMessage).
       const first = profiChat && profiChat.firstMessage ? profiChat.firstMessage() : null;
       if (first) elTurns.append(first);
-      // A feed shows its latest entries; the earlier ones come by this button.
-      if (opts && opts.emEarlier) {
-        const b = el('button.wc-em-earlier', { type: 'button' }, []);
-        b.textContent = opts.emEarlier.label || 'Earlier entries';
-        b.addEventListener('click', () => opts.emEarlier());
-        elTurns.append(b);
-      }
+      // A feed shows its latest entries; the earlier ones come when the reader reaches its top (earlierPlace).
+      if (opts && opts.emEarlier) elTurns.append(earlierPlace(opts.emEarlier));
       if (qFeed) qTurns.clear();
       if (rFeed) rTurns.clear();
       // The side every node of a turn takes (data-talk: 1 — the talk with the model, 0 — the conversation with the
@@ -1376,6 +1426,8 @@
         : (newsOnly && opts && opts.keepPlace ? elThread.scrollTop : null);
       stickToBottom = !newsOnly && where === null && !focus;
       elJump.hidden = true;
+      // The first message back in its place at once (no frame shows it elsewhere), and again after the layout below.
+      if (anchor && !focus && anchorBack(anchor)) stickToBottom = false;
       // After layout, not during: the images have no height yet on this frame.
       requestAnimationFrame(() => {
         if (focus) {
@@ -1384,13 +1436,19 @@
           lit.classList.add('is-focus');
           setTimeout(() => lit.classList.remove('is-focus'), 1200);
           elJump.hidden = nearBottom();
+        } else if (anchor && anchorBack(anchor)) {
+          stickToBottom = false;
         } else if (where !== null) elThread.scrollTop = where;
         else if (newsOnly) elThread.scrollTop = 0;
         else scrollToBottom(false);
       });
     },
 
-    // Something above the turns came late and pushed them: the bottom is where it was.
+    // The earlier history of a feed or of a chat of a folder: no button — the reader reaches the top of the feed (it comes
+    // within 200 px of the screen) and it is read. While it is on its way, the ladder of loading (lex-skeleton.js,
+    // В7.87): nothing for 500 ms, then three skeletons of bubbles over the first message, which does not move — the
+    // place of the screen grows above it; at 10 s or at an error the empty state with Retry. The turns that came stand
+    // over it, and it stays where it was (renderTurns keepFirst).
     keepAtBottom() {
       if (stickToBottom) scrollToBottom(false);
     },

@@ -304,6 +304,7 @@
     autoGrow();
   }
 
+  let submitWaits = false;   // a send waiting for its file (submit below)
   async function submit(opts) {
     if (streaming) {
       if (currentRequestId) hooks.onStop(currentRequestId);
@@ -312,9 +313,15 @@
     if (!canSend()) return;
     // A file still on its way to the server: the message waits for it — it goes with the file's
     // path (lex-file-attach.js), and a message without the file would be another message.
-    if (global.WcAttach && typeof WcAttach.busy === 'function' && WcAttach.busy()) {
-      toast(global.LexFileAttach.refusal('busy'));
-      return;
+    // So the send waits for the upload (В7.49, 27.11.2026): the card of the file holds the common ring after 500 ms —
+    // the one sign; the composer itself shows no ring (В7.74) — and the message goes once the file is on the server, no
+    // refusal to press again.
+    if (global.WcAttach && typeof WcAttach.busy === 'function' && WcAttach.busy() && typeof WcAttach.ready === 'function') {
+      if (submitWaits) return;
+      submitWaits = true;
+      let ok = false;
+      try { ok = await WcAttach.ready(); } finally { submitWaits = false; }
+      return ok ? submit(opts) : undefined;
     }
     // Обычная отправка при взведённой заготовке уходит через неё — как нажатие
     // её пилюли (там же проверка промпта и строки).

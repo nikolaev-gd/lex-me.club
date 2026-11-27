@@ -65,6 +65,10 @@
     lex_em_feed_turns: { by: ['p_chat_key'], limit: 10 }, //   a feed read as a chat
     people_home: {},                                      // the tabs of the people: every chat of them in one list
     today: {},                                            // the blocks «Today» over them: the edge function today (GET)
+    calendar: { by: ['from', 'to'], limit: 3 },           // Calendar: the edge function calendar (GET), the days it read
+    shopping: {},                                         // Shopping list: the edge function shopping (GET)
+    lex_notification_modes: {},                           // the screen of notifications of the settings
+    person_card: { by: ['p_chat_key'], limit: 60 },       // the card of a person: the edge function person-card, op card
     folder_item: { by: ['p_chat_key'], limit: 60 },       //   a chat of it with its messages
     // Agents (27.11.2026): every screen of the section draws its first frame from its copy; the edge function
     // folder-agents is kept by its call in wc-history.js (the list, op about, op screen, the first page of op runs)
@@ -127,7 +131,7 @@
     'folder_chat_live',
     // reads a window keeps by its own rule
     'list_news', 'lex_model_defaults', 'published_settings', 'news_settings_published',
-    'lex_notification_settings', 'lex_notification_modes', 'lex_missed', 'lex_missed_summary', 'sessions',
+    'lex_notification_settings', 'lex_missed', 'lex_missed_summary', 'sessions',
     'models',   // the catalog of dictation, held by lex-dictation-catalog.js for the microphone
     // the extension: its lessons on a video and on a page, kept in its store of threads and its
     // cache of subtitles; its settings, kept in its own storage; what it writes

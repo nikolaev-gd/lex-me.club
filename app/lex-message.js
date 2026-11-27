@@ -53,7 +53,7 @@
 //   files(list, io, { free: true })   the same files outside a bubble: the person's own message in a
 //                       chat of Lex (2026-11-17), over his bubble at the right edge
 //   fileChip({ name, mime, bytes }, { busy, onRemove })   a file over the composer before the
-//                       message goes (В7.49): the card of a document, «Uploading…» while busy, a cross 44
+//                       message goes (В7.49): the card of a document, the common ring after 500 ms while busy, a cross 44
 //   bubble({ …, media })   `media` (photos, files) stands over the text, as in Telegram; a bubble of
 //                       photos without words has no line of text
 //   bubble({ …, copy })   `copy` → Promise<bool>: a Copy mark inside, top right, the text flows
@@ -1234,8 +1234,8 @@
 
   // ── A file over the composer (В7.49, 2026-11-17) ────────────────────────────
   // The card of a document (В7.21) on the plate of the field, before the message goes: the mark with
-  // the extension, the name in one line, under it the type and size — or «Uploading…» while the file
-  // goes to the server (the card paler) — and a cross 44 that takes it off. The bytes are not read
+  // the extension, the name in one line, under it the type and size, and a cross 44 that takes it off. While the file
+  // goes to the server the card is paler and, after 500 ms, the common ring 14 stands on its mark (В7.74, lex-message.css). The bytes are not read
   // here: the card is drawn from { name, mime, bytes }.
   function fileChip(f, opts) {
     const o = opts || {};
@@ -1248,9 +1248,8 @@
     icon.append(doc, make('span', 'lex-file-ext', typeText(f).slice(0, 4)));
     const body = make('span', 'lex-file-body');
     body.appendChild(make('span', 'lex-file-name', f.name || typeText(f)));
-    body.appendChild(make('span', 'lex-file-meta', o.busy
-      ? ['Uploading…', sizeText(f.bytes)].filter(Boolean).join(' · ')
-      : [typeText(f), sizeText(f.bytes)].filter(Boolean).join(' · ')));
+    body.appendChild(make('span', 'lex-file-meta', [typeText(f), sizeText(f.bytes)].filter(Boolean).join(' · ')));
+    if (o.busy) root.setAttribute('aria-busy', 'true');
     card.append(icon, body);
     root.appendChild(card);
     if (typeof o.onRemove === 'function') {
@@ -1525,9 +1524,11 @@
       if (!o.all && total > shown.length) {
         // A word as «Read more» is, on a line of its own: the rest of the transcript comes from the server.
         const row = make('div', 'lex-call-all-tr');
-        const all = make('button', 'lex-more-btn', o.loading ? 'Loading the transcript…' : 'Show the whole transcript');
+        // While the rest comes the word stays and, after 500 ms, the common ring stands in its place (lex-busy.css).
+        const all = make('button', `lex-more-btn${o.loading ? ' is-lex-late-busy' : ''}`, 'Show the whole transcript');
         all.type = 'button';
         all.disabled = !!o.loading;
+        if (o.loading) all.setAttribute('aria-busy', 'true');
         if (o.onAll) all.addEventListener('click', () => o.onAll());
         row.appendChild(all);
         text.appendChild(row);
@@ -2653,9 +2654,13 @@
   // sent — one grey stroke; delivered — two grey; read — two blue; played — two blue. The page draws the
   // step and keeps no list of what a messenger can say. A step it does not know is drawn as sent; a boolean
   // is the old call (true — read). setTicks(svg, status) — the same ticks change in place.
+  // queued (27.11.2026, the system of loading): the message is in the queue and has not gone yet — a clock in the place
+  // of the ticks, grey; the queue sent it — the tick. The page says it itself (the box of its text, lex-profi.js); the
+  // server's ladder starts at sent.
   const TICK_GREY = '#838398';
   const TICK_BLUE = '#617EF8';
   const TICK_STEPS = {
+    queued: { clock: true, two: false, blue: false, label: 'In the queue' },
     sent: { two: false, blue: false, label: 'Sent' },
     delivered: { two: true, blue: false, label: 'Delivered' },
     read: { two: true, blue: true, label: 'Read' },
@@ -2687,7 +2692,19 @@
   function setTicks(n, status) {
     const step = tickStep(status);
     const s = TICK_STEPS[step];
-    const [first, second] = n.querySelectorAll('path');
+    const [first, second] = [...n.querySelectorAll('path')].filter((p) => p.parentNode === n);
+    // The clock of «in the queue»: a circle and two hands in the same box of 13, there only while it is in the queue.
+    let clock = n.querySelector('.lex-ticks-clock');
+    if (s.clock && !clock) {
+      clock = shape('g', { class: 'lex-ticks-clock', stroke: TICK_GREY, 'stroke-width': 1.2, 'stroke-linecap': 'round' });
+      clock.appendChild(shape('circle', { cx: 6.5, cy: 5.5, r: 4.9 }));
+      clock.appendChild(shape('path', { d: 'M6.5 2.9v2.6l1.8 1.2' }));
+      n.appendChild(clock);
+    } else if (!s.clock && clock) clock.remove();
+    if (s.clock) { first.setAttribute('display', 'none'); second.setAttribute('display', 'none'); } else {
+      first.removeAttribute('display');
+      second.removeAttribute('display');
+    }
     first.setAttribute('stroke', s.blue ? TICK_BLUE : TICK_GREY);
     if (s.two) second.setAttribute('stroke', s.blue ? TICK_BLUE : TICK_GREY); else second.removeAttribute('stroke');
     second.setAttribute('stroke-dasharray', '10');

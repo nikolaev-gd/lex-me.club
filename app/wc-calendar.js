@@ -26,6 +26,7 @@
 //   back                 the arrow of the window (lex-back.js)
 //   signals              the channel of the database's signals (lex-account-events.js)
 //   call(sub, query, body)   the edge function calendar: sub '', '/item', '/people', '/settings'; body — a POST
+//   kept(span)           the copy of the days { from, to } this device kept (lex-reads.js, `calendar`), or null
 //   head(spec)           the head in the bar of the window (wc-app.js paintCalendarHead): { title, nodes } — «Calendar» and
 //                        the section's own nodes; null — the bar as it was. Without it the frame's own bar holds them.
 (function (global) {
@@ -583,23 +584,41 @@
       const want = spanOf(selected);
       if (!force && readSpan && readSpan.from.getTime() === want.from.getTime()) return;
       const mine = ++reading;
+      const span = { from: want.from.toISOString(), to: want.to.toISOString() };
+      const take = (j) => {
+        const events = (Array.isArray(j && j.events) ? j.events : []).map(eventOf).filter((e) => e && !e.twin)
+          .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
+        data = { mode: (j && j.mode) || 'base', version: j && j.version, events };
+        readSpan = want;
+        sampleLine();
+        paint();
+      };
+      // The copy of these days this device kept draws them at once (lex-reads.js, `calendar`), and the update after it is
+      // never a wait (LexBusy.settle); no copy — the grid stands empty in its first frame and the ladder of loading gives
+      // the word of the head at 3 s (lex-skeleton.js; the days themselves are known, no skeleton over them).
+      if (!data && deps.kept) {
+        const c = await deps.kept(span).catch(() => null);
+        if (c && typeof c === 'object' && mine === reading && !data) {
+          take(c);
+          if (frame.isShown() && global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
+        }
+      }
+      const K = global.LexSkeleton;
+      const wait = !data && K ? K.ladder(null, { shown: () => frame.isShown(), empty: () => null }) : null;
       let j;
       try {
-        j = await deps.call('', { from: want.from.toISOString(), to: want.to.toISOString(), alarms: '1' });
+        j = await deps.call('', { from: span.from, to: span.to, alarms: '1' });
       } catch (e) {
+        if (wait) wait.stop();
         // A refusal of the server stands in the status line with its words; a call that did not go says nothing
         // (the screen keeps what it has, the frame tries again on the next signal).
         if (e && e.status) { say(String(e.message || ''), true); return; }
         throw e;
       }
+      if (wait) wait.stop();
       // A later read (another period) was asked meanwhile: its answer is the one the screen shows.
       if (mine !== reading) return;
-      const events = (Array.isArray(j && j.events) ? j.events : []).map(eventOf).filter((e) => e && !e.twin)
-        .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
-      data = { mode: (j && j.mode) || 'base', version: j && j.version, events };
-      readSpan = want;
-      sampleLine();
-      paint();
+      take(j);
       if (!settings) {
         deps.call('/settings').then((s) => { settings = s || {}; }).catch(() => {});
       }

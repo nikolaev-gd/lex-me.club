@@ -153,6 +153,8 @@
       more,
     ]);
     line.dataset.unreadHost = '';
+    // Read ahead on a hover longer than 200 ms (wc-app.js readAhead): the key of its chat.
+    line.dataset.chat = it.id;
     const num = line.querySelector('.lex-section-count');
     if (num && !num.hidden) line.classList.add('has-dot');
     // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside

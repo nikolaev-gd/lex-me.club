@@ -15,8 +15,10 @@
 // adds later — is drawn as it comes, with no change here. Three questions go to the server: the card,
 // the notes, Mute/Delete/Restore.
 //
-//   LexPerson.open({ chatKey, name, call, onGone, io, bare })
+//   LexPerson.open({ chatKey, name, call, kept, onGone, io, bare })
 //     call(body) → Promise<{ card }>, refuses with Error(<words of the server>)
+//     kept(chatKey) → Promise of the answer this device kept (lex-reads.js, `person_card`), or null: the card stands
+//                  from it at once and the server's card takes its place; none — the ladder of loading
 //     io         — the files of the person's chats ({ blob(path) }, fileIo of lex-profi.js): the photo
 //                  the server keeps (`card.photo`) comes through it; none — the letter alone
 //     onGone()   — the sheet closed on a person deleted from Lex: his chat is off the list now
@@ -266,7 +268,7 @@
     // 500 ms, then the skeleton of its lines; never a word of its own.
     const busy = make('div', 'lex-person-wait');
     const S = global.LexSkeleton;
-    const wait = S ? S.ladder(busy, { skeleton: () => S.list(S.settingRow, 4) }) : null;
+    let wait = null;
     sheet = UI.sheet(HOST, 'Contact', [busy], () => {
       if (card && card.deleted && o.onGone) o.onGone(card);
     });
@@ -315,11 +317,24 @@
     }
 
     const shown = (fn) => { if (wait) wait.done(fn); else fn(); };
-    o.call({ op: 'card', chatKey: o.chatKey }).then((r) => {
+    let fromCopy = false;
+    const copy = o.kept ? Promise.resolve(o.kept(o.chatKey)).catch(() => null) : Promise.resolve(null);
+    copy.then((c) => {
+      // The kept card goes on the screen only while the server's has not come; then the ladder is not climbed.
+      if (c && c.card && !card) {
+        card = c.card;
+        fromCopy = true;
+        paint();
+        if (global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
+      } else if (!card && S) wait = S.ladder(busy, { skeleton: () => S.list(S.settingRow, 4) });
+      return o.call({ op: 'card', chatKey: o.chatKey });
+    }).then((r) => {
       if (!r || !r.card) throw new Error('The server of Lex sent no card.');
       card = r.card;
       shown(paint);
     }).catch((e) => {
+      // The kept card stands: the server's word does not take it off the screen.
+      if (fromCopy) { console.warn('[person] the card of', o.chatKey, 'stays from the copy:', e && e.message); return; }
       if (o.bare) {
         console.warn('[person] the card of', o.chatKey, 'did not come:', e && e.message);
         card = { name: o.bare.name || o.name || '', photo: o.bare.photo || null, who: o.bare.who || null, bare: true };

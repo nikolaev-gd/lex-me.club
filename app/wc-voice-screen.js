@@ -56,6 +56,9 @@
   let fadeTimer = null;
   const stopFade = () => { if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; } };
 
+  // «Connecting…» with the common ring before it: the ring of the head of LexBusy (lex-busy.css), in the line.
+  const connecting = () => [el('span.lex-busy-ring.is-inline', { 'aria-hidden': 'true' }), document.createTextNode('Connecting…')];
+
   function build() {
     // Обычный разговор: микрофон открыт, кнопка его закрывает и открывает —
     // нажатие переключает.
@@ -93,7 +96,8 @@
     // (dev-tools/scenarios/cases/webchat-voice.mjs). Строку когда-то убрали
     // вместе с полноэкранным листом, и селектор с тех пор молча возвращал
     // пустоту; теперь диагностика снова показывает настоящее состояние.
-    const status = el('.wc-vs-status', { id: 'wc-voice-status', role: 'status', 'aria-live': 'polite' }, ['Connecting…']);
+    // «Connecting…» stands with the common ring 14 before it (В7.74, 27.11.2026: lex-busy.css, the ring of the head).
+    const status = el('.wc-vs-status', { id: 'wc-voice-status', role: 'status', 'aria-live': 'polite' }, connecting());
 
     nodes = { mic, end, status };
 
@@ -169,7 +173,7 @@
       if (!nodes.status) return;
       stopFade();
       if (!ready) {
-        nodes.status.textContent = 'Connecting…';
+        nodes.status.replaceChildren(...connecting());
         nodes.status.classList.remove('is-gone');
         return;
       }
