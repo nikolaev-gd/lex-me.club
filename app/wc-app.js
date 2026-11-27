@@ -2107,10 +2107,24 @@
       who: document.getElementById('wc-chat-who'),
     };
   }
+  // The one head of the bar (#wc-profi-person) — an order chat's client, the head of New orders, the bot's head — is
+  // painted only here: its nodes, its press and its label go together. A head opens only what its painter gave it
+  // (open); without one it presses nothing, so a head never keeps the card of the client whose chat was open before
+  // it (27.11.2026: the head of New orders opened the card of the last client). nodes null — the head goes.
+  function paintPersonHead(nodes, o) {
+    const { person } = profiEls();
+    const open = (o && o.open) || null;
+    person.onclick = open;
+    person.disabled = !open;
+    if (open) person.setAttribute('aria-label', o.label);
+    else person.removeAttribute('aria-label');
+    if (!(o && o.bot)) delete person.dataset.bot;
+    person.replaceChildren(...(nodes || []));
+    person.hidden = !nodes;
+  }
   function leaveProfiChat() {
-    const { main, person, link, who } = profiEls();
-    person.hidden = true;
-    person.replaceChildren();
+    const { main, link, who } = profiEls();
+    paintPersonHead(null);
     link.replaceChildren();
     who.replaceChildren();
     who.hidden = true;
@@ -2153,18 +2167,13 @@
     });
   }
   // The head of New orders in the bar, where an order chat shows its client (lex-profi.js feedHead):
-  // the mark of Профи.ру, «New orders», «Профи.ру»; null — the bar as it was.
+  // the mark of Профи.ру, «New orders», «Профи.ру»; null — the bar as it was. New orders is no person: its head opens
+  // nothing (Gennady 27.11.2026, «это не контакт человека»).
   function paintProfiHead(nodes) {
-    const { main, person } = profiEls();
+    const { main } = profiEls();
     main.classList.toggle('is-profi-feed', !!nodes);
-    if (nodes) {
-      delete person.dataset.bot;
-      person.replaceChildren(...nodes);
-      person.hidden = false;
-    } else if (!profiChat) {
-      person.replaceChildren();
-      person.hidden = true;
-    }
+    if (nodes) paintPersonHead(nodes);
+    else if (!profiChat) paintPersonHead(null);
   }
   // The head of the bot's service chat in the bar, as an order chat shows its client: the mark of Lex, «Агент Профи» (the
   // line under New orders draws the same, lex-people.js). It presses nothing: the bot has no card. Off — only the bot's
@@ -2179,16 +2188,11 @@
       name.className = 'lex-profi-person-name';
       name.textContent = 'Агент Профи';
       words.appendChild(name);
-      person.replaceChildren(M.avatarBrand(), words);
-      person.onclick = null;
+      paintPersonHead([M.avatarBrand(), words], { bot: true });
       person.dataset.bot = '1';
-      person.hidden = false;
     } else if (person.dataset.bot) {
       delete person.dataset.bot;
-      if (!profiChat && !main.classList.contains('is-profi-feed')) {
-        person.replaceChildren();
-        person.hidden = true;
-      }
+      if (!profiChat && !main.classList.contains('is-profi-feed')) paintPersonHead(null);
     }
   }
   function enterProfiChat(chat) {
@@ -2233,15 +2237,12 @@
   // The bar over an order chat, as in Telegram: the client's letter, name and channel, and the
   // button of the clean view (lex-profi.js bar(); the order on Profi is the title of the card).
   function paintProfiBar() {
-    const { person, link, who } = profiEls();
+    const { link, who } = profiEls();
     if (!profiChat || !profiChat.data) return;
     const bar = profiChat.bar();
-    person.replaceChildren(...bar.person.childNodes);
-    // The photo and the name are one button: the card of the person (lex-person.js, В7.41).
-    person.onclick = bar.open || null;
-    person.disabled = !bar.open;
-    person.setAttribute('aria-label', (bar.who || 'Client') + '. Open the card of the person');
-    person.hidden = false;
+    // The photo and the name are one button: the card of this person (lex-person.js, В7.41).
+    paintPersonHead([...bar.person.childNodes],
+      { open: bar.open || null, label: (bar.who || 'Client') + '. Open the card of the person' });
     link.replaceChildren(...(bar.link ? [bar.link] : []));
     // «Who is this» (В7.52): the words of the database under the buttons of the bar; none — no line and no room.
     who.replaceChildren(...(bar.brief ? [bar.brief] : []));

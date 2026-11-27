@@ -244,8 +244,10 @@ button.lex-profi-person {
   cursor: pointer;
   transition: background-color 120ms ease;
 }
-button.lex-profi-person:hover { background: var(--bg-hover); }
-button.lex-profi-person:active { background: var(--bg-active); }
+button.lex-profi-person:hover:not(:disabled) { background: var(--bg-hover); }
+button.lex-profi-person:active:not(:disabled) { background: var(--bg-active); }
+/* A head that opens nothing (New orders, the bot's chat, a chat without a card) does not look pressable. */
+button.lex-profi-person:disabled { cursor: default; }
 button.lex-profi-person:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; border-radius: 22px; }
 
 @media (prefers-reduced-motion: reduce) {
