@@ -6,7 +6,12 @@
 //
 // The data is one answer of the edge function today (GET /functions/v1/today; its contract —
 // dev-tools/fixtures/today-answer.json): the copy kept on the device draws the first frame, the server's answer takes
-// its place (lex-reads.js, `today`). The blocks follow the signals of the database through the frame of a section
+// its place (lex-reads.js, `today`). The place of the blocks holds from the first showing, and the list under them does not
+// move while they come: nothing known yet (the copy and the answer on their way, or no copy at all) — two empty cards
+// (LexSection.todayPlace) stand at the height of the folded blocks at their fullest; what comes into that place keeps the
+// area at least that high while the main page stays on the screen (`hold`), from the next showing it hugs the cards.
+// Nothing to show once something is known (an answer with no part, a read that failed with no copy) — the held place
+// stands empty while the page is on the screen, and from the next showing there are no blocks. The blocks follow the signals of the database through the frame of a section
 // (LexSection.createFrame: watch, lookNow, the ladder of a failed read), only while the main page is on the screen —
 // no timer. Every part fails on its own: a part the server could not read (null, or named in `failed`) keeps what
 // the screen showed of it; nothing shown yet — that part draws nothing (never «Nothing is waiting» for a part that did
@@ -106,6 +111,8 @@
     let drawn = '';         // the last answer drawn, as text: an equal answer draws nothing again
     let open = false;       // «Show all N» pressed
     let shown = false;
+    let settled = false;    // something is known: a copy or an answer came, or the read failed — the empty place goes
+    let hold = 0;           // the height (px) the empty place stood at, while this showing of the main page lasts
     const textOf = (v) => { try { return JSON.stringify(v); } catch (_) { return null; } };
 
     // ── the lines of «Waiting for you» ────────────────────────────────────────
@@ -189,15 +196,21 @@
 
     function paint() {
       const cards = [];
-      if (active && held) {
+      // What comes into the empty place keeps its height: measured as it stands, before it is taken.
+      if (active && settled && !hold && host.querySelector('.lex-today-place')) hold = host.offsetHeight;
+      if (active && !settled) {
+        const P = S.TODAY_PLACE;
+        cards.push(S.todayPlace(P.waiting), S.todayPlace(P.day));
+      } else if (active && held) {
         const sections = held.sections && typeof held.sections === 'object' ? held.sections : {};
         const now = new Date();
         if (held.waiting) cards.push(waitingCard(held.waiting));
         if (sections.calendar !== false && held.day) cards.push(dayCard(held.day, held.shopping, sections, now));
       }
       host.replaceChildren(...cards);
-      const on = cards.length > 0;
+      const on = cards.length > 0 || (active && hold > 0);
       host.hidden = !on;
+      host.style.minHeight = active && hold > 0 ? `${hold}px` : '';
       if (on !== shown) {
         shown = on;
         if (deps.onShown) deps.onShown(on);
@@ -209,15 +222,22 @@
     function reload() {
       if (reading) return reading;
       reading = Promise.resolve(deps.read((v, isFresh) => {
-        if (!v || typeof v !== 'object') return;
+        const was = settled;
+        if (isFresh) settled = true;
+        if (!v || typeof v !== 'object') { if (!was && settled) paint(); return; }
         // The copy draws the first frame only while the screen holds nothing; the server's answer takes its place.
         if (!isFresh && held) return;
+        settled = true;
         const text = textOf(v);
-        if (isFresh && text !== null && text === drawn) return;
+        if (isFresh && text !== null && text === drawn) { if (!was) paint(); return; }
         held = merge(held, v);
         if (isFresh) drawn = text;
         paint();
-      })).finally(() => { reading = null; });
+      })).catch((e) => {
+        // Nothing came: the empty place goes (what the screen held, if anything, stays).
+        if (!settled) { settled = true; paint(); }
+        throw e;
+      }).finally(() => { reading = null; });
       return reading;
     }
 
@@ -238,6 +258,8 @@
           reload().catch((e) => { console.warn('[today] read:', e && e.message); frame.lookNow(); });
         } else {
           frame.unwatch();
+          // The held height is of one showing: the next one hugs the cards.
+          hold = 0;
           paint();
         }
       },

@@ -53,13 +53,9 @@
 
   const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
-  // The word of a kind of work of the agents, where the base wrote no subject (the contract of 22.11.2026).
-  const KIND_WORDS = {
-    summary: 'Call summary', stitch: 'Calls stitched', deal: 'Deal updated', whois: 'Who is this', digest: 'Morning digest',
-    correction: 'Instruction correction', order: 'Profi.ru order', lex_chat: 'Chat in Lex', chat: 'Task chat',
-    attachment: 'Attachment read',
-  };
-  const actionWords = (x) => (x ? oneLine(x.subject) || KIND_WORDS[x.kind] || '' : '');
+  // The words of an action of an agent: its subject, else the word of its kind (the contract of 22.11.2026) — one file
+  // with the server and the iPhone (supabase/functions/_shared/lex-agent-words.js, a script of index.html before this one).
+  const { KIND_WORDS, actionWords } = global.LexAgentWords;
 
   // What the agent may notify about (В7.60: the menu with notes).
   // The two engines of an agent's session (Gennady's words, 26.11.2026).

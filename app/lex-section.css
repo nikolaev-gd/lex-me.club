@@ -625,6 +625,7 @@ html[data-lex-solo="1"] :is(.lex-corner-lines, .lex-corner-back) { display: none
   background: var(--lex-section-surface, rgba(127, 127, 127, .08));
 }
 .lex-today + .lex-today { margin-top: 12px; }
+.lex-today-place { flex: 0 0 auto; box-sizing: border-box; }
 .lex-today-head { display: flex; align-items: center; gap: 12px; min-height: 44px; box-sizing: border-box; padding: 0 12px; }
 .lex-today-title {
   flex: 1 1 auto;

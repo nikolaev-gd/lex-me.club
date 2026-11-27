@@ -1232,6 +1232,19 @@
     return card;
   }
 
+  // The place of a card of «Today» while nothing is known of it (no copy on the device, the answer on its way): the
+  // ground of the card at the height of the folded card, empty — no word, no «Loading», no motion; the answer takes its
+  // place. Hidden from a reader of the screen. TODAY_PLACE — the heights of the folded cards at their fullest: «Waiting for
+  // you» — the head 44, three lines 68 and «Show all N» 44; «Day» — the head 44, three events 44 and the line of the
+  // shopping list 68. The iPhone: TodayPlace (Parts/TodayCard.swift).
+  const TODAY_PLACE = { waiting: 44 + 3 * 68 + 2 + 44, day: 44 + 3 * 44 + 68 + 2 };
+  function todayPlace(height) {
+    const card = make('div', 'lex-today lex-today-place');
+    card.style.height = `${Math.max(0, Number(height) || 0)}px`;
+    card.setAttribute('aria-hidden', 'true');
+    return card;
+  }
+
   // ── В7.85 the line of the scale of a day ─────────────────────────────────────
   // At least 44 high, the whole line is the button: on the left the column 44 — the time of the start 12 grey, figures of
   // one width; 8 right of it the plate (the plate: --bg-hover, radius 10, 6 10 inside), the title 14/600 in one line. The nearest
@@ -1268,5 +1281,5 @@
     MARKS, markSvg, sectionMark, agentFace, sectionFace, agentState, agentRow, STAGES, stageWords, liveStage,
     groupLabel, orderButton, toggle, settingRow, settingsBlock, kindsList, kindsSummary,
     kindPositions: { POSITIONS: KIND_POSITIONS, positionOf: kindPositionOf, choicesOf: kindChoicesOf, planOf: kindPlanOf },
-    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES, todayCard, dayLine, shoppingLine, TODAY_FOLD };
+    aboutBlock, emptyState, entries, ENTRY_ORDER, ENTRY_TITLES, todayCard, todayPlace, dayLine, shoppingLine, TODAY_FOLD, TODAY_PLACE };
 })(typeof window !== 'undefined' ? window : globalThis);
