@@ -63,6 +63,10 @@
   /* Red with a meaning: an error, ending a voice talk, leaving. The light themes keep their own #D93A3A. */
   --lex-dark-danger:        #FF6B6B;
 
+  /* Green with a meaning: the question mark of an order the bot is not sure of (board «Плашки», 2026-11-27);
+   * 9.1:1 on the base. The light themes keep their own #1A7F45. */
+  --lex-dark-go:            #57C98A;
+
   /* The white action button (send, primary) and what is written on it. */
   --lex-dark-accent:        #EEF1F3;
   --lex-dark-accent-hover:  #FFFFFF;

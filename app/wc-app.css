@@ -68,6 +68,7 @@
   --accent-fg:     #ffffff;
   --accent-hover:  rgba(29, 29, 31, .86);
   --danger:        #d93a3a;
+  --go:            #1a7f45;
   /* «Look here» (lex-palette.css, attention): a question to the person, the unread dot, «Новые».
      On white the yellow of the dark theme does not read, so the light pair is its dark amber
      (4.7:1 on white) on a stronger wash. */
@@ -181,6 +182,7 @@
     --accent-fg:   var(--lex-dark-accent-fg);
     --accent-hover: var(--lex-dark-accent-hover);
     --danger:      #ff6b6b;
+    --go:          var(--lex-dark-go);
     --attention:      var(--lex-dark-attention);
     --attention-wash: var(--lex-dark-attention-wash);
 
@@ -221,6 +223,7 @@
   --accent-fg:   var(--lex-dark-accent-fg);
   --accent-hover: var(--lex-dark-accent-hover);
   --danger:      #ff6b6b;
+  --go:          var(--lex-dark-go);
   --attention:      var(--lex-dark-attention);
   --attention-wash: var(--lex-dark-attention-wash);
 
