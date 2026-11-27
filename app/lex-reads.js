@@ -123,8 +123,6 @@
     'lex_em_intake_today', 'lex_em_intake_question',
     // «Обращения к базе»: how many requests of the last 24 hours, under the title (asked on every new record)
     'lex_em_requests_day',
-    // the whole transcript of a call of an order chat, asked when the person opens it (В7.42)
-    'profi_call_transcript',
     // the chat of a person by his ref, asked at the press on a link of Lex in the question «who is this» (В7.50), never kept
     'folder_chat_by_ref',
     // where the chat of a notification lies now: asked at the tap on the notification of a person not recognized yet, never kept

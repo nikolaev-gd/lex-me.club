@@ -146,7 +146,8 @@
 
   // What the parts need to show the stored files (LexMessage.files): the page fetches a file with the
   // person's pass, and asks the storage for an address of it that lives an hour — to open the file in
-  // a new tab (in the Mac app — in the system browser). The bytes and the addresses are kept for the
+  // a new tab (in the Mac app — in the system browser; `expiresIn` — longer, the recording of a call streams by it 6 hours,
+  // В7.42). The bytes and the addresses are kept for the
   // life of the page. One for the order chats (lex-profi.js) and the chats of Lex (webchat/).
   const FILE_LINK_S = 3600;
   const webIo = (() => {
@@ -174,7 +175,7 @@
       const r = await fetch(`${auth.supabaseUrl()}/storage/v1/object/sign/${objectPath(path)}`, {
         method: 'POST',
         headers: { apikey: auth.anonKey(), Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expiresIn: FILE_LINK_S }),
+        body: JSON.stringify({ expiresIn: o && Number(o.expiresIn) > 0 ? Math.round(Number(o.expiresIn)) : FILE_LINK_S }),
       }).catch(() => null);
       if (!r || !r.ok) return null;
       const j = await r.json().catch(() => null);

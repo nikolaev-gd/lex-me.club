@@ -102,7 +102,7 @@
  * The list of turns carries `lex-bubbles`: the other person on the left, what went to them on
  * the right, a notice of a service and the day line as plates in the middle. The colours are
  * the page's palette (lex-palette.css) in the dark and their light pairs here. */
-.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp, .lex-q, .lex-reply, .lex-ncard {
+.lex-bubbles, .lex-bubble, .lex-notice, .lex-fold, .lex-stamp, .lex-q, .lex-reply, .lex-ncard, .lex-call-card {
   --lex-bubble-in: #F0F0F1;
   --lex-bubble-out: #DCE8FB;
   --lex-bubble-out-meta: rgba(0, 0, 0, .55);
@@ -111,6 +111,8 @@
   --lex-bubble-bot-line: rgba(0, 0, 0, .24);
   --lex-bubble-draft-line: rgba(0, 0, 0, .28);
   --lex-plate: rgba(0, 0, 0, .06);
+  --lex-track: rgba(0, 0, 0, .14);
+  --lex-call-quiet: rgba(0, 0, 0, .06);
   --lex-plate-fg: rgba(0, 0, 0, .62);
   --lex-plain-fg: #1d1d1f;
 }
@@ -118,7 +120,8 @@
   :root:not([data-theme="light"]) .lex-bubbles, :root:not([data-theme="light"]) .lex-bubble,
   :root:not([data-theme="light"]) .lex-notice, :root:not([data-theme="light"]) .lex-fold,
   :root:not([data-theme="light"]) .lex-stamp, :root:not([data-theme="light"]) .lex-q,
-  :root:not([data-theme="light"]) .lex-reply, :root:not([data-theme="light"]) .lex-ncard {
+  :root:not([data-theme="light"]) .lex-reply, :root:not([data-theme="light"]) .lex-ncard,
+  :root:not([data-theme="light"]) .lex-call-card {
     --lex-bubble-in: var(--lex-dark-bubble);
     --lex-bubble-out: var(--lex-dark-bubble-out);
     --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -127,13 +130,15 @@
     --lex-bubble-bot-line: var(--lex-dark-line-strong);
     --lex-bubble-draft-line: var(--lex-dark-line-focus);
     --lex-plate: var(--lex-dark-hover);
+    --lex-track: var(--lex-dark-track);
+    --lex-call-quiet: var(--lex-dark-raised);
     --lex-plate-fg: var(--lex-dark-fg-soft);
     --lex-plain-fg: var(--lex-dark-fg);
   }
 }
 :root[data-theme="dark"] .lex-bubbles, :root[data-theme="dark"] .lex-bubble, :root[data-theme="dark"] .lex-notice,
 :root[data-theme="dark"] .lex-fold, :root[data-theme="dark"] .lex-stamp, :root[data-theme="dark"] .lex-q,
-:root[data-theme="dark"] .lex-reply, :root[data-theme="dark"] .lex-ncard {
+:root[data-theme="dark"] .lex-reply, :root[data-theme="dark"] .lex-ncard, :root[data-theme="dark"] .lex-call-card {
   --lex-bubble-in: var(--lex-dark-bubble);
   --lex-bubble-out: var(--lex-dark-bubble-out);
   --lex-bubble-out-meta: var(--lex-dark-bubble-out-meta);
@@ -142,6 +147,8 @@
   --lex-bubble-bot-line: var(--lex-dark-line-strong);
     --lex-bubble-draft-line: var(--lex-dark-line-focus);
   --lex-plate: var(--lex-dark-hover);
+  --lex-track: var(--lex-dark-track);
+  --lex-call-quiet: var(--lex-dark-raised);
   --lex-plate-fg: var(--lex-dark-fg-soft);
   --lex-plain-fg: var(--lex-dark-fg);
 }
@@ -262,23 +269,24 @@
 /* The speed of the sound, right of the time: a zone of 44 (В5) that stands 4 past its neighbours on each
    side, a pill 24 high inside — radius 12, 0 8 inside, 12/650 in figures of one width. The same tokens in
    a bubble that went to the client. Under the cursor, pressed or with its menu open — --bg-active. */
-.lex-bubble .lex-voice-speed {
+.lex-bubble .lex-voice-speed, .lex-call-card .lex-voice-speed {
   -webkit-appearance: none; appearance: none;
   flex: none; display: grid; place-items: center; min-width: 44px; height: 44px; margin: 0 -4px; padding: 0;
   border: 0; background: transparent; color: var(--fg, var(--lex-plain-fg)); font: inherit; cursor: pointer;
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: manipulation;
 }
-.lex-bubble .lex-voice-speed-pill {
+.lex-bubble .lex-voice-speed-pill, .lex-call-card .lex-voice-speed-pill {
   display: block; box-sizing: border-box; height: 24px; padding: 0 8px; border-radius: 12px;
   background: var(--lex-plate);
   font-size: 12px; font-weight: 650; line-height: 24px; font-variant-numeric: tabular-nums; white-space: nowrap;
   transition: background-color 120ms ease;
 }
 .lex-bubble .lex-voice-speed:hover .lex-voice-speed-pill, .lex-bubble .lex-voice-speed:active .lex-voice-speed-pill,
-.lex-bubble .lex-voice-speed:focus-visible .lex-voice-speed-pill, .lex-bubble .lex-voice-speed.is-open .lex-voice-speed-pill {
+.lex-bubble .lex-voice-speed:focus-visible .lex-voice-speed-pill, .lex-bubble .lex-voice-speed.is-open .lex-voice-speed-pill,
+.lex-call-card .lex-voice-speed:hover .lex-voice-speed-pill, .lex-call-card .lex-voice-speed.is-open .lex-voice-speed-pill {
   background: var(--bg-active, var(--lex-plate));
 }
-.lex-bubble .lex-voice-speed:focus-visible { outline: none; }
+.lex-bubble .lex-voice-speed:focus-visible, .lex-call-card .lex-voice-speed:focus-visible { outline: none; }
 /* A video: a dark tile with the play button and its length; pressed — the player in its place. */
 .lex-bubble .lex-video {
   position: relative; display: grid; place-items: center; overflow: hidden;
@@ -444,35 +452,54 @@
 .lex-notice .lex-channel-name { font-weight: 650; }
 .lex-notice a { color: inherit; text-decoration: underline; }
 
-/* A call in a chat (В7.42; an ordinary message since 24.11.2026): a bubble of the other person (the lane, the tail, the
- * stamp are any message's). The words are the short summary at the size of the conversation, folded as any long text
- * (Read more, В7.82): «Read more» at the end of its words opens the whole call in place. The line under the words is
- * the stamp: the mark of the place, «Zoom call», «·», the time. Open: the words whole; under a line the detailed
- * summary (titles 15/650, items with a dot), under a line the transcript (time 12, the name 12/600, the words 15),
- * «Show the whole transcript» — a word as «Read more» is, 8 over it — and «Read less» at the end. While there is no
- * summary — a ring and «Lex is writing the summary…». */
-.lex-bubble.lex-call .lex-call-body { white-space: normal; }
-.lex-call-meta { font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-.lex-call-short { white-space: pre-wrap; }
-.lex-call-wait { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
-.lex-call-all-tr { margin-top: 8px; }
-.lex-call-tail { margin-top: 8px; }
-.lex-call-tail:empty { display: none; }
-.lex-call-rule { height: 1px; margin: 12px -12px 0; background: var(--line); }
-.lex-call-rule.is-tr { margin-top: 14px; }
+/* A call in a chat (В7.42; its own card since 27.11.2026): not a bubble — a card over the whole lane of the chat, on
+ * --bg-surface, radius 18, a rim 1 of --line inside, 16 inside; no line of the time. The head in one row through 12:
+ * the play button 44 (a circle of --fg, the triangle of --bg), «Call with <name>» 15/650 cut by an ellipsis, under it
+ * 13 --fg-muted: the place in its colour, « · today 18:00»; at the right 13 --fg-muted in figures of one width — the
+ * length, playing «8:12 / 32:14» — and the speed of the voice messages. The line of the sound 16 under it over the
+ * whole width: 6 high, radius 3, --lex-track, the played part --fg, a knob 14 while it plays; its zone is 44 high. The
+ * short summary 14 under it 15/20, «Read more» on a line of its own 2 under it; open — a line from edge to edge, the
+ * sections, «Read less» 8 under them. No recording — a quiet circle with a receiver, no line, «32 min». */
+.lex-call-card {
+  box-sizing: border-box; width: 100%; margin: 8px 0; padding: 16px; border-radius: 18px;
+  background: var(--bg-surface, var(--lex-bubble-in)); box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--fg, var(--lex-plain-fg)); font-size: 15px; line-height: 20px; white-space: normal;
+}
+.lex-call-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.lex-call-play, .lex-call-quiet {
+  -webkit-appearance: none; appearance: none;
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+}
+.lex-call-play { background: var(--fg, var(--lex-plain-fg)); color: var(--bg, var(--lex-bubble-in)); cursor: pointer; }
+.lex-call-play svg { stroke: none; }
+.lex-call-play:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; }
+.lex-call-card.is-failed .lex-call-play { opacity: .35; }
+.lex-call-quiet { background: var(--lex-call-quiet); color: var(--fg-soft, var(--lex-plate-fg)); }
+.lex-call-quiet svg { stroke: currentColor; }
+.lex-call-who { flex: 1 1 auto; min-width: 0; }
+.lex-call-name { font-size: 15px; line-height: 20px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lex-call-sub { font-size: 13px; line-height: 18px; color: var(--fg-muted); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lex-call-sub .lex-channel-name { font-weight: 650; }
+.lex-call-len { flex: none; font-size: 13px; line-height: 18px; color: var(--fg-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.lex-call-head .lex-voice-speed[hidden] { display: none; }
+.lex-call-track { position: relative; height: 44px; margin: -3px 0 -19px; cursor: pointer; touch-action: none; }
+.lex-call-track:focus-visible { outline: 2px solid var(--line-strong); outline-offset: -12px; border-radius: 8px; }
+.lex-call-line { position: absolute; left: 0; right: 0; top: 19px; height: 6px; border-radius: 3px; background: var(--lex-track); }
+.lex-call-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px; background: var(--fg, var(--lex-plain-fg)); }
+.lex-call-knob { position: absolute; top: 50%; left: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--fg, var(--lex-plain-fg)); }
+.lex-call-knob[hidden] { display: none; }
+.lex-call-short { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lex-call-short.is-failed { color: var(--fg-muted); }
+.lex-call-wait { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
+.lex-call-details[hidden] { display: none; }
+.lex-call-more { margin-top: 2px; }
+.lex-call-more.is-open { margin-top: 8px; }
+.lex-call-rule { height: 1px; margin: 12px -16px 0; background: var(--line); }
 .lex-call-sec { margin-top: 14px; font-size: 15px; font-weight: 650; line-height: 20px; }
-.lex-call-sec.is-tr { margin-top: 12px; }
 .lex-call-item { display: flex; gap: 8px; margin-top: 4px; }
 .lex-call-dot { flex: 0 0 auto; color: var(--fg-muted); }
 .lex-call-text { margin-top: 4px; white-space: pre-wrap; }
-.lex-call-tr { margin-top: 8px; }
-.lex-call-tr-head { display: flex; gap: 6px; font-size: 12px; line-height: 16px; color: var(--fg-muted); }
-.lex-call-tr-time { font-variant-numeric: tabular-nums; }
-.lex-call-tr-who { font-weight: 600; color: var(--fg-soft, var(--lex-plate-fg)); }
-.lex-call-tr-text { font-size: 15px; line-height: 20px; white-space: pre-wrap; }
-@media (prefers-reduced-motion: reduce) {
-  .lex-call-ring { animation: none; }
-}
 
 /* What is kept off the screen: one line in the middle, its action brighter. */
 .lex-fold {
@@ -1590,39 +1617,32 @@ a.lex-order-title:hover { text-decoration: underline; }
 .lex-branch-label-input { flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--lex-bubble-in); color: var(--fg); font: inherit; }
 .lex-branch-label-note { flex: 1 1 100%; color: var(--danger); font-size: 13px; }
 
-/* ── Read more (В7.82, 25.11.2026) ──────────────────────────────────────────────
- * A long text folded as in WhatsApp: its first lines (8 in a message, 3 in the line «who is this» — FOLD_LINES of
- * lex-message.js), the words of the last line wrap round «… Read more» at its end: the dots in the colour of the
- * text, the word 650 in the second colour that reads at once. Open — «Read less» after the last word. The word is no
- * button to look at (no ground, no frame): a word of the text that presses, its zone 44 round it unseen. It is never
- * selected with the words, nor copied with them. */
-.lex-more { display: flex; min-width: 0; }
-.lex-more-text { flex: 1 1 auto; min-width: 0; }
-.lex-more.is-folded > .lex-more-text {
-  max-height: var(--lex-more-max, calc(var(--lex-more-lines, 8) * var(--lex-more-lh, 20px)));
-  /* Cut below only: a line across the bubble (the digest's hairline) keeps its width. */
-  overflow: hidden;
-  overflow-x: visible; overflow-y: clip;
-  display: flow-root;
-}
-.lex-more.is-folded > .lex-more-text::before {
-  content: ''; float: right; width: 0; height: calc(100% - var(--lex-more-lh, 20px));
-}
+/* ── Read more (В7.82; the look of 27.11.2026) ───────────────────────────────────
+ * A long text folded as in WhatsApp, by characters (FOLD_CHARS of lex-message.js): the first 800 cut at the end of a
+ * word and «…» in the colour of the text; the line «who is this» — three lines and «…». The word «Read more», open —
+ * «Read less» in the same place: 650 in --attention, the size of its text, no ground, no frame; its zone 44 round it is
+ * unseen. In a bubble it stands on the line of the time at the left, on one line of letters with the stamp, 2 under the
+ * text, the reactions after it through 8 (.lex-bubble-foot.has-more); elsewhere on a line of its own 2 under the text.
+ * It is never selected with the words, nor copied with them. */
+.lex-more { min-width: 0; }
+.lex-more-text { min-width: 0; }
+.lex-more-row { margin-top: 2px; }
 .lex-more-btn {
   -webkit-appearance: none; appearance: none;
-  position: relative; margin: 0; padding: 0; border: 0; background: none;
-  font: inherit; font-weight: 650; line-height: inherit; white-space: nowrap;
-  color: var(--fg-soft, var(--lex-plate-fg)); cursor: pointer;
+  position: relative; display: inline-block; margin: 0; padding: 0; border: 0; background: none;
+  font: inherit; font-weight: 650; color: var(--attention, #f2c14b); cursor: pointer; text-align: left;
   -webkit-user-select: none; user-select: none;
 }
+.lex-more-btn[hidden] { display: none; }
 /* The hit area 44; a word that waits (`.is-lex-late-busy`, disabled) gives its ::after to the common ring (lex-busy.css). */
 .lex-more-btn:not(.is-lex-late-busy)::after { content: ''; position: absolute; inset: -12px -6px; }
 .lex-more-btn:hover { text-decoration: underline; }
 .lex-more-btn:focus-visible { outline: 2px solid var(--line-strong); outline-offset: 2px; border-radius: 4px; }
-.lex-more-btn:disabled { opacity: .5; cursor: default; text-decoration: none; }
-.lex-more.is-folded .lex-more-btn { float: right; clear: both; margin-left: 4px; line-height: var(--lex-more-lh, 20px); }
-.lex-more.is-folded .lex-more-btn::after { inset: -12px -6px 0; }
-.lex-more-dots { font-weight: 400; color: var(--fg, var(--lex-plain-fg)); }
-.lex-bubble.is-out .lex-more-btn { color: var(--lex-bubble-out-meta); }
+.lex-more-dots { font-weight: 400; color: var(--fg, var(--lex-plain-fg)); -webkit-user-select: none; user-select: none; }
+.lex-more.is-bar.is-folded > .lex-more-text > * {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
 .lex-brief .lex-more-dots { color: inherit; }
-.lex-brief .lex-more-btn { color: var(--fg-soft, var(--lex-plate-fg)); }
+.lex-bubble-foot.has-more { align-items: flex-end; align-items: last baseline; margin-top: 2px; }
+.lex-bubble-foot-start { display: flex; flex-wrap: wrap; align-items: center; align-items: last baseline; gap: 8px; min-width: 0; }
+.lex-bubble-foot.has-more .lex-more-btn { font-size: 15px; line-height: 20px; }

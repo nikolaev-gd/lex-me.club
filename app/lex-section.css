@@ -186,7 +186,7 @@
 /* What the agent «Кто это» waits for in the chat (В7.54): «Lex:» before the headline of its word, as «Agent:» stands; in
    the colour of attention when it waits for a word of Gennady, in the colour of the words for an attach done by itself. */
 .lex-section .lex-section-row-lex { color: var(--lex-section-fg, var(--fg, #1d1d1f)); }
-.lex-section .lex-section-row-lex.is-ask { color: var(--attention, #9a6a00); }
+.lex-section .lex-section-row-lex.is-ask { color: var(--attention, #8a5f00); }
 /* The draft of a chat (lex-drafts.js), in every list of chats of the page — the sections and Chats: «Draft:»
    in the red of errors, as in Telegram; the words keep the grey of the sub line. Not under .lex-section: the
    list Chats of the side panel has the same slot (LexSection.draft). */
@@ -375,7 +375,7 @@
 .lex-astate { display: inline; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
 .lex-astate.is-working { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
 .lex-astate .lex-astate-stage { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--lex-section-soft, inherit); }
-.lex-astate .lex-astate-word.is-wait { color: var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-astate .lex-astate-word.is-wait { color: var(--lex-section-attention, var(--attention, #8a5f00)); }
 .lex-astate .lex-astate-word.is-paused { color: var(--lex-section-faint, rgba(127, 127, 127, .8)); }
 .lex-astate .lex-astate-word.is-failed { color: var(--lex-section-danger, #d93a3a); }
 .lex-section .lex-section-row.is-paused { opacity: .6; }
@@ -449,7 +449,7 @@
   transition: background-color 120ms ease;
 }
 .lex-setting-menu:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
-.lex-setting-menu.is-attention > .lex-setting-value-words { color: var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-setting-menu.is-attention > .lex-setting-value-words { color: var(--lex-section-attention, var(--attention, #8a5f00)); }
 .lex-setting-menu.is-faint > .lex-setting-value-words { color: var(--lex-section-faint, rgba(127, 127, 127, .8)); }
 .lex-setting-menu .lex-mark, .lex-setting-value .lex-mark { width: 16px; height: 16px; stroke-width: 2; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }
 
@@ -721,8 +721,8 @@ html[data-lex-solo="1"] :is(.lex-corner-lines, .lex-corner-back) { display: none
   transition: background-color 120ms ease;
 }
 .lex-dayline:hover .lex-dayline-plate { background: var(--lex-section-active, rgba(127, 127, 127, .2)); }
-.lex-dayline.is-now .lex-dayline-time { color: var(--lex-section-attention, var(--attention, #9a6a00)); font-weight: 600; }
+.lex-dayline.is-now .lex-dayline-time { color: var(--lex-section-attention, var(--attention, #8a5f00)); font-weight: 600; }
 .lex-dayline.is-now .lex-dayline-plate { background: var(--lex-section-attention-wash, rgba(242, 193, 75, .18)); }
-.lex-dayline.is-now:hover .lex-dayline-plate { box-shadow: inset 0 0 0 1px var(--lex-section-attention, var(--attention, #9a6a00)); }
+.lex-dayline.is-now:hover .lex-dayline-plate { box-shadow: inset 0 0 0 1px var(--lex-section-attention, var(--attention, #8a5f00)); }
 .lex-dayline:focus-visible { outline: none; }
 .lex-dayline:focus-visible .lex-dayline-plate { box-shadow: inset 0 0 0 2px var(--lex-section-line-strong, rgba(127, 127, 127, .5)); }

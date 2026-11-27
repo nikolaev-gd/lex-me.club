@@ -906,9 +906,6 @@
     };
     // Who said a message, for the line of a reply: the client by his first name, mine «You».
     const replyHead = (q) => `Reply to ${q.who === 'client' ? (firstName(q.name) || 'the client') : global.LexMessage.quoteName(q)}`;
-    // The calls the person opened, and their whole transcripts once loaded, while the chat is open: a repaint of the
-    // chat keeps a call open (В7.42).
-    const calls = new Map();
     // A chat with the clean view: an order chat, a chat of a person or a group; a task chat of an agent has none.
     const cleanable = () => !folder || !!(data && (data.kind === 'person' || data.kind === 'group'));
     // The view the server says with a reading of the chat (`view`): taken unless a word of this screen is on its way.
@@ -1555,10 +1552,11 @@
         }));
       },
 
-      // A call with the client (В7.42, profi_calls.sql): the block with its summaries at the time of the call, or a
-      // plate for a missed call and a call without a recording (В7.3). Its view rides in the turn ({kind: 'call'});
-      // the whole transcript comes from the server when the person asks for it. It is the conversation with the
-      // client, so the clean view keeps it (lex-profi-msg).
+      // A call with the client (В7.42, profi_calls.sql): its own card over the whole lane — the recording (`call.audio`,
+      // streamed by its link), the line of the sound, the short summary and «Read more» to the detailed one — or a plate
+      // for a missed call and a call without a recording (В7.3). Its view rides in the turn ({kind: 'call'}); no
+      // transcript is asked for. The one place a call is drawn on the page: the order chat, the chat of a person and of
+      // a group. It is the conversation with the client, so the clean view keeps it (lex-profi-msg).
       callNode(t) {
         const M = global.LexMessage;
         const v = ((Array.isArray(t.attachments) ? t.attachments : []).find((a) => a && a.kind === 'call') || {}).call || {};
@@ -1566,47 +1564,25 @@
         if (t.uid) root.dataset.uid = String(t.uid);
         if (t.authoredAt) root.dataset.at = t.authoredAt;
         const ch = M.CHANNELS[v.channel] ? v.channel : null;
-        // The call stands at its start, but the message comes when the call is over: its stamp says the end.
-        const start = Date.parse(v.at || t.authoredAt || '');
-        const at = v.seconds > 0 && start ? new Date(start + v.seconds * 1000).toISOString() : (v.at || t.authoredAt);
+        const who = firstName(data && data.client);
         if (v.kind && v.kind !== 'call') {
+          // The call stands at its start, but the plate comes when the call is over: its time says the end.
+          const start = Date.parse(v.at || t.authoredAt || '');
+          const at = v.seconds > 0 && start ? new Date(start + v.seconds * 1000).toISOString() : (v.at || t.authoredAt);
           root.classList.add('is-notice');
-          const who = firstName(data && data.client) || 'the client';
-          const text = v.kind === 'missed' ? `Missed call from ${who}`
-            : v.kind === 'noanswer' ? `Call to ${who}, no answer`
+          const name = who || 'the client';
+          const text = v.kind === 'missed' ? `Missed call from ${name}`
+            : v.kind === 'noanswer' ? `Call to ${name}, no answer`
             : v.kind === 'unrecorded' ? `Call, ${M.callLength(v.seconds)}, not recorded`
-            : v.direction === 'out' ? `Call to ${who}` : `Call from ${who}`;
+            : v.direction === 'out' ? `Call to ${name}` : `Call from ${name}`;
           root.appendChild(M.notice({ channel: ch, text, at }));
           return root;
         }
-        const key = String(v.key || '');
-        const st = calls.get(key) || { open: false, all: false, lines: null, loading: false };
-        calls.set(key, st);
-        const paint = () => root.replaceChildren(M.call({
-          channel: ch, at, seconds: v.seconds, state: v.state, short: v.short, sections: v.sections, lines: v.lines,
-          head: v.head, transcript: st.lines, open: st.open, all: st.all, loading: st.loading,
-          onToggle: (open) => {
-            st.open = open;
-            if (!open) st.all = false;
-            paint();
-          },
-          onAll: async () => {
-            if (!st.lines) {
-              st.loading = true;
-              paint();
-              try {
-                const r = await deps.rpc('profi_call_transcript', { p_order: deps.order, p_key: key });
-                st.lines = Array.isArray(r) ? r : null;
-              } catch (_) {
-                st.lines = null;
-              }
-              st.loading = false;
-            }
-            if (st.lines && st.lines.length) st.all = true;
-            paint();
-          },
+        root.appendChild(M.call({
+          key: String(v.key || t.uid || ''), channel: ch, at: v.at || t.authoredAt, seconds: v.seconds,
+          name: who, full: (data && data.client) || '', state: v.state, short: v.short, sections: v.sections,
+          audio: v.audio && typeof v.audio === 'object' ? v.audio : null, io: fileIo,
         }));
-        paint();
         return root;
       },
 

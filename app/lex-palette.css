@@ -47,6 +47,7 @@
   --lex-dark-line:          rgba(255, 255, 255, .10);  /* dividers and frames */
   --lex-dark-line-strong:   rgba(255, 255, 255, .20);  /* frames of controls */
   --lex-dark-line-focus:    rgba(255, 255, 255, .32);  /* frame of fields and of the focused message box */
+  --lex-dark-track:         rgba(255, 255, 255, .18);  /* the line of the sound of a call, under its played part (В7.42) */
 
   /* Text and icons. */
   --lex-dark-fg:            #EEF1F3;  /* main text */

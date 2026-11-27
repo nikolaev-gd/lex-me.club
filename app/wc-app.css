@@ -71,8 +71,8 @@
   --go:            #1a7f45;
   /* «Look here» (lex-palette.css, attention): a question to the person, the unread dot, «Новые».
      On white the yellow of the dark theme does not read, so the light pair is its dark amber
-     (4.7:1 on white) on a stronger wash. */
-  --attention:      #9a6a00;
+     (#8a5f00 since 27.11.2026: 5.7:1 on white, 4.6:1 on the blue bubble of what went out) on a stronger wash. */
+  --attention:      #8a5f00;
   --attention-wash: rgba(242, 193, 75, .18);
 
   /* Account circle — a wash inside a ring, never a filled disc. */

@@ -697,7 +697,19 @@
     // Copy of a message (В7.22): inside, top right; the text flows round it.
     if (corner && !o.quote) body.prepend(corner);
     if (!o.media || (body.textContent || '').trim()) root.appendChild(body);
-    if (o.reactions) {
+    // A folded text (Read more, В7.82): its word stands on the line of the time, at the left, the reactions after it
+    // through 8; the stamp stays at the right, on the last line when the reactions wrap.
+    const more = body.lexMore;
+    if (more && more.over && o.stamp) {
+      const row = more.btn.parentNode;
+      const foot = make('div', 'lex-bubble-foot has-more');
+      const start = make('div', 'lex-bubble-foot-start');
+      start.appendChild(more.btn);
+      if (o.reactions) start.appendChild(o.reactions);
+      if (row && row !== start) row.remove();
+      foot.append(start, o.stamp);
+      root.appendChild(foot);
+    } else if (o.reactions) {
       const foot = make('div', 'lex-bubble-foot');
       foot.appendChild(o.reactions);
       if (o.stamp) foot.appendChild(o.stamp);
@@ -1000,9 +1012,6 @@
     return n;
   }
 
-  // One voice message plays at a time, as in a messenger.
-  let playing = null;
-
   // ── The speed of a voice message (В7.21) ──
   // One speed for every voice message and audio on this device: the browser keeps it (the Mac app
   // shows this page and keeps it the same way), so it stays after a restart and a new voice message
@@ -1044,7 +1053,7 @@
   function paintSpeed() {
     const s = voiceSpeed();
     for (const b of document.querySelectorAll('.lex-voice-speed')) showSpeed(b, s);
-    if (playing) playAt(playing, s);
+    sound.speedNow(s);
   }
   function setVoiceSpeed(s) {
     if (!SPEEDS.includes(s)) return;
@@ -1094,62 +1103,156 @@
     return b;
   }
 
+  // ── The one sound of the page (В7.21, В7.42) ───────────────────────────────
+  // One sound plays at a time on the whole page, as in a messenger: a voice message, an audio, the recording of a call.
+  // It lives here, by the path of its file, not in the row that shows it: a chat draws its rows again (an order chat
+  // every few seconds, a call at every press of «Read more»), and a new row of the same file shows the same sound —
+  // playing, where it is, at its speed. A voice message is fetched whole (`io.blob`); the recording of a call (30–60
+  // minutes) streams by a signed link (`io.link`, 6 hours): it starts at once and a press on its line moves it without
+  // fetching what lies before. A stream that fails (its link ran out, the network went) takes a new link and goes on
+  // from the same place, twice at most. A stream another sound paused keeps its place and goes on from it; a voice
+  // message starts again from its beginning, as before.
+  //   sound.state(path)                → { mine, playing, loading, waiting, failed, time, total }
+  //   sound.toggle(f, io, { stream })  — play or pause
+  //   sound.seek(f, io, share, { stream }) — to that share of the sound; not playing yet — it starts there
+  //   sound.watch(root, paint)         — paint() at every change while root stands in the page
+  const STREAM_S = 6 * 3600;
+  const sound = (() => {
+    let cur = null;
+    const kept = new Map();
+    const watchers = new Set();
+    const emit = () => {
+      for (const w of watchers) {
+        if (w.root.isConnected) { w.seen = true; w.paint(); } else if (w.seen) watchers.delete(w);
+      }
+    };
+    const total = (f) => {
+      const a = cur && cur.path === f.path ? cur.audio : null;
+      if (a && Number.isFinite(a.duration) && a.duration > 0) return a.duration;
+      return Number(f.duration) > 0 ? Number(f.duration) : 0;
+    };
+    function state(f) {
+      if (!cur || cur.path !== f.path) {
+        return { mine: false, playing: false, loading: false, waiting: false, failed: false, time: kept.get(f.path) || 0, total: total(f) };
+      }
+      const a = cur.audio;
+      return {
+        mine: true, playing: !!a && !a.paused, loading: !a && !cur.failed, waiting: !!a && !a.paused && cur.waiting,
+        failed: !!cur.failed, time: a ? a.currentTime || cur.at || 0 : cur.at || 0, total: total(f),
+      };
+    }
+    function release() {
+      if (!cur) return;
+      const a = cur.audio;
+      if (a) {
+        if (cur.stream && a.currentTime > 0 && !a.ended) kept.set(cur.path, a.currentTime); else kept.delete(cur.path);
+        a.pause();
+        a.removeAttribute('src');
+        try { a.load(); } catch (_) { /* nothing to stop */ }
+      }
+      cur = null;
+    }
+    async function source(c) {
+      if (c.stream) return c.io && typeof c.io.link === 'function' ? c.io.link(c.path, { expiresIn: STREAM_S }) : null;
+      return c.io && typeof c.io.blob === 'function' ? c.io.blob(c.path) : null;
+    }
+    function open(f, io, o, at) {
+      release();
+      const c = { path: f.path, f, io, stream: !!(o && o.stream), audio: null, at: at || 0, failed: false, waiting: false, tries: 0 };
+      cur = c;
+      emit();
+      Promise.resolve(source(c)).then((url) => {
+        if (cur !== c) return;
+        if (!url) { c.failed = true; emit(); return; }
+        const a = new Audio();
+        a.preload = 'auto';
+        c.audio = a;
+        const on = (name, fn) => a.addEventListener(name, (e) => { if (cur === c) fn(e); });
+        on('play', emit);
+        on('pause', emit);
+        on('timeupdate', emit);
+        on('loadedmetadata', emit);
+        on('waiting', () => { c.waiting = true; emit(); });
+        on('playing', () => { c.waiting = false; emit(); });
+        on('ended', () => { kept.delete(c.path); release(); emit(); });
+        on('error', () => {
+          // A stream gets a new link and goes on where it was; a file the page cannot play stops.
+          if (!c.stream || c.tries >= 2) { c.failed = true; c.audio = null; emit(); return; }
+          c.tries += 1;
+          const from = a.currentTime || c.at;
+          Promise.resolve(source(c)).then((u) => {
+            if (cur !== c) return;
+            if (!u) { c.failed = true; emit(); return; }
+            c.at = from;
+            a.src = u;
+            start(c);
+          });
+        });
+        a.src = url;
+        start(c);
+      }, () => { if (cur === c) { c.failed = true; emit(); } });
+    }
+    function start(c) {
+      const a = c.audio;
+      if (c.at > 0) {
+        const go = () => { try { a.currentTime = c.at; } catch (_) { /* not seekable yet */ } };
+        if (a.readyState >= 1) go(); else a.addEventListener('loadedmetadata', go, { once: true });
+      }
+      playAt(a, voiceSpeed());
+      a.play().catch(() => emit());
+    }
+    function toggle(f, io, o) {
+      if (cur && cur.path === f.path) {
+        if (cur.audio) { if (cur.audio.paused) { playAt(cur.audio, voiceSpeed()); cur.audio.play().catch(() => emit()); } else cur.audio.pause(); return; }
+        if (!cur.failed) return;
+      }
+      open(f, io, o, o && o.stream ? kept.get(f.path) || 0 : 0);
+    }
+    function seek(f, io, share, o) {
+      const s = Math.max(0, Math.min(1, share));
+      if (cur && cur.path === f.path && cur.audio) {
+        const t = total(f);
+        if (t > 0) { cur.audio.currentTime = s * t; emit(); }
+        return;
+      }
+      open(f, io, o, s * (Number(f.duration) || 0));
+    }
+    function watch(root, paint) { watchers.add({ root, paint, seen: false }); }
+    function speedNow(s) { if (cur && cur.audio) playAt(cur.audio, s); }
+    return { state, toggle, seek, watch, speedNow };
+  })();
+
   function voice(f, io) {
     const root = make('div', 'lex-voice');
     const btn = make('button', 'lex-voice-play');
     btn.type = 'button';
-    btn.setAttribute('aria-label', 'Play the voice message');
-    btn.appendChild(playIcon(PLAY, 18));
     const track = make('div', 'lex-voice-track');
     const fill = make('div', 'lex-voice-fill');
     track.appendChild(fill);
     const time = make('span', 'lex-voice-time', durationText(f.duration));
     root.append(btn, track, time, speedButton());
-    let audio = null;
-    let loading = false;
-    const show = (on) => {
-      btn.replaceChildren(playIcon(on ? PAUSE : PLAY, 18));
-      btn.setAttribute('aria-label', on ? 'Pause' : 'Play the voice message');
-      root.classList.toggle('is-playing', on);
-    };
-    const tick = () => {
-      if (!audio) return;
-      const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : Number(f.duration) || 0;
-      fill.style.width = total > 0 ? `${Math.min(100, (audio.currentTime / total) * 100)}%` : '0%';
-      time.textContent = durationText(audio.currentTime > 0 ? audio.currentTime : f.duration);
-    };
-    const start = () => {
-      if (playing && playing !== audio) playing.pause();
-      playing = audio;
-      playAt(audio, voiceSpeed());
-      audio.play().catch(() => show(false));
-    };
-    btn.addEventListener('click', () => {
-      if (audio) {
-        if (audio.paused) start(); else audio.pause();
-        return;
+    let shown = null;
+    const paint = () => {
+      const s = sound.state(f);
+      if (shown !== s.playing) {
+        shown = s.playing;
+        btn.replaceChildren(playIcon(s.playing ? PAUSE : PLAY, 18));
+        btn.setAttribute('aria-label', s.playing ? 'Pause' : 'Play the voice message');
       }
-      if (loading || !io || typeof io.blob !== 'function') return;
-      loading = true;
-      root.classList.add('is-loading');
-      Promise.resolve(io.blob(f.path)).then((url) => {
-        loading = false;
-        root.classList.remove('is-loading');
-        if (!url) { root.classList.add('is-failed'); return; }
-        audio = new Audio(url);
-        audio.addEventListener('play', () => show(true));
-        audio.addEventListener('pause', () => show(false));
-        audio.addEventListener('timeupdate', tick);
-        audio.addEventListener('ended', () => { show(false); fill.style.width = '0%'; time.textContent = durationText(f.duration); });
-        start();
-      }, () => { loading = false; root.classList.remove('is-loading'); root.classList.add('is-failed'); });
-    });
+      root.classList.toggle('is-playing', s.playing);
+      root.classList.toggle('is-loading', s.loading);
+      root.classList.toggle('is-failed', s.failed);
+      fill.style.width = s.mine && s.total > 0 ? `${Math.min(100, (s.time / s.total) * 100)}%` : '0%';
+      time.textContent = durationText(s.mine && s.time > 0 ? s.time : f.duration);
+    };
+    paint();
+    sound.watch(root, paint);
+    btn.addEventListener('click', () => { if (f.path) sound.toggle(f, io); });
     // A press on the line moves the sound to that place.
     track.addEventListener('click', (e) => {
-      if (!audio || !Number.isFinite(audio.duration)) return;
+      if (!sound.state(f).mine) return;
       const r = track.getBoundingClientRect();
-      if (r.width > 0) audio.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * audio.duration;
-      tick();
+      if (r.width > 0) sound.seek(f, io, (e.clientX - r.left) / r.width);
     });
     return root;
   }
@@ -1326,123 +1429,175 @@
     return fold({ text: `Discussion with Lex · ${n}`, action: o && o.shown ? 'Hide' : 'Show', onClick: o && o.onClick });
   }
 
-  // ── Read more (В7.82, 25.11.2026) ───────────────────────────────────────────
-  // A long text stands folded, as in WhatsApp (docs/PLAN-CHAT-UNIFY.md, «Read more»): the first lines, and «… Read more»
-  // as a word at the end of the last of them; a press shows it whole, «Read less» at its end folds it back. How many
-  // lines — only here (FOLD_LINES): the text of a message, 8; the line «who is this» in the bar over a chat, 3 (the bar
-  // stays low). The same numbers on the iPhone: `LexReadMore.lines` (Parts/ReadMore.swift).
-  //   readMore(body, { lines: 'text' | 'bar', key, open, onToggle(open), always, end }) → the element
-  //   body      the text, a node; its own look stays (`pre-wrap`, Markdown, links)
+  // ── Read more (В7.82, 25.11.2026; the look of 27.11.2026) ───────────────────
+  // A long text stands folded, as in WhatsApp (docs/spec/21-chat-canvas.md, «Длинный текст: «Read more»»). WhatsApp cuts
+  // by characters, not lines: here a text of more than FOLD_CHARS.over characters shows its first FOLD_CHARS.show, cut at
+  // the end of a word, and «…» in the colour of the text. A character is a code point of the text that is seen
+  // (`Array.from`), as `LexFold` counts them on the iPhone (`unicodeScalars`): the marks of Markdown and the addresses of
+  // links do not count. The line «who is this» in the bar over a chat folds by lines (BAR_LINES): its work is to keep the
+  // bar low at any width.
+  //   readMore(body, { lines: 'text' | 'bar', key, open, onToggle(open) }) → the element; its word is `element.lexMore.btn`
+  //   body      the text, a node; its own look stays (`pre-wrap`, Markdown, links). It is cut in place: what is cut off
+  //             is kept and comes back when the text opens, with its links and their presses.
   //   key       the message the state belongs to (its uid): an unfolded text stays so while the page lives — every
   //             repaint of the chat draws it unfolded again. No key — the node alone keeps it.
-  //   open, onToggle — the caller keeps the state itself (a call, whose «Read more» opens the whole call): onToggle
-  //             gets the new state and the caller draws again.
-  //   always    there is more than these words even when they fit (a call: its detailed summary and transcript):
-  //             «Read more» stands at the end of the text anyway.
-  //   end       where an inline «Read less» goes (the end of the words; body by default).
-  // The word is measured, not guessed: while folded the text is cut at its lines and the word floats into the last
-  // of them (the words of that line wrap round it); a text that fits has no word. Without ResizeObserver (a page with
-  // no layout) nothing is folded.
-  const FOLD_LINES = { text: 8, bar: 3 };
+  //   open, onToggle — the caller keeps the state itself: onToggle gets the new state and the caller draws again.
+  // The word stands on a line of its own under the text, 2 below it; `bubble()` moves it to its line of the time, at the
+  // left (the stamp stays at the right). The press holds the top of the bubble where it stands (holdTop).
+  const FOLD_CHARS = { over: 1000, show: 800 };
+  const BAR_LINES = 3;
   const unfolded = new Set();
+  const scalars = (s) => Array.from(String(s || ''));
+  // How many code points of the text stay: the end of the last word at or before `show` (the last space or line break
+  // there, and no space at its end); no space — `show` exactly.
+  function foldKeep(text, show) {
+    const sc = scalars(text);
+    if (sc.length <= show) return sc.length;
+    let keep = show;
+    for (let i = show; i > 0; i -= 1) if (/\s/.test(sc[i])) { keep = i; break; }
+    while (keep > 0 && /\s/.test(sc[keep - 1])) keep -= 1;
+    return keep || show;
+  }
+  // Cuts the node in place after `keep` code points of its text and puts «…» there; returns what puts it back.
+  function cutText(body, keep) {
+    const walker = document.createTreeWalker(body, 4 /* NodeFilter.SHOW_TEXT */);
+    const nodes = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    const full = nodes.map((n) => n.nodeValue).join('');
+    const off = scalars(full).slice(0, keep).join('').length;
+    let acc = 0;
+    let target = null;
+    let local = 0;
+    for (const n of nodes) {
+      const len = n.nodeValue.length;
+      if (acc + len >= off) { target = n; local = off - acc; break; }
+      acc += len;
+    }
+    if (!target) return () => {};
+    const undo = [];
+    const was = target.nodeValue;
+    target.nodeValue = was.slice(0, local);
+    undo.push(() => { target.nodeValue = was; });
+    const dots = make('span', 'lex-more-dots', '…');
+    dots.setAttribute('aria-hidden', 'true');
+    target.parentNode.insertBefore(dots, target.nextSibling);
+    undo.push(() => dots.remove());
+    // Everything after the cut goes, level by level up to the text itself; each level comes back after its anchor.
+    for (let at = dots; at && at !== body; at = at.parentNode) {
+      const rest = [];
+      for (let s = at.nextSibling; s; s = s.nextSibling) rest.push(s);
+      if (!rest.length) continue;
+      const anchor = at;
+      for (const s of rest) s.remove();
+      undo.push(() => anchor.after(...rest));
+    }
+    return () => { for (let i = undo.length - 1; i >= 0; i -= 1) undo[i](); };
+  }
+  // The feed holds the top of what opens or folds (В7.82: «Лента держит верх пузыря и не прыгает»): its scroller moves by
+  // as much as the top moved.
+  function holdTop(node, change) {
+    const box = (node.closest && node.closest('.lex-bubble, .lex-call-card, .lex-order, .lex-brief')) || node;
+    let scroller = box.parentElement;
+    while (scroller && scroller !== document.body) {
+      const oy = getComputedStyle(scroller).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && scroller.scrollHeight > scroller.clientHeight) break;
+      scroller = scroller.parentElement;
+    }
+    const before = box.getBoundingClientRect().top;
+    change();
+    if (!box.isConnected) return;
+    if (!scroller || scroller === document.body) scroller = document.scrollingElement;
+    if (!scroller) return;
+    const moved = box.getBoundingClientRect().top - before;
+    if (Math.abs(moved) > 0.5) scroller.scrollTop += moved;
+  }
+  // The word of a fold: «Read more», «Read less» — 650 in `--attention`, the size of its text; no ground, no frame; its
+  // zone is 44, unseen.
+  function moreWord(label) {
+    const btn = make('button', 'lex-more-btn', label);
+    btn.type = 'button';
+    // A press on the word is not a press on what holds it (the line «who is this» opens the card).
+    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+    return btn;
+  }
   function readMore(body, o) {
     o = o || {};
-    const lines = FOLD_LINES[o.lines] || FOLD_LINES.text;
-    const root = make('div', 'lex-more');
-    root.style.setProperty('--lex-more-lines', String(lines));
+    const bar = o.lines === 'bar';
+    const root = make('div', `lex-more${bar ? ' is-bar' : ''}`);
     const box = make('div', 'lex-more-text');
     box.appendChild(body);
     root.appendChild(box);
     const key = o.key != null && o.key !== '' ? String(o.key) : null;
     let open = o.open != null ? !!o.open : !!(key && unfolded.has(key));
-    const btn = make('button', 'lex-more-btn');
-    btn.type = 'button';
-    const end = o.end || body;
-    let over = false;
-    // The space before an inline word: a line that breaks there starts with the word, not with a gap.
-    const gap = document.createTextNode(' ');
+    const btn = moreWord('Read more');
+    const row = make('div', 'lex-more-row');
+    row.appendChild(btn);
+    const more = { btn, over: false };
+    root.lexMore = more;
+    let restore = null;
+    const keep = bar ? 0 : foldKeep(body.textContent, FOLD_CHARS.show);
+    if (!bar) more.over = scalars(body.textContent).length > FOLD_CHARS.over;
     const paint = () => {
-      btn.remove();
-      gap.remove();
-      btn.classList.remove('is-end');
-      root.classList.toggle('is-folded', over && !open);
-      root.classList.toggle('is-open', open);
-      if (over && !open) {
-        btn.replaceChildren(make('span', 'lex-more-dots', '…'), document.createTextNode(' Read more'));
-        btn.setAttribute('aria-expanded', 'false');
-        box.insertBefore(btn, box.firstChild);
-      } else if ((over && open) || o.always) {
-        btn.textContent = open ? 'Read less' : 'Read more';
-        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-        btn.classList.add('is-end');
-        if ((end.textContent || '').trim()) end.appendChild(gap);
-        end.appendChild(btn);
+      root.classList.toggle('is-folded', more.over && !open);
+      root.classList.toggle('is-open', more.over && open);
+      if (!bar) {
+        if (more.over && !open && !restore) restore = cutText(body, keep);
+        if ((open || !more.over) && restore) { restore(); restore = null; }
       }
-    };
-    const fit = () => {
-      if (!root.isConnected || !root.getClientRects().length) return;
-      // Measured without the word and uncut: the text alone says whether it is longer than its lines.
-      btn.remove();
-      gap.remove();
-      root.classList.remove('is-folded');
-      const cs = getComputedStyle(body);
-      const lh = parseFloat(cs.lineHeight) || (parseFloat(cs.fontSize) || 15) * 1.35;
-      root.style.setProperty('--lex-more-lh', `${lh}px`);
-      const top = body.getBoundingClientRect().top;
-      const cap = lh * lines;
-      over = body.getBoundingClientRect().height > cap + 2;
-      // A text of blocks (the digest: a list, a table, paragraphs with room between them) cuts at the bottom of the
-      // last whole line under the cap, never through the letters of a line.
-      let cut = cap;
-      if (over && typeof document.createRange === 'function') {
-        const range = document.createRange();
-        range.selectNodeContents(body);
-        let best = 0;
-        for (const r of range.getClientRects()) {
-          // A rect of text is its letters; its line is half the leading lower.
-          const b = r.bottom - top + Math.max(0, (lh - r.height) / 2);
-          if (r.height > 0 && b <= cap + 1 && b > best) best = b;
-        }
-        if (best > lh) cut = Math.ceil(best);
+      btn.textContent = open ? 'Read less' : 'Read more';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.hidden = !more.over;
+      if (btn.parentNode === row || !btn.parentNode) {
+        if (more.over && !row.parentNode) root.appendChild(row);
+        if (!more.over) row.remove();
       }
-      root.style.setProperty('--lex-more-max', `${cut}px`);
-      paint();
     };
     btn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      open = !open;
-      if (key) { if (open) unfolded.add(key); else unfolded.delete(key); }
-      if (o.onToggle) o.onToggle(open); else paint();
+      holdTop(root, () => {
+        open = !open;
+        if (key) { if (open) unfolded.add(key); else unfolded.delete(key); }
+        if (o.onToggle) o.onToggle(open); else paint();
+      });
     });
-    // A press on the word is not a press on what holds it (the line «who is this» opens the card).
-    btn.addEventListener('pointerdown', (e) => e.stopPropagation());
     paint();
-    // Fitted again when the width changes (the window, the text size); its own folding changes only the height.
-    let width = -1;
-    if (typeof ResizeObserver === 'function') {
-      new ResizeObserver((list) => {
-        const w = Math.round(list[list.length - 1].contentRect.width);
-        if (w === width) return;
-        width = w;
-        fit();
-      }).observe(root);
+    if (bar) {
+      // Three lines are measured, not guessed: the words are clamped, and they are longer when they do not fit. Fitted
+      // again when the width changes; without ResizeObserver (a page with no layout) nothing is folded.
+      const fit = () => {
+        if (!root.isConnected || !root.getClientRects().length) return;
+        root.classList.add('is-folded');
+        more.over = body.scrollHeight > body.clientHeight + 1;
+        paint();
+      };
+      let width = -1;
+      if (typeof ResizeObserver === 'function') {
+        new ResizeObserver((list) => {
+          const w = Math.round(list[list.length - 1].contentRect.width);
+          if (w === width) return;
+          width = w;
+          fit();
+        }).observe(root);
+      }
     }
     return root;
   }
 
-  // ── A call in a chat (В7.42, 2026-11-16) ────────────────────────────────────
-  // Gennady's decision on the canvas «Разделы Lex по стандарту», page «Созвоны в чате: утверждено», changed by his word
-  // of 24.11.2026: a call stands in the chat as an ordinary message of the other person — a bubble with the short summary
-  // (its first sentence, «Созвон в 18:00, 32 минуты.», is written by the model: no duration of ours), folded as any
-  // long text (В7.82, 25.11.2026): «Read more» at the end of its words opens it in place — the detailed summary under a
-  // line, the transcript under another, «Show the whole transcript», and «Read less» at the end folds it back.
-  // The line under the words is the stamp of any message: the mark of the place, «Zoom call», «·», the time the message came. While there
-  // is no summary — a ring and «Lex is writing the summary…». A missed call and a call without a recording are a plate
-  // (notice, В7.3).
-  // o: { channel, at, seconds, state: writing | done | failed | none, short, sections: [{title, items | text}],
-  //      lines — how many lines the transcript has, head — its first lines, transcript — all of them once loaded,
-  //      open, all — the whole transcript shown, loading, onToggle(open), onAll() }
+  // ── A call in a chat (В7.42; its own card since 27.11.2026) ────────────────
+  // Gennady's decision of 27.11.2026 (the canvas «Read more», page «Созвон: дорожка и выжимка: утверждено», boards 1–4):
+  // a call is not a message of the person, nor Gennady's, nor the model's — it is a card of its own over the whole lane of
+  // the chat. On top, one row: the play button 44, «Call with <name>» and under it the place in its colour with the start
+  // («WhatsApp · today 18:00»), at the right the length («32:14»; playing — «8:12 / 32:14» and the speed of the voice
+  // messages). Under it the line of the sound over the whole width — a press or a drag moves the recording — and the short
+  // summary with «Read more» always on a line of its own: it opens the detailed summary in place (under a line from edge
+  // to edge), «Read less» at its end folds it; the recording plays on. No transcript anywhere. The sound is the one sound
+  // of the page (`sound`, shared with the voice messages), streamed by its link. No recording (`audio` absent, every call
+  // before 27.11.2026) — a quiet circle with a receiver, no line, «32 min». While the summary is written — a ring and
+  // «Lex is writing the summary…»; failed — «Lex could not write the summary.» in grey; both without the word.
+  // A missed call and a call without a recording are a plate (notice, В7.3, callNode in lex-profi.js).
+  // o: { key, channel, at, seconds, name, full, state: writing | done | failed | none, short, sections: [{title,
+  //      items | text}], audio: { kind: 'audio', path, mime, bytes, duration } | null, io }
   function chevronIcon(d, size) {
     const n = svg('0 0 24 24', size);
     n.setAttribute('class', 'lex-call-chevron');
@@ -1455,95 +1610,174 @@
     const m = Math.max(1, Math.round((Number(sec) || 0) / 60));
     return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`;
   }
-  function callName(id) {
-    const c = CHANNELS[id];
-    return c ? `${c.name} call` : 'Call';
+  // «32:14», from an hour «1:05:12» (as `LexCallView` on the iPhone).
+  function clockText(sec) {
+    const s = Math.max(0, Math.round(Number(sec) || 0));
+    const h = Math.floor(s / 3600);
+    return h ? `${h}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}` : `${Math.floor(s / 60)}:${pad(s % 60)}`;
   }
-  function callLine(l) {
-    const row = make('div', 'lex-call-tr');
-    const top = make('div', 'lex-call-tr-head');
-    top.append(make('span', 'lex-call-tr-time', String(l.t || '')), make('span', 'lex-call-tr-who', l.me ? 'You' : String(l.who || '')));
-    row.append(top, make('div', 'lex-call-tr-text', String(l.text || '')));
-    return row;
+  // The start of a call under its name: «today 18:00», «yesterday 18:00», «26 Nov 18:00», another year «26 Nov 2025 18:00».
+  const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function callWhen(at, now) {
+    const d = toDate(at);
+    if (!d) return '';
+    const today = now ? new Date(now) : new Date();
+    const y = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+    const day = dayKey(d) === dayKey(today) ? 'today' : dayKey(d) === dayKey(y) ? 'yesterday'
+      : `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}${d.getFullYear() === today.getFullYear() ? '' : ` ${d.getFullYear()}`}`;
+    return `${day} ${timeOf(d)}`;
   }
+  const PHONE_D = 'M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z';
   function call(o) {
-    const body = make('div', 'lex-call-body');
-    const finish = () => {
-      const b = bubble({ side: 'in', body, stamp: bubbleStamp(o) });
-      b.classList.add('lex-call');
-      if (o.open) b.classList.add('is-open');
-      b.setAttribute('role', 'article');
-      return b;
-    };
+    const audio = o.audio && typeof o.audio === 'object' && typeof o.audio.path === 'string' && o.audio.path ? o.audio : null;
+    const f = audio ? Object.assign({}, audio, { duration: Number(audio.duration) > 0 ? Number(audio.duration) : Number(o.seconds) || 0 }) : null;
+    const name = String(o.name || '').trim();
+    const root = make('section', `lex-call-card${f ? ' has-audio' : ''}`);
+    root.setAttribute('aria-label', `Call with ${String(o.full || name || 'the client').trim()}`);
+    const head = make('div', 'lex-call-head');
+    let btn = null;
+    if (f) {
+      btn = make('button', 'lex-call-play');
+      btn.type = 'button';
+    } else {
+      btn = make('span', 'lex-call-quiet');
+      btn.setAttribute('aria-hidden', 'true');
+      const icon = svg('0 0 24 24', 18);
+      icon.appendChild(shape('path', { d: PHONE_D, fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      btn.appendChild(icon);
+    }
+    const who = make('div', 'lex-call-who');
+    who.appendChild(make('div', 'lex-call-name', name ? `Call with ${name}` : 'Call'));
+    const sub = make('div', 'lex-call-sub');
+    if (o.channel && CHANNELS[o.channel]) sub.appendChild(channelName(o.channel));
+    else sub.appendChild(make('span', 'lex-channel-name is-plain', 'Call'));
+    const when = callWhen(o.at);
+    if (when) sub.appendChild(document.createTextNode(` · ${when}`));
+    who.appendChild(sub);
+    const len = make('span', 'lex-call-len', f ? clockText(f.duration) : callLength(o.seconds));
+    head.append(btn, who, len);
+    root.appendChild(head);
+    if (f) {
+      const speed = speedButton();
+      head.appendChild(speed);
+      const track = make('div', 'lex-call-track');
+      track.setAttribute('role', 'slider');
+      track.setAttribute('aria-label', 'Position in the call');
+      track.tabIndex = 0;
+      const line = make('div', 'lex-call-line');
+      const fill = make('div', 'lex-call-fill');
+      const knob = make('span', 'lex-call-knob');
+      line.append(fill, knob);
+      track.appendChild(line);
+      root.appendChild(track);
+      let shown = null;
+      const paint = () => {
+        const s = sound.state(f);
+        const on = s.playing;
+        const busy = s.loading || s.waiting;
+        const look = busy ? 'busy' : on ? 'pause' : 'play';
+        if (shown !== look) {
+          shown = look;
+          btn.replaceChildren(busy ? make('span', 'lex-busy-ring is-inline') : playIcon(on ? PAUSE : PLAY, 18));
+          btn.setAttribute('aria-label', on ? 'Pause' : 'Play the call');
+        }
+        // The time, the knob and the speed stand while this recording is the sound of the page, paused too.
+        const live = s.mine || s.time > 0;
+        const total = s.total || f.duration;
+        root.classList.toggle('is-playing', on);
+        root.classList.toggle('is-live', live);
+        root.classList.toggle('is-failed', s.failed);
+        speed.hidden = !live;
+        knob.hidden = !live;
+        const share = total > 0 ? Math.min(1, s.time / total) : 0;
+        fill.style.width = `${share * 100}%`;
+        knob.style.left = `${share * 100}%`;
+        track.setAttribute('aria-valuenow', String(Math.round(share * 100)));
+        len.textContent = live ? `${clockText(s.time)} / ${clockText(total)}` : clockText(total);
+      };
+      paint();
+      sound.watch(root, paint);
+      btn.addEventListener('click', () => sound.toggle(f, o.io, { stream: true }));
+      // A press or a drag along the line moves the recording; before it plays, a press starts it there.
+      const at = (e) => {
+        const r = line.getBoundingClientRect();
+        return r.width > 0 ? (e.clientX - r.left) / r.width : 0;
+      };
+      let dragging = false;
+      track.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        try { track.setPointerCapture(e.pointerId); } catch (_) { /* not a pointer of this page */ }
+        sound.seek(f, o.io, at(e), { stream: true });
+      });
+      track.addEventListener('pointermove', (e) => { if (dragging && sound.state(f).mine) sound.seek(f, o.io, at(e), { stream: true }); });
+      const stop = () => { dragging = false; };
+      track.addEventListener('pointerup', stop);
+      track.addEventListener('pointercancel', stop);
+      track.addEventListener('keydown', (e) => {
+        const s = sound.state(f);
+        const total = s.total || f.duration;
+        if (!total || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        e.preventDefault();
+        sound.seek(f, o.io, (s.time + (e.key === 'ArrowRight' ? 15 : -15)) / total, { stream: true });
+      });
+    }
     if (o.state === 'writing' && !o.short) {
-      // While the summary is written the block is only the ring (the board «Другие случаи»).
       const wait = make('div', 'lex-call-wait');
       const ring = make('span', 'lex-busy-ring is-inline');   // the common ring (lex-busy.css, В7.74)
       ring.setAttribute('aria-hidden', 'true');
       wait.append(ring, document.createTextNode('Lex is writing the summary…'));
-      body.appendChild(wait);
-      return finish();
+      root.appendChild(wait);
+      return root;
     }
-    // The words, and when open the whole call under them, are one text of «Read more» (В7.82): folded — the short
-    // summary at its lines with «Read more» at its end, which opens the whole call; open — «Read less» at its end.
-    const text = make('div', 'lex-call-all');
-    const words = make('div', 'lex-call-short');
-    if (o.short) words.appendChild(document.createTextNode(o.short));
-    else words.appendChild(make('span', 'lex-call-meta', 'Lex could not write the summary.'));
-    text.appendChild(words);
-    if (!o.open) {
-      body.appendChild(readMore(text, { open: false, always: true, end: words,
-        onToggle: (open) => { if (o.onToggle) o.onToggle(open); } }));
-      return finish();
+    if (!o.short) {
+      root.appendChild(make('div', 'lex-call-short is-failed', 'Lex could not write the summary.'));
+      return root;
     }
+    root.appendChild(make('div', 'lex-call-short', o.short));
+    // «Read more» always: it opens the detailed summary, not the rest of the words (В7.42).
+    const details = make('div', 'lex-call-details');
     const sections = Array.isArray(o.sections) ? o.sections : [];
     if (sections.length) {
-      text.appendChild(make('div', 'lex-call-rule'));
+      details.appendChild(make('div', 'lex-call-rule'));
       for (const s of sections) {
-        text.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
+        details.appendChild(make('div', 'lex-call-sec', String(s.title || '')));
         if (Array.isArray(s.items) && s.items.length) {
           for (const it of s.items) {
             const row = make('div', 'lex-call-item');
             const dot = make('span', 'lex-call-dot', '•');
             dot.setAttribute('aria-hidden', 'true');
             row.append(dot, make('span', '', String(it)));
-            text.appendChild(row);
+            details.appendChild(row);
           }
         } else if (s.text) {
-          text.appendChild(make('div', 'lex-call-text', String(s.text)));
+          details.appendChild(make('div', 'lex-call-text', String(s.text)));
         }
       }
     }
-    const lines = Array.isArray(o.transcript) ? o.transcript : (Array.isArray(o.head) ? o.head : []);
-    if (lines.length || o.lines) {
-      text.appendChild(make('div', 'lex-call-rule is-tr'));
-      text.appendChild(make('div', 'lex-call-sec is-tr', 'Transcript'));
-      const shown = o.all ? lines : lines.slice(0, 3);
-      for (const l of shown) text.appendChild(callLine(l));
-      const total = Number(o.lines) || lines.length;
-      if (!o.all && total > shown.length) {
-        // A word as «Read more» is, on a line of its own: the rest of the transcript comes from the server.
-        const row = make('div', 'lex-call-all-tr');
-        // While the rest comes the word stays and, after 500 ms, the common ring stands in its place (lex-busy.css).
-        const all = make('button', `lex-more-btn${o.loading ? ' is-lex-late-busy' : ''}`, 'Show the whole transcript');
-        all.type = 'button';
-        all.disabled = !!o.loading;
-        if (o.loading) all.setAttribute('aria-busy', 'true');
-        if (o.onAll) all.addEventListener('click', () => o.onAll());
-        row.appendChild(all);
-        text.appendChild(row);
-      }
-    }
-    // «Read less» closes the whole call, on a line of its own at the end of it.
-    const tail = make('div', 'lex-call-tail');
-    text.appendChild(tail);
-    body.appendChild(readMore(text, { open: true, always: true, end: tail,
-      onToggle: (open) => { if (o.onToggle) o.onToggle(open); } }));
-    return finish();
-  }
-  // The line under the words of a call: «WhatsApp call · 18:00» — the stamp of any message.
-  function bubbleStamp(o) {
-    return stamp({ channel: o.channel, label: callName(o.channel), at: o.at });
+    const key = o.key ? `call:${o.key}` : null;
+    let open = key && unfolded.has(key) ? true : !!o.open;
+    const word = moreWord('Read more');
+    const row = make('div', 'lex-call-more');
+    row.appendChild(word);
+    root.append(details, row);
+    const paintOpen = () => {
+      details.hidden = !open;
+      row.classList.toggle('is-open', open);
+      word.textContent = open ? 'Read less' : 'Read more';
+      word.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    paintOpen();
+    word.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      holdTop(root, () => {
+        open = !open;
+        if (key) { if (open) unfolded.add(key); else unfolded.delete(key); }
+        paintOpen();
+        if (typeof o.onToggle === 'function') o.onToggle(open);
+      });
+    });
+    return root;
   }
 
   // ── The message of an order (В7.29) ─────────────────────────────────────────
@@ -3308,7 +3542,7 @@
   global.LexMessage = { cells, cell: drawCell, message, entry, intake, task, taskWords, dayLine, newLine, mark, timeOf, dayOf, call, callLength,
     NEWS_KINDS, newsKind, newsKindName, newsCard, newsCardRead, newsWhen, newsSource, talkLine,
     CHANNELS, channel, channelName, stamp, bubble, digest, photos, files, fileChip, sizeText, durationText, notice, fold, discussionFold, eyeOff, sparkle,
-    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_LINES, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, orderWords, countdown,
+    sendHold, editField, avatar, avatarMark, avatarBrand, button, brief, readMore, FOLD_CHARS, unsent, taskStop, devTaskOf, devTaskRunning, question, whois, questionPack, packTitle, packRows, replyBar, replyIcon, order, orderWords, countdown,
     quote, quoteName, quoteWords, emojiOnly, reactions, reactBar, forwarded, earlier, sticker, ticks, setTicks, tickStatus, messageSheet, messageIcon,
     attachMenu, placeMore, openMenu, copyText, plainOf, htmlOf, selectMode, isBusy, setSelfName, selectedIn };
 })(typeof window !== 'undefined' ? window : globalThis);
