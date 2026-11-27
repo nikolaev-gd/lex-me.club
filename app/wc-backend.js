@@ -366,7 +366,8 @@
   // One default model for every chat Gennady writes in (2026-11-25, PLAN-CHAT-UNIFY stage 1.1): the main chat,
   // the chats of people and groups, the order chats of Profi.ru, the feeds and the news — one cell,
   // activeModelId_shorts-main. The order chats had a cell of their own (activeModelId_profi) and, empty, the
-  // monitor's model; the database moved that choice here once (one_default_model.sql). Agents keep their own.
+  // monitor's model; the database moved that choice here once (one_default_model.sql). The task chats of the agents
+  // take it too (2026-11-27); an agent's own model is for its work without Gennady.
   //
   // A choice made here is stronger than the server's answer until it has reached the server: the answer of a
   // request that left before the choice, or while its write is still on its way, would put the old model back
@@ -477,7 +478,8 @@
   // effortByApiModel_<scope>).
   //
   // Пункт есть в каждом чате (2026-11-13), и выбор у него один на все чаты (2026-11-25): главный, чаты людей и
-  // групп, чаты заказов, ленты. Только у чата задачи агента своя модель — её пункт меняет агента (wc-app.js).
+  // групп, чаты заказов, ленты и чаты задач агентов (2026-11-27: ход агента по слову Геннадия идёт этим выбором,
+  // его передаёт базе folder-agents). Своя модель агента — для работы без Геннадия, на экране агента (wc-agents.js).
   WcBus.on('WC_TEXT_MODEL', async () => {
     const modelId = await WcStore.one('activeModelId_' + SCOPE, null);
     const efforts = await WcStore.one('effortByApiModel_' + SCOPE, null);

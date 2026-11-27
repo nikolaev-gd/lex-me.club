@@ -65,12 +65,6 @@
   // The two engines of an agent's session (Gennady's words, 26.11.2026).
   const ENGINES = [{ value: 'claude-subscription', label: 'Claude по подписке' }, { value: 'claude-key', label: 'Claude по ключу API' }];
   const engineLabel = (e) => (ENGINES.find((x) => x.value === e) || ENGINES[0]).label;
-  // The row «Engine» under the models of the menu «Text model» of a task chat (model-picker-dropdown choiceRow): only an
-  // agent that has an engine; the list of the section holds it.
-  function engineChoice(agent, onChoose) {
-    if (!agent || !agent.engine) return null;
-    return { label: 'Engine', get: async () => ({ options: ENGINES.map((x) => ({ value: x.value, label: x.label })), current: agent.engine }), onChoose };
-  }
 
   const NOTIFY = [
     { value: 'all', label: 'Waits or fails', note: 'When it waits for you and when it fails' },
@@ -626,7 +620,8 @@
       const ins = p.instruction || null;
       const mem = Array.isArray(p.memory) ? p.memory : null;
       root.appendChild(S.settingsBlock([
-        textModel ? S.settingRow({ id: 'model', title: 'Text model', menu: { value: modelLabel(model),
+        // The agent's own model — for its work without Gennady; a chat with him goes by his one «Text model» (27.11.2026).
+        textModel ? S.settingRow({ id: 'model', title: 'Text model', note: 'Its own work. Chats with you use your model.', menu: { value: modelLabel(model),
           onOpen: (anchor) => deps.pickModel(anchor, modelId(model), (id) => {
             const [, m, effort] = String(id).split(':');
             saveModel(a.key, m, effort);
@@ -834,5 +829,5 @@
     };
   }
 
-  global.WcAgents = { createSection, modelId, modelLabel, stateOf, sortAgents, KIND_WORDS, NOTIFY, PAUSE_NOTE, ENGINES, engineChoice };
+  global.WcAgents = { createSection, modelId, modelLabel, stateOf, sortAgents, KIND_WORDS, NOTIFY, PAUSE_NOTE, ENGINES };
 })(typeof window !== 'undefined' ? window : globalThis);

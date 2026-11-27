@@ -2976,25 +2976,6 @@
       }
     }, (err) => toast(global.LexStop.refusal(err), { error: true }));
   }
-  // The model of an agent (its folder, «+ → Text model» in its chats): the common menu of the models, Anthropic only;
-  // the choice goes to the base (op settings), the list is read again and shows the new value.
-  function pickAgentModel(anchor, agentKey) {
-    const live = ensureSection('agents');
-    const agent = live.agent(agentKey);
-    if (!agent) {
-      toast('The agents are not read yet. Try again.', { error: true });
-      live.readList().catch(() => {});
-      return;
-    }
-    // «Engine» under the models — an agent whose task chat is a session of Claude Code (26.11.2026)
-    const engineRow = global.WcAgents.engineChoice(agent, (engine) => {
-      live.saveEngine(agentKey, engine).catch((e) => console.warn('[wc] agent engine:', e && e.message));
-    });
-    openModelMenu(anchor, global.WcAgents.modelId(agent), {}, (modelId) => {
-      const [, model, effort] = modelId.split(':');
-      live.saveModel(agentKey, model, effort).catch((e) => console.warn('[wc] agent model:', e && e.message));
-    }, engineRow, 'anthropic');
-  }
 
 
   // A chat left open behind other windows gets read when the person comes back to it.
@@ -3348,13 +3329,12 @@
 
   // Пункт «Text model» в меню «+»: модель по умолчанию для следующих вопросов. Он есть в
   // каждом чате (2026-11-13), и модель у него одна на все чаты, где пишет Геннадий
-  // (2026-11-25): главный, люди, группы, заказы, ленты. Своя — только у агента. Хранит и
-  // отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
+  // (2026-11-25): главный, люди, группы, заказы, ленты — и чаты задач агентов (2026-11-27,
+  // Геннадий: «со мной в интерфейсе агенты всегда общаются одним универсальным блоком»; ход
+  // агента по его слову идёт этим выбором — folder-agents передаёт его базе). Своя модель
+  // агента — для его работы без Геннадия, её меняет только экран агента (wc-agents.js).
+  // Хранит и отправляет wc-backend.js (WC_TEXT_MODEL, WC_SET_TEXT_MODEL).
   async function pickDefaultModel(anchor) {
-    // A task chat of an agent: the model of that agent, not the model of the chats of orders.
-    if (isAgentChat(profiChat)) { pickAgentModel(anchor, agentKeyOf(profiChat)); return; }
-    // The field over the dimming of a screen of an agent: the model of that agent.
-    if (quickAgentOn()) { pickAgentModel(anchor, quickAgentOn().key); return; }
     let cur = { modelId: null, efforts: {} };
     try { cur = await WcBus.call('WC_TEXT_MODEL', {}); } catch (_) { /* пусто — без галочки */ }
     openModelMenu(anchor, cur.modelId, cur.efforts, async (modelId) => {
@@ -3371,16 +3351,9 @@
   // Подпись пункта «Text model» — нынешняя модель по умолчанию, одна на все чаты. Меню «+»
   // открывается синхронно, поэтому подпись держится наготове.
   let textModelLabel = '';
-  // The label of this chat: a task chat of an agent names the agent's model (the list of the section holds it).
+  // The label of this chat: the one choice of every chat, a task chat of an agent too (2026-11-27).
   function textModelLabelNow() {
-    if (quickAgentOn()) {
-      const a = SECTIONS.agents.live.agent(quickAgentOn().key);
-      return a ? global.WcAgents.modelLabel(a) : '';
-    }
-    if (!isAgentChat(profiChat)) return textModelLabel;
-    const live = SECTIONS.agents.live;
-    const agent = live && live.agent(agentKeyOf(profiChat));
-    return agent ? global.WcAgents.modelLabel(agent) : '';
+    return textModelLabel;
   }
   // Whether that model reads pictures: a picture picked as «File» goes the picture's way only
   // then (WcAttach.accept). Not known yet — it does, as before.
