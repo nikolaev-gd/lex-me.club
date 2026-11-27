@@ -157,6 +157,9 @@
   const span = (e) => (e.allDay ? 'all day' : (e.end && e.end > e.start ? `${hm(e.start)}–${hm(e.end)}` : hm(e.start)));
   const PLACES = ['zoom', 'telemost', 'meet', 'link'];
   const PLACE_NAMES = { zoom: 'Zoom', telemost: 'Телемост', meet: 'Google Meet', link: 'Own link' };
+  // The form has one place more: nothing agreed yet (`unknown`, the base's own word, and its default since 27.11.2026).
+  const FORM_PLACES = ['unknown'].concat(PLACES);
+  const FORM_PLACE_NAMES = Object.assign({ unknown: 'Not agreed' }, PLACE_NAMES);
   const CHANNEL_NAMES = { telegram: 'Telegram', whatsapp: 'WhatsApp', max: 'Max', profi: 'Профи.ру' };
   const KIND_TITLES = { meeting: 'Meeting', reminder: 'Reminder', alarm: 'Alarm', google: 'Google Calendar' };
   const kindTitle = (e) => (isGoogle(e) ? KIND_TITLES.google : KIND_TITLES[e.kind] || 'Meeting');
@@ -202,7 +205,10 @@
     if (u) out += ` until ${u.getDate()} ${MONTH_OF[u.getMonth()]}`;
     return out;
   }
-  const remindWords = (m) => (m >= 60 ? 'Reminds an hour before' : `Reminds ${m} minutes before`);
+  const remindWords = (m) => (m <= 0 ? 'No reminder, only the message 5 minutes before'
+    : m >= 60 ? 'Reminds an hour before' : `Reminds ${m} minutes before`);
+  // The row «Remind» of the form: null — the base counts it by how soon the meeting is (Auto).
+  const remindLabel = (m) => (m == null ? 'Auto' : m <= 0 ? 'No reminder' : m >= 60 ? '1 hour before' : `${m} minutes before`);
   function originWords(o) {
     const when = o.at ? `, ${dayPlain(o.at)}` : '';
     if (o.kind === 'message') return `The base found the agreement in ${CHANNEL_NAMES[o.channel] || 'a chat'}${when}`;
@@ -867,7 +873,7 @@
           row.append(join, copyButton('Copy link', e.link));
           out.push(row);
         } else if (e.kind === 'meeting') {
-          out.push(make('div', 'wc-cal-sheet-note', e.place ? 'This place has no link in the base settings: only the reminder goes to the person.' : 'No place chosen.'));
+          out.push(make('div', 'wc-cal-sheet-note', !e.place ? 'No place chosen.' : e.place === 'unknown' ? 'Place not agreed — no link will be sent.' : 'This place has no link in the base settings: only the reminder goes to the person.'));
         }
       }
       // «Send it yourself»: the text of a message the base does not send itself, from the tap on its notification.
@@ -986,8 +992,8 @@
       return {
         kind, item: null, before: null, title: '', person: null, start, end: new Date(start.getTime() + minutes * 60000),
         repeatDays: [], repeatUntil: null,
-        place: PLACES.includes(st.place) ? st.place : 'zoom', link: '',
-        remindMinutes: Number(st.remind_minutes) === 60 ? 60 : 30, notifyPerson: null, loud: false,
+        place: FORM_PLACES.includes(st.place) ? st.place : 'unknown', link: '',
+        remindMinutes: null, notifyPerson: null, loud: false,
         command: S().newOpId(),
       };
     }
@@ -995,7 +1001,7 @@
       return {
         kind: e.kind, item: e.item, before: e, title: e.title, person: e.person, start: e.start,
         end: e.end || new Date(e.start.getTime() + 3600000), repeatDays: e.repeatDays.slice(), repeatUntil: e.repeatUntil,
-        place: e.place, link: e.place === 'link' ? (e.link || '') : '', remindMinutes: e.remindMinutes === 60 ? 60 : 30,
+        place: e.place || 'unknown', link: e.place === 'link' ? (e.link || '') : '', remindMinutes: e.remindMinutes == null ? null : e.remindMinutes,
         notifyPerson: e.notifyPerson, loud: e.loud, command: S().newOpId(),
       };
     }
@@ -1009,7 +1015,8 @@
         f.person = d.person ? d.person.id : null;
         f.place = d.place || null;
         if (d.place === 'link') f.link = d.link.trim();
-        f.remind_minutes = d.remindMinutes;
+        // Only Gennady's own choice goes: without it the base counts the time by how soon the meeting is.
+        if (d.remindMinutes != null) f.remind_minutes = d.remindMinutes;
         if (d.person && d.notifyPerson != null) f.notify_person = d.notifyPerson;
       }
       if (d.kind !== 'alarm') f.loud = !!d.loud;
@@ -1028,7 +1035,7 @@
         if ((d.person && d.person.id) !== (e.person && e.person.id)) out.person = all.person;
         if (d.place !== e.place) out.place = all.place;
         if (d.place === 'link' && d.link.trim() !== (e.link || '')) out.link = all.link;
-        if (d.remindMinutes !== (e.remindMinutes == null ? 30 : e.remindMinutes)) out.remind_minutes = d.remindMinutes;
+        if (d.remindMinutes != null && d.remindMinutes !== e.remindMinutes) out.remind_minutes = d.remindMinutes;
         if (d.notifyPerson != null && d.notifyPerson !== e.notifyPerson) out.notify_person = d.notifyPerson;
       }
       if (d.kind !== 'alarm' && !!d.loud !== !!e.loud) out.loud = !!d.loud;
@@ -1058,14 +1065,26 @@
       return `The reminder goes to you and to the person${ch ? ` in ${ch}` : ''}; the link — before the start.${test}`;
     }
     function placeNote(d) {
+      if (d.place === 'unknown') return 'Nothing agreed yet: the person gets only the short message 5 minutes before; if there is a chat with them, Lex offers you a question to send.';
       if (d.place === 'link') return 'The link goes to the person before the start.';
       const link = settings && settings.places && settings.places[d.place];
       if (link) return `Permanent link from the base: ${shortLink(link)}`;
       return `No permanent ${PLACE_NAMES[d.place] || ''} link in the base: only the reminder goes to the person.`;
     }
+    // What «Auto» of the row «Remind» means: the base counts the time by how soon the meeting is (its ladder, `remind_rule`).
+    function remindLadderNote() {
+      const r = (settings && settings.remind_rule) || {};
+      const hours = (m) => (m % 60 === 0 ? `${m / 60} h` : `${m} min`);
+      const over = Number(r.long_over) || 300, from = Number(r.short_from) || 120;
+      const long = Number(r.long) || 60, short = Number(r.short) || 30;
+      return `The base counts it by how soon the meeting is: more than ${hours(over)} ahead — ${hours(long)} before; ${hours(from)} to ${hours(over)} — ${hours(short)} before; closer — only the short message 5 minutes before.`;
+    }
     function loudNote(d) {
       if (!d.loud) return 'Rings like an alarm even in silent mode.';
-      const when = d.kind === 'reminder' ? 'at the set time' : (d.remindMinutes >= 60 ? 'an hour before the start' : `${d.remindMinutes} minutes before the start`);
+      const when = d.kind === 'reminder' ? 'at the set time'
+        : d.remindMinutes == null ? 'at the time of the reminder'
+        : d.remindMinutes <= 0 ? 'at the start'
+        : (d.remindMinutes >= 60 ? 'an hour before the start' : `${d.remindMinutes} minutes before the start`);
       return `The iPhone rings like an alarm ${when}, even in silent mode or Focus.`;
     }
     // A text field in the place of the value of a row of a setting (the common row has none: В7.59 menu, toggle, go).
@@ -1213,11 +1232,11 @@
             pickRow('start', 'Starts', hm(d.start), endNote()), picker('start'),
             repeatRow(),
           ]));
-          const where = [menuRow('Where', PLACE_NAMES[d.place] || 'Zoom', placeNote(d), (anchor) => {
-            UI().menu(anchor, PLACES.map((p) => ({
-              label: PLACE_NAMES[p], checked: d.place === p,
-              note: p === 'link' ? 'Paste the link of the call' : (settings && settings.places && settings.places[p] ? shortLink(settings.places[p]) : 'No permanent link in the base'),
-              svg: placeMark(p, 18),
+          const where = [menuRow('Where', FORM_PLACE_NAMES[d.place] || 'Not agreed', placeNote(d), (anchor) => {
+            UI().menu(anchor, FORM_PLACES.map((p) => ({
+              label: FORM_PLACE_NAMES[p], checked: d.place === p,
+              note: p === 'unknown' ? 'Ask the person later' : p === 'link' ? 'Paste the link of the call' : (settings && settings.places && settings.places[p] ? shortLink(settings.places[p]) : 'No permanent link in the base'),
+              svg: p === 'unknown' ? mark('calendar', 18) : placeMark(p, 18),
               onSelect: () => { d.place = p; repaint(); },
             })));
           })];
@@ -1227,10 +1246,14 @@
             toggle: { on: notifyOn(d), onChange: (on) => { d.notifyPerson = on; repaint(); } } });
           if (!d.person || d.person.personal || !d.person.hasChat) notify.input.disabled = true;
           out.push(S().settingsBlock([
-            menuRow('Remind', d.remindMinutes >= 60 ? '1 hour before' : '30 minutes before', null, (anchor) => UI().menu(anchor, [
-              { label: '30 minutes before', checked: d.remindMinutes === 30, onSelect: () => { d.remindMinutes = 30; repaint(); } },
-              { label: '1 hour before', checked: d.remindMinutes === 60, onSelect: () => { d.remindMinutes = 60; repaint(); } },
-            ])),
+            menuRow('Remind', remindLabel(d.remindMinutes), d.remindMinutes == null ? remindLadderNote() : null, (anchor) => {
+              // Auto only for a new meeting: a saved one cannot go back to the base's count. The value it holds stays in the list.
+              const list = isNew ? [null] : [];
+              if (d.remindMinutes != null && d.remindMinutes !== 30 && d.remindMinutes !== 60) list.push(d.remindMinutes);
+              UI().menu(anchor, list.concat([30, 60]).map((m) => ({
+                label: remindLabel(m), checked: d.remindMinutes === m, onSelect: () => { d.remindMinutes = m; repaint(); },
+              })));
+            }),
             notify,
             S().settingRow({ title: 'Break through silent mode', note: loudNote(d), toggle: { on: d.loud, onChange: (on) => { d.loud = on; repaint(); } } }),
           ]));
