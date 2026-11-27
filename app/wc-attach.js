@@ -427,6 +427,8 @@
     const busy = el('.wc-chip.is-busy');
     elStrip.prepend(busy);
     elStrip.hidden = false;
+    // The common ring of a wait (lex-busy.js, В7.74): on the preview after 500 ms, never a ring of its own.
+    const unbusy = global.LexBusy ? global.LexBusy.start(busy, { block: false }) : () => {};
     try {
       const n = await normalize(file);
       const key = 'img_' + ((global.crypto && crypto.randomUUID) ? crypto.randomUUID() : Date.now());
@@ -437,8 +439,10 @@
       };
       att.node = chipFor(att);
       pending.push(att);
+      unbusy();
       paint();
     } catch (err) {
+      unbusy();
       paint();
       toast(String((err && err.message) || err), { error: true });
     }

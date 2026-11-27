@@ -454,11 +454,6 @@
 .lex-call-meta { font-weight: 400; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .lex-call-short { white-space: pre-wrap; }
 .lex-call-wait { display: flex; align-items: center; gap: 8px; color: var(--fg-muted); font-size: 15px; line-height: 20px; }
-.lex-call-ring {
-  flex: 0 0 auto; box-sizing: border-box; width: 14px; height: 14px;
-  border: 2px solid var(--line); border-top-color: var(--fg-soft, var(--lex-plate-fg)); border-radius: 50%;
-  animation: lex-turn .9s linear infinite;
-}
 .lex-call-all-tr { margin-top: 8px; }
 .lex-call-tail { margin-top: 8px; }
 .lex-call-tail:empty { display: none; }
@@ -770,16 +765,7 @@
 .lex-task-stop .lex-btn { padding: 0 16px; }
 .lex-task-stop-why { font-size: 13px; line-height: 18px; color: var(--danger, #ff6b6b); }
 
-/* A press on its way: a ring turns after the words of the pressed button. */
-.lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after {
-  content: ''; display: inline-block; box-sizing: border-box; width: 12px; height: 12px; margin-left: 8px;
-  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
-  vertical-align: -1px; animation: lex-turn 800ms linear infinite;
-}
-@keyframes lex-turn { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .lex-btn.is-busy .lex-btn-words::after, .lex-q-quiet.is-busy::after { animation: none; }
-}
+/* A press on its way (.is-busy): the common ring of a waiting button, after 500 ms — lex-busy.css, В7.74. */
 
 /* ── A message that was not sent (В7.47, 2026-11-16) ──────────────────────────
  * Under the person's bubble, at its right edge, 6 below it: a line 13 — the alert mark 14 and «Not

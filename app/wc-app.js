@@ -374,8 +374,12 @@
     // Read anew where it stands (a signal of its answers): the chat is on the screen already — its arrow back, its field
     // and the main page under it stay as they are (before 26.11.2026 a word that came cleared the arrow back).
     const reread = !!(opts && opts.again) && state.conversationId === id && !sectionOn;
-    const stand = (r, again, kept) => {
-      if (!stood && !reread) {
+    // The frame of the chat: the field, the arrow back, the head (the name of a person's chat) — known at the press.
+    let framed = false;
+    const frame = () => {
+      if (framed) return;
+      framed = true;
+      if (!reread) {
         // The field is this chat's from now: the last chat's words go to its draft, this one's come.
         takeField(id);
         leaveSection();
@@ -383,21 +387,39 @@
         paintHome();
         if (opts && opts.back) sectionBack.cameFrom(opts.back);
       }
-      if (opts && opts.profi) {
-        if (!stood) enterProfiChat(opts.profi);
-        opts.profi.words = monitorWords(r.turns);
-      }
+      if (opts && opts.profi) enterProfiChat(opts.profi);
+      WcSidebar.setActive(id);
+      WcSidebar.close();
+    };
+    const stand = (r, again, kept) => {
+      frame();
+      if (opts && opts.profi) opts.profi.words = monitorWords(r.turns);
       paintConversation(r, Object.assign({}, opts, again ? { keepPlace: true } : {}, kept ? { kept: true } : {}));
-      if (!stood) {
-        WcSidebar.setActive(id);
-        WcSidebar.close();
-      }
       syncTitle();
       syncAttachment();
       paintAddressee();
       stood = true;
     };
+    // No copy on this device: the frame of the new chat stands in the frame of the press, its feed is empty, and the
+    // ladder of loading climbs over it (lex-skeleton.js, В7.87): nothing for 500 ms, then the skeleton of the bubbles,
+    // the word of the head at 3 s, the empty state with Retry at 10 s or at an error. The old chat does not stand on.
+    let wait = null;
+    const climb = () => {
+      if (wait || stood || answered || reread || loaded || (opts && opts.again) || !current() || !global.LexSkeleton) return;
+      frame();
+      WcThread.clear();
+      const empty = document.getElementById('wc-empty');
+      if (empty) empty.hidden = true;
+      syncTitle();
+      paintAddressee();
+      const turns = document.getElementById('wc-turns');
+      wait = global.LexSkeleton.ladder(turns, {
+        skeleton: () => global.LexSkeleton.bubbles(global.LexSkeleton.MAX_BUBBLES),
+        retry: () => { if (wait) wait.stop(); openConversation(id, Object.assign({}, opts, { again: false })).catch(() => {}); },
+      });
+    };
     let answer;
+    let answered = false;
     let copy = null;
     if (loaded) {
       answer = WcBus.call('WC_ADOPT_CONVERSATION', { id, conversation: loaded.conversation, money: loaded.money, marks: loaded.marks });
@@ -406,6 +428,7 @@
       // and the server's answer takes its place. The person's next turn waits for the answer
       // (openWait in send): its context is the server's, not the copy's.
       answer = WcBus.call('WC_LOAD_CONVERSATION', { id });
+      answer.then(() => { answered = true; }, () => { answered = true; });
       openWait = { id, done: answer.then((x) => !!(x && x.ok), () => false) };
       // The chat read anew where it stands (opts.again: a signal of its answers): the screen is newer
       // than any copy — an answer just ended stands whole on it, its copy still holds it cut — so the
@@ -414,23 +437,39 @@
         WcBus.call('WC_LOAD_CONVERSATION', { id, kept: true }).catch(() => null),
         answer.then(() => null, () => null),
       ]);
-      if (copy && copy.ok && current()) stand(copy, false, true);
-      else copy = null;
+      if (copy && copy.ok && current()) {
+        stand(copy, false, true);
+        // The chat stood from the copy: the update behind it is no wait of the press (lex-busy.js, В7.74).
+        if (global.LexBusy) global.LexBusy.settle();
+      } else {
+        copy = null;
+        climb();
+      }
     }
     const again = reread || (!!(opts && opts.again) && state.conversationId === id);
     let r;
+    // The ladder's end: a failed answer shows the empty state where the feed is missing (no red line); a chat left
+    // meanwhile takes the ladder away.
+    const gone = () => { if (wait) wait.stop(); };
     try {
       r = await answer;
     } catch (err) {
+      if (wait && current()) { wait.fail(); return; }
+      gone();
       if (current()) toast((copy ? 'The chat is shown as it was the last time: ' : 'Could not open the chat: ') + (err && err.message), { error: true });
       return;
     }
-    if (!r || !r.ok) { if (current() && !copy) toast('The chat did not open', { error: true }); return; }
+    if (!r || !r.ok) {
+      if (wait && current()) { wait.fail(); return; }
+      gone();
+      if (current() && !copy) toast('The chat did not open', { error: true });
+      return;
+    }
     if (isServiceKey(id) && !(r.turns || []).length) r.turns = await botTurnsBefore();
-    if (!current()) return;
+    if (!current()) { gone(); return; }
     if (loaded) beginVisitFrom(id, loaded.since);
     else await beginVisit(id);
-    if (!current()) return;
+    if (!current()) { gone(); return; }
     // The answer is the copy, unchanged: what stands is right as it is — unless it has an answer the
     // server writes now, which the copy never draws as the stream, or a development task still running,
     // whose Stop the copy never draws either (LexMessage.devTaskRunning).
@@ -440,6 +479,7 @@
       if (r.money && global.LexChatMoney) WcThread.paintMoney(global.LexChatMoney.normalize(r.money));
       return;
     }
+    if (wait) { wait.done(() => { if (current()) stand(r, false); }); return; }
     stand(r, !!copy || again);
   }
 
@@ -627,6 +667,9 @@
   const sectionBack = global.LexBack.createBack(() => document.getElementById('wc-news-back'));
   // The corner of the bar (В7.76): the three lines, the arrow right of them.
   global.LexBack.corner(document.getElementById('wc-sidebar-open'), document.getElementById('wc-news-back'));
+  // The line of waiting of the head (lex-busy.js, В7.74): the word stands in the bar of the window, a section with a bar
+  // of its own takes it under its title (lex-section.js).
+  if (global.LexBusy && global.LexBusy.wordPlace) global.LexBusy.wordPlace(document.getElementById('wc-wait'));
   const SECTIONS = {
     em: { title: 'Extended Mind', build: buildEm, leave: leaveEmFeed },
     news: { title: 'News', build: buildNews },
@@ -711,7 +754,11 @@
     // A section has no field: the words of the chat left go to its draft.
     takeField(null);
     leaveSection();
+    // A section built before holds its screen: it stands at once, and what it reads behind it is no wait of the press
+    // (lex-busy.js, В7.74) — the stripes over a section that stood from the copy were exactly this wait.
+    const held = !!section.live;
     ensureSection(id);
+    if (held && global.LexBusy) global.LexBusy.settle();
     if (opts && opts.enter) opts.enter(section.live);
     for (const el of host.children) el.hidden = el !== section.live.el;
     sectionOn = id;

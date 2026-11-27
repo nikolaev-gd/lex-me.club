@@ -1,0 +1,93 @@
+/* lex-skeleton.css — the skeleton of a part (STANDARD.md, В7.87); the module is lex-skeleton.js next door.
+ *
+ * Bars 10 / 12 / 14 high, radius 6, the last line 60 % wide, on --bg-bubble (inside a bubble — --bg-raised). It comes
+ * in 200 ms ease-out and breathes 100 → 45 → 100 % in 1.6 s, every shape of the screen in one phase (the root's
+ * --lex-skel-phase, lex-skeleton.js). The word of the head is up (html.is-lex-word, lex-busy.js) — it stands still:
+ * one thing moves. Less motion — it stands, it only appears. */
+
+.lex-skel { display: block; animation: lex-skel-in .2s ease-out both; }
+.lex-skel .lex-skel-bar, .lex-skel .lex-skel-circle, .lex-skel .lex-skel-bubble, .lex-skel .lex-skel-order-answer,
+.lex-skel.lex-skel-today {
+  animation: lex-skel-breathe 1.6s ease-in-out infinite;
+  animation-delay: var(--lex-skel-phase, 0ms);
+}
+/* A part built of parts (bubbles of a feed, rows of a list) keeps the phase of its outer root. */
+.lex-skel .lex-skel { animation: none; }
+/* The bars inside a bubble breathe with the bubble, not twice. */
+.lex-skel .lex-skel-bubble .lex-skel-bar { animation: none; }
+.is-lex-word .lex-skel .lex-skel-bar, .is-lex-word .lex-skel .lex-skel-circle, .is-lex-word .lex-skel .lex-skel-bubble,
+.is-lex-word .lex-skel .lex-skel-order-answer, .is-lex-word .lex-skel.lex-skel-today { animation: none; }
+@keyframes lex-skel-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lex-skel-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+.lex-skel-bar {
+  height: 14px;
+  border-radius: 6px;
+  background: var(--bg-bubble, var(--lex-dark-bubble));
+}
+.lex-skel-bar.is-10 { height: 10px; }
+.lex-skel-bar.is-12 { height: 12px; }
+.lex-skel-bar.is-14 { height: 14px; }
+.lex-skel-bar.is-last { width: 60%; }
+.lex-skel-bubble .lex-skel-bar { background: var(--bg-raised, var(--lex-dark-raised)); }
+.lex-skel-bubble .lex-skel-bar + .lex-skel-bar, .lex-skel-plain .lex-skel-bar + .lex-skel-bar,
+.lex-skel-lines .lex-skel-bar + .lex-skel-bar { margin-top: 6px; }
+
+/* A line of a chat (В7.34): the circle 48, the name and the last line 60 %. */
+.lex-skel-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.lex-skel-circle { flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%; background: var(--bg-bubble, var(--lex-dark-bubble)); }
+.lex-skel-lines { flex: 1 1 auto; min-width: 0; }
+.lex-skel-lines .is-name { width: 40%; }
+
+/* Bubbles (В7.1): the person's on the left, the one that went out on the right; 2 apart, a chat at most 8. */
+.lex-skel-feed { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.lex-skel-msg { display: flex; }
+.lex-skel-msg.is-out { justify-content: flex-end; }
+.lex-skel-bubble {
+  box-sizing: border-box;
+  width: 62%;
+  max-width: 86%;
+  padding: 10px 12px;
+  border-radius: 18px;
+  background: var(--lex-bubble-in, var(--lex-dark-bubble));
+}
+.lex-skel-bubble.is-in { border-bottom-left-radius: 6px; }
+.lex-skel-bubble.is-out { width: 48%; border-bottom-right-radius: 6px; background: var(--lex-bubble-out, var(--lex-dark-bubble-out)); }
+.lex-skel-msg.is-short .lex-skel-bubble { width: 36%; }
+
+/* A message without a bubble (В7.13). */
+.lex-skel-plain { padding: 4px 0; }
+
+/* A line of a setting (В7.59): the name and, at the right, the short value. */
+.lex-skel-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 0 12px; }
+.lex-skel-setting .is-name { width: 40%; }
+.lex-skel-setting .is-value { width: 18%; }
+
+/* A message of an order (В7.29): the grey part of the client, the blue part of the answer 40 high. */
+.lex-skel-order { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; }
+.lex-skel-order-client { width: 86%; }
+.lex-skel-order-client .is-10 { width: 30%; }
+.lex-skel-order-answer {
+  align-self: flex-end;
+  width: 70%;
+  height: 40px;
+  border-radius: 18px 18px 6px 18px;
+  background: var(--lex-bubble-out, var(--lex-dark-bubble-out));
+}
+
+/* A card of News (В7.31): a bubble 18 18 18 6, bars 10 / 14 / 12. */
+.lex-skel-news { padding: 6px 0; }
+.lex-skel-news .lex-skel-news-card { width: 100%; max-width: 100%; border-radius: 18px 18px 18px 6px; }
+.lex-skel-news .is-kicker { width: 30%; }
+
+/* A card «Today» (В7.84): only the place of its size. */
+.lex-skel-today { border-radius: 10px; background: var(--bg-bubble, var(--lex-dark-bubble)); }
+
+/* The real thing in place of the skeleton: a fade of 120 ms, nothing moves. */
+.lex-skel-swap > * { animation: lex-skel-in .12s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .lex-skel, .lex-skel-swap > * { animation-duration: 1ms; }
+  .lex-skel .lex-skel-bar, .lex-skel .lex-skel-circle, .lex-skel .lex-skel-bubble, .lex-skel .lex-skel-order-answer,
+  .lex-skel.lex-skel-today { animation: none; }
+}

@@ -54,6 +54,10 @@
   font-size: 13px;
 }
 .lex-section .lex-section-status[hidden] { display: none; }
+/* The line of waiting of the head under the title (lex-busy.css .lex-busy-word, В7.74). */
+.lex-section > .lex-section-bar, .lex-section > .lex-section-status { order: -2; }
+.lex-section .lex-section-wait { order: -1; flex: 0 0 auto; padding: 8px 16px; }
+.lex-section .lex-section-wait[hidden] { display: none; }
 .lex-section .lex-section-status.is-error { color: var(--lex-section-danger, #d93a3a); }
 /* A round of work: it has to be seen at a glance, the wait can be long. */
 .lex-section .lex-section-status.is-busy {
@@ -64,17 +68,6 @@
   background: var(--lex-section-hover, rgba(127, 127, 127, .14));
   color: var(--lex-section-fg, inherit);
   font-weight: 500;
-}
-.lex-section .lex-section-status.is-busy::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  box-sizing: border-box;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: lex-section-spin .8s linear infinite;
 }
 @keyframes lex-section-spin { to { transform: rotate(360deg); } }
 
@@ -386,7 +379,7 @@
 }
 .lex-spin.is-12 { width: 12px; height: 12px; }
 .lex-spin.is-14 { width: 14px; height: 14px; }
-@media (prefers-reduced-motion: reduce) { .lex-spin { animation-duration: 2.4s; } }
+@media (prefers-reduced-motion: reduce) { .lex-spin { animation: none; } }
 
 /* В7.57 the state line of an agent: the second line of a line of the list, 14. */
 .lex-astate { display: inline; color: var(--lex-section-muted, rgba(127, 127, 127, .95)); }

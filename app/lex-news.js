@@ -327,6 +327,8 @@
         p_limit: 20,
         p_to_anchor: !!(opts && opts.toAnchor),
       });
+      // The ladder of a first opening without the copy (lex-skeleton.js): the cards come when the skeleton has stood.
+      if (opts && opts.wait) await new Promise((resolve) => opts.wait.done(resolve));
       paint(r.blocks || [], false);
       more = r.more || null;
       fresh.hidden = true;
@@ -450,7 +452,9 @@
     async function refresh() {
       if (busy) return;
       setBusy(true);
-      setStatus('Updating…');
+      // «Updating…» only after 3 s, as every wait of Lex (STANDARD.md В7.74, the ladder of loading): a quick round says
+      // nothing at all.
+      const slowWord = setTimeout(() => { if (busy) setStatus('Updating…'); }, 3000);
       const round = newOpId();
       let failed = [];
       let stopped = null;
@@ -477,6 +481,7 @@
       } catch (e) {
         end = ['Refresh failed. ' + ((e && e.message) || ''), true];
       }
+      clearTimeout(slowWord);
       setBusy(false);
       setStatus(...end);
     }
@@ -515,7 +520,7 @@
       }
     }
 
-    return {
+    const feed = {
       el: frame.el,
       refresh,
       // The person went to another chat: the card being opened stays marked, nothing moves.
@@ -533,18 +538,30 @@
           opened = true;
           // What the device holds comes first, the server corrects it a moment later.
           const kept = deps.keptFeed ? await deps.keptFeed() : null;
-          if (kept && kept.blocks && kept.blocks.length) {
+          const fromCopy = !!(kept && kept.blocks && kept.blocks.length);
+          if (fromCopy) {
             paint(kept.blocks, false);
             scroller.scrollTop = 0;
+            // The feed stood from the copy: its update is no wait of the press (lex-busy.js, В7.74).
+            if (global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
           }
+          // No copy: the ladder of loading with the skeleton of the cards (lex-skeleton.js, В7.87).
+          const S = global.LexSkeleton;
+          const wait = !fromCopy && S ? S.ladder(blocksEl, {
+            skeleton: () => S.list(S.newsCard, 4),
+            shown: () => frame.isShown(),
+            retry: () => { wait.stop(); feed.show(opts).catch(() => {}); },
+          }) : null;
           try {
-            await load();
+            await load({ wait });
             scroller.scrollTop = 0;
             lastSaved = topCard();
             if (frame.isShown()) frame.watch();
           } catch (e) {
-            // Silent on the screen (Gennady, 20.11.2026): what the screen has stays, the next opening reads again.
+            // Silent on the screen (Gennady, 20.11.2026): what the screen has stays, the next opening reads again;
+            // with nothing on it — the empty state with Retry.
             opened = false;
+            if (wait) wait.fail();
             console.warn('[news] show:', e && e.message);
           }
           return;
@@ -566,6 +583,7 @@
         if (deps.head) deps.head(null);
       },
     };
+    return feed;
   }
 
   // ── the head of a news ──────────────────────────────────────────────────────
@@ -597,6 +615,13 @@
       note.hidden = !text;
       note.classList.toggle('is-error', !!isError);
       note.classList.toggle('is-busy', !!text && busy);
+      if (text && busy && !isError) {
+        // The common ring before the words (lex-busy.css, В7.74).
+        const ring = document.createElement('span');
+        ring.className = 'lex-busy-ring is-inline';
+        ring.setAttribute('aria-hidden', 'true');
+        note.prepend(ring);
+      }
     };
 
     async function processAgain(letterId) {

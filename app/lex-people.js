@@ -206,9 +206,22 @@
       })).catch(() => {});
     }
 
+    // The ladder of loading while the list has nothing to show (lex-skeleton.js, В7.87): the skeleton of the lines.
+    let wait = null;
     function reload() {
       if (reading) return reading;
       readBot();
+      const S = global.LexSkeleton;
+      // A ladder that ended in the empty state stays on the screen while the read is tried again by itself; Retry and
+      // a successful read take it away.
+      if (wait && wait.phase() !== 'failed') { wait.stop(); wait = null; }
+      if (!home && S && !wait) {
+        wait = S.ladder(body, {
+          skeleton: () => S.list(S.chatRow, 6),
+          shown: () => !!body.offsetParent,
+          retry: () => { if (wait) { wait.stop(); wait = null; } reload(); },
+        });
+      }
       reading = deps.read('people_home', {}, (v, isFresh) => {
         // The copy this device kept draws the first frame; the server's answer takes its place. A copy never covers a
         // list that stands on the screen already.
@@ -221,14 +234,16 @@
         if (isFresh && home && text !== null && text === drawn) return;
         home = v;
         drawn = text;
-        paint();
+        if (wait) { const w = wait; wait = null; w.done(paint); } else paint();
         // The archive on the screen follows the same signals: what came back leaves it, what went in comes.
         if (archiveOpen) readArchived();
       }).then(() => {
         fails = 0;
         stopAgain();
       }, (e) => {
-        // Silent on the screen: the copy of the last time stays, and the bot's alert tells what is broken.
+        // Silent on the screen: the copy of the last time stays, and the bot's alert tells what is broken; with nothing
+        // on the screen — the empty state with Retry.
+        if (wait) wait.fail();
         console.warn('[people] read:', e && e.message);
         readAgain();
       }).finally(() => { reading = null; });

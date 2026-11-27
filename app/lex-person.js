@@ -262,7 +262,11 @@
     let card = null;
     let sheet = null;
     let editing = false;
-    const busy = make('div', 'lex-person-wait', 'Loading…');
+    // The card is read at the press: until it comes, the ladder of loading (lex-skeleton.js, В7.87) — nothing for
+    // 500 ms, then the skeleton of its lines; never a word of its own.
+    const busy = make('div', 'lex-person-wait');
+    const S = global.LexSkeleton;
+    const wait = S ? S.ladder(busy, { skeleton: () => S.list(S.settingRow, 4) }) : null;
     sheet = UI.sheet(HOST, 'Contact', [busy], () => {
       if (card && card.deleted && o.onGone) o.onGone(card);
     });
@@ -310,17 +314,19 @@
       await mark(what, input);
     }
 
+    const shown = (fn) => { if (wait) wait.done(fn); else fn(); };
     o.call({ op: 'card', chatKey: o.chatKey }).then((r) => {
       if (!r || !r.card) throw new Error('The server of Lex sent no card.');
       card = r.card;
-      paint();
+      shown(paint);
     }).catch((e) => {
       if (o.bare) {
         console.warn('[person] the card of', o.chatKey, 'did not come:', e && e.message);
         card = { name: o.bare.name || o.name || '', photo: o.bare.photo || null, who: o.bare.who || null, bare: true };
-        paint();
+        shown(paint);
         return;
       }
+      if (wait) wait.stop();
       busy.textContent = (e && e.message) || 'The server of Lex did not answer.';
     });
     return sheet;

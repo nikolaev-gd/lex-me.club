@@ -1479,7 +1479,9 @@
     if (o.state === 'writing' && !o.short) {
       // While the summary is written the block is only the ring (the board «Другие случаи»).
       const wait = make('div', 'lex-call-wait');
-      wait.append(make('span', 'lex-call-ring'), document.createTextNode('Lex is writing the summary…'));
+      const ring = make('span', 'lex-busy-ring is-inline');   // the common ring (lex-busy.css, В7.74)
+      ring.setAttribute('aria-hidden', 'true');
+      wait.append(ring, document.createTextNode('Lex is writing the summary…'));
       body.appendChild(wait);
       return finish();
     }

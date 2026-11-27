@@ -47,18 +47,7 @@
   cursor: pointer;
 }
 .lex-news-settings .lex-news-mini:hover { background: var(--lex-section-hover, rgba(127, 127, 127, .14)); }
-/* The head of a card: a round of work there has the same turning ring as the status line. */
-.lex-news-chat-head .lex-news-chat-note.is-busy::before {
-  content: '';
-  flex: 0 0 auto;
-  width: 14px;
-  height: 14px;
-  box-sizing: border-box;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 50%;
-  animation: lex-section-spin .8s linear infinite;
-}
+/* The head of a card: a round of work there has the common ring before its words (lex-busy.css, В7.74). */
 /* The feed (ios/Lex/STANDARD.md В7.31): the cards of LexMessage.newsCard 12 apart, the newest letter on
    top; between two days the day line on a plate (В7.14), the same 12 from the cards. */
 .lex-news .lex-news-blocks { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }

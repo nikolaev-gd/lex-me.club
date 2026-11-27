@@ -476,8 +476,13 @@
     const status = make('div', 'lex-section-status');
     status.setAttribute('role', 'status');
     status.hidden = true;
+    // The line of waiting of the head (LexBusy.wordPlace, В7.74): in a section with its own bar the word stands under
+    // its title, in the place of the status line; a section whose head stands in the bar of the window leaves it there.
+    // It goes last in the markup and stands under the status by `order` (lex-section.css): the bar, the status and the
+    // body keep their places among the children.
+    const waitWord = make('div', 'lex-section-wait');
     const first = { id: 'home', title: opts.title, body: make('div', 'lex-section-body'), top: 0, head: opts.head || null };
-    root.append(bar, status, first.body);
+    root.append(bar, status, first.body, waitWord);
     const stack = [first];
     // A section entered from outside (opts.root) is never on its first screen: it stays under the others, hidden, and the
     // arrow does not stop there (paintScreen).
@@ -485,12 +490,17 @@
     first.body.hidden = stays(first);
     const top = () => stack[stack.length - 1];
     const isShown = () => root.isConnected && !root.closest('[hidden]');
+    if (global.LexBusy && global.LexBusy.wordPlace) {
+      global.LexBusy.wordPlace(waitWord, () => isShown() && bar.offsetParent !== null && getComputedStyle(bar).display !== 'none');
+    }
 
     // What the section says. The watch says nothing here: a lost connection is no red line (Gennady, 20.11.2026).
     let said = [''];
     function paintStatus() {
       const [text, isError, isBusy] = said;
       status.textContent = text || '';
+      // Work going on: the common ring 14 before the words (lex-busy.css, В7.74).
+      if (text && !isError && isBusy) status.prepend(ringNode());
       status.hidden = !text;
       status.classList.toggle('is-error', !!isError);
       status.classList.toggle('is-busy', !!text && !isError && !!isBusy);
@@ -793,6 +803,12 @@
     writing: 'Writing the answer…',
   };
   const stageWords = (stage) => STAGES[stage] || 'Working…';
+  // The common ring of a wait standing in a line (lex-busy.css, В7.74).
+  function ringNode() {
+    const n = make('span', 'lex-busy-ring is-inline');
+    n.setAttribute('aria-hidden', 'true');
+    return n;
+  }
   function spinner(size) {
     const n = make('span', `lex-spin is-${size === 14 ? 14 : 12}`);
     n.setAttribute('aria-hidden', 'true');

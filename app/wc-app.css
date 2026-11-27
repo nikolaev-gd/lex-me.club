@@ -1758,12 +1758,6 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
   background: var(--bg-bubble) center/cover no-repeat;
   overflow: hidden;
 }
-.wc-chip.is-busy::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, .35) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'><path d='M12 3a9 9 0 1 0 9 9'><animateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='.8s' repeatCount='indefinite'/></path></svg>") center/20px no-repeat;
-}
 .wc-chip-x {
   position: absolute;
   top: 2px;
@@ -2400,6 +2394,19 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
 .lex-bubbles > .wc-turn-q { margin-bottom: 16px; }
 .lex-bubbles > .wc-turn-pack.is-each { display: flex; flex-direction: column; gap: 16px; }
 .wc-chat-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The line of waiting of the head (lex-busy.js, LexBusy.wordPlace; STANDARD.md В7.74): the second line of the bar of
+ * the window, in the middle under it — the ring 14 and the word 13; it takes no press. */
+.wc-wait {
+  position: absolute;
+  top: calc(100% - 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  pointer-events: none;
+}
 .wc-chat-title[hidden] { display: none !important; }
 .wc-chat-title-main { overflow: hidden; color: var(--fg); font-size: 16px; font-weight: 650; line-height: 20px; white-space: nowrap; text-overflow: ellipsis; }
 .wc-chat-title-sub { overflow: hidden; color: var(--fg-muted); font-size: 13px; line-height: 16px; white-space: nowrap; text-overflow: ellipsis; }

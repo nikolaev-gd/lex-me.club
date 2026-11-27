@@ -39,6 +39,8 @@
 //   empty()    optional: the copy goes on the screen only while the screen holds nothing yet,
 //              so a copy never covers what the window read meanwhile
 //   The answer failed: the copy, if it came, stays on the screen, and the error goes on.
+//   The copy shown, LexBusy.settle() (lex-busy.js, where the window has it): the update after the copy is never a
+//   wait — no ring, no word, nothing (STANDARD.md В7.74, 27.11.2026).
 (function (global) {
   'use strict';
 
@@ -209,6 +211,8 @@
       if (answered || v == null || (empty && !empty())) return;
       shown = v;
       show(v, false, false);
+      // The screen stood from the copy: the update behind it is no wait of the press (lex-busy.js, В7.74).
+      if (global.LexBusy && global.LexBusy.settle) global.LexBusy.settle();
     }, warn);
     let r;
     try {
