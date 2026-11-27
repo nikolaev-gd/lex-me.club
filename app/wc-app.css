@@ -2412,7 +2412,6 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
 .lex-agents .lex-agent-name { margin-top: 10px; }
 .lex-agents .lex-agent-name { color: var(--fg); font-size: 22px; font-weight: 650; line-height: 28px; }
 .lex-agents .lex-agent-state { color: var(--fg-muted); font-size: 15px; line-height: 20px; }
-.lex-agents .lex-agent-state.is-wait { color: var(--attention); }
 .lex-agents .lex-agent-state.is-failed { color: var(--danger); }
 /* The instruction: text to read, the way the words of the model stand in a chat. */
 .lex-agents .lex-agent-doc { padding: 8px 0 24px; color: var(--fg); font-size: 15px; line-height: 1.45; }

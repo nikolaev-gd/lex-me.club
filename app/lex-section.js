@@ -466,7 +466,8 @@
     // The gear is a button with an icon of the bar, a zone of 44 (В7.11), as every tool of the bar.
     if (opts.gear) tools.appendChild(iconButton('lex-section-gear lex-section-icon', GEAR, 'Settings', opts.gear));
     // The centred head of a screen (В7.18, 22.11.2026, board AgF2HeadA): a slot 108 on each side, in the middle a button
-    // 44 — the name 16/650 with a chevron 16 when it opens something, under it a line 13 (`--attention` when it waits);
+    // 44 — the name 16/650 with a chevron 16 when it opens something, under it a line 13 (`--fg-muted`; `--attention` or
+    // `--danger` by its tone — an agent's screens: «Paused» grey, «Failed: <reason>» red);
     // on the right the second button 44 (В7.7) with a mark 20 and a word. The arrow back stays where it is on the page
     // (the bar of the window, lex-back.js): the left slot only keeps the name in the middle.
     const center = make('div', 'lex-section-center');
@@ -516,7 +517,8 @@
       if (h.onTitle) line.appendChild(markSvg(['M9 6l6 6-6 6'], 16, 2));
       const mid = make(h.onTitle ? 'button' : 'div', 'lex-section-head');
       mid.appendChild(line);
-      if (h.sub) mid.appendChild(make('span', `lex-section-head-sub${h.subTone === 'attention' ? ' is-attention' : ''}`, h.sub));
+      const tone = h.subTone === 'attention' ? ' is-attention' : h.subTone === 'danger' ? ' is-danger' : '';
+      if (h.sub) mid.appendChild(make('span', `lex-section-head-sub${tone}`, h.sub));
       if (h.onTitle) {
         mid.type = 'button';
         mid.setAttribute('aria-label', h.titleLabel || `${h.title || ''}: settings`);
@@ -661,7 +663,7 @@
       open,
       isShown,
       get screen() { return top().id; },
-      // The head of the screen on top: { title, sub, subTone: 'attention' | 'muted', onTitle, titleLabel,
+      // The head of the screen on top: { title, sub, subTone: 'attention' | 'danger' | 'muted', onTitle, titleLabel,
       // action: { icon: [paths], label, ariaLabel, onClick }, lead: an icon button of 44 in the left slot (orderButton) }
       // — the centred head (В7.18); null — the title on the left.
       setHead(head) { top().head = head || null; paintScreen(); },
@@ -844,7 +846,7 @@
   }
 
   // ── В7.58 the label of a group in a list ────────────────────────────────────
-  // «Waiting for you · 4», «Working · 1», «Closed»: 13/600 in grey, 16 over it and 6 under it.
+  // «Today», «Previous 7 days», «Memory», with a number «Weeks · 4»: 13/600 in grey, 16 over it and 6 under it.
   function groupLabel(text, n) {
     return make('div', 'lex-group-label', n != null ? `${text} · ${n}` : String(text));
   }

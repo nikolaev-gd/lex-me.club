@@ -2,37 +2,36 @@
 // does tasks (23.11.2026, Gennady: «inside an agent it is often not clear when which order was»; the menu as Claude has
 // it — Group by and Sort by, nothing else). The chats with people keep the order of a messenger and do not take it.
 //
-//   Group by  Date updated | Date created | Status | None
+//   Group by  Date updated | Date created | None
 //   Sort by   Last updated | Date created | Name, then Descending | Ascending
 //
-// The two are separate: Group by cuts the list into groups (by the day of the last movement, by the day of the birth, by
-// the state), Sort by orders the rows inside them — and the groups themselves, when it sorts by a date (Descending: the
-// newest group first). So «by Date created, inside by Name» is a choice. A choice kept before 24.11.2026 as `date|…` is
+// The two are separate: Group by cuts the list into groups (by the day of the last movement or of the birth), Sort by
+// orders the rows inside them — and the groups themselves, when it sorts by a date (Descending: the newest group first). So «by Date created, inside by Name» is a choice. A choice kept before 24.11.2026 as `date|…` is
 // read as the date the list was sorted by.
 //
-// The default is the order the folders had before: by status (waiting, working, closed), the last movement first.
+// The default is one list, the last movement first (Gennady, 27.11.2026: the folder of an agent has no groups of the
+// states; «Status» left the menu, and a choice kept as «status|…» is read as the default).
 // The choice is kept on the device, one for every list of the same kind (`key`): what a person set in one agent stays
 // in the others. Pure: no page, no server — the page draws the menu (WcUI.menu, В7.8) and the button
 // (LexSection.orderButton); the iPhone has the same choices, words and groups in Parts/ListOrder.swift.
 //
 // LexListOrder:
 //   DEFAULTS, GROUPS, SORTS, DIRS     the choices and their words
-//   norm(prefs) / parse(text) / text(prefs)   a choice made whole; «status|updated|desc» and back
+//   norm(prefs) / parse(text) / text(prefs)   a choice made whole; «none|updated|desc» and back
 //   load(key, storage) / save(key, prefs, storage)   the choice kept on the device (localStorage by default)
 //   isDefault(prefs)
 //   dateGroup(ms, now)  → { id, title, rank } — Today, Yesterday, Previous 7 days, Previous 30 days, a month
-//   arrange(items, prefs, o) → [{ id, title, count, items }] — o: { at(it), created(it), name(it), status(it),
-//                       statuses: [{ id, title, counted, rest }], now }; one group with title null when not grouped
+//   arrange(items, prefs, o) → [{ id, title, count, items }] — o: { at(it), created(it), name(it), now }; one group
+//                       with title null when not grouped
 //   menuItems(prefs, onPick) → the items of WcUI.menu: heads, choices with the check, separators
 //   label(prefs)        → what the button says to a reader of the screen
 (function (global) {
   'use strict';
 
-  const GROUPS = [{ id: 'updated', label: 'Date updated' }, { id: 'created', label: 'Date created' },
-    { id: 'status', label: 'Status' }, { id: 'none', label: 'None' }];
+  const GROUPS = [{ id: 'updated', label: 'Date updated' }, { id: 'created', label: 'Date created' }, { id: 'none', label: 'None' }];
   const SORTS = [{ id: 'updated', label: 'Last updated' }, { id: 'created', label: 'Date created' }, { id: 'name', label: 'Name' }];
   const DIRS = [{ id: 'desc', label: 'Descending' }, { id: 'asc', label: 'Ascending' }];
-  const DEFAULTS = Object.freeze({ group: 'status', sort: 'updated', dir: 'desc' });
+  const DEFAULTS = Object.freeze({ group: 'none', sort: 'updated', dir: 'desc' });
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
     'November', 'December'];
   const PREFIX = 'lex.listOrder.';
@@ -48,7 +47,8 @@
   }
   function parse(s) {
     const [group, sort, dir] = String(s || '').split('|');
-    // The first menu had one «Date» that took the date from Sort by.
+    if (group === 'status') return norm();
+    // The first menu had one «Date» that took the date from Sort by; «status» (before 27.11.2026) is the default now.
     return norm({ group: group === 'date' ? (sort === 'created' ? 'created' : 'updated') : group, sort, dir });
   }
   const text = (p) => { const n = norm(p); return `${n.group}|${n.sort}|${n.dir}`; };
@@ -120,16 +120,6 @@
     const out = (x) => x.map((e) => e.it);
 
     if (p.group === 'none') return sorted.length ? [{ id: 'all', title: null, count: null, items: out(sorted) }] : [];
-
-    if (p.group === 'status') {
-      const statuses = Array.isArray(o.statuses) && o.statuses.length ? o.statuses : [{ id: 'all', title: null, rest: true }];
-      const rest = statuses.find((s) => s.rest) || statuses[statuses.length - 1];
-      const of = (e) => { const id = o.status ? o.status(e.it) : e.it.state; return statuses.find((s) => s.id === id) || rest; };
-      return statuses.map((s) => {
-        const mine = sorted.filter((e) => of(e) === s);
-        return { id: s.id, title: s.title == null ? null : s.title, count: s.counted ? mine.length : null, items: out(mine) };
-      }).filter((g) => g.items.length);
-    }
 
     // Date updated | Date created: the groups are the days of that moment; the rows keep the order of Sort by inside
     // them. The newest group first, or the oldest when Sort by is a date and Ascending.

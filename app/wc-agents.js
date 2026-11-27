@@ -8,9 +8,9 @@
 // liveStage …); nothing is drawn here past them. Screens of the frame:
 //   home         the list of the agents (agentRow): the waiting first, then the working, the rest by their last event,
 //                the paused at the bottom
-//   agent        the folder of one agent: the head in the middle, the groups «Waiting for you · N», «Working · N»,
-//                «Closed» — or by date, or none (the order of the list at the left of the head, В7.73,
-//                lex-list-order.js); the capsule «New chat» of the window at its bottom right begins a chat with the agent
+//   agent        the folder of one agent: the head in the middle, the chats in one list by their last movement — or
+//                by date (the order of the list at the left of the head, В7.73, lex-list-order.js; no groups of the
+//                states since 27.11.2026); the capsule «New chat» of the window at its bottom right begins a chat with the agent
 //   log          the journal «Activity» (op runs, by pages, by days); a bubble at a line — a new chat about it
 //   screen       the agent's own main screen (26.11.2026, the contract «Scribe в Lex»; an agent whose list line says
 //                `screen: true`, Scribe first): the blocks of place «main» as the base describes them (wc-agent-screen.js)
@@ -280,15 +280,17 @@
     }
 
     // ── the head of the screen of an agent (board AgF2HeadA) ─────────────────────────────────────────────────
-    // In the middle the name with the chevron (a press — the passport), under it the state of the agent: «Waiting for
-    // you · N» in yellow, «Working», «Failed», «Paused», otherwise nothing. On the right «Activity» — the journal.
+    // In the middle the name with the chevron (a press — the passport), under it only what is wrong with the agent as a
+    // whole: «Paused» in grey, «Failed: <reason>» in red; an agent that waits, works or rests has no line (Gennady,
+    // 27.11.2026: the waiting is said by the lines of the chats, the work by the spinner of the working chat). On the
+    // right «Activity» — the journal.
     function stateLine(a) {
       const s = stateOf(a);
-      const n = Number(a.waiting) || 0;
-      if (n > 0 && s !== 'paused') return { sub: 'Waiting for you', subTone: 'attention' };
-      if (s === 'working') return { sub: 'Working' };
-      if (s === 'failed') return { sub: 'Failed' };
       if (s === 'paused') return { sub: 'Paused' };
+      if (s === 'failed') {
+        const why = oneLine(a.failed_reason);
+        return { sub: why ? `Failed: ${why}` : 'Failed', subTone: 'danger' };
+      }
       return {};
     }
     function folderHead(a) {
@@ -306,15 +308,20 @@
     }
 
     // ── the folder of an agent ────────────────────────────────────────────────────────────────────────────────
-    // The task chats by groups (В7.58): the waiting ones — the last word of the agent, under the label «Waiting for you»;
-    // the working ones — the spinner and the stage; the closed ones — plain, the last word. The yellow dot and the bold
-    // title are the unread's alone (the slot `unread` below, read again at every signal), whatever the state of the chat.
-    // The time at the right. On a wide window the line of the chat on the right stands picked.
+    // The task chats in one list (27.11.2026), the second line as the line of an agent in the list (В7.57): the waiting
+    // ones — «Waiting for you:» in yellow and the last word of the agent; the working ones — the spinner and the stage;
+    // the closed ones — the last word. The yellow dot and the bold title are the unread's alone (the slot `unread` below,
+    // read again at every signal), whatever the state of the chat. The time at the right. On a wide window the line of
+    // the chat on the right stands picked.
+    function chatSub(c) {
+      if (c.state === 'waiting') return S.agentState({ state: 'waiting', text: oneLine(c.last) });
+      if (c.state === 'closed') return oneLine(c.last);
+      return S.agentState({ state: 'working', stage: c.stage, text: c.stageText || null });
+    }
     function chatLine(c) {
-      const working = c.state !== 'waiting' && c.state !== 'closed';
       const row = S.row({
         id: c.chatKey, title: c.title || 'Chat',
-        sub: working ? S.agentState({ state: 'working', stage: c.stage, text: c.stageText || null }) : oneLine(c.last),
+        sub: chatSub(c),
         time: S.listTime(c.at), unread: { chat: c.chatKey },
         onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
       });
@@ -373,17 +380,12 @@
       frame.body.replaceChildren(list);
       pick(deps.openKey ? deps.openKey() : null);
     }
-    // The order of the folder (В7.73): Group by Date updated | Date created | Status | None, Sort by Last updated | Date
-    // created | Name, both ways. Each agent's folder has its own choice, kept on this device (`agent-chats:<agent>`); an
-    // agent never set has the groups of the states.
+    // The order of the folder (В7.73): Group by Date updated | Date created | None, Sort by Last updated | Date created |
+    // Name, both ways. Each agent's folder has its own choice, kept on this device (`agent-chats:<agent>`); an agent never
+    // set has one list, the last movement first.
     const orderKey = (a) => `agent-chats:${a.key}`;
     const L = global.LexListOrder;
     let order = L.norm();
-    const CHAT_STATES = [
-      { id: 'waiting', title: 'Waiting for you', counted: true },
-      { id: 'working', title: 'Working', counted: true, rest: true },
-      { id: 'closed', title: 'Closed', counted: false },
-    ];
     function orderButton() {
       return S.orderButton({ prefs: order, onClick: (anchor) => deps.menu(anchor, L.menuItems(order, (next) => {
         order = next;
@@ -393,10 +395,7 @@
       })) });
     }
     function chatGroups() {
-      return L.arrange(chats, order, {
-        at: (c) => c.at, created: (c) => c.created, name: (c) => c.title || 'Chat', status: (c) => c.state,
-        statuses: CHAT_STATES,
-      });
+      return L.arrange(chats, order, { at: (c) => c.at, created: (c) => c.created, name: (c) => c.title || 'Chat' });
     }
     function paintFolder() {
       if (frame.screen !== 'agent' || !current) return;
@@ -585,10 +584,9 @@
     // the ways to the Instruction and the Memory. A setting goes to the base (op settings) and the row shows what the base
     // answered; a refusal pops up with the base's words, the value stays as it was.
     function aboutOf(a) { return about.get(a.key) || {}; }
+    // The state of the agent itself (27.11.2026): Working, Paused, Failed or Idle — no «Waiting for you», that is a chat's.
     function passportState(a) {
       const s = stateOf(a);
-      const n = Number(a.waiting) || 0;
-      if (n > 0 && s !== 'paused') return { text: 'Waiting for you', tone: 'is-wait' };
       if (s === 'working') return { text: 'Working' };
       if (s === 'paused') return { text: 'Paused' };
       if (s === 'failed') return { text: `Failed: ${oneLine(a.failed_reason)}`.trim(), tone: 'is-failed' };

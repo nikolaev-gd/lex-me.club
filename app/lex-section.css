@@ -588,6 +588,7 @@ button.lex-section-head { cursor: pointer; }
   font-size: 13px; line-height: 16px; color: var(--fg-muted, var(--lex-section-muted));
 }
 .lex-section .lex-section-head-sub.is-attention { color: var(--attention); }
+.lex-section .lex-section-head-sub.is-danger { color: var(--lex-section-danger, var(--danger, #d93a3a)); }
 .lex-section .lex-section-head-action { flex: none; flex-direction: row; gap: 6px; white-space: nowrap; }
 .lex-section .lex-section-head-action > svg { color: var(--fg-soft, var(--fg-muted)); }
 
