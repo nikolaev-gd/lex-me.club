@@ -1079,7 +1079,15 @@
       f.setAttribute('aria-label', title);
       f.addEventListener('input', () => {
         onInput(f.value);
-        if (o && o.multi) { f.style.height = 'auto'; f.style.height = `${Math.min(f.scrollHeight, 5 * 20 + 4)}px`; }
+        if (o && o.multi) {
+          // The row keeps its height while the field falls to one line to be measured: else the sheet loses that
+          // height for a moment and its scroll jumps on every letter.
+          const was = row.style.minHeight;
+          row.style.minHeight = `${row.offsetHeight}px`;
+          f.style.height = 'auto';
+          f.style.height = `${Math.min(f.scrollHeight, 5 * 20 + 4)}px`;
+          row.style.minHeight = was;
+        }
       });
       row.appendChild(f);
       row.classList.add('has-field');

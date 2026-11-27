@@ -755,9 +755,16 @@
     field.value = (o && o.value) || '';
     field.rows = 1;
     if (o && o.label) field.setAttribute('aria-label', o.label);
+    // The field is measured by letting it fall to one line for a moment. The bubble around it keeps its
+    // height meanwhile: else the feed loses that height for the moment of the measure, the browser pulls
+    // the feed down to its new end, and every letter typed throws the feed and the caret down
+    // (Gennady 2026-11-27).
     const grow = () => {
+      const was = body.style.minHeight;
+      if (body.isConnected) body.style.minHeight = `${body.offsetHeight}px`;
       field.style.height = 'auto';
       field.style.height = `${field.scrollHeight}px`;
+      body.style.minHeight = was;
     };
     field.addEventListener('input', () => {
       grow();
