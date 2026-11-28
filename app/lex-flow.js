@@ -433,7 +433,8 @@
           paint();
         })
         .catch((e) => { moreFailed = true; console.warn('[flow] portion:', e && e.message); })
-        .finally(() => { moreReading = null; });
+        // A scroll to the end while this portion was read asks again here: no scroll may come after it.
+        .finally(() => { moreReading = null; if (nearEnd()) loadMore(); });
       return moreReading;
     }
     // The row of the chat open beside the list may stand below the last chat of Lex loaded (the rule of the portions keeps
@@ -448,10 +449,11 @@
         try { await loadMore(); } catch (_) { return; }
       }
     }
-    body.addEventListener('scroll', () => {
-      if (!cursor || archiveOpen) return;
-      if (body.scrollHeight - body.scrollTop - body.clientHeight < body.clientHeight * 0.5) loadMore();
-    }, { passive: true });
+    // The end of the list is near (half a screen) on a list on the screen that scrolls: the next portion is wanted. A
+    // short list (a filter of a few rows) asks for no portion, as before: no scroll comes on it.
+    const nearEnd = () => !!cursor && !archiveOpen && body.clientHeight > 0 && body.scrollHeight > body.clientHeight + 1
+      && body.scrollHeight - body.scrollTop - body.clientHeight < body.clientHeight * 0.5;
+    body.addEventListener('scroll', () => { if (nearEnd()) loadMore(); }, { passive: true });
 
     // ── reading ─────────────────────────────────────────────────────────────────
     // join — a read in flight already answers the ask (the list came on the screen while warm() was reading): no second
@@ -505,6 +507,8 @@
       }).finally(() => {
         reading = null;
         if (again) { again = false; reload(); }
+        // A scroll to the end during the read was dropped (no portion while the list reads): it is asked again now.
+        else if (nearEnd()) loadMore();
       });
       return reading;
     }
