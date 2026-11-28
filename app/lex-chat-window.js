@@ -57,7 +57,7 @@
   const DRAG_TYPE = 'application/x-lex-chat';
   // The list a line belongs to — the place of the list on the screen, the box that scrolls it: a drop inside it is
   // not «away from the list». No such box — the list element itself.
-  const LISTS = '.lex-section-list, .wc-convs, .wc-home, [role="list"]';
+  const LISTS = '.lex-section-list, .wc-convs, .lex-flow-body, [role="list"]';
   function listOf(row) {
     for (let el = row.parentElement; el && el !== document.body; el = el.parentElement) {
       const y = getComputedStyle(el).overflowY;

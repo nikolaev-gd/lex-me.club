@@ -35,7 +35,7 @@
 //              answer (fresh true; same — it is exactly the copy that was handed to show before it).
 //              `same` says nothing of the screen when show did not draw that copy (the screen held a list
 //              already, which another window of the page may have outdated in the copy): such a screen
-//              compares the answer with what it draws itself (lex-people.js, `drawn`).
+//              compares the answer with what it draws itself (lex-flow.js, `drawn`).
 //   empty()    optional: the copy goes on the screen only while the screen holds nothing yet,
 //              so a copy never covers what the window read meanwhile
 //   The answer failed: the copy, if it came, stays on the screen, and the error goes on.
@@ -63,7 +63,8 @@
     lex_em_feed_item: { by: ['p_kind'], limit: 10 },      //   a feed with its chat
     lex_em_question_item: { by: ['p_item'], limit: 60 },  //   a question with its chat
     lex_em_feed_turns: { by: ['p_chat_key'], limit: 10 }, //   a feed read as a chat
-    people_home: {},                                      // the tabs of the people: every chat of them in one list
+    people_home: {},                                      // the tabs of the people: every chat of them in one list (old builds)
+    lex_flow: { first: ['p_cursor_at'] },                 // «Flow» (lex-flow.js): its first portion, every kind of chat
     today: {},                                            // the blocks «Today» over them: the edge function today (GET)
     calendar: { by: ['from', 'to'], limit: 3 },           // Calendar: the edge function calendar (GET), the days it read
     shopping: {},                                         // Shopping list: the edge function shopping (GET)
@@ -110,6 +111,8 @@
     // the archives of the lists (chat_archive.sql): the archived chats of the main page and of the panel — asked live
     // when the archive is opened or its row counted (the folder of an agent keeps its own: KEPT, lex_agent_archived)
     'people_archived', 'list_archived_chats',
+    // the archive of «Flow» (flow_feed.sql): its three archives in one list, asked live when its row is pressed
+    'lex_flow_archived',
     // the draft of every chat: lex-drafts.js keeps its own copy on the device, with its own rule
     'lex_draft_put', 'lex_drafts',
     // stamps and changes: is there something new, what changed since

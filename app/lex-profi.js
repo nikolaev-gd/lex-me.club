@@ -4,7 +4,7 @@
 // screens in Swift, on the same server calls. The extension does not load this file: the
 // server does not name the section to it.
 //
-// The section has no list of its own (20.11.2026): the chats of Profi.ru stand on the main page of the people (lex-people.js)
+// The section has no list of its own (20.11.2026): the chats of Profi.ru stand on «Flow» (lex-flow.js)
 // as lines this file draws (`line`), and a press opens a chat over that page. What is left of the section are the screens
 // the main page opens over itself — the chat of new orders, the settings and what they open (a report) — and the first
 // screen of the frame under them, which is never on the screen: `enter` puts one of them over it
@@ -2331,7 +2331,7 @@
     // A line of a chat (В7.34): the photo or the letter of the client 48 (В7.12), the name and the
     // order, the time, the pin of a pinned one; the last message, «Agent:» before the bot's; the tick of
     // Profi when Gennady or the bot wrote last.
-    // o — the main page of the people draws the line (lex-people.js): { from, fail, after, feed(order) }. A reply that
+    // o — «Flow» draws the line (lex-flow.js): { from, fail, after, feed(order) }. A reply that
     // waits in the feed opens the feed, and the feed is a screen of this section: feed() shows it.
     function chatLine(c, o) {
       const tick = global.LexMessage.tickStatus(c, c.tick);   // the step of the ladder, a server before it — `tick`

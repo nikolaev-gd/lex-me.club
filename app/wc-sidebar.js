@@ -33,7 +33,6 @@
   let hooks = {};
   let items = [];
   let activeId = null;
-  let renamingId = null;
   let listError = null;   // список не прочитался — это НЕ пустой список
   let listDone = false;   // порций больше нет (или дозагрузка остановлена отказом)
   let archived = [];      // the archived conversations (list_archived_chats), the items of the list
@@ -53,120 +52,163 @@
 
   const displayTitle = WcUI.conversationTitle;
 
-  async function doRename(id) {
-    const it = items.find((x) => x.id === id);
-    if (!it) return;
-    renamingId = id;
-    render();
-    const input = elList.querySelector('.wc-conv-rename');
-    if (!input) {
-      // No inline field to focus (the row is not on screen) — fall back to the
-      // dialog rather than leaving the person with nothing.
+  // ── The lines of the conversations: one part for two lists (2026-11-28) ──────────────────────────────────────
+  // The panel's list (below) and «Flow» (lex-flow.js) draw a conversation with the same line: the title, «Draft: …»,
+  // the pin, the dot, the three dots and the menu of a chat (Open in new window, Pin, Mark as read or unread, Archive,
+  // Mute, Rename, Delete chat), F2 and Rename inline. createRows(ctx) — ctx: { host() — the element the lines stand in,
+  // items() — the conversations it shows, active() — the key of the open one, rerender() — draw the list again,
+  // archiveKnown() — the server has the archive, hooks — onOpen(id), onAct(id, act), onDelete(id), onRename(id, title),
+  // look — 'panel' (the panel's own line, .wc-conv) or 'flow' (the line of a list of chats, LexSection.row, В7.34) }.
+  function createRows(ctx) {
+    const h = () => ctx.hooks || hooks;
+    // The line being renamed inline: each list keeps its own.
+    let renamingId = null;
+
+    async function doRename(id) {
+      const it = ctx.items().find((x) => x.id === id);
+      if (!it) return;
+      renamingId = id;
+      ctx.rerender();
+      const host = ctx.host();
+      const input = host ? host.querySelector('.wc-conv-rename') : null;
+      if (!input) {
+        // No inline field to focus (the row is not on screen) — fall back to the
+        // dialog rather than leaving the person with nothing.
+        renamingId = null;
+        const next = await prompt('Chat name', (it.title || '').trim(), { okText: 'Rename' });
+        if (next !== null) await h().onRename(id, next);
+        return;
+      }
+      input.focus();
+      input.select();
+    }
+
+    async function commitRename(id, value) {
       renamingId = null;
-      const next = await prompt('Chat name', (it.title || '').trim(), { okText: 'Rename' });
-      if (next !== null) await hooks.onRename(id, next);
-      return;
+      const it = ctx.items().find((x) => x.id === id);
+      const next = String(value || '').trim().slice(0, 120);
+      if (it && next === (it.title || '').trim()) { ctx.rerender(); return; }
+      await h().onRename(id, next);
     }
-    input.focus();
-    input.select();
-  }
 
-  async function commitRename(id, value) {
-    renamingId = null;
-    const it = items.find((x) => x.id === id);
-    const next = String(value || '').trim().slice(0, 120);
-    if (it && next === (it.title || '').trim()) { render(); return; }
-    await hooks.onRename(id, next);
-  }
-
-  // What the menu of a chat knows of this row at the moment of the press.
-  function chatMenu(it) {
-    const t = displayTitle(it);
-    const act = (name) => (name === 'delete' ? hooks.onDelete(it.id) : hooks.onAct(it.id, name));
-    return {
-      title: t.untitled ? 'Chat' : t.text,
-      // Open in new window (В7.79): the conversation by its key.
-      window: { chatKey: it.id },
-      // An archived conversation has no pin (archiving took it off): its menu has no Pin.
-      pinned: it.archived ? null : !!it.pinned,
-      // the mark, or the one number of the chat (chat_read_one.sql): the same the dot of the line shows
-      unread: !!it.unread || (global.LexSection && global.LexSection.chatUnread ? global.LexSection.chatUnread(it.id) > 0 : false),
-      // Mute (chat_read_one.sql): absent while the server has none
-      muted: global.LexSection && global.LexSection.isMuted ? global.LexSection.isMuted(it.id) : undefined,
-      archived: archiveKnown ? !!it.archived : undefined,
-      act,
-      rename: () => doRename(it.id),
-      remove: () => global.LexChatMenu.remove({
-        confirm,
-        text: 'It disappears from the list. The conversation itself stays in the cloud — nothing is lost there.'
-          + (t.untitled ? '' : '\n\n' + t.text),
+    // What the menu of a chat knows of this row at the moment of the press.
+    function chatMenu(it) {
+      const t = displayTitle(it);
+      const act = (name) => (name === 'delete' ? h().onDelete(it.id) : h().onAct(it.id, name));
+      return {
+        title: t.untitled ? 'Chat' : t.text,
+        // Open in new window (В7.79): the conversation by its key.
+        window: { chatKey: it.id },
+        // An archived conversation has no pin (archiving took it off): its menu has no Pin.
+        pinned: it.archived ? null : !!it.pinned,
+        // the mark, or the one number of the chat (chat_read_one.sql): the same the dot of the line shows
+        unread: !!it.unread || (global.LexSection && global.LexSection.chatUnread ? global.LexSection.chatUnread(it.id) > 0 : false),
+        // Mute (chat_read_one.sql): absent while the server has none
+        muted: global.LexSection && global.LexSection.isMuted ? global.LexSection.isMuted(it.id) : undefined,
+        archived: ctx.archiveKnown() ? !!it.archived : undefined,
         act,
-      }),
-    };
-  }
-
-  function row(it) {
-    if (it.id === renamingId) {
-      const input = el('input.wc-conv-rename', {
-        type: 'text',
-        value: (it.title || '').trim(),
-        maxlength: 120,
-        placeholder: 'Name',
-        onkeydown: (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commitRename(it.id, e.target.value); }
-          else if (e.key === 'Escape') { e.preventDefault(); renamingId = null; render(); }
-        },
-        // Blur commits rather than cancels: clicking away from a field you
-        // just typed into means "keep it" to almost everybody.
-        onblur: (e) => { if (renamingId === it.id) commitRename(it.id, e.target.value); },
-      });
-      return el('.wc-conv', {}, [input]);
+        rename: () => doRename(it.id),
+        remove: () => global.LexChatMenu.remove({
+          confirm,
+          text: 'It disappears from the list. The conversation itself stays in the cloud — nothing is lost there.'
+            + (t.untitled ? '' : '\n\n' + t.text),
+          act,
+        }),
+      };
     }
 
-    const t = displayTitle(it);
-    let line = null;
-    const more = iconBtn('dots', 'More', (e) => {
-      e.stopPropagation();
-      const r = e.currentTarget.getBoundingClientRect();
-      global.LexChatMenu.open({ ...chatMenu(it), row: line, at: { x: r.left, y: r.bottom } });
-    }, 'wc-conv-more');
+    function row(it) {
+      if (it.id === renamingId) {
+        const input = el('input.wc-conv-rename', {
+          type: 'text',
+          value: (it.title || '').trim(),
+          maxlength: 120,
+          placeholder: 'Name',
+          onkeydown: (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitRename(it.id, e.target.value); }
+            else if (e.key === 'Escape') { e.preventDefault(); renamingId = null; ctx.rerender(); }
+          },
+          // Blur commits rather than cancels: clicking away from a field you
+          // just typed into means "keep it" to almost everybody.
+          onblur: (e) => { if (renamingId === it.id) commitRename(it.id, e.target.value); },
+        });
+        return el('.wc-conv', {}, [input]);
+      }
 
-    // The pin and the dot are the server's word (В7.34); a press on an unread chat reads it.
-    line = el('.wc-conv' + (it.id === activeId ? '.is-active' : '') + (it.unread ? '.is-unread' : ''), {
-      role: 'listitem',
-      tabindex: '0',
-      onclick: () => open(it),
-      onkeydown: (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(it); }
-        else if (e.key === 'F2') { e.preventDefault(); doRename(it.id); }
-      },
-    }, [
-      // The title, and under it the draft of the chat while it has one (LexSection.draft, lex-drafts.js):
-      // «Draft: <the first words>», as in Telegram; repainted in place by the page.
-      el('.wc-conv-text', {}, [
-        el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
-        ...(global.LexSection && global.LexSection.draft ? [global.LexSection.draft(it.id)] : []),
-      ]),
-      ...(it.pinned ? [el('span.wc-conv-pin', { title: 'Pinned' }, [icon('pin')])] : []),
-      // How many of its messages are unread (В7.48): the shared number, repainted in place by the page.
-      ...(global.LexSection && global.LexSection.count ? [global.LexSection.count({ chat: it.id })] : []),
-      more,
-    ]);
-    line.dataset.unreadHost = '';
-    // Read ahead on a hover longer than 200 ms (wc-app.js readAhead): the key of its chat.
-    line.dataset.chat = it.id;
-    const num = line.querySelector('.lex-section-count');
-    if (num && !num.hidden) line.classList.add('has-dot');
-    // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside
-    // the visible button, not instead of it.
-    global.LexChatMenu.attach(line, () => chatMenu(it));
-    return line;
-  }
+      const t = displayTitle(it);
+      let line = null;
+      const more = iconBtn('dots', 'More', (e) => {
+        e.stopPropagation();
+        const r = e.currentTarget.getBoundingClientRect();
+        global.LexChatMenu.open({ ...chatMenu(it), row: line, at: { x: r.left, y: r.bottom } });
+      }, 'wc-conv-more');
+      const keys = (e) => {
+        if (e.key === 'F2') { e.preventDefault(); doRename(it.id); }
+      };
 
-  function open(it) {
-    hooks.onOpen(it.id);
-    if (it.unread && hooks.onAct) hooks.onAct(it.id, 'read');
+      if (ctx.look === 'flow') {
+        // The line of a list of chats (В7.34) among the lines of the people: the mark of Lex 48, the title, the time,
+        // the pin, «Draft: …» in place of the sub line, the dot (a conversation has no number, В7.48), the three dots.
+        const S = global.LexSection;
+        line = S.row({
+          lead: global.LexMessage.avatarBrand(48), title: t.text, sub: '', draft: it.id,
+          time: S.listTime(it.updatedAt), pinned: !!it.pinned, unread: { chat: it.id },
+          onClick: () => open(it),
+        });
+        line.classList.add('lex-flow-lex');
+        if (t.untitled) line.classList.add('is-untitled');
+        const num = line.querySelector('.lex-section-count');
+        if (it.unread && (!num || num.hidden)) line.classList.add('is-unread');
+        const main = line.querySelector('.lex-section-row-main');
+        if (main) main.addEventListener('keydown', keys);
+        line.appendChild(more);
+      } else {
+        // The pin and the dot are the server's word (В7.34); a press on an unread chat reads it.
+        line = el('.wc-conv' + (it.id === ctx.active() ? '.is-active' : '') + (it.unread ? '.is-unread' : ''), {
+          role: 'listitem',
+          tabindex: '0',
+          onclick: () => open(it),
+          onkeydown: (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(it); }
+            else keys(e);
+          },
+        }, [
+          // The title, and under it the draft of the chat while it has one (LexSection.draft, lex-drafts.js):
+          // «Draft: <the first words>», as in Telegram; repainted in place by the page.
+          el('.wc-conv-text', {}, [
+            el('.wc-conv-title' + (t.untitled ? '.is-untitled' : ''), { text: t.text, title: t.text }),
+            ...(global.LexSection && global.LexSection.draft ? [global.LexSection.draft(it.id)] : []),
+          ]),
+          ...(it.pinned ? [el('span.wc-conv-pin', { title: 'Pinned' }, [icon('pin')])] : []),
+          // How many of its messages are unread (В7.48): the shared number, repainted in place by the page.
+          ...(global.LexSection && global.LexSection.count ? [global.LexSection.count({ chat: it.id })] : []),
+          more,
+        ]);
+        line.dataset.unreadHost = '';
+        const num = line.querySelector('.lex-section-count');
+        if (num && !num.hidden) line.classList.add('has-dot');
+      }
+      // Read ahead on a hover longer than 200 ms (wc-app.js readAhead): the key of its chat.
+      line.dataset.chat = it.id;
+      // A right click, and a hold on a touch screen: the same menu as the three dots, kept alongside
+      // the visible button, not instead of it.
+      global.LexChatMenu.attach(line, () => chatMenu(it));
+      return line;
+    }
+
+    function open(it) {
+      h().onOpen(it.id);
+      if (it.unread && h().onAct) h().onAct(it.id, 'read');
+    }
+
+    return { row, chatMenu, startRename: doRename, get renaming() { return renamingId; } };
   }
+  // The panel's own list.
+  const panelRows = createRows({
+    host: () => elList, items: () => items, active: () => activeId, rerender: () => render(),
+    archiveKnown: () => archiveKnown, look: 'panel',
+  });
+  const row = (it) => panelRows.row(it);
 
   // Отказ сети — ОТДЕЛЬНОЕ состояние от пустого списка, и это не педантизм:
   // «No chats yet.» на месте не прочитанного списка — сообщение о том, что у
@@ -386,6 +428,12 @@
       const want = open === undefined ? collapsed : open;
       // A window of one chat (?window=chat, lex-chat-window.js, В7.79) has no panel: neither ☰ nor the swipe opens it.
       if (want && document.documentElement.dataset.lexWindow === 'chat') return;
+      // A wide window of an account with chats of people has no drawer: its chats are the column «Flow» (lex-flow.js),
+      // and ≡ shows it (hooks.lines — true: the page did that, the drawer stays closed).
+      if (want && hooks.lines && hooks.lines()) {
+        if (!collapsed) WcSidebar.toggle(false);
+        return;
+      }
       elRoot.classList.toggle('is-sidebar-collapsed', !want);
       // Щелчок под пальцем на ЗАЩЁЛКИВАНИИ — в тот кадр, где меняется класс и
       // начинается доводка. Не во время протяжки: `pointermove` приходит на
@@ -412,8 +460,11 @@
     // Any action that moves the reader into the conversation closes the
     // drawer — it is lying over what they just asked to look at.
     close() { WcSidebar.toggle(false); },
+    isOpen() { return !!elRoot && !elRoot.classList.contains('is-sidebar-collapsed'); },
 
-    startRename(id) { return doRename(id); },
+    startRename(id) { return panelRows.startRename(id); },
+    // The same lines for another list (lex-flow.js): see createRows.
+    createRows,
   };
 
   global.WcSidebar = WcSidebar;

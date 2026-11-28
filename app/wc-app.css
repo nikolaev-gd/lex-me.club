@@ -519,10 +519,9 @@ button { font: inherit; color: inherit; }
 html[data-lex-window="chat"] .wc-rail,
 html[data-lex-window="chat"] .wc-sidebar,
 html[data-lex-window="chat"] .wc-scrim,
-html[data-lex-window="chat"] .wc-home,
+html[data-lex-window="chat"] .wc-flow,
+html[data-lex-window="chat"] .wc-flow-blank,
 html[data-lex-window="chat"] .wc-today,
-html[data-lex-window="chat"] .wc-people-tabs,
-html[data-lex-window="chat"] .wc-people-gear,
 html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
@@ -573,7 +572,7 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 }
 /* A card is on screen before its chat is ready: the field comes when it can be used. */
 .wc-main.is-news-opening .wc-composer-wrap { visibility: hidden; }
-.wc-sections, .wc-rail, .wc-section-head, .wc-today, .wc-home, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
+.wc-sections, .wc-rail, .wc-section-head, .wc-today, .wc-flow, .wc-flow-drawer, .wc-flow-blank, .wc-sidebar-new, .wc-section-host, .lex-agents-log, .wc-turn-news, .wc-sheet {
   --lex-section-menu:   var(--bg-raised);
   --lex-section-surface: var(--bg-surface);
   --lex-section-bubble: var(--bg-bubble);
@@ -630,16 +629,23 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
   padding: 6px 8px 10px;
 }
 
-/* The main page of an account that has chats with people (2026-11-19, lex-people.js, wc-app.js paintHome): the tabs
- * All, Clients, Kolya stand in the bar under its buttons, as the tabs of the feed «Разбор» (.wc-em-tabs), and the one
- * list of the chats stands in the place of the thread of the empty chat. The bar and the field are the glass bars of
- * every chat: the list passes under them and keeps room for them. */
-.wc-people-tabs { flex: 0 0 100%; min-width: 0; padding: 0 2px; }
-.wc-people-tabs[hidden] { display: none; }
-.wc-home { flex: 1; min-height: 0; height: auto; padding-top: var(--wc-topbar-h, 52px); }
-.wc-home[hidden] { display: none; }
-.wc-home .lex-section-body { padding: 0 16px calc(var(--wc-composer-h, 88px) + 12px); scrollbar-gutter: stable; }
-.wc-home .lex-section-empty { padding: 18px 0; color: var(--fg-faint); font-size: 13px; }
+/* «Flow» (lex-flow.js, STANDARD.md В7.90; docs/PLAN-HOME-TODAY-FLOW.md, iteration 3): the one list of every chat. A
+ * wide window shows it as the column right of the rail (.wc-flow, 300), a narrow one in the drawer in the place of the
+ * chats of Lex (.wc-flow-drawer; the drawer's own «New chat» and list give way to it: the tiles of Flow are there). */
+.wc-flow { flex: 0 0 300px; min-width: 0; height: 100%; box-sizing: border-box; display: flex; flex-direction: column;
+  border-right: 1px solid var(--line); background: var(--bg); padding-top: env(safe-area-inset-top); }
+.wc-flow[hidden] { display: none; }
+.wc-flow > .lex-flow { flex: 1 1 auto; min-height: 0; }
+.wc-flow-drawer { display: none; }
+.wc-sidebar.has-flow .wc-flow-drawer { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.wc-sidebar.has-flow .wc-flow-drawer > .lex-flow { flex: 1 1 auto; min-height: 0; }
+.wc-sidebar.has-flow .wc-sidebar-new,
+.wc-sidebar.has-flow .wc-convs { display: none; }
+/* Flow with no chat beside it: the empty state (В7.61) in the place of the chat, under the bar. */
+.wc-flow-blank { flex: 1 1 auto; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: var(--wc-topbar-h, 52px) 16px var(--wc-composer-h, 88px); }
+.wc-flow-blank[hidden] { display: none; }
+.wc-main.is-flow-blank .wc-today { display: none !important; }
 /* The blocks «Today» (lex-today.js, В7.84–В7.86) stand first in the column, under the bar, and the list of the people
  * under them: the blocks take at most half of the column and scroll in it, so «Show all N» never eats the list; the
  * list keeps its own scroll and its place. */
@@ -657,8 +663,10 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
 }
 .wc-today[hidden] { display: none; }
 .wc-today > * { flex: 0 0 auto; width: 100%; max-width: 720px; margin-left: auto; margin-right: auto; }
-.wc-main.is-home.has-today .wc-home { padding-top: 0; }
 .wc-main.is-home .wc-thread { display: none; }
+/* The main page of a narrow window: the blocks «Today» take the whole column (Flow is in the drawer), the capsule
+ * floats over their bottom. */
+.wc-main.is-home .wc-today:not(.is-board) { flex: 1 1 auto; max-height: none; padding-bottom: calc(var(--wc-composer-h, 88px) + 12px); }
 
 /* ── The wide window (iteration 2 of docs/PLAN-HOME-TODAY-FLOW.md; ios/Lex/STANDARD.md В7.88, В7.89) ──────────────
  * From 900 (wc-app.js, RAIL_WIDE; never in the window of one chat, and only for an account with chats of people) the
@@ -676,10 +684,6 @@ html[data-lex-window="chat"] .wc-new-chat { display: none !important; }
  * capsule and no gear of Profi.ru under it. */
 .wc-today.is-board { flex: 1 1 auto; max-height: none; padding: var(--wc-topbar-h, 52px) 0 0; overflow: hidden; scrollbar-gutter: auto; }
 .wc-today.is-board > * { flex: 1 1 auto; max-width: none; margin: 0; }
-.wc-main.is-board .wc-home,
-.wc-main.is-board .wc-people-tabs,
-.wc-main.is-board .wc-people-gear { display: none !important; }
-.wc-people-gear svg { width: 21px; height: 21px; }
 
 .wc-convs-group {
   padding: 12px 8px 4px;
@@ -1446,7 +1450,6 @@ pre .lex-code-copy:hover, pre .lex-code-copy:focus-visible { color: var(--fg); o
  * paint, its rule in lex-composer-box.css); «+» offers what the profile gives (LexComposer.plusItems). With the voice
  * button gone the slot folds while the field is empty (wc-composer.js syncButton, LexComposer.folded). */
 /* The list under the capsule ends above it: 16 + 52 + 16. */
-.wc-main.is-home .wc-home .lex-section-body,
 .wc-main.is-section .lex-section-body { padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 .wc-quick-scrim {
   position: fixed;

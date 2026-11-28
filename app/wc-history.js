@@ -804,6 +804,8 @@
     attachmentOf,
     createSession,
     listChats,
+    // A row of list_chats as the lines of the conversations take it («Flow» reads its chats of Lex with lex_flow).
+    itemOf,
     listArchivedChats,
     renameChat,
     setChatHidden,

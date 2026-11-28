@@ -256,6 +256,7 @@
     if (Array.isArray(u.important)) importantNow = new Set(u.important.map(String));
     if (Array.isArray(u.muted)) mutedNow = new Set(u.muted.map(String));
     if (Array.isArray(u.agents_muted)) agentsMutedNow = new Set(u.agents_muted.map(String));
+    keepHeld();
     // Only the slots of the unread.
     const slots = '.lex-section-count[data-unread-chat], .lex-section-count[data-unread-order], '
       + '.lex-section-count[data-unread-section]';
@@ -263,12 +264,28 @@
   }
   const unread = () => unreadNow;
   const isImportant = (chatKey) => chatKey != null && importantNow.has(String(chatKey));
+  // A press of Mark as important or Mute holds for HOLD_MS over the answers of the numbers: an answer that left before the
+  // server took the press would put the mark back for a moment (28.11.2026); the answer after it confirms the press.
+  const HOLD_MS = 5000;
+  const held = new Map();   // 'i:<key>' / 'm:<key>' → { set: 'i' | 'm', key, on, until }
+  function hold(set, key, on) { held.set(`${set}:${key}`, { set, key, on, until: Date.now() + HOLD_MS }); }
+  function keepHeld() {
+    const now = Date.now();
+    for (const [k, h] of held) {
+      if (h.until < now) { held.delete(k); continue; }
+      const into = h.set === 'i' ? importantNow : mutedNow;
+      if (!into) continue;
+      if (h.on) into.add(h.key); else into.delete(h.key);
+    }
+  }
   // A press of «Mark as important» shows at once; the next answer of the numbers confirms or puts it back.
   function markImportant(chatKey, on) {
     if (chatKey == null) return;
-    if (on) importantNow.add(String(chatKey)); else importantNow.delete(String(chatKey));
+    const k = String(chatKey);
+    if (on) importantNow.add(k); else importantNow.delete(k);
+    hold('i', k, !!on);
     // an important chat is not muted (chat_read_one.sql)
-    if (on && mutedNow) mutedNow.delete(String(chatKey));
+    if (on && mutedNow) { mutedNow.delete(k); hold('m', k, false); }
   }
   // How many messages of a chat are unread — the one number its line, its dot and its menu go by.
   const chatUnread = (chatKey) => unreadOf(chatKey != null ? { chat: chatKey } : null);
@@ -278,7 +295,9 @@
   // A press of Mute shows at once; the next answer of the numbers confirms or puts it back.
   function markMuted(chatKey, on) {
     if (chatKey == null || !mutedNow) return;
-    if (on) { mutedNow.add(String(chatKey)); importantNow.delete(String(chatKey)); } else mutedNow.delete(String(chatKey));
+    const k = String(chatKey);
+    if (on) { mutedNow.add(k); importantNow.delete(k); hold('i', k, false); } else mutedNow.delete(k);
+    hold('m', k, !!on);
   }
   function markAgentMuted(agentKey, on) {
     if (agentKey == null || !agentsMutedNow) return;
@@ -571,7 +590,9 @@
       // writes the arrow when it comes on the screen (enter).
       if (!opts.back || !isShown()) return;
       const out = opts.root ? opts.root() : null;
-      if (stack.length > 2 || (stack.length === 2 && !out)) opts.back.cameFrom({ title: stack[stack.length - 2].title, go: pop });
+      // A root that names no way out (null: the screen was opened from the list «Flow» beside it) gives no arrow on the
+      // first screen over the section's own: the list it came from stands on the screen.
+      if (stack.length > 2 || (stack.length === 2 && !out && !opts.root)) opts.back.cameFrom({ title: stack[stack.length - 2].title, go: pop });
       else if (out) opts.back.cameFrom({ title: out.title, go: () => { reset(); return out.go(); } });
       else opts.back.clear();
     }
@@ -788,7 +809,7 @@
   function sectionFace(id, o) {
     const n = make('span', `lex-face is-${(o && o.size) || 48} is-quiet`);
     n.setAttribute('aria-hidden', 'true');
-    n.appendChild(markSvg(MARKS.section[id] || MARKS.section.agents, ((o && o.size) || 48) / 2, 1.8));
+    n.appendChild(markSvg(MARKS.section[id] || RAIL_MARKS[id] || MARKS.section.agents, ((o && o.size) || 48) / 2, 1.8));
     return n;
   }
 
@@ -1195,7 +1216,8 @@
       const b = button('lex-entry', null, () => onPick(s.id));
       b.dataset.section = s.id;
       const icon = make('span', 'lex-entry-icon');
-      icon.appendChild(sectionMark(s.id, 20));
+      // s.mark — the paths of a mark of its own (the tiles «Today» and «New chat» of the drawer «Flow», lex-flow.js).
+      icon.appendChild(Array.isArray(s.mark) ? markSvg(s.mark, 20, 2) : sectionMark(s.id, 20));
       b.append(icon, make('span', 'lex-entry-title', ENTRY_TITLES[s.id] || s.title || s.id));
       b.dataset.unreadHost = '';
       const num = count({ section: s.id });
@@ -1339,18 +1361,23 @@
   const RAIL_MARKS = {
     today: ['M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0', 'M12 2v2', 'M12 20v2', 'M2 12h2', 'M20 12h2', 'M5 5l1.4 1.4', 'M17.6 17.6L19 19', 'M5 19l1.4-1.4', 'M17.6 6.4L19 5'],
     flow: ['M4 13l2.5-8h11L20 13v6H4z', 'M4 13h5l1 2h4l1-2h5'],
+    // Top up balance (28.11.2026, zahod 3): the wallet, under Settings.
+    topup: ['M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3', 'M4 7.5V17a2 2 0 0 0 2 2h14v-11H6.5A2.5 2.5 0 0 1 4 7.5z', 'M16.5 13.5h.01'],
+    // The pencil of a new chat (the head of «Flow», the tile of its drawer): the same paths as the pencil of the bar.
+    pencil: ['M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7', 'M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4Z'],
     settings: ['M10.08 4.34 L11.01 2.45 L12.99 2.45 L13.92 4.34 L16.06 5.22 L18.05 4.55 L19.45 5.95 L18.78 7.94 L19.66 10.08 L21.55 11.01 L21.55 12.99 L19.66 13.92 L18.78 16.06 L19.45 18.05 L18.05 19.45 L16.06 18.78 L13.92 19.66 L12.99 21.55 L11.01 21.55 L10.08 19.66 L7.94 18.78 L5.95 19.45 L4.55 18.05 L5.22 16.06 L4.34 13.92 L2.45 12.99 L2.45 11.01 L4.34 10.08 L5.22 7.94 L4.55 5.95 L5.95 4.55 L7.94 5.22 Z', 'M8.9 12a3.1 3.1 0 1 0 6.2 0a3.1 3.1 0 1 0 -6.2 0'],
   };
 
   // ── В7.88 the rail ───────────────────────────────────────────────────────────
   // 74 wide, the whole height of the window, the ground of the window. From the top: the mark of Lex (a button 44: it
-  // opens and closes the panel of the chats of Lex — the role of the three lines on a wide window, В7.76); Today and Flow
-  // — the switch of the modes; a line 34; the entries of the sections in the order and with the titles of В7.62 (the same
-  // sections the server names to the panel), a yellow dot 8 at an entry with something unread, no number (В7.48);
-  // Settings at the bottom. An item: 62 wide, at least 44 high, radius 10, the mark 19 by a line 1.8 and the word 9.5/600
+  // shows «Flow», the list of the chats — the role of the three lines on a wide window, В7.76, since 28.11.2026); Today
+  // and Flow — the switch of the modes; a line 34; the entries of the sections in the order and with the titles of В7.62
+  // (the same sections the server names), a yellow dot 8 at an entry with something unread, no number (В7.48);
+  // Settings at the bottom, Top up under it. An item: 62 wide, at least 44 high, radius 10, the mark 19 by a line 1.8 and the word 9.5/600
   // under it, 3 between, the word in two lines at most, by the middle («Shopping list», «Extended Mind» — the titles of
   // В7.62 are not shortened); at rest --fg-muted, under the cursor --bg-hover, the chosen one --bg-active and --fg.
-  // rail(host, o) — o: { mark (the node of the mark of Lex), onLex(), onMode('today' | 'flow'), onPick(id), onSettings() }
+  // rail(host, o) — o: { mark (the node of the mark of Lex), onLex(), onMode('today' | 'flow'), onPick(id), onSettings(),
+  // onTopup() — «Top up» under Settings, when given }
   // → { setSections([{ id, title }]), setActive({ mode, section }), setFlowDot(on), lex (the button of the mark) }.
   function rail(host, o) {
     o = o || {};
@@ -1386,6 +1413,8 @@
     const gap = make('span', 'lex-rail-gap');
     const settings = item('is-settings', RAIL_MARKS.settings, 'Settings', 'Settings', () => o.onSettings && o.onSettings());
     host.append(lex, today, flow, sep, box, gap, settings);
+    // Top up balance under Settings (28.11.2026, zahod 3: the panel with its footer is gone on a wide window).
+    if (o.onTopup) host.appendChild(item('is-settings is-topup', RAIL_MARKS.topup, 'Top up', 'Top up balance', () => o.onTopup()));
     let now = { mode: null, section: null };
     const api = {
       lex,
@@ -1448,7 +1477,7 @@
     return n;
   }
 
-  // AGAIN_MS is the pauses of a failed read: the main page of the people (lex-people.js) tries again by the same ladder.
+  // AGAIN_MS is the pauses of a failed read: «Flow» (lex-flow.js) tries again by the same ladder.
   global.LexSection = { createFrame, row, listTime, markRead, moreButton, openMenu, iconButton, make, button, newOpId, keep,
     count, setUnread, unread, isImportant, markImportant, chatUnread, isMuted, markMuted, isAgentMuted, markAgentMuted,
     draft, setDrafts, paintDrafts, AGAIN_MS,

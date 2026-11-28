@@ -179,7 +179,11 @@
       .finally(() => { archivedReading = null; });
     return archivedReading;
   }
-  const refreshConversations = (onFirst) => loadConversations(true, typeof onFirst === 'function' ? onFirst : null);
+  // The chats of Lex stand in Flow too (lex-flow.js): it reads its list again with the panel's.
+  const refreshConversations = (onFirst) => {
+    try { if (flow.hasPeople && flow.active) flow.reload().catch(() => {}); } catch (_) { /* Flow is not made yet */ }
+    return loadConversations(true, typeof onFirst === 'function' ? onFirst : null);
+  };
   const loadMoreConversations = () => loadConversations(false);
 
   function currentItem() {
@@ -534,7 +538,7 @@
   // The bot's chat opens as any chat, over the main page (its line under New orders, a notification of «Alerts», the place
   // the Mac app kept): the arrow leads back to the main page.
   async function openBotChat(wanted) {
-    await openConversation(BOT_KEY, { wanted, back: people.hasTabs ? mainTarget() : undefined });
+    await openConversation(BOT_KEY, { wanted, back: flow.hasPeople ? mainTarget() : undefined });
   }
 
   // ── The database's signals (2026-11-13) ─────────────────────────────────
@@ -734,13 +738,27 @@
     return SECTIONS[id];
   }
   const sectionTarget = (id) => ({ title: SECTIONS[id].title, go: () => showSection(id, { back: true }) });
-  // The main page (paintHome) is the empty chat of Lex with the chats of the people on it: the way back from a chat of a
-  // person, from the chat of new orders, the bot's chat and the settings of Profi.ru, and from whatever a notification opens
-  // (20.11.2026: no notification leads to a list of a section).
-  const mainTarget = () => ({ title: 'Chats', go: () => newConversation() });
+  // The main page of an account with chats of people is «Today» (28.11.2026, iteration 3 of docs/PLAN-HOME-TODAY-FLOW.md):
+  // the board on a wide window, the blocks on a narrow one. A line pressed on it opens its chat with the arrow «Back to
+  // Today» (the rule of 24.11.2026: back goes where the person stood); a line pressed in «Flow» opens its chat with no arrow
+  // (the rule «Открыл чат из списка чатов»: the list stands beside the chat, or in the drawer by ≡). Where the press came
+  // from is taken at the press itself (`pressFrom`, the listener of clicks below), so every opener of a chat — the line of a
+  // section, the feed of orders, the bot's chat — gets the same way back without being told.
+  let pressFrom = null;   // 'flow' | 'today' | null — the list the last press was in
+  document.addEventListener('click', (e) => {
+    const t = e.target && e.target.closest ? e.target : null;
+    pressFrom = !t ? null : t.closest('.lex-flow') ? 'flow' : t.closest('#wc-today') ? 'today' : null;
+    // A press in «Flow» leaves a section opened from the rail: what it opens stands beside the list.
+    if (pressFrom === 'flow') railRoom = null;
+  }, true);
+  const todayTarget = () => ({ title: 'Today', go: () => goMode('today') });
+  // «Flow» with no chat open beside it (the arrow after a notification that came while the person stood there).
+  const flowTarget = () => ({ title: 'Flow', go: () => { mode = 'flow'; keepMode(); railRoom = null; return newConversation(); } });
+  const mainTarget = () => (pressFrom === 'flow' ? null : todayTarget());
   // The way back from an order chat: opened from the main page (opts.from) — to the main page; opened from the chat of new
   // orders or from a report — to that screen of Profi.ru, where it stands as it was left.
-  const profiBack = (opts) => (opts && opts.from === 'people' ? mainTarget() : sectionTarget('profi'));
+  const profiBack = (opts) => (opts && opts.from === 'flow' ? undefined
+    : opts && opts.from === 'people' ? (mainTarget() || undefined) : sectionTarget('profi'));
   let sectionOn = null;
   // The entries of the sections in the menu of chats (LexSection.entries): the open section's line stands chosen.
   let entries = { setActive() {} };
@@ -753,16 +771,29 @@
   // changes only by the rail and ⌘1 / ⌘2 of the Mac app: a chat opened from the board stands in Today, and its arrow
   // back leads to the main page in that mode. The page in a browser starts on Today; the Mac app — on the mode it was
   // left on (MODE_KEY, the account's). Narrower than 900 — no rail: the blocks over the list, as before.
+  // Since 28.11.2026 (iteration 3) the mode Flow is the column «Flow» right of the rail (lex-flow.js, 300) and the open chat
+  // right of it, or the empty state of a section (В7.61) while none is open; the mark of Lex and ≡ show Flow (the panel
+  // of the chats of Lex is gone on a wide window: its chats are in Flow); Top up stands under Settings on the rail. A chat
+  // pressed on the board switches to Flow with that chat picked in the list, its arrow back leads to Today. A section from
+  // the rail takes the whole place of the content (`railRoom`), and so does the folder of an agent beside its chat.
   const RAIL_WIDE = '(min-width: 900px)';
   const railMq = global.matchMedia && !soloChat ? global.matchMedia(RAIL_WIDE) : { matches: false, addEventListener() {} };
   railMq.addEventListener('change', () => paintHome());
   const MODE_KEY = 'lexModeKept';
   let mode = 'today';
+  let modeHeld = false;   // goMode('today') is leaving a chat: applyHome does not take the mode back to Flow meanwhile
   let rail = null;
   let railSections = [];
-  const railOn = () => !!railMq.matches && !soloChat && people.hasTabs;
+  const railOn = () => !!railMq.matches && !soloChat && flow.hasPeople;
+  // The section the rail opened (or the folder of an agent with its chat): it holds the whole place, no column of Flow.
+  let railRoom = null;
+  // The column «Flow» stands: the wide window, no section in the whole place (the screens of Profi.ru — New orders, the
+  // bot's chat, the settings — are Flow's: they stand beside the list), no folder beside its chat; the mode Flow, or a
+  // chat open (a chat on a wide window stands in Flow).
+  const flowColOn = () => railOn() && !railRoom && !splitOn && !(sectionOn && sectionOn !== 'profi')
+    && (mode === 'flow' || !homeOn());
   // The board stands: the main page, the wide window, the mode Today.
-  const boardOn = () => railOn() && mode === 'today' && homeOn();
+  const boardOn = () => railOn() && mode === 'today' && homeOn() && !flowColOn();
   // Only the Mac app opens on the mode it was left in; the page of a browser always starts on Today (decision of
   // iteration 2). Not keepsPlace(): since 27.11.2026 the browser keeps its place too (the chat it was in).
   const keepsMode = () => !!global.__lexShell && !soloChat;
@@ -777,16 +808,32 @@
     if (!keepsMode()) return;
     try { global.localStorage.setItem(MODE_KEY, JSON.stringify({ mode, account: placeAccount() })); } catch (_) { /* no storage */ }
   }
-  // Today or Flow: on the main page it changes there; from a section or a chat — back to the main page in that mode.
+  // Today or Flow: on the main page it changes there. Today from a section or a chat — back to the board. Flow from a
+  // section of the rail — Flow with no chat; from a chat, New orders or the bot's chat — that stays, the list comes beside it.
   function goMode(m) {
     mode = m === 'flow' ? 'flow' : 'today';
     keepMode();
+    railRoom = null;
+    // A task chat beside its folder goes to Flow without the folder: the arrow the folder held acts on nothing there.
+    if (splitWanted && splitOn) sectionBack.clear();
+    splitWanted = false;
     WcSidebar.close();
     if (homeOn() && !sectionOn) { paintHome(); return; }
-    newConversation().catch((e) => console.warn('[wc] mode:', e && e.message));
+    if (mode === 'flow' && (!sectionOn || sectionOn === 'profi')) { paintHome(); return; }
+    // Today from a chat: the chat is left over a few turns of the page (newConversation awaits), and a painting between
+    // them still sees the chat open — it must not take the mode back to Flow (applyHome: a chat stands in Flow).
+    modeHeld = true;
+    newConversation().catch((e) => console.warn('[wc] mode:', e && e.message))
+      .finally(() => { modeHeld = false; paintHome(); });
+  }
+  // The mark of Lex on the rail and ≡ of a wide window: the list of the chats — Flow.
+  function showFlow() {
+    if (!flowColOn()) goMode('flow');
+    else WcSidebar.close();
   }
   // An entry of a section, in the panel or on the rail.
   function pickSection(id) {
+    railRoom = id;
     if (SECTIONS[id] && SECTIONS[id].opens) SECTIONS[id].opens();
     else if (SECTIONS[id]) showSection(id).catch((e) => console.warn('[wc] section:', e && e.message));
   }
@@ -797,10 +844,11 @@
     if (global.LexBrandMark) mark.innerHTML = global.LexBrandMark.svgMarkup(28);
     rail = global.LexSection.rail(document.getElementById('wc-rail'), {
       mark,
-      onLex: () => WcSidebar.toggle(),
+      onLex: () => showFlow(),
       onMode: (m) => goMode(m),
       onPick: (id) => pickSection(id),
       onSettings: () => { WcSidebar.close(); openSettings(); },
+      onTopup: () => { if (topUpAction) topUpAction(); },
     });
     rail.setSections(railSections);
     paintFlowDot();
@@ -810,8 +858,10 @@
   function paintFlowDot() {
     if (!rail) return;
     const u = (global.LexSection.unread() || {}).sections || {};
-    rail.setFlowDot(Object.keys(u).some((id) => people.isPeople(id) && Number(u[id]) > 0));
+    rail.setFlowDot(Object.keys(u).some((id) => flow.isPeople(id) && Number(u[id]) > 0));
   }
+  // Top up balance (WcTopup.open, LexBillingGate): set by boot(), the rail's item and the panel's button press it.
+  let topUpAction = null;
   // Asked from applyHome: the rail stands or not, and what on it is chosen — the open section's entry (the folder of an
   // agent beside its chat is the section Agents), else the mode.
   function paintRail() {
@@ -822,7 +872,7 @@
     root.classList.toggle('has-rail', on);
     host.hidden = !on;
     if (!on) return;
-    ensureRail().setActive({ mode, section: sectionOn || (splitOn ? 'agents' : null) });
+    ensureRail().setActive({ mode, section: (sectionOn && sectionOn !== 'profi' ? sectionOn : null) || railRoom || (splitOn ? 'agents' : null) });
   }
   // ⌘1 — Today, ⌘2 — Flow: only in the Mac app and only with the rail (in Chrome these keys switch the tabs).
   document.addEventListener('keydown', (e) => {
@@ -900,33 +950,79 @@
   }
   // A screen of Profi.ru over the main page: 'feed' (at `order`, or at its top) or 'settings'. The arrow leads back to
   // the main page (lex-profi.js, enter). wanted — see showSection.
-  const showProfi = (screen, order, wanted) => showSection('profi', { enter: (live) => live.enter(screen, order), wanted });
-  // ── The main page: the chats with people (lex-people.js) ───────────────────
-  // An account that has chats with people starts on the empty chat of Lex with them on it: the tabs All, Clients, Kolya
-  // in the bar and one list under them, in the place of the empty thread (paintHome). The sections of the people (Profi.ru
-  // and the folders) the server names become the tabs and the list, and have no button in the panel on the left; the rest
-  // of the sections (Questions, Extended Mind, News) stay buttons there. A line of the list is the line of its section,
-  // and a press opens the chat the way that section does, with the arrow back to the main page.
-  const people = global.LexPeople.create({
-    tabsHost: document.getElementById('wc-people-tabs'),
-    listHost: document.getElementById('wc-home'),
-    tabs: (o) => WcUI.tabs(o),
+  // The arrow of its first screens is the press's, taken here (`profiOut`): none from Flow, «Today» from the board.
+  let profiOut = null;
+  const showProfi = (screen, order, wanted) => {
+    profiOut = mainTarget();
+    return showSection('profi', { enter: (live) => live.enter(screen, order), wanted });
+  };
+  // ── «Flow»: the one list of the chats (lex-flow.js; docs/PLAN-HOME-TODAY-FLOW.md, iteration 3) ─────────────────
+  // An account that has chats with people has «Today» and «Flow». Flow is one list of every chat — the people (Profi.ru
+  // and the folders), New orders, the bot's chat, Questions, the task chats of the agents and the chats of Lex — with the
+  // chips All · Waiting · the sections of the people · Lex (the function lex_flow of the server). A wide window shows it
+  // as the column right of the rail (#wc-flow), a narrow one in the drawer of ≡ (#wc-flow-drawer). Each line is the line
+  // of its own section (the folder's, the order's, the agent's, the panel's of the chats of Lex) and opens its chat the way
+  // that section does, with no arrow: the list stands beside the chat. The sections of the people have no button.
+  const flow = global.LexFlow.create({
     read,
+    rpc: newsRpc,
     signals,
+    tabs: (o) => WcUI.tabs(o),
     live: (id) => (SECTIONS[id] && SECTIONS[id].build ? ensureSection(id) : null),
-    // The chat of new orders, the bot's chat and the settings are screens of Profi.ru: they open over the main page, and the
-    // arrow leads back to it.
-    showFeed: (order) => showProfi('feed', order || null),
-    showBot: () => openBotChat(),
-    notify: (text) => toast(text, { error: true }),
-    gear: (on) => { document.getElementById('wc-people-gear').hidden = !on; },
-    // The archive of the main page: the arrow of the window leads back to the list (lex-people.js, chat_archive.sql).
-    back: (target) => {
-      if (target) sectionBack.cameFrom(target);
-      else if (sectionBack.target && sectionBack.target.archive) sectionBack.clear();
+    // The chats of Lex in the list: the rows of the panel (wc-sidebar.js), with the menu, the draft, the pin and F2.
+    lexRows: (ctx) => WcSidebar.createRows(ctx),
+    lexHooks: {
+      onOpen: (id) => { openConversation(id).catch((e) => console.warn('[wc] flow open:', e && e.message)); },
+      onAct: (id, act) => actConversation(id, act),
+      onDelete: (id) => deleteConversation(id),
+      onRename: (id, title) => renameConversation(id, title),
     },
+    itemOf: (chat, archived) => WcHistory.itemOf(chat, archived),
+    // A task chat of an agent: the line of the section Agents (wc-agents.js chatLine), opened beside the list.
+    agentLine: (c, o) => (SECTIONS.agents && SECTIONS.agents.build ? ensureSection('agents').line(c, o) : null),
+    // New orders, the bot's chat and the settings are screens of Profi.ru: they stand beside the list.
+    showFeed: (order) => { showProfi('feed', order || null).catch((e) => console.warn('[wc] flow feed:', e && e.message)); },
+    showBot: () => { openBotChat().catch((e) => console.warn('[wc] flow bot:', e && e.message)); },
+    openQuestions: () => openQuestions(),
+    openAgent: (agent, chatKey) => {
+      openAgentBeside(agent, chatKey).catch((e) => toast('The chat did not open. ' + ((e && e.message) || ''), { error: true }));
+    },
+    onNew: () => { WcSidebar.close(); newConversation({ typing: true }).catch((e) => console.warn('[wc] new:', e && e.message)); },
+    onToday: () => goMode('today'),
+    gear: () => { showProfi('settings').catch((e) => console.warn('[wc] flow gear:', e && e.message)); },
+    fillTitles: (items) => { WcBus.call('WC_FILL_TITLES', { items }).catch(() => {}); },
+    notify: (text) => toast(text, { error: true }),
   });
-  document.getElementById('wc-people-gear').addEventListener('click', () => { showProfi('settings'); });
+  // The task chat of an agent opened from Flow or from the board: it stands beside the list, no folder beside it (the
+  // folder is the section's: the rail's Agents). The arrow is the press's (none from Flow, «Today» from the board).
+  async function openAgentBeside(agent, chatKey) {
+    const key = agent && typeof agent === 'object' ? agent.key : agent;
+    splitWanted = false;
+    railRoom = null;
+    const live = ensureSection('agents');
+    if (live.closeAside) live.closeAside();
+    await openFolderChat('agents', chatKey, () => true, null, null, null);
+    if (profiChat && profiChat.data && profiChat.data.chatKey === chatKey) {
+      agentsCall({ op: 'read', chatKey }).catch((e) => console.warn('[wc] agent read:', e && e.message));
+    }
+    return key;
+  }
+  // The folder of the agent stands beside its chat only when the chat was opened in the section Agents.
+  let splitWanted = false;
+  // The row of what stands beside the list: its key in Flow.
+  function flowKey() {
+    if (sectionOn === 'profi') {
+      const live = SECTIONS.profi.live;
+      return live && live.screen === 'settings' ? null : '__lex_profi_orders__';
+    }
+    if (sectionOn) return null;
+    const id = state.conversationId;
+    if (!id) return null;
+    if (profiChat && profiChat.order) return `profi:${profiChat.order}`;
+    if (profiChat && profiChat.data && profiChat.data.chatKey) return profiChat.data.chatKey;
+    if (WcHistory.isEmFeedKey(id)) return global.LexChatProfile && global.LexChatProfile.kindOfKey(id) === 'questions' ? 'questions' : null;
+    return id;
+  }
   // ── The blocks «Today» over the main page (lex-today.js; docs/PLAN-HOME-TODAY-FLOW.md, iteration 1) ──────────────
   // «Waiting for you» and «Day» stand first in the column, under the bar with the tabs (#wc-today, out of the list of
   // the people: the tabs of the page lie in the bar of the window, and the list keeps its own scroll under the blocks).
@@ -938,11 +1034,11 @@
     host: document.getElementById('wc-today'),
     read: (show) => global.LexReads.twice(() => kept('today', {}), () => WcBus.call('WC_TODAY'), show),
     signals,
-    line: (c) => people.line(c),
+    line: (c) => flow.line(c),
     openAgent: (key, chatKey) => {
       const wanted = todayWanted();
-      // The task chat over the folder of its agent, its arrow to that folder — as a press in the section Agents.
-      (chatKey ? openAgentFrom(key, chatKey, wanted)
+      // The task chat stands in Flow, beside the list, its arrow back to Today; an agent with no chat — its folder.
+      (chatKey ? openAgentBeside(key, chatKey)
         : showSection('agents', { enter: (live) => { live.enter(key); }, back: true, wanted }))
         .catch((e) => toast('The chat did not open. ' + ((e && e.message) || ''), { error: true }));
     },
@@ -1010,19 +1106,15 @@
     // The field over a dimmed screen (В7.64) holds the screen it was opened on: a voice or a dictation that made the new
     // chat on the server before a word was sent does not take the main page away from under the dimming.
     if (quick) return quick.home;
-    return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
+    return flow.hasPeople && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
   }
   // What the main page changes on the screen: its list and its tabs show or hide, the list follows the server only while
   // it is on the screen, and it stands where it was left. Asked from every place that changes what the screen holds; the
   // asks of one turn of the page make one painting, after it.
   let homeAsked = false;
-  let homeScroll = 0;
-  // «New chat» and a notification: the main page is «All», at the top of its list (lex-people.js, toAll).
+  // «New chat» and a notification: Flow is «All», at the top of its list (lex-flow.js, toAll).
   function homeToAll() {
-    homeScroll = 0;
-    const listBody = document.querySelector('#wc-home .lex-section-body');
-    if (listBody) listBody.scrollTop = 0;
-    people.toAll();
+    flow.toAll();
   }
   function paintHome() {
     if (homeAsked) return;
@@ -1031,32 +1123,47 @@
   }
   function applyHome() {
     paintSplit();
+    const root = document.getElementById('wc-root');
     const main = document.querySelector('.wc-main');
     const bar = document.querySelector('.wc-topbar');
-    const host = document.getElementById('wc-home');
-    const tabsHost = document.getElementById('wc-people-tabs');
-    if (!main || !bar || !host || !tabsHost) return;
+    const col = document.getElementById('wc-flow');
+    const drawer = document.getElementById('wc-flow-drawer');
+    const side = document.getElementById('wc-sidebar');
+    const blank = document.getElementById('wc-flow-blank');
+    if (!main || !bar || !col || !drawer || !side || !blank) return;
     const on = homeOn();
-    const was = main.classList.contains('is-home');
-    const listBody = host.querySelector('.lex-section-body');
-    if (was && !on && listBody) homeScroll = listBody.scrollTop;
-    // A wide window (the rail): the mode Today is the board in the place of the list and its tabs, Flow — the list with
-    // no blocks over it. Narrower — the blocks over the list.
+    const hasFlow = flow.hasPeople && !soloChat;
+    // A wide window (the rail): the mode Today is the board in the whole place, Flow — the column «Flow» right of the rail
+    // and, right of it, the chat open or the empty state. Narrower: the blocks «Today» on the main page, Flow in the drawer.
     const wide = railOn();
-    const board = on && wide && mode === 'today';
-    const showTabs = on && !board && people.hasTabRow;
+    const column = flowColOn();
+    if (column && mode !== 'flow' && !modeHeld) { mode = 'flow'; keepMode(); }
+    const board = on && wide && mode === 'today' && !column;
+    if (root) root.classList.toggle('has-flow', column);
+    col.hidden = !column;
+    side.classList.toggle('has-flow', hasFlow && !wide);
+    // The entries of the sections under Flow in the drawer: one compact block, the list keeps the height (В7.90).
+    const secs = document.getElementById('wc-sections');
+    if (secs) secs.classList.toggle('is-compact', hasFlow && !wide);
+    if (column) flow.mount(col, 'column');
+    else if (hasFlow && !wide) flow.mount(drawer, 'drawer');
+    // Flow with no chat beside it: the empty state of the part (В7.61) in the place of the chat.
+    const empty = column && on;
+    if (empty && !blank.firstChild) {
+      blank.appendChild(global.LexSection.emptyState({ section: 'flow', title: 'Flow', line: 'Pick a chat in the list.' }));
+    }
+    blank.hidden = !empty;
+    main.classList.toggle('is-flow-blank', empty);
     main.classList.toggle('is-home', on);
     main.classList.toggle('is-board', board);
-    host.hidden = !on || board;
-    tabsHost.hidden = !showTabs;
-    // The bar has a line of tabs of its own under its buttons (the feed «Разбор» has one too).
-    bar.classList.toggle('has-tabs', showTabs || !document.getElementById('wc-em-tabs').hidden);
-    people.setActive(on && !board);
-    // The blocks «Today» stand over the list only on the main page, and follow the server only there; on a wide window
-    // they are the board, and only in the mode Today.
+    // The bar has a line of tabs of its own under its buttons only for the feed «Разбор».
+    bar.classList.toggle('has-tabs', !document.getElementById('wc-em-tabs').hidden);
+    // The list follows the server while it is on the screen: the column, or the drawer open.
+    flow.setActive(column || (hasFlow && !wide && WcSidebar.isOpen()));
+    flow.pick(flowKey());
+    // The blocks «Today» stand on the main page of a narrow window, the board on a wide one in the mode Today.
     today.setLayout(wide ? 'board' : 'blocks');
-    today.setActive(on && (!wide || mode === 'today'));
-    if (on && !was && listBody) listBody.scrollTop = homeScroll;
+    today.setActive(on && (wide ? board : true));
     // The bot's service chat: its kind (no field, the profile `service`) and its head in the bar.
     const bot = !sectionOn && isServiceKey(state.conversationId);
     if (main.classList.contains('is-service-chat') !== bot) {
@@ -1077,7 +1184,7 @@
   // chat. In an open chat there is no capsule: its own field stands.
   let quick = null;   // { home, agent, section, before } while the field stands over a dimmed screen
   // A chat with no field (the bot's service chat) is out of a chat for the capsule too: it has nothing to write in.
-  const outOfChat = () => !!(people.hasTabs && homeOnNow()) || (!!sectionOn && !profiChat)
+  const outOfChat = () => !!(flow.hasPeople && homeOnNow()) || (!!sectionOn && !profiChat)
     || (!sectionOn && isServiceKey(state.conversationId));
   // The field over the dimming begins a chat with an agent: what the field offers is that agent's (its model in
   // «+ → Text model», words only — no voice, no picture, no file).
@@ -1114,7 +1221,7 @@
     paintFieldProfile();
   }
   function homeOnNow() {
-    return people.hasTabs && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
+    return flow.hasPeople && !sectionOn && !state.conversationId && !profiChat && WcThread.isEmpty();
   }
   function quickAgent() {
     // The agent whose screens are open — `currentAgent()` of the section Agents ({ key, name } | null on the list).
@@ -1158,6 +1265,7 @@
     WcQuick.close();
     WcComposer.refresh();
     if (q.agent) { await newAgentChat(q.agent); return; }
+    railRoom = null;
     if (sectionOn) leaveSection();
     paintHome();
   }
@@ -1203,10 +1311,10 @@
   async function loadSectionsNow() {
     const draw = (list) => {
       for (const s of Array.isArray(list) ? list : []) if (s && String(s.id || '').startsWith('folder:')) folderSection(s.id, s.title);
-      people.setSections(list);
+      flow.setSections(list);
       paintHome();
       // An entry only for a section this page opens: a section the server names before its screen is built here has none.
-      const buttons = (Array.isArray(list) ? list : []).filter((s) => s && !people.isPeople(s.id) && SECTIONS[s.id]);
+      const buttons = (Array.isArray(list) ? list : []).filter((s) => s && !flow.isPeople(s.id) && SECTIONS[s.id]);
       entries = global.LexNews.renderEntries(document.getElementById('wc-sections'), buttons, (id) => pickSection(id));
       entries.setActive(sectionOn);
       // The same entries on the rail of a wide window.
@@ -1234,7 +1342,7 @@
       if (live.warm) live.warm().catch((err) => console.warn('[wc] warm:', err && err.message));
     }
     // The one list of the people is read too, so that the first opening of the panel has it; and the blocks «Today» over it.
-    if (people.hasTabs) { people.warm(); today.warm(); }
+    if (flow.hasPeople) { flow.warm(); today.warm(); }
   }
 
   // ── What is on the screen, for the iPhone's notifications (2026-11-11) ────
@@ -1282,7 +1390,7 @@
   const macBadgeOf = (u) => (u && u.badge != null ? u.badge : null);
   function takeUnread(u) {
     if (global.LexSection) global.LexSection.setUnread(u);
-    people.repaintTabs();
+    flow.repaintChips();
     paintFlowDot();
     const n = macBadgeOf(u);
     if (n != null) shellBadge(Number(n) || 0);
@@ -1433,7 +1541,11 @@
     // A task chat of an agent stands again over the folder of its agent, with its own arrow to that folder.
     const agentKey = agentKeyOf(profiChat);
     const agentChat = agentKey && profiChat.data.chatKey;
-    if (agentChat) return { title: profiChat.data.title || 'Chat', go: () => openAgentFrom(agentKey, agentChat) };
+    const beside = !splitWanted && flow.hasPeople;
+    if (agentChat) {
+      return { title: profiChat.data.title || 'Chat',
+        go: () => (beside ? openAgentBeside(agentKey, agentChat) : openAgentFrom(agentKey, agentChat)) };
+    }
     if (id && !profiChat && !homeOn()) {
       const titleEl = document.querySelector('#wc-chat-title .wc-chat-title-main') || document.getElementById('wc-chat-title');
       const title = (titleEl && titleEl.textContent.trim()) || 'Chat';
@@ -1446,7 +1558,9 @@
           : openConversation(id, { back: before || undefined })),
       };
     }
-    return people.hasTabs ? mainTarget() : null;
+    // The main page: Flow with no chat beside it (a wide window, the mode Flow), or Today.
+    if (!flow.hasPeople) return null;
+    return mode === 'flow' && railOn() ? flowTarget() : todayTarget();
   }
   async function openFromNotification(lex) {
     if (!lex) return;
@@ -1462,6 +1576,10 @@
     const wanted = () => mine === notificationOpens;
     const kind = String(lex.kind || '');
     const key = typeof lex.chatKey === 'string' ? lex.chatKey : '';
+    // No press made this: the chat stands in Flow on «All» (not in a section of the rail, no folder beside it).
+    pressFrom = null;
+    railRoom = null;
+    splitWanted = false;
     homeToAll();
     const order = lex.order ? String(lex.order) : '';
     // A click that launched the page comes before the sections are known: the chat opens in its section, when they are (not
@@ -1475,8 +1593,8 @@
       await showSection('calendar', { enter: (live) => live.reveal(lex), wanted });
       return;
     }
-    if (people.hasTabs) people.toAll();   // the sections are known now: «All» again, if a tab was pressed while they came
-    const back = people.hasTabs ? mainTarget() : undefined;
+    if (flow.hasPeople) flow.toAll();   // the sections are known now: «All» again, if a tab was pressed while they came
+    const back = flow.hasPeople ? mainTarget() : undefined;
     // About an order (new, reply sent, not sent): New orders at it, as on the iPhone; without the number — at its top.
     if (kind === 'profi_order') {
       await showProfi('feed', order || null, wanted);
@@ -1519,7 +1637,9 @@
     }
     // A word of an agent (lex.agent, a task chat of the section «Agents»): the folder of that agent, the chat over it.
     if (lex.agent && WcHistory.isFolderKey(key)) {
-      await openAgentFrom(String(lex.agent), key, wanted);
+      // With Flow, the chat stands in it, beside the list; without — over the folder of its agent.
+      if (flow.hasPeople) await openAgentBeside(String(lex.agent), key);
+      else await openAgentFrom(String(lex.agent), key, wanted);
       return;
     }
     // The chat of a person not recognized yet (`whois`, push-decide.ts) may have gone out of the folders since: the person
@@ -2420,7 +2540,7 @@
       back: sectionBack,
       // The feed of new orders, the bot's chat and the settings open over the main page of the people: the arrow leads back
       // to it. showFeed — New orders over it from a press on an order whose reply waits there.
-      root: mainTarget,
+      root: () => profiOut,
       showFeed: (order) => showProfi('feed', order || null),
       signals,
       rpc: newsRpc,
@@ -2447,7 +2567,7 @@
     else if (!profiChat) paintPersonHead(null);
   }
   // The head of the bot's service chat in the bar, as an order chat shows its client: the mark of Lex, «Агент Профи» (the
-  // line under New orders draws the same, lex-people.js). It presses nothing: the bot has no card. Off — only the bot's
+  // line under New orders draws the same, lex-flow.js). It presses nothing: the bot has no card. Off — only the bot's
   // own head goes; a head another screen put there meanwhile stays.
   function paintBotHead(on) {
     const { main, person } = profiEls();
@@ -3077,7 +3197,7 @@
     let chat = false;
     let blank = false;
     if (wideMq.matches && live && live.screen !== 'home' && live.currentAgent()) {
-      if (!sectionOn && isAgentChat(profiChat)) chat = live.currentAgent().key === agentKeyOf(profiChat);
+      if (!sectionOn && isAgentChat(profiChat) && splitWanted) chat = live.currentAgent().key === agentKeyOf(profiChat);
       else if (sectionOn === 'agents') blank = true;
     }
     const on = chat || blank;
@@ -3100,7 +3220,7 @@
       main.classList.remove('is-agents-log');
       // The window narrowed under a task chat: the folder beside it has gone, and the arrow it held (the folder to the
       // list) acts on nothing on the screen. The chat takes its own way back again, to the folder of its agent.
-      const key = !sectionOn && isAgentChat(profiChat) ? agentKeyOf(profiChat) : null;
+      const key = splitWanted && !sectionOn && isAgentChat(profiChat) ? agentKeyOf(profiChat) : null;
       if (key) sectionBack.cameFrom(agentTarget((live && live.agent(key)) || { key, name: (profiChat.data.agent && profiChat.data.agent.name) || key }));
     }
     if (!on || !live || live.aside.hidden) main.classList.remove('is-agents-log');
@@ -3132,6 +3252,8 @@
   const agentTarget = (agent) => ({ title: agent.name || 'Agents', go: () => showSection('agents', { back: true }) });
   // A task chat opened: as a chat of a folder, the arrow to the folder of the agent; the base hears it was read.
   async function openAgentChat(agent, chatKey, wanted) {
+    splitWanted = true;
+    railRoom = 'agents';
     const live = SECTIONS.agents.live;
     if (live) live.closeAside();
     await openFolderChat('agents', chatKey, wanted || (() => true), null, null, agentTarget(agent));
@@ -3309,6 +3431,8 @@
     // opts.stay — the field over a dimmed screen makes the new chat ready under it: the section on the screen stays.
     const stay = !!(opts && opts.stay);
     if (opts && opts.typing && !stay) homeToAll();
+    // A new chat of Lex stands in Flow: a section of the rail gives the place back.
+    if (!stay) { railRoom = null; splitWanted = false; }
     if (WcThread.isStreaming()) leaveStream();
     refreshPublished();
     // «Новая беседа» — уход из прежней: голос гасим до сброса состояния (то же
@@ -3332,7 +3456,7 @@
     // «New chat» and the pencil: where the main page has no field of its own (the chats of the people stand on it), the
     // field rises over it dimmed, as from the capsule (В7.64); elsewhere the empty chat takes the cursor.
     if (opts && opts.typing && !stay) {
-      if (people.hasTabs) openQuick('type').catch((e) => console.warn('[wc] quick:', e && e.message));
+      if (flow.hasPeople) openQuick('type').catch((e) => console.warn('[wc] quick:', e && e.message));
       else WcComposer.focus({ raiseKeyboard: true });
     }
   }
@@ -3363,6 +3487,8 @@
   // would cover the list. The field takes the cursor there only where the keyboard is on the desk, or when the person
   // presses «New chat» or the field itself.
   function onSidebarToggle(open) {
+    // Flow in the drawer follows the server while the drawer is open (applyHome).
+    paintHome();
     if (open) { WcComposer.blur(); return; }
     if (WcThread.isEmpty()) WcComposer.focus({ raiseKeyboard: !homeOn() });
   }
@@ -4146,10 +4272,16 @@
     // Mute shows in the menu at once; the numbers' next answer (the signal «unread») confirms it or puts it back.
     const mute = act === 'mute' || act === 'unmute';
     if (mute && global.LexSection) global.LexSection.markMuted(id, act === 'mute');
+    // Pin and Unpin show in Flow at once too; the read after the press confirms them (lex-flow.js markPinned).
+    const pin = act === 'pin' || act === 'unpin';
+    const flowPin = (on) => { try { if (pin && flow.hasPeople) flow.markPinned(id, on); } catch (_) { /* Flow is not made yet */ } };
+    flowPin(act === 'pin');
     try {
       const r = await WcBus.call('WC_CHAT_ACT', { id, act });
       if (!r || !r.ok) throw new Error((r && r.error) || 'refused');
+      flowPin('sent');
     } catch (err) {
+      flowPin(null);
       if (mute && global.LexSection) global.LexSection.markMuted(id, act !== 'mute');
       if (act === 'read') console.warn('[wc] read:', err && err.message);
       else toast('Could not change the chat: ' + (err && err.message), { error: true });
@@ -4644,7 +4776,11 @@
     }
     global.addEventListener('resize', schedule);
     apply();
+    measureBars = apply;
   }
+  // The heights of the bars taken at once (watchBarHeights): the page behind the gate has bars of height 0, and the first
+  // frame after it drew the main page under the bar until the observer's next frame.
+  let measureBars = null;
 
   // ── The gate ──────────────────────────────────────────────────────────────
   // A plain form on our own page. The extension wraps the same form in a nested
@@ -5117,6 +5253,7 @@
     WcComposer.loadPresets();
 
     document.getElementById('wc-root').hidden = false;
+    if (measureBars) measureBars();
     // Скелет держится, пока на экране нет баланса и списка бесед: заставка
     // оболочки снимается по нему, и снять её раньше значит показать наполовину
     // собранный экран — ровно то, от чего уходим. Both stand from the copies this device kept
@@ -5334,6 +5471,8 @@
       onToggle: onSidebarToggle,
       onLoadMore: loadMoreConversations,
       onRetry: refreshConversations,
+      // ≡ of a wide window with «Flow»: Flow, not the drawer of the chats of Lex (they are in its list).
+      lines: () => { if (!railOn()) return false; showFlow(); return true; },
     });
     await WcComposer.init({
       onSend: send,
@@ -5382,6 +5521,7 @@
     // иначе после оплаты баланс на экране останется старым.
     const topUp = () => WcTopup.open({ onPaid: refreshAccount });
     LexBillingGate.setTopupAction(topUp);
+    topUpAction = topUp;
 
     WcHeader.init({
       onSettings: openSettings,
@@ -5493,6 +5633,7 @@
           (byId.has(c.id) ? Object.assign({}, c, { title: byId.get(c.id), titlePending: false }) : c));
         WcSidebar.setItems(state.conversations, state.conversationId,
           { error: state.convsError, done: state.convsDone });
+        flow.titles(byId);
         syncTitle();
         // Название беседы платное — его цена входит в итог.
         requestMoney({ settleMs: 5000 });

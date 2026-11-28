@@ -540,6 +540,15 @@
 .lex-entry-icon { flex: 0 0 auto; display: flex; color: var(--lex-section-soft, inherit); }
 .lex-entry-icon .lex-mark { width: 20px; height: 20px; stroke-width: 2; }
 .lex-entry-title { flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* The compact block (the drawer «Flow» of a narrow window, В7.90): the same entries in cells of three to a row, the mark
+   over the title, so the list of the chats keeps most of the height. The order, the titles, the dot — the same. */
+.lex-entries.is-compact { display: flex; flex-wrap: wrap; }
+.lex-entries.is-compact[hidden] { display: none; }
+.lex-entries.is-compact .lex-entry { position: relative; flex: 1 0 33.333%; width: auto; min-width: 0; height: 52px;
+  flex-direction: column; justify-content: center; gap: 3px; padding: 4px 4px; font-size: 11px; line-height: 14px; text-align: center; }
+.lex-entries.is-compact .lex-entry + .lex-entry { border-top: 0; }
+.lex-entries.is-compact .lex-entry-title { flex: 0 0 auto; max-width: 100%; }
+.lex-entries.is-compact .lex-entry > .lex-section-count.is-dot:not([hidden]) { position: absolute; top: 8px; right: calc(50% - 18px); }
 
 /* В7.63 the live line of a stage: the last line of the feed while the agent works. */
 .lex-live-stage { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--lex-section-soft, inherit); font-size: 13px; line-height: 16px; }
@@ -853,3 +862,31 @@ html[data-lex-solo="1"] :is(.lex-corner-lines, .lex-corner-back) { display: none
 }
 .lex-board-col > .lex-today { flex: 0 0 auto; }
 .lex-board-col > .lex-today + .lex-today { margin-top: 0; }
+
+/* ── В7.90 «Flow»: the one list of every chat (lex-flow.js) ──────────────────────────────────────────────────────
+   The head 46 («Flow», the gear of Profi.ru on its chip, the pencil of a new chat; «Archived» with the arrow in the
+   archive), the tiles Today and New chat in the drawer of a narrow window, the chips, the list. Every line is the line of
+   its own section (В7.21, В7.7); the line of the chat open beside the list stands picked. */
+.lex-flow { height: 100%; }
+.lex-flow .lex-flow-head { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; min-height: 46px; padding: 0 8px 0 16px; }
+.lex-flow .lex-flow-head[hidden] { display: none; }
+.lex-flow .lex-flow-head > .lex-section-icon:first-child { margin-left: -10px; }
+.lex-flow .lex-flow-title { margin: 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 18px; font-weight: 650; }
+.lex-flow .lex-flow-gap { flex: 1 1 auto; }
+.lex-flow .lex-flow-btn[hidden] { display: none; }
+.lex-flow .lex-flow-tiles { flex: 0 0 auto; margin: 8px 12px; }
+.lex-flow .lex-flow-tiles[hidden] { display: none; }
+.lex-flow .lex-flow-chips { flex: 0 0 auto; padding: 0 12px 8px; min-width: 0; }
+.lex-flow .lex-flow-chips:empty { display: none; }
+.lex-flow .lex-flow-body { padding: 0 12px 24px; scrollbar-width: thin; }
+.lex-flow .lex-flow-body > * { max-width: none; }
+.lex-flow .lex-section-row.is-picked { background: var(--lex-section-active, rgba(127, 127, 127, .2)); }
+/* The three dots of a chat of Lex take no room of the row: they lie over the time and come under the cursor (or the
+   focus), so the title has the whole width the row gives. A touch screen has no cursor: there they stand in the row. */
+.lex-flow .lex-flow-lex > .wc-conv-more { position: absolute; top: 50%; right: 6px; margin-top: -14px; border-radius: 8px; background: inherit; }
+.lex-flow .lex-flow-lex > .wc-conv-more { opacity: 0; }
+.lex-flow .lex-flow-lex:hover > .wc-conv-more,
+.lex-flow .lex-flow-lex > .wc-conv-more:focus-visible { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .lex-flow .lex-flow-lex > .wc-conv-more { position: static; margin: 0; align-self: center; opacity: 1; }
+}

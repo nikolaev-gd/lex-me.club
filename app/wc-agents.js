@@ -512,19 +512,23 @@
       if (c.state === 'closed') return oneLine(c.last);
       return S.agentState({ state: 'working', stage: c.stage, text: c.stageText || null });
     }
-    function chatLine(c) {
+    // o — a list out of the folder draws the line («Flow», lex-flow.js): { agent: { key, name } — whose chat it is,
+    // lead — the face of the agent, open() — the press, after() — the list is read again after a change of the menu }.
+    function chatLine(c, o) {
+      const who = (o && o.agent) || current;
       const row = S.row({
-        id: c.chatKey, title: c.title || 'Chat',
+        id: c.chatKey, title: c.title || 'Chat', lead: (o && o.lead) || null,
         sub: chatSub(c),
         time: S.listTime(c.at), unread: { chat: c.chatKey },
-        onClick: () => frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.'),
+        onClick: () => (o && o.open ? o.open()
+          : frame.open((wanted) => deps.openChat(current, c.chatKey, wanted), 'The chat did not open.')),
       });
       row.classList.add('lex-agent-chat');
       // The menu of a chat (В7.33): Open in new window (В7.79), Mark as read or unread, Archive or Unarchive. A task
       // chat has no pin and no Delete chat in its folder: its place is the agent's state. The Cmd-click and the drag
       // of the same part; the agent itself and its folder give no window.
-      if (global.LexChatMenu && c.chatKey && current) {
-        const agent = current.key;
+      if (global.LexChatMenu && c.chatKey && who) {
+        const agent = who.key;
         global.LexChatMenu.attach(row, () => ({
           title: c.title || 'Chat',
           window: { kind: 'folder_message', chatKey: c.chatKey, agent },
@@ -534,12 +538,12 @@
           archived: typeof c.archived === 'boolean' ? c.archived : undefined,
           // Mute of this one chat (chat_read_one.sql): absent while the server has none
           muted: S.isMuted ? S.isMuted(c.chatKey) : undefined,
-          act: (name) => chatAct(c, name),
+          act: (name) => chatAct(c, name, o),
         }));
       }
       return row;
     }
-    async function chatAct(c, act) {
+    async function chatAct(c, act, o) {
       const mute = act === 'mute' || act === 'unmute';
       if (mute && S.markMuted) S.markMuted(c.chatKey, act === 'mute');
       try {
@@ -550,6 +554,7 @@
         return;
       }
       if (mute) return;
+      if (o && o.after) { o.after(); return; }
       readFolder({ force: true }).catch((e) => console.warn('[agents] folder:', e && e.message));
     }
     // The row «Archived» at the top of the folder: the face of the archive, the gray number of the archived chats.
@@ -1146,6 +1151,8 @@
       },
       // The open chat changed (a wide window): its line in the folder stands picked.
       pick,
+      // The line of a task chat for a list out of the folder («Flow», lex-flow.js): see chatLine.
+      line: (c, o) => chatLine(c, o || {}),
       // The arrow of the window as the screens of the section want it (a wide window: the folder beside the chat).
       arrow: () => frame.enter(),
       // The agent's model (the passport, «+ → Text model» in its chats): to the base, the list and the passport show it.

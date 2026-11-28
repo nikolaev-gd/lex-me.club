@@ -21,7 +21,7 @@
 // not answer). A kept copy of another day (by Moscow) draws no events; an event over by the time of the drawing is not
 // drawn. The service only reads: nothing here marks anything read.
 //
-// A line opens what its own place opens: a chat of a person — its section's line (lex-people.js line, the same press as
+// A line opens what its own place opens: a chat of a person — its section's line (lex-flow.js line, the same press as
 // in the list), an agent — its task chat over its folder (as the section Agents does), «New orders» — the chat of new
 // orders, «Questions» — the feed of questions; «Calendar ›» and a line of the day — the section Calendar, the line of
 // the shopping list — the section Shopping list.
@@ -30,7 +30,7 @@
 //   host                 the element the cards stand in (a `.lex-section`, out of the list of the people)
 //   read(show)           the window's way of reading `today`: the copy first, the answer after (LexReads.twice)
 //   signals              the channel of the database's signals (lex-account-events.js)
-//   line(c)              the line of a chat of a person (lex-people.js line), or null
+//   line(c)              the line of a chat of a person (lex-flow.js line), or null
 //   openAgent(key, chatKey)  the task chat of an agent over its folder
 //   showFeed()           the chat of new orders
 //   openQuestions()      the feed of questions
@@ -181,7 +181,7 @@
           });
         }
         if (r.kind === 'orders') {
-          // The line «New orders» of the main page (lex-people.js): the mark of Профи.ру, its number of the unread.
+          // The line «New orders» of Flow (lex-flow.js): the mark of Профи.ру, its number of the unread.
           return S.row({
             lead: global.LexMessage.avatarMark('profi', 48),
             title: r.title || 'New orders', sub: oneLine(r.sub) || 'Nothing yet.', strong: true,

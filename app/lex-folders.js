@@ -2,9 +2,9 @@
 //
 // The database of Gennady sorts the people he writes with into folders by its cases (Kolya — the people
 // and the groups of the cases of Kolya; Other — the working people outside them and outside Profi.ru),
-// and the relay brings every chat of a folder into Lex with its past. The chats of a folder stand on the
-// main page of the people (lex-people.js), in its tab Kolya and in «All», as lines this file draws (`line`);
-// a press opens the chat over that page, and the arrow leads back to it. A folder has no list of its own (20.11.2026).
+// and the relay brings every chat of a folder into Lex with its past. The chats of a folder stand in
+// «Flow» (lex-flow.js), under its chip Kolya and in «All», as lines this file draws (`line`);
+// a press opens the chat beside that list (no arrow; from the board «Today» — the arrow back to it). A folder has no list of its own (20.11.2026).
 // A chat of a folder is drawn by the order chat object of lex-profi.js (createChat with folder): one person — one
 // chat from every messenger, the mark of the messenger at every message, files as files.
 //
@@ -73,7 +73,7 @@
     // the group 48 (В7.12), the name, the time, the pin of a pinned one, the last message. The mark of the
     // messenger stands only inside the chat, at every message (Gennady, 20.11.2026): the list is a plain list
     // of chats, with the number of the unread. The photo comes with the person's own pass, as the files of a message.
-    // o — the main page of the people draws the line (lex-people.js): { from, fail, after }.
+    // o — «Flow» draws the line (lex-flow.js): { from, fail, after }.
     function chatLine(c, o) {
       const M = global.LexMessage;
       const io = global.LexFileAttach && global.LexFileAttach.webIo;
@@ -109,7 +109,7 @@
     }
 
     // A signal of the folders: the stamp it carries says whether this window saw it already. The chat that
-    // is open reads itself (onChange); the main page follows the same signal by itself (lex-people.js).
+    // is open reads itself (onChange); Flow follows the same signal by itself (lex-flow.js).
     async function poll(signal) {
       const told = signal && signal.payload && signal.payload.rev != null ? Number(signal.payload.rev) : null;
       if (told != null && rev != null && told <= rev) return;
